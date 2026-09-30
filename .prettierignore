@@ -3,3 +3,4 @@ coverage
 pnpm-lock.yaml
 docs/research/**
 .claude/
+docs/devlog/evidence/**
