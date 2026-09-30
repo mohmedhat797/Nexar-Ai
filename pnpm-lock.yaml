@@ -112,6 +112,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/contracts
 
+  packages/access:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/approvals:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
   packages/contracts: {}
 
   packages/core:
