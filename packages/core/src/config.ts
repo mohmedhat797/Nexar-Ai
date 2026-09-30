@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import {
   KNOWN_CAPABILITIES,
@@ -132,6 +132,7 @@ const ProjectSchema = z.strictObject({
   displayName: z.string().min(1),
   roots: z.array(PathSchema).min(1),
   workingDirectories: z.array(PathSchema).min(1).optional(),
+  artifactsDirectory: PathSchema.optional(),
   documentSets: z
     .record(z.string().regex(DOCUMENT_SET_NAME), z.array(PathSchema).min(1))
     .optional(),
@@ -167,6 +168,18 @@ function configError(message: string, origin: string): NexarError {
   return new NexarError('CONFIGURATION_ERROR', `Invalid Nexar config (${origin}): ${message}`, {
     details: { origin },
   });
+}
+
+/** Lexical check (no filesystem): relative, and still inside the first root after `..` is applied. */
+function assertArtifactsDirectory(id: string, directory: string, origin: string): void {
+  const escapes = isAbsolute(directory) || /^[A-Za-z]:/.test(directory);
+  const rel = relative('/root', resolve('/root', directory));
+  if (escapes || rel === '' || rel === '..' || rel.startsWith('../') || directory.includes('\0')) {
+    throw configError(
+      `projects.${id}.artifactsDirectory must be a relative path inside the project root`,
+      origin,
+    );
+  }
 }
 
 export interface ParseConfigOptions {
@@ -239,6 +252,9 @@ export function parseConfig(
         );
       }
     }
+    if (project.artifactsDirectory !== undefined) {
+      assertArtifactsDirectory(project.id, project.artifactsDirectory, origin);
+    }
     projects.push({
       id: project.id,
       displayName: project.displayName,
@@ -246,6 +262,9 @@ export function parseConfig(
       ...(project.workingDirectories === undefined
         ? {}
         : { workingDirectories: abs(project.workingDirectories) }),
+      ...(project.artifactsDirectory === undefined
+        ? {}
+        : { artifactsDirectory: project.artifactsDirectory }),
       ...(project.documentSets === undefined
         ? {}
         : {

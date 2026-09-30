@@ -18,6 +18,11 @@ export interface Composition {
   readonly runtime: NexarRuntime;
 }
 
+/** Where Nexar keeps local state: the config file's directory, or the cwd for the built-in default. */
+export function stateBaseDir(loaded: LoadedConfig, io: CliIo): string {
+  return loaded.path === undefined ? io.cwd : dirname(loaded.path);
+}
+
 /** Resolves the config (explicit path > NEXAR_CONFIG_PATH > cwd file > built-in default). */
 export function loadCliConfig(io: CliIo, explicitPath: string | undefined): Promise<LoadedConfig> {
   return loadConfig({
@@ -36,7 +41,7 @@ export async function compose(
   io: CliIo,
   logger: Logger,
 ): Promise<Composition> {
-  const configDir = loaded.path === undefined ? io.cwd : dirname(loaded.path);
+  const configDir = stateBaseDir(loaded, io);
   const adapters = [
     new EchoExecutionAdapter(),
     new ClaudeCodeExecutionAdapter({ env: io.env }),

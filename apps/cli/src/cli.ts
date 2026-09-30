@@ -3,6 +3,8 @@ import type { NexarError } from '@nexar/contracts';
 import { toNexarError, type LogLevel, type NexarErrorCode } from '@nexar/contracts';
 import { createJsonLogger } from '@nexar/telemetry';
 import { GLOBAL_OPTIONS, type Command } from './args.js';
+import { approvalsCommand } from './commands/approvals.js';
+import { artifactsCommand } from './commands/artifacts.js';
 import { doctorCommand } from './commands/doctor.js';
 import { projectsCommand } from './commands/projects.js';
 import { resourcesCommand } from './commands/resources.js';
@@ -16,6 +18,8 @@ const COMMANDS: readonly Command[] = [
   doctorCommand,
   resourcesCommand,
   projectsCommand,
+  artifactsCommand,
+  approvalsCommand,
   routeCommand,
   runCommand,
 ];

@@ -15,6 +15,7 @@ import {
   type ExecutionResult,
   type Logger,
   type NexarTask,
+  type ProjectId,
   type ResourceRouter,
   type RouteDecision,
   type TaskId,
@@ -303,6 +304,21 @@ export class Nexar {
     return { task, decision, result, record };
   }
 
+  /** Records stored artifacts in telemetry (refs only, never content); sink failures are swallowed. */
+  async recordArtifacts(
+    forTask: TaskId,
+    forProject: ProjectId | undefined,
+    artifacts: readonly ArtifactRef[],
+  ): Promise<void> {
+    await this.emit({
+      type: 'artifacts.stored',
+      at: this.now(),
+      taskId: forTask,
+      ...(forProject === undefined ? {} : { projectId: forProject }),
+      artifacts,
+    });
+  }
+
   private now(): string {
     return this.clock().toISOString();
   }
@@ -318,4 +334,14 @@ export class Nexar {
       });
     }
   }
+}
+
+/** Workflow helper: call after `ArtifactStore.store` so stored artifacts reach telemetry. */
+export function recordArtifacts(
+  nexar: Nexar,
+  forTask: TaskId,
+  forProject: ProjectId | undefined,
+  artifacts: readonly ArtifactRef[],
+): Promise<void> {
+  return nexar.recordArtifacts(forTask, forProject, artifacts);
 }

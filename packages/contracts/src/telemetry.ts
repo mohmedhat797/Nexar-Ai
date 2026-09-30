@@ -52,7 +52,14 @@ export type TelemetryEvent =
       readonly taskId: TaskId;
       readonly resourceId: ResourceId;
     }
-  | { readonly type: 'execution.finished'; readonly at: string; readonly record: ExecutionRecord };
+  | { readonly type: 'execution.finished'; readonly at: string; readonly record: ExecutionRecord }
+  | {
+      readonly type: 'artifacts.stored';
+      readonly at: string;
+      readonly taskId: TaskId;
+      readonly projectId?: ProjectId;
+      readonly artifacts: readonly ArtifactRef[];
+    };
 
 /** Destination for telemetry events; implementations decide storage and delivery. */
 export interface TelemetrySink {

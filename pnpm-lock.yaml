@@ -38,6 +38,12 @@ importers:
 
   apps/cli:
     dependencies:
+      '@nexar/approvals':
+        specifier: workspace:*
+        version: link:../../packages/approvals
+      '@nexar/artifacts':
+        specifier: workspace:*
+        version: link:../../packages/artifacts
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -123,6 +129,15 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../contracts
+
+  packages/artifacts:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@nexar/projects':
+        specifier: workspace:*
+        version: link:../projects
 
   packages/contracts: {}
 

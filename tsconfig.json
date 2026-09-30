@@ -42,6 +42,9 @@
     },
     {
       "path": "./packages/access"
+    },
+    {
+      "path": "./packages/artifacts"
     }
   ]
 }

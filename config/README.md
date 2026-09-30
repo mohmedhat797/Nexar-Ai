@@ -59,6 +59,25 @@ project's `workingDirectories`, and the check runs in the engine before any adap
   `minContextTokens` and `maxCostUsd`; resource ids must exist in `resources`.
 - Inspect with `nexar projects list [--json]`; use with `nexar route|run --project <id>`.
 
+### Artifacts
+
+Task outputs (SOWs, proposals, briefs, drafts) are stored by `@nexar/artifacts` inside the project:
+
+```
+<first root>/.nexar/artifacts/<task-id>/<file>          final outputs
+<first root>/.nexar/artifacts/<task-id>/drafts/<file>   drafts that need review
+```
+
+`<task-id>` is the task id reduced to `[A-Za-z0-9._-]` (`:` becomes `-`). Set the optional
+`artifactsDirectory` (relative to the first root, must stay inside it; `..` or an absolute path is a
+`CONFIGURATION_ERROR`) to use `<artifactsDirectory>/<task-id>/…` instead. File names are
+sanitized and their extension is forced to match the media type (`.md`, `.txt`, `.json`, `.csv`).
+Files are never overwritten (a collision becomes `name-2.md`, `name-3.md`, …), symlinks are never
+followed, directories are `0700` and files `0600`. When Nexar creates the default `.nexar`
+directory it adds a `.nexar/.gitignore` containing `*` so artifacts are not committed by accident;
+a custom `artifactsDirectory` gets no `.gitignore`, so add one yourself if needed.
+List a task's artifacts with `nexar artifacts list --project <id> --task <task-id> [--json]`.
+
 ### Precedence: project defaults vs. explicit task values
 
 | Field                  | Rule                                                                              |

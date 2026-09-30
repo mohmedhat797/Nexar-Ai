@@ -19,6 +19,11 @@ export interface ProjectDefinition {
   /** Directories tasks may run in; default = `roots`. Each must be inside a root. */
   readonly workingDirectories?: readonly string[];
   /** Name → files/directories (absolute), resolved to attachments on demand. */
+  /**
+   * Where artifacts are stored, relative to the first root; must stay inside a root.
+   * Default: `.nexar/artifacts`.
+   */
+  readonly artifactsDirectory?: string;
   readonly documentSets?: Readonly<Record<string, readonly string[]>>;
   readonly defaults?: ProjectDefaults;
   readonly metadata?: Readonly<Record<string, string | number | boolean>>;
