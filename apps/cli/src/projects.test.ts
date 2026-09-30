@@ -64,7 +64,7 @@ describe('nexar projects (in-process, offline)', () => {
             id: 'demo',
             displayName: 'Demo Project',
             roots,
-            documentSets: { overview: ['work/README.md', 'work/docs'] },
+            documentSets: { overview: ['README.md', 'docs'] },
             defaults: { capabilities: ['reasoning'] },
             ...project,
           },

@@ -261,7 +261,7 @@ describe('WorkflowCatalog', () => {
       );
       await writeWorkflow(builtin, 'sow', { displayName: 'Built-in SOW' });
       await writeWorkflow(join(base, 'work', 'flows'), 'extra');
-      const registry = await projects({ directories: ['work/flows'] });
+      const registry = await projects({ directories: ['flows'] });
       const catalog = await WorkflowCatalog.load({ builtinDir: builtin, projects: registry });
 
       expect(catalog.get('sow', 'demo')?.summary).toMatchObject({
@@ -277,7 +277,7 @@ describe('WorkflowCatalog', () => {
     it('rejects a workflow directory outside the project roots', async () => {
       await mkdir(join(base, 'elsewhere'));
       await writeWorkflow(join(base, 'elsewhere'), 'sow');
-      const registry = await projects({ directories: ['elsewhere'] });
+      const registry = await projects({ directories: ['../elsewhere'] });
       await expect(
         WorkflowCatalog.load({ builtinDir: builtin, projects: registry }),
       ).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
@@ -287,14 +287,14 @@ describe('WorkflowCatalog', () => {
       await writeWorkflow(join(base, 'elsewhere'), 'sow');
       await mkdir(join(base, 'work', 'flows'), { recursive: true });
       await symlink(join(base, 'elsewhere', 'sow'), join(base, 'work', 'flows', 'sow'));
-      const registry = await projects({ directories: ['work/flows'] });
+      const registry = await projects({ directories: ['flows'] });
       await expect(
         WorkflowCatalog.load({ builtinDir: builtin, projects: registry }),
       ).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
     });
 
     it('rejects a missing project workflow directory', async () => {
-      const registry = await projects({ directories: ['work/nope'] });
+      const registry = await projects({ directories: ['nope'] });
       await expect(
         WorkflowCatalog.load({ builtinDir: builtin, projects: registry }),
       ).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });

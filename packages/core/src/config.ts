@@ -27,7 +27,10 @@ export interface NexarConfig {
     /** Relative paths are resolved against the config file's directory. */
     readonly jsonlPath?: string;
   };
-  /** Project paths are absolute: relative config paths are resolved against the config directory. */
+  /**
+   * Project paths are absolute. `roots` resolve against the config directory; every other
+   * project-internal path resolves against the project's first root.
+   */
   readonly projects: readonly ProjectDefinition[];
 }
 
@@ -239,7 +242,6 @@ export function parseConfig(
   }
 
   const baseDir = options.baseDir ?? process.cwd();
-  const abs = (paths: readonly string[]): string[] => paths.map((p) => resolve(baseDir, p));
   const projectIds = new Set<string>();
   const projects: ProjectDefinition[] = [];
   for (const project of data.projects ?? []) {
@@ -262,10 +264,13 @@ export function parseConfig(
     if (project.artifactsDirectory !== undefined) {
       assertArtifactsDirectory(project.id, project.artifactsDirectory, origin);
     }
+    const roots = project.roots.map((p) => resolve(baseDir, p));
+    const firstRoot = roots[0] as string;
+    const abs = (paths: readonly string[]): string[] => paths.map((p) => resolve(firstRoot, p));
     projects.push({
       id: project.id,
       displayName: project.displayName,
-      roots: abs(project.roots),
+      roots,
       ...(project.workingDirectories === undefined
         ? {}
         : { workingDirectories: abs(project.workingDirectories) }),
@@ -293,7 +298,7 @@ export function parseConfig(
                     instructions: Object.fromEntries(
                       Object.entries(project.workflows.instructions).map(([id, path]) => [
                         id,
-                        resolve(baseDir, path),
+                        resolve(firstRoot, path),
                       ]),
                     ),
                   }),

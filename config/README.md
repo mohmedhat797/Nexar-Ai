@@ -40,17 +40,23 @@ project's `workingDirectories`, and the check runs in the engine before any adap
   "id": "demo-project",
   "displayName": "Demo project",
   "roots": ["../examples/demo-project"],
-  "workingDirectories": ["../examples/demo-project"],
-  "documentSets": {
-    "overview": ["../examples/demo-project/README.md", "../examples/demo-project/docs"]
-  },
+  "workingDirectories": ["."],
+  "documentSets": { "overview": ["README.md", "docs/overview.md"] },
+  "workflows": { "instructions": { "sow": "docs/sow-instructions.md" } },
   "defaults": { "capabilities": ["knowledge-work"], "preferredResourceIds": ["claude-code"] }
 }
 ```
 
+Relative paths resolve as follows (absolute paths stay absolute):
+
+| Field                                                                                                         | Relative to                 |
+| ------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `roots`, `telemetry.jsonlPath`                                                                                | the config file's directory |
+| `workingDirectories`, `documentSets`, `workflows.directories`, `workflows.instructions`, `artifactsDirectory` | the project's first root    |
+
 - `roots` (at least one) bound everything the project may touch. `workingDirectories` default to the
-  roots and must each be inside a root. Relative paths resolve against the config file's directory;
-  every path must exist and be a directory, otherwise Nexar fails with `CONFIGURATION_ERROR`.
+  roots and must each be inside a root. Roots and working directories must exist and be directories,
+  otherwise Nexar fails with `CONFIGURATION_ERROR`.
 - `documentSets` map a name to files or directories inside the roots. `nexar run --project <id>
 --document-set <name>` attaches them as references (`file://` URIs), never as inlined content.
   Directories expand recursively to regular files (dot-entries skipped, symlinked directories not

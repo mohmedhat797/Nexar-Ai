@@ -142,9 +142,12 @@
       "id": "demo-project",
       "displayName": "Demo project",
       "roots": ["../examples/demo-project"],
-      "workingDirectories": ["../examples/demo-project"],
+      "workingDirectories": ["."],
       "documentSets": {
-        "overview": ["../examples/demo-project/README.md", "../examples/demo-project/docs"]
+        "overview": ["README.md", "docs/overview.md"]
+      },
+      "workflows": {
+        "instructions": { "sow": "docs/sow-instructions.md" }
       },
       "defaults": {
         "capabilities": ["knowledge-work"],

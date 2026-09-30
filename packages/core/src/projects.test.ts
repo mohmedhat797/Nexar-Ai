@@ -46,29 +46,42 @@ describe('config: projects', () => {
     expect(parseConfig(baseConfig, 'test').projects).toEqual([]);
   });
 
-  it('resolves relative paths against baseDir and keeps absolute ones', () => {
+  it('resolves roots against baseDir and keeps absolute ones', () => {
+    const [p] = parse([project({ roots: ['p', '/abs/root', '../up'] })], '/cfg/dir').projects;
+    expect(p?.roots).toEqual(['/cfg/dir/p', '/abs/root', '/cfg/up']);
+  });
+
+  it('resolves working directories and document sets against the first root', () => {
     const [p] = parse(
       [
         project({
-          roots: ['p', '/abs/root', '../up'],
-          workingDirectories: ['p/w'],
-          documentSets: { docs: ['p/a.md', '/abs/b.md'] },
+          roots: ['p', '/abs/root'],
+          workingDirectories: ['w', '/abs/w', '/abs/root/x'],
+          documentSets: { docs: ['docs/a.md', '/abs/b.md'] },
         }),
       ],
       '/cfg/dir',
     ).projects;
-    expect(p?.roots).toEqual(['/cfg/dir/p', '/abs/root', '/cfg/up']);
-    expect(p?.workingDirectories).toEqual(['/cfg/dir/p/w']);
-    expect(p?.documentSets).toEqual({ docs: ['/cfg/dir/p/a.md', '/abs/b.md'] });
+    expect(p?.workingDirectories).toEqual(['/cfg/dir/p/w', '/abs/w', '/abs/root/x']);
+    expect(p?.documentSets).toEqual({ docs: ['/cfg/dir/p/docs/a.md', '/abs/b.md'] });
   });
 
-  it('resolves workflow directories and instruction files against baseDir', () => {
+  it('resolves `..` lexically so escapes are left for the projects package to reject', () => {
+    const [p] = parse(
+      [project({ workingDirectories: ['../out'], documentSets: { d: ['../secret.md'] } })],
+      '/cfg',
+    ).projects;
+    expect(p?.workingDirectories).toEqual(['/cfg/out']);
+    expect(p?.documentSets).toEqual({ d: ['/cfg/secret.md'] });
+  });
+
+  it('resolves workflow directories and instruction files against the first root', () => {
     const [p] = parse(
       [
         project({
           workflows: {
-            directories: ['p/flows', '/abs/flows'],
-            instructions: { sow: 'p/style.md', 'meeting-brief': '/abs/mb.md' },
+            directories: ['flows', '/abs/flows'],
+            instructions: { sow: 'docs/style.md', 'meeting-brief': '/abs/mb.md' },
           },
         }),
       ],
@@ -76,7 +89,7 @@ describe('config: projects', () => {
     ).projects;
     expect(p?.workflows).toEqual({
       directories: ['/cfg/dir/p/flows', '/abs/flows'],
-      instructions: { sow: '/cfg/dir/p/style.md', 'meeting-brief': '/abs/mb.md' },
+      instructions: { sow: '/cfg/dir/p/docs/style.md', 'meeting-brief': '/abs/mb.md' },
     });
     expect(parse([project()]).projects[0]).not.toHaveProperty('workflows');
   });

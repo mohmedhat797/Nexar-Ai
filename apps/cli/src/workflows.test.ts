@@ -55,7 +55,7 @@ describe('nexar workflows / nexar run --workflow (in-process, offline)', () => {
             id: 'demo',
             displayName: 'Demo Project',
             roots: ['work'],
-            documentSets: { refs: ['work/refs'] },
+            documentSets: { refs: ['refs'] },
             ...project,
           },
         ],
@@ -179,7 +179,7 @@ describe('nexar workflows / nexar run --workflow (in-process, offline)', () => {
         }),
       );
       await writeFile(join(flows, 'prompt.md'), 'House SOW for {{inputs.clientName}}');
-      await writeConfig({ workflows: { directories: ['work/flows'] } });
+      await writeConfig({ workflows: { directories: ['flows'] } });
 
       const list = capture(dir);
       expect(await runCli(['workflows', 'list', '--project', 'demo'], list.io)).toBe(0);
@@ -200,7 +200,7 @@ describe('nexar workflows / nexar run --workflow (in-process, offline)', () => {
 
     it('fails with a configuration error when a project workflow is outside the project', async () => {
       await mkdir(join(dir, 'elsewhere'));
-      await writeConfig({ workflows: { directories: ['elsewhere'] } });
+      await writeConfig({ workflows: { directories: ['../elsewhere'] } });
       const c = capture(dir);
       expect(await runCli(['workflows', 'list'], c.io)).toBe(1);
       expect(c.err()).toContain('CONFIGURATION_ERROR');
