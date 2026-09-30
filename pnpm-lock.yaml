@@ -36,7 +36,35 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@22.20.4)(@vitest/coverage-v8@5.0.3)(vite@8.3.1(@types/node@22.20.4))
 
+  integrations/echo:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+
   packages/contracts: {}
+
+  packages/core:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@nexar/resource-controller':
+        specifier: workspace:*
+        version: link:../resource-controller
+      '@nexar/resource-registry':
+        specifier: workspace:*
+        version: link:../resource-registry
+      '@nexar/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@nexar/integration-echo':
+        specifier: workspace:*
+        version: link:../../integrations/echo
 
   packages/resource-controller:
     dependencies:
@@ -48,6 +76,12 @@ importers:
         version: link:../resource-registry
 
   packages/resource-registry:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/telemetry:
     dependencies:
       '@nexar/contracts':
         specifier: workspace:*
@@ -896,6 +930,9 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
 snapshots:
 
   '@babel/helper-string-parser@7.29.7': {}
@@ -1605,3 +1642,5 @@ snapshots:
   word-wrap@1.2.5: {}
 
   yocto-queue@0.1.0: {}
+
+  zod@4.6.5: {}

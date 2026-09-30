@@ -5,7 +5,12 @@
     "composite": false,
     "declaration": false,
     "declarationMap": false,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@nexar/integration-*": ["./integrations/*/src/index.ts"],
+      "@nexar/cli": ["./apps/cli/src/index.ts"],
+      "@nexar/*": ["./packages/*/src/index.ts"]
+    }
   },
   "include": [
     "apps/*/src/**/*.ts",

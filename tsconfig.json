@@ -12,6 +12,12 @@
     },
     {
       "path": "./packages/telemetry"
+    },
+    {
+      "path": "./integrations/echo"
+    },
+    {
+      "path": "./packages/core"
     }
   ]
 }
