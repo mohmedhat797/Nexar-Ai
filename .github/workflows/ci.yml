@@ -49,6 +49,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: CLI smoke (offline echo resource, no credentials)
+        run: |
+          node apps/cli/dist/main.js resources
+          node apps/cli/dist/main.js run --kind general "ci smoke"
+
   secrets:
     name: secret scan
     runs-on: ubuntu-latest
