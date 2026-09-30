@@ -1,0 +1,240 @@
+# Nexar architecture overview
+
+Status: v0.1 baseline (2026-09-30). Decisions are recorded in [`docs/adr/`](../adr/). Evidence for
+every upstream claim is in [`docs/research/upstream/`](../research/upstream/).
+
+## 1. What Nexar is
+
+Nexar is a **Personal AI Operating Layer**: one local-first system that understands a task, chooses
+the right AI resource for it, orchestrates the work, executes it safely, records what happened, and
+(later) improves its resource decisions over time. It combines:
+
+- **Personal work** — documents, proposals, SOWs, meeting prep, email, calendar, files, routine
+  automation. Primary engine: **OpenWorker**.
+- **Engineering work** — repository understanding, coding, debugging, review, delegation to coding
+  agents. Primary engines: **DeepSeek Harness**, native coding agents (Claude Code, Codex,
+  Antigravity), **Delegate Skills**, and **pi-ai** for direct model access.
+
+Nexar is not a wrapper around any one model, provider, or agent. External projects are
+_components_; Nexar owns the stable domain concepts: **Task, AI Resource, Resource Registry,
+Resource Controller, Routing Policy, Execution Adapter, Telemetry, Control Plane, Work Engine
+interfaces**.
+
+## 2. The three separated questions
+
+| Question                                       | Owner                                             | v0.1 implementation                                                          |
+| ---------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Who should execute?**                        | Nexar Resource Controller (NRC)                   | Deterministic, explainable policy over the Resource Registry                 |
+| **How is the work orchestrated?**              | An execution runtime behind an `ExecutionAdapter` | DeepSeek Harness (agent loop, tools, subagents) or a native agent's own loop |
+| **How is the provider/model actually called?** | The runtime's internals                           | pi-ai (direct), DSH's own LLM adapters, or the native agent's own auth       |
+
+Collapsing these would couple Nexar to one vendor's idea of "a model". Keeping them separate is what
+lets any one component be replaced by writing an adapter.
+
+## 3. High-level architecture
+
+```mermaid
+flowchart TB
+  subgraph Clients
+    CLI[Nexar CLI]
+    MOB[Nexar Mobile PWA<br/><i>planned v0.5</i>]
+    OWIN[OpenWorker<br/>via Work Bridge]
+  end
+
+  subgraph NexarCore[Nexar Core - Nexar-owned]
+    ENG[Nexar engine<br/>task → route → execute → record]
+    NRC[Nexar Resource Controller]
+    POL[Routing Policy<br/><i>deterministic v1</i>]
+    REG[Resource Registry]
+    TEL[Telemetry + structured logs]
+    ADR_[Adapter Registry]
+  end
+
+  subgraph Adapters[Execution adapters - anti-corruption layer]
+    A_DSH[deepseek-harness adapter<br/>JSON-RPC over stdio]
+    A_PI[pi adapter<br/>pi-ai in-process]
+    A_CC[claude-code adapter<br/>native CLI]
+    A_ECHO[echo adapter<br/>offline test double]
+  end
+
+  subgraph Upstream[External runtimes - independently updated]
+    DSH[DeepSeek Harness `dsh`]
+    PIAI["@earendil-works/pi-ai"]
+    CC[Claude Code CLI]
+  end
+
+  MODELS[(Claude · GPT · Gemini · DeepSeek · local models · future providers)]
+
+  CLI --> ENG
+  MOB -.-> ENG
+  OWIN -.-> ENG
+  ENG --> NRC --> POL
+  NRC --> REG
+  ENG --> ADR_
+  ENG --> TEL
+  ADR_ --> A_DSH & A_PI & A_CC & A_ECHO
+  A_DSH --> DSH
+  A_PI --> PIAI
+  A_CC --> CC
+  DSH --> MODELS
+  PIAI --> MODELS
+  CC --> MODELS
+```
+
+Corrections to the pre-research hypothesis (see ADR-002, ADR-003):
+
+- DeepSeek Harness is **not** below the Resource Controller in a single chain with Pi beneath it.
+  DSH already embeds pi-ai as one of its own LLM adapters (`@deepseek-ai/dsh-llm-pi-ai`). Nexar
+  therefore treats DSH as an **agent runtime** that the NRC can select, and configures DSH's provider
+  route through a launch overlay — Nexar does not stack its own pi adapter under DSH.
+- pi-ai is a **separate, direct model path** for tasks that need a model call rather than an agent
+  loop (summaries, drafting, analysis), and for local/OpenAI-compatible endpoints.
+- Native agents (Claude Code, Codex, Antigravity) are first-class resources with their own adapters,
+  not forced through pi-ai or DSH.
+
+## 4. AI Resources (not "models")
+
+The unit the NRC reasons about is an **AI Resource** (ADR-007). A resource is described by a
+static `ResourceDescriptor` and has a separately tracked dynamic `ResourceState`:
+
+- `kind` — discriminated union: `model` (provider + model + access `api | subscription | local`),
+  `agent` (e.g. `claude-code`, `codex`, `antigravity`, `deepseek-harness`; interface
+  `cli | sdk | rpc | acp | mcp`), `tool-runtime`.
+- `capabilities` — open string set (`coding`, `repo-editing`, `reasoning`, `knowledge-work`, …).
+- `runtime` — which execution adapter runs it, and whether it is local or remote.
+- `auth` — a _reference_ to where the runtime finds its credential (env var name or
+  "runtime-managed"). Never a secret value.
+- `cost`, `limits`, `dataLocality`, `tags`.
+- `ResourceState` — availability, auth state, quota, observed-at. Refreshed by adapter probes.
+
+## 5. Resource selection flow
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Caller (CLI / bridge)
+  participant E as Nexar engine
+  participant N as Resource Controller
+  participant R as Resource Registry
+  participant P as Routing Policy
+  participant A as Execution Adapter
+  participant T as Telemetry
+
+  C->>E: createTask(kind, prompt, requirements)
+  E->>N: route(task)
+  N->>R: refresh() → snapshots (descriptor + state)
+  N->>P: evaluate(task, candidates)
+  P-->>N: assessments (eligible, score, reasons)
+  N-->>E: RouteDecision (selected / alternatives / rejected + reasons)
+  E->>T: route.decided
+  E->>A: execute(task, resource, signal)
+  A-->>E: ExecutionResult (text, usage as Measured values)
+  E->>T: execution.finished (ExecutionRecord)
+  E-->>C: result + explainable decision
+```
+
+Callers depend only on `ResourceRouter.route(task)`. The policy is a pure function
+`evaluate(input) → assessments`, so a scoring, quota-aware, cost-aware, or learned policy can
+replace the deterministic one (roadmap v0.4) without changing callers. Every decision carries
+reason codes (`capability.missing`, `state.unavailable`, `preference.task-kind`, …) and a
+human-readable explanation.
+
+## 6. Personal work vs engineering work
+
+```mermaid
+flowchart LR
+  U((Owner)) --> OW[OpenWorker<br/>productivity engine]
+  U --> CLI[Nexar CLI / Mobile]
+  OW -- "heavy reasoning / execution<br/>(MCP tools exposed by Nexar, v0.2)" --> NX[Nexar Core]
+  CLI --> NX
+  NX -->|documentation, analysis| M[Model resources<br/>pi-ai / DSH]
+  NX -->|coding, review| AG[Agent resources<br/>DSH · Claude Code · Codex · Antigravity]
+  AG -.->|v0.3| DS[Delegate Skills lanes]
+  NX --> TEL[(Telemetry)]
+```
+
+OpenWorker keeps ownership of productivity workflows (connectors, approvals inbox, artifacts).
+Research showed OpenWorker does **not** expose its agent as a callable service; its stable seam is
+as an **MCP client**. The preferred direction is therefore _OpenWorker → Nexar_ (Nexar exposes an
+MCP server with a `nexar.submit_work` tool, v0.2), with _Nexar → OpenWorker_ (its automations API)
+as a secondary, pinned seam. v0.1 ships only the transport-agnostic Work Bridge contract.
+
+## 7. Execution adapter boundaries
+
+```mermaid
+flowchart TB
+  subgraph Domain["Nexar domain (@nexar/contracts) — no upstream types"]
+    EA["ExecutionAdapter<br/>supports() · probe() · execute()"]
+  end
+  subgraph ACL["Integration packages — the only code that knows upstream"]
+    DSHA["@nexar/integration-deepseek-harness<br/>spawns `dsh --profile sdk`<br/>Nexar-owned JSON-RPC client"]
+    PIA["@nexar/integration-pi<br/>exact-pinned pi-ai"]
+    CCA["@nexar/integration-claude-code<br/>`claude -p --output-format json`"]
+    OWB["@nexar/integration-openworker<br/>Work Bridge (contract in v0.1)"]
+  end
+  EA --> DSHA & PIA & CCA
+  OWB --> EA
+```
+
+Rules (ADR-008):
+
+1. Upstream package names appear **only** inside `integrations/<name>/`. Domain packages never
+   import them; adapters never export upstream types.
+2. Adapters translate upstream errors to `NexarError` codes, usage to `Measured<T>` values, and
+   honor `AbortSignal`.
+3. Subprocess runtimes are launched with a **scrubbed environment** (only the credentials that
+   resource needs), an isolated home/state directory under `.nexar/`, and exact pinned versions.
+4. Probes are side-effect free and never make paid calls.
+5. Each adapter has contract tests against a fake runtime so CI never needs credentials.
+
+## 8. Telemetry and errors
+
+- `ExecutionRecord` (schema v1) records task, resource, adapter, resolved provider/model, routing
+  policy + reason codes, timestamps, latency, usage (`Measured<number>`: measured / estimated /
+  unavailable), quota impact, retries, outcome, error category, artifacts.
+- Sinks: in-memory, JSONL file (`.nexar/telemetry.jsonl`, mode 0600), composite. Structured JSON
+  logs go to stderr with key-based redaction.
+- Errors are `NexarError` with a closed code set (`NO_ELIGIBLE_RESOURCE`, `AUTH_REQUIRED`,
+  `PROVIDER_ERROR`, `EXECUTION_TIMEOUT`, `CONFIGURATION_ERROR`, …) and a `retryable` flag.
+
+## 9. Future: control plane and mobile
+
+```mermaid
+flowchart LR
+  PH[Phone - Nexar Mobile PWA] -- HTTPS + device auth --> CP[Nexar Control Plane<br/>local daemon or always-on node]
+  CP --> CORE[Nexar Core]
+  CP --> Q[(Task queue + approvals)]
+  CP --> N[Notifications]
+  CORE --> RES[Resources]
+```
+
+Not built in v0.1. The seams that make it cheap later: the engine is a library (the CLI is a thin
+client of it), tasks carry an `origin` (`cli`, `openworker`, `control-plane`, `mobile`), telemetry is
+an event stream, and approvals will attach to tasks rather than to a UI.
+
+## 10. Local-first and security posture
+
+See ADR-006 and [`docs/architecture/security.md`](security.md). In short: everything runs on the
+owner's machine; secrets live only in the environment or in each runtime's own credential store;
+Nexar config holds credential _references_; runtime state lives in git-ignored `.nexar/`.
+
+## 11. Repository map
+
+```text
+apps/cli                       nexar CLI (doctor, resources, route, run)
+packages/contracts             domain types, errors, Measured values — zero deps
+packages/resource-registry     resource descriptors + dynamic state + discovery seam
+packages/resource-controller   NRC: deterministic policy + explainable decisions
+packages/telemetry             structured logger, redaction, telemetry sinks
+packages/core                  engine, adapter registry, config loading
+integrations/echo              offline deterministic adapter (tests + zero-credential proof)
+integrations/claude-code       native Claude Code agent adapter
+integrations/deepseek-harness  DSH runtime adapter (subprocess JSON-RPC)
+integrations/pi                pi-ai direct model adapter
+integrations/openworker        Work Bridge contract
+config/                        example configuration
+docs/                          architecture, ADRs, research, roadmap, backlog, devlog
+```
+
+`apps/control-plane`, `apps/mobile`, and `integrations/delegate-skills` are deliberately **not**
+created yet (ADR-001): empty placeholder packages rot. They appear when their milestone starts.
