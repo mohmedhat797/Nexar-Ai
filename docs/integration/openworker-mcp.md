@@ -7,19 +7,25 @@ authorized against that client's scopes, and audited
 ([ADR-015](../adr/015-client-identity-and-audit.md)).
 
 Research basis: [OpenWorker re-check](../research/upstream/openworker.md) (tool timeout, env passing,
-tool-name mangling) and [MCP SDK](../research/upstream/mcp-sdk.md). Verified against OpenWorker
-`v0.3.0` (`e892350`); re-check before relying on it with a newer tag.
+tool-name mangling) and [MCP SDK](../research/upstream/mcp-sdk.md). Design: [ADR-014](../adr/014-mcp-transport-and-work-bridge-v2.md).
+
+**Verified live** against OpenWorker `v0.3.0` (`e892350`): OpenWorker's own MCP client
+(`coworker.mcp.MCPManager`) launched `nexar mcp serve` and drove it through Claude Code to stored
+artifacts, for a raw request, the `sow` workflow and `meeting-brief` (including a prompt-injection
+attempt that produced only drafts). Re-check before relying on it with a newer tag.
 
 ## 1. Create a client
 
-A client is a named identity with explicit scopes: which tools, task kinds and projects it may use.
-There are no defaults; state every dimension (`*` means any).
+A client is a named identity with explicit scopes: which tools, task kinds, projects and (optionally)
+workflows it may use. There are no defaults: `--tools`, `--task-kinds` and `--projects` are required,
+and a client with no `--workflows` may not run any workflow (`*` means any).
 
 ```bash
 nexar clients add openworker \
-  --tools nexar.submit_work,nexar.work_status,nexar.route,nexar.resources \
+  --tools nexar.submit_work,nexar.work_status,nexar.route,nexar.resources,nexar.workflows \
   --task-kinds documentation,meeting-preparation \
   --projects <project-id> \
+  [--workflows sow,meeting-brief] \
   [--max-cost 0.50]
 ```
 
@@ -37,7 +43,7 @@ raise it.
 
 The projects a client may use must exist in the Nexar config (`projects` in `nexar.config.json`).
 State (`clients.json`, `audit.jsonl`) lives in `.nexar/` next to the config file, or in the working
-directory when the built-in default config is used.
+directory when the built-in default config is used. Artifacts live under the project's first root.
 
 ## 2. Register the server in OpenWorker
 
@@ -74,8 +80,8 @@ Add this to `~/.config/coworker/mcp.json` (Windows: `%APPDATA%\coworker\mcp.json
   any other malformed token (`AUTH_REQUIRED`).
 - Keep `"requires_approval": true`. OpenWorker classifies every custom MCP tool as external work
   regardless, including Nexar's read-only tools.
-- Scheduled OpenWorker automations may not load MCP tools (unverified upstream). Test with an
-  interactive session first.
+- Scheduled OpenWorker automations may not load MCP tools (upstream behaviour, unverified). Use an
+  interactive session.
 
 ## 3. Tools
 
@@ -88,18 +94,22 @@ by `_`, so the model sees:
 | `nexar.work_status` | `mcp__nexar__nexar_work_status` | Poll a submitted job                                              |
 | `nexar.route`       | `mcp__nexar__nexar_route`       | Explain which resource would run a task, without running it       |
 | `nexar.resources`   | `mcp__nexar__nexar_resources`   | List resources (id, kind, capabilities, availability, auth state) |
+| `nexar.workflows`   | `mcp__nexar__nexar_workflows`   | List the workflows this client may run, with their inputs         |
 
 OpenWorker forwards only **text** content blocks, so every result is one text block containing JSON
 (the same object is also in `structuredContent`). Failures (`rejected`, `failed`, invalid input,
 authentication or scope errors) are `isError` results; OpenWorker renders them as `{"error": "<json>"}`.
 
 `nexar.resources` never includes credentials, environment variable names, configuration, metadata or
-probe details.
+probe details. `nexar.route` takes `project`, `taskKind`, optional `capabilities` and optional
+`request` (never used to choose) and explains the decision without running anything.
+`nexar.workflows` takes an optional `project` (its own workflows are included and override built-ins
+of the same id) and lists only workflows the client's scopes allow.
 
 ### `nexar.submit_work`
 
-Required: `requestId` (your idempotency key, `[A-Za-z0-9._:-]`, at most 128), `project`, `taskKind`,
-`request`. Optional: `systemPrompt`, `constraints` (`capabilities`, `privacy`, `maxCostUsd`,
+Required: `requestId` (your idempotency key, `[A-Za-z0-9._:-]`, at most 128), `project`, and either
+`taskKind` + `request` or `workflow` (not both). Optional: `systemPrompt`, `constraints` (`capabilities`, `privacy`, `maxCostUsd`,
 `preferredResourceIds`, `excludedResourceIds`), `workingDirectory` (relative to the project's first
 working directory, or absolute; must resolve inside the project), `documentSets` (up to 8 names
 defined on the project, attached as file references), `output` (`{ filename, mediaType? }`: store the
@@ -110,6 +120,28 @@ Response `status` is `completed`, `running`, `failed` or `rejected`, with `taskI
 `route` (`resourceId`, `policy`, `reasonCodes`, `explanation`), `usage`, `artifacts` and `error` as
 applicable. When nothing is eligible the status is `failed`, `error.code` is `NO_ELIGIBLE_RESOURCE`
 and `route.explanation` lists why each resource was rejected.
+
+### Workflow requests
+
+Instead of `taskKind` and `request`, send `workflow: { id, inputs }`. `id` is a workflow from
+`nexar.workflows`; `inputs` maps each input name to a string or a list of strings (document-set inputs
+name a set defined on the project). Inputs are untrusted text for the model: they never choose the
+project, working directory or permissions, and invalid inputs are rejected with per-input issues before
+anything runs. The client needs the `workflows` scope and the workflow's task kind. Results are saved as
+artifacts (anything meant for another person as a draft under `drafts/`), listed in `artifacts`, and
+the response carries `workflow: { id, outputsSplit }`; `outputsSplit: false` means the model omitted the
+output markers and everything was stored in the first file.
+
+```json
+{
+  "requestId": "sow-acme-1",
+  "project": "demo-project",
+  "workflow": {
+    "id": "sow",
+    "inputs": { "clientName": "Acme Corp", "objectives": "Migrate the billing system" }
+  }
+}
+```
 
 ### The 120 second limit and polling
 
@@ -130,8 +162,8 @@ reported complete.
 ## 4. Audit
 
 Each tool call appends exactly one line to `.nexar/audit.jsonl` (mode 0600): request id, client,
-tool, project, task kind, task id, resource, auth and policy outcome, error code, artifact count,
-duration. Authentication and validation failures are recorded too. Prompts, document content, paths
+tool, project, task kind, workflow id, task id, resource, auth and policy outcome, error code,
+artifact count, duration. Authentication and validation failures are recorded too. Prompts, document content, paths
 and tokens are never written.
 
 ## 5. Security notes

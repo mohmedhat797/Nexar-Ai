@@ -18,6 +18,8 @@ ADR (or amend status) when you change one.
 | [010](010-github-source-of-truth.md)               | GitHub as durable engineering source of truth             | Accepted                       |
 | [011](011-native-agent-adapters.md)                | Native agent adapters and the v0.1 live execution proof   | Accepted                       |
 | [012](012-project-context-and-path-policy.md)      | Project context and realpath path policy                  | Accepted                       |
+| [013](013-artifact-store.md)                       | Local artifact store                                      | Accepted                       |
+| [014](014-mcp-transport-and-work-bridge-v2.md)     | MCP server over stdio and Work Bridge v2                  | Accepted                       |
 | [015](015-client-identity-and-audit.md)            | Client identity, scoped credentials, and request audit    | Accepted                       |
 | [016](016-human-approvals.md)                      | Human approval framework (fail-closed, action-bound)      | Accepted                       |
 | [017](017-data-driven-workflows.md)                | Data-driven workflows with an untrusted-input boundary    | Accepted                       |

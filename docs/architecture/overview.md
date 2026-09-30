@@ -1,6 +1,6 @@
 # Nexar architecture overview
 
-Status: v0.1 baseline (2026-09-30). Decisions are recorded in [`docs/adr/`](../adr/). Evidence for
+Status: v0.2 (2026-09-30); v0.1 baseline plus personal-work capabilities. Decisions are recorded in [`docs/adr/`](../adr/). Evidence for
 every upstream claim is in [`docs/research/upstream/`](../research/upstream/).
 
 ## 1. What Nexar is
@@ -22,7 +22,7 @@ interfaces**.
 
 ## 2. The three separated questions
 
-| Question                                       | Owner                                             | v0.1 implementation                                                          |
+| Question                                       | Owner                                             | Implementation                                                               |
 | ---------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------- |
 | **Who should execute?**                        | Nexar Resource Controller (NRC)                   | Deterministic, explainable policy over the Resource Registry                 |
 | **How is the work orchestrated?**              | An execution runtime behind an `ExecutionAdapter` | DeepSeek Harness (agent loop, tools, subagents) or a native agent's own loop |
@@ -38,11 +38,21 @@ flowchart TB
   subgraph Clients
     CLI[Nexar CLI]
     MOB[Nexar Mobile PWA<br/><i>planned v0.5</i>]
-    OWIN[OpenWorker<br/>via Work Bridge]
+    OWIN[OpenWorker<br/>MCP client]
+  end
+
+  subgraph Edge[Request edge - v0.2, Nexar-owned]
+    MCP[MCP server, stdio only<br/>@nexar/integration-mcp]
+    ACC[Access<br/>tokens · scopes · audit]
+    WB[Work Bridge v2<br/>async jobs · idempotency]
   end
 
   subgraph NexarCore[Nexar Core - Nexar-owned]
     ENG[Nexar engine<br/>task → route → execute → record]
+    PRJ[Projects<br/>realpath path policy]
+    WFL[Workflows<br/>data + templates]
+    ART[Artifacts<br/>local store]
+    APR[Approvals<br/>deny by default]
     NRC[Nexar Resource Controller]
     POL[Routing Policy<br/><i>deterministic v1</i>]
     REG[Resource Registry]
@@ -65,13 +75,23 @@ flowchart TB
 
   MODELS[(Claude · GPT · Gemini · DeepSeek · local models · future providers)]
 
+  CLI --> WFL
   CLI --> ENG
   MOB -.-> ENG
-  OWIN -.-> ENG
+  OWIN -- stdio --> MCP
+  MCP --> ACC
+  MCP --> WB
+  WB --> WFL
+  WB --> ENG
+  WFL --> ENG
+  WFL --> ART
+  WB --> ART
+  ENG --> PRJ
   ENG --> NRC --> POL
   NRC --> REG
   ENG --> ADR_
   ENG --> TEL
+  APR -.->|gates outward actions; none registered| ENG
   ADR_ --> A_DSH & A_PI & A_CC & A_ECHO
   A_DSH --> DSH
   A_PI --> PIAI
@@ -139,13 +159,56 @@ replace the deterministic one (roadmap v0.4) without changing callers. Every dec
 reason codes (`capability.missing`, `state.unavailable`, `preference.task-kind`, …) and a
 human-readable explanation.
 
+### v0.2 request flow (OpenWorker over MCP)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant O as OpenWorker
+  participant M as MCP server (stdio)
+  participant A as Access (auth + audit)
+  participant B as Work Bridge v2
+  participant P as Projects (path policy)
+  participant W as Workflow runner
+  participant E as Nexar engine + NRC
+  participant D as Adapter (e.g. claude-code)
+  participant S as Artifact store
+
+  O->>M: tools/call nexar.submit_work (NEXAR_CLIENT_TOKEN in env)
+  M->>A: reload clients, authenticate token, check tool scope
+  M->>B: submit(request, clientId)
+  B->>A: authorize task kind, project, workflow, cost cap
+  B->>P: project lookup, document sets, working directory
+  opt workflow request
+    B->>W: run(workflow, untrusted inputs)
+    W->>W: render templates, wrap inputs as untrusted
+  end
+  B->>E: run(task)
+  E->>P: canonicalize working directory (before routing)
+  E->>E: route(task) → RouteDecision
+  E->>D: execute(task, resource, signal)
+  D-->>E: ExecutionResult
+  E-->>B: result + route explanation
+  B->>S: store result artifact (workflow outputs: drafts under drafts/)
+  S-->>B: ArtifactRef (file URI, sha256)
+  B->>E: recordArtifacts (artifacts.stored event, refs only)
+  B-->>M: WorkResponse (completed, or running + poll)
+  M->>A: write one audit record
+  M-->>O: one JSON text block
+```
+
+If the work outlives `waitSeconds` (at most 100, because OpenWorker kills calls after 120 s), the
+response is `running` and the job continues in the background; `nexar.work_status` (or a repeated
+`nexar.submit_work` with the same `requestId`) returns its state. Details:
+[`docs/integration/openworker-mcp.md`](../integration/openworker-mcp.md), ADR-014.
+
 ## 6. Personal work vs engineering work
 
 ```mermaid
 flowchart LR
   U((Owner)) --> OW[OpenWorker<br/>productivity engine]
   U --> CLI[Nexar CLI / Mobile]
-  OW -- "heavy reasoning / execution<br/>(MCP tools exposed by Nexar, v0.2)" --> NX[Nexar Core]
+  OW -- "heavy reasoning / execution<br/>(MCP tools exposed by Nexar)" --> NX[Nexar Core]
   CLI --> NX
   NX -->|documentation, analysis| M[Model resources<br/>pi-ai / DSH]
   NX -->|coding, review| AG[Agent resources<br/>DSH · Claude Code · Codex · Antigravity]
@@ -156,8 +219,9 @@ flowchart LR
 OpenWorker keeps ownership of productivity workflows (connectors, approvals inbox, artifacts).
 Research showed OpenWorker does **not** expose its agent as a callable service; its stable seam is
 as an **MCP client**. The preferred direction is therefore _OpenWorker → Nexar_ (Nexar exposes an
-MCP server with a `nexar.submit_work` tool, v0.2), with _Nexar → OpenWorker_ (its automations API)
-as a secondary, pinned seam. v0.1 ships only the transport-agnostic Work Bridge contract.
+MCP server with a `nexar.submit_work` tool, built in v0.2), with _Nexar → OpenWorker_ (its automations API)
+as a secondary, pinned seam. v0.1 shipped only the transport-agnostic Work Bridge contract; v0.2 adds
+the stdio MCP server and Work Bridge v2 (ADR-014), verified live against OpenWorker v0.3.0.
 
 ## 7. Execution adapter boundaries
 
@@ -170,10 +234,12 @@ flowchart TB
     DSHA["@nexar/integration-deepseek-harness<br/>spawns `dsh --profile sdk`<br/>Nexar-owned JSON-RPC client"]
     PIA["@nexar/integration-pi<br/>exact-pinned pi-ai"]
     CCA["@nexar/integration-claude-code<br/>`claude -p --output-format json`"]
-    OWB["@nexar/integration-openworker<br/>Work Bridge (contract in v0.1)"]
+    OWB["@nexar/integration-openworker<br/>Work Bridge v2"]
+    MCPA["@nexar/integration-mcp<br/>stdio MCP server"]
   end
   EA --> DSHA & PIA & CCA
   OWB --> EA
+  MCPA --> OWB
 ```
 
 Rules (ADR-008):
@@ -192,8 +258,11 @@ Rules (ADR-008):
 - `ExecutionRecord` (schema v1) records task, resource, adapter, resolved provider/model, routing
   policy + reason codes, timestamps, latency, usage (`Measured<number>`: measured / estimated /
   unavailable), quota impact, retries, outcome, error category, artifacts.
-- Sinks: in-memory, JSONL file (`.nexar/telemetry.jsonl`, mode 0600), composite. Structured JSON
+- Sinks: in-memory, JSONL file (`.nexar/telemetry.jsonl`, mode 0600), composite. The engine also emits
+  an `artifacts.stored` event carrying artifact refs only (never content). Structured JSON
   logs go to stderr with key-based redaction.
+- The request **audit log** (`.nexar/audit.jsonl`, written by the MCP server) is separate from
+  telemetry: one allowlisted record per tool call (ADR-015).
 - Errors are `NexarError` with a closed code set (`NO_ELIGIBLE_RESOURCE`, `AUTH_REQUIRED`,
   `PROVIDER_ERROR`, `EXECUTION_TIMEOUT`, `CONFIGURATION_ERROR`, …) and a `retryable` flag.
 
@@ -221,19 +290,27 @@ Nexar config holds credential _references_; runtime state lives in git-ignored `
 ## 11. Repository map
 
 ```text
-apps/cli                       nexar CLI (doctor, resources, route, run)
+apps/cli                       nexar CLI (doctor, resources, route, run, projects, artifacts,
+                               approvals, clients, mcp serve, workflows)
 packages/contracts             domain types, errors, Measured values — zero deps
 packages/resource-registry     resource descriptors + dynamic state + discovery seam
 packages/resource-controller   NRC: deterministic policy + explainable decisions
 packages/telemetry             structured logger, redaction, telemetry sinks
 packages/core                  engine, adapter registry, config loading
+packages/projects              projects, realpath path policy (resolveContainedPath), document sets
+packages/artifacts             LocalArtifactStore, filename sanitization
+packages/approvals             fail-closed approvals, outward-action gate (no executors registered)
+packages/access                client tokens, scopes, JSONL request audit
+packages/workflows             workflow catalog, template renderer, runner
+workflows/                     shipped workflow definitions (workflow.json + Markdown templates)
 integrations/echo              offline deterministic adapter (tests + zero-credential proof)
 integrations/claude-code       native Claude Code agent adapter
 integrations/deepseek-harness  DSH runtime adapter (subprocess JSON-RPC)
 integrations/pi                pi-ai direct model adapter
-integrations/openworker        Work Bridge contract
+integrations/openworker        Work Bridge v2 (request/response contract + job handling)
+integrations/mcp               stdio MCP server (the only importer of @modelcontextprotocol/*)
 config/                        example configuration
-docs/                          architecture, ADRs, research, roadmap, backlog, devlog
+docs/                          architecture, ADRs, integration, research, roadmap, backlog, devlog
 ```
 
 `apps/control-plane`, `apps/mobile`, and `integrations/delegate-skills` are deliberately **not**

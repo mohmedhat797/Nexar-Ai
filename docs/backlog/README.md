@@ -6,7 +6,7 @@ pasted verbatim as a GitHub issue body ([ADR-010](../adr/010-github-source-of-tr
 
 Every item uses the same sections: Summary, Problem, Objective, Scope, Out of scope, Technical notes,
 Acceptance criteria, Testing expectations, Security considerations. Ids are stable: `NXR-00x` is v0.1
-follow-ups, `01x` v0.2, `02x` v0.3, `03x` v0.4, `04x` v0.5.
+follow-ups, `01x` v0.2 (`017` is an unscheduled follow-up), `02x` v0.3, `03x` v0.4, `04x` v0.5.
 
 ## v0.1 — Foundation (follow-ups)
 
@@ -20,15 +20,18 @@ follow-ups, `01x` v0.2, `02x` v0.3, `03x` v0.4, `04x` v0.5.
 
 ## v0.2 — Personal Work
 
-| Id                                                         | Title                                                               | Milestone | Labels                    |
-| ---------------------------------------------------------- | ------------------------------------------------------------------- | --------- | ------------------------- |
-| [NXR-010](010-nexar-mcp-server.md)                         | Nexar MCP server (stdio) for OpenWorker                             | v0.2      | openworker, mcp           |
-| [NXR-011](011-work-bridge-authentication-and-audit-log.md) | Work Bridge authentication and request audit log                    | v0.2      | openworker, security      |
-| [NXR-012](012-documentation-workflows.md)                  | Documentation workflows (technical docs, SOW, proposals)            | v0.2      | personal-work             |
-| [NXR-013](013-meeting-brief-and-communication-drafts.md)   | Meeting brief generation and calendar/email preparation             | v0.2      | personal-work, openworker |
-| [NXR-014](014-human-approval-framework.md)                 | Human approval framework for outward-facing and destructive actions | v0.2      | security, core            |
-| [NXR-015](015-project-context.md)                          | Project context (settings, document sets, directory allowlists)     | v0.2      | core                      |
-| [NXR-016](016-artifact-storage.md)                         | Artifact storage (`ArtifactRef` → project files)                    | v0.2      | core                      |
+NXR-010 to NXR-016 were delivered in v0.2. NXR-017 is a follow-up and is not scheduled.
+
+| Id                                                         | Title                                                               | Milestone   | Labels                    | Status      |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- | ----------- | ------------------------- | ----------- |
+| [NXR-010](010-nexar-mcp-server.md)                         | Nexar MCP server (stdio) for OpenWorker                             | v0.2        | openworker, mcp           | Done (v0.2) |
+| [NXR-011](011-work-bridge-authentication-and-audit-log.md) | Work Bridge authentication and request audit log                    | v0.2        | openworker, security      | Done (v0.2) |
+| [NXR-012](012-documentation-workflows.md)                  | Documentation workflows (technical docs, SOW, proposals)            | v0.2        | personal-work             | Done (v0.2) |
+| [NXR-013](013-meeting-brief-and-communication-drafts.md)   | Meeting brief generation and calendar/email preparation             | v0.2        | personal-work, openworker | Done (v0.2) |
+| [NXR-014](014-human-approval-framework.md)                 | Human approval framework for outward-facing and destructive actions | v0.2        | security, core            | Done (v0.2) |
+| [NXR-015](015-project-context.md)                          | Project context (settings, document sets, directory allowlists)     | v0.2        | core                      | Done (v0.2) |
+| [NXR-016](016-artifact-storage.md)                         | Artifact storage (`ArtifactRef` → project files)                    | v0.2        | core                      | Done (v0.2) |
+| [NXR-017](017-document-export-formats.md)                  | Document export formats (DOCX, PDF, PPTX)                           | unscheduled | personal-work, core       | Planned     |
 
 ## v0.3 — Engineering Machine
 
