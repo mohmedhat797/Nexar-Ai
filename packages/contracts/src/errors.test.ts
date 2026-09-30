@@ -16,6 +16,11 @@ describe('NexarError', () => {
     expect(new NexarError('AUTH_REQUIRED', 'm', { retryable: true }).retryable).toBe(true);
   });
 
+  it('includes APPROVAL_DENIED, which is not retryable by default', () => {
+    expect(NEXAR_ERROR_CODES).toContain('APPROVAL_DENIED');
+    expect(new NexarError('APPROVAL_DENIED', 'm').retryable).toBe(false);
+  });
+
   it('serializes without stack or cause', () => {
     const e = new NexarError('PROVIDER_ERROR', 'boom', {
       details: { a: 1 },
