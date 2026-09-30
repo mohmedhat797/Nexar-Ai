@@ -7,6 +7,7 @@
   "include": ["src/**/*.ts"],
   "exclude": ["**/*.test.ts", "dist"],
   "references": [
+    { "path": "../../packages/access" },
     { "path": "../../packages/approvals" },
     { "path": "../../packages/artifacts" },
     { "path": "../../packages/contracts" },
@@ -17,6 +18,8 @@
     { "path": "../../integrations/claude-code" },
     { "path": "../../integrations/deepseek-harness" },
     { "path": "../../integrations/echo" },
+    { "path": "../../integrations/mcp" },
+    { "path": "../../integrations/openworker" },
     { "path": "../../integrations/pi" }
   ]
 }

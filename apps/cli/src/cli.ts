@@ -5,14 +5,18 @@ import { createJsonLogger } from '@nexar/telemetry';
 import { GLOBAL_OPTIONS, type Command } from './args.js';
 import { approvalsCommand } from './commands/approvals.js';
 import { artifactsCommand } from './commands/artifacts.js';
+import { clientsCommand } from './commands/clients.js';
 import { doctorCommand } from './commands/doctor.js';
+import { mcpCommand } from './commands/mcp.js';
 import { projectsCommand } from './commands/projects.js';
 import { resourcesCommand } from './commands/resources.js';
 import { routeCommand } from './commands/route.js';
 import { runCommand } from './commands/run.js';
 import { EXIT, UsageError, type CliIo } from './io.js';
 
-export const CLI_VERSION = '0.1.0';
+import { CLI_VERSION } from './version.js';
+
+export { CLI_VERSION };
 
 const COMMANDS: readonly Command[] = [
   doctorCommand,
@@ -20,6 +24,8 @@ const COMMANDS: readonly Command[] = [
   projectsCommand,
   artifactsCommand,
   approvalsCommand,
+  clientsCommand,
+  mcpCommand,
   routeCommand,
   runCommand,
 ];

@@ -18,6 +18,7 @@
     "dist"
   ],
   "dependencies": {
+    "@nexar/access": "workspace:*",
     "@nexar/approvals": "workspace:*",
     "@nexar/artifacts": "workspace:*",
     "@nexar/contracts": "workspace:*",
@@ -25,6 +26,8 @@
     "@nexar/integration-claude-code": "workspace:*",
     "@nexar/integration-deepseek-harness": "workspace:*",
     "@nexar/integration-echo": "workspace:*",
+    "@nexar/integration-mcp": "workspace:*",
+    "@nexar/integration-openworker": "workspace:*",
     "@nexar/integration-pi": "workspace:*",
     "@nexar/projects": "workspace:*",
     "@nexar/resource-controller": "workspace:*",

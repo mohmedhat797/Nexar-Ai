@@ -1,11 +1,16 @@
 import {
   NexarError,
   isNexarError,
+  projectId,
   resourceId,
+  type ArtifactRef,
   type Logger,
   type NexarTask,
 } from '@nexar/contracts';
+import type { ArtifactStore } from '@nexar/artifacts';
 import type { NewTaskInput, RunOptions, RunOutcome } from '@nexar/core';
+import type { Project, ProjectRegistry } from '@nexar/projects';
+import { explainRouteDecision } from '@nexar/resource-controller';
 import {
   DEFAULT_MAX_REQUEST_CHARS,
   WORK_BRIDGE_VERSION,
@@ -20,27 +25,63 @@ import {
  *
  * SECURITY: the bridge never validates paths itself. Containment is the engine's realpath policy,
  * so the engine MUST be built with `workingDirectoryPolicy: 'project-only'` (the `createNexar`
- * default) and a `ProjectRegistry`. Never hand the bridge an engine configured as
- * `'project-or-unscoped'`: that would let a request run in an unscoped directory.
+ * default) and the same `ProjectRegistry` the bridge gets. Never hand the bridge an engine
+ * configured as `'project-or-unscoped'`: that would let a request run in an unscoped directory.
  */
 export interface WorkEngine {
   createTask(input: NewTaskInput): NexarTask;
   run(task: NexarTask, options?: RunOptions): Promise<RunOutcome>;
+  recordArtifacts(
+    forTask: NexarTask['id'],
+    forProject: NexarTask['projectId'],
+    artifacts: readonly ArtifactRef[],
+  ): Promise<void>;
+}
+
+/** What an authorization hook sees: the validated, still-untrusted facts of a request. */
+export interface AuthorizableRequest {
+  readonly requestId: string;
+  readonly source: string;
+  readonly project: string;
+  readonly taskKind: string;
+  readonly documentSets: readonly string[];
+  readonly maxCostUsd?: number;
 }
 
 export interface WorkBridgeOptions {
   readonly engine: WorkEngine;
+  readonly projects: ProjectRegistry;
+  readonly artifacts: ArtifactStore;
   /** Default `['openworker']`. */
   readonly allowedSources?: readonly string[];
   /** Default 100_000. */
   readonly maxRequestChars?: number;
   readonly logger?: Logger;
+  /** Per-run execution timeout passed to the engine. */
   readonly timeoutMs?: number;
+  readonly clock?: () => Date;
+}
+
+export interface SubmitOptions {
+  /** Cancels the run. Jobs outlive the call that started them, so pass a lifetime signal, not a per-request one. */
+  readonly signal?: AbortSignal;
+  /** How long to wait for the job before answering `running`. Default 90_000, max 100_000. */
+  readonly waitMs?: number;
+  /** Identifies the caller for idempotency and `status` ownership. */
+  readonly clientId?: string;
+  /** Throws to refuse the request (a `NexarError` code is passed through). Runs before any task exists. */
+  readonly authorize?: (request: AuthorizableRequest) => void;
 }
 
 export interface WorkBridge {
-  submit(input: unknown, opts?: { readonly signal?: AbortSignal }): Promise<WorkResponse>;
+  submit(input: unknown, opts?: SubmitOptions): Promise<WorkResponse>;
+  /** Current state of a job; only the client that submitted it (same `clientId`) may read it. */
+  status(requestId: string, opts?: { readonly clientId?: string }): WorkResponse;
 }
+
+export const DEFAULT_WAIT_MS = 90_000;
+export const MAX_WAIT_MS = 100_000;
+export const MAX_JOBS = 200;
 
 const silent: Logger = {
   debug: () => undefined,
@@ -70,35 +111,97 @@ function rejected(
   };
 }
 
-function failed(requestId: string, error: Omit<WorkResponseError, 'issues'>): WorkResponse {
-  return { version: WORK_BRIDGE_VERSION, requestId, status: 'failed', error };
+function failed(
+  requestId: string,
+  error: Omit<WorkResponseError, 'issues'>,
+  extra: Pick<WorkResponse, 'taskId' | 'route'> = {},
+): WorkResponse {
+  return { version: WORK_BRIDGE_VERSION, requestId, status: 'failed', ...extra, error };
 }
 
-/** Transport-agnostic entry point: validates untrusted input, runs it on Nexar, never throws. */
+function internalFailure(requestId: string, taskId?: string): WorkResponse {
+  const internal = new NexarError('INTERNAL_ERROR', 'Internal error while running the request');
+  return failed(
+    requestId,
+    { code: internal.code, message: internal.message, retryable: internal.retryable },
+    taskId === undefined ? {} : { taskId },
+  );
+}
+
+function clampWait(waitMs: number | undefined): number {
+  if (waitMs === undefined || !Number.isFinite(waitMs)) return DEFAULT_WAIT_MS;
+  return Math.min(Math.max(Math.floor(waitMs), 0), MAX_WAIT_MS);
+}
+
+/** Explains a NO_ELIGIBLE_RESOURCE error from the ids and reason codes the engine attached. */
+function explainNoEligible(error: NexarError): NonNullable<WorkResponse['route']> {
+  const entries = Array.isArray(error.details?.['rejected'])
+    ? (error.details['rejected'] as { resourceId?: unknown; reasonCodes?: unknown }[])
+    : [];
+  const lines = [error.message];
+  const codes = new Set<string>();
+  if (entries.length > 0) lines.push('Rejected:');
+  for (const entry of entries) {
+    const reasons = Array.isArray(entry.reasonCodes)
+      ? entry.reasonCodes.filter((c): c is string => typeof c === 'string')
+      : [];
+    reasons.forEach((c) => codes.add(c));
+    lines.push(`  - ${String(entry.resourceId)}: ${reasons.join(', ')}`);
+  }
+  return { reasonCodes: [...codes], explanation: lines.join('\n') };
+}
+
+interface Job {
+  readonly requestId: string;
+  readonly clientId: string | undefined;
+  readonly taskId: string;
+  readonly createdAt: number;
+  readonly settled: Promise<WorkResponse>;
+  response: WorkResponse | undefined;
+}
+
+/**
+ * Transport-agnostic entry point: validates untrusted input, runs it on Nexar as an async job,
+ * never throws.
+ *
+ * A request shape other than the plain prompt (for example a workflow) is added by extending
+ * `createWorkRequestSchema` and branching in `prepare`; `run` and the job handling stay as they are.
+ */
 export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
-  const { engine } = options;
+  const { engine, projects, artifacts } = options;
   const logger = options.logger ?? silent;
+  const clock = options.clock ?? (() => new Date());
   const allowedSources = options.allowedSources ?? ['openworker'];
   const schema = createWorkRequestSchema(options.maxRequestChars ?? DEFAULT_MAX_REQUEST_CHARS);
+  const jobs = new Map<string, Job>();
 
-  function buildTask(req: WorkRequest): NexarTask {
+  /** The task for a request: resolves the project and document sets, then asks the engine. */
+  async function prepare(req: WorkRequest, project: Project): Promise<NexarTask> {
+    const attachments = new Map<string, ArtifactRef>();
+    for (const name of new Set(req.documentSets ?? [])) {
+      for (const ref of await projects.resolveDocumentSet(project, name)) {
+        attachments.set(ref.uri, ref);
+      }
+    }
     const constraints = req.constraints;
     return engine.createTask({
       kind: req.taskKind,
       prompt: req.request,
       ...(req.systemPrompt === undefined ? {} : { systemPrompt: req.systemPrompt }),
-      ...(req.project === undefined ? {} : { projectId: req.project }),
+      projectId: project.id,
+      ...(attachments.size === 0 ? {} : { attachments: [...attachments.values()] }),
       // Passed through unchecked on purpose: the engine canonicalizes it against the project.
       ...(req.workingDirectory === undefined ? {} : { workingDirectory: req.workingDirectory }),
       origin: {
         source: req.source,
+        project: project.id,
         correlationId: req.requestId,
-        ...(req.project === undefined ? {} : { project: req.project }),
         ...(req.requestedBy === undefined ? {} : { requestedBy: req.requestedBy }),
       },
       requirements: {
         capabilities: constraints?.capabilities ?? [],
         ...(constraints?.privacy === undefined ? {} : { privacy: constraints.privacy }),
+        ...(constraints?.maxCostUsd === undefined ? {} : { maxCostUsd: constraints.maxCostUsd }),
         ...(constraints?.preferredResourceIds === undefined
           ? {}
           : { preferredResourceIds: constraints.preferredResourceIds.map(resourceId) }),
@@ -110,125 +213,311 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
     });
   }
 
-  async function execute(
-    task: NexarTask,
+  /** Persists the result text when the request asked for it; a storage failure never loses the text. */
+  async function persist(
     req: WorkRequest,
+    task: NexarTask,
+    text: string,
+    log: Logger,
+  ): Promise<Pick<WorkResponse, 'artifacts' | 'error'>> {
+    if (req.output === undefined) return {};
+    try {
+      const forProject = projectId(req.project);
+      const ref = await artifacts.store({
+        projectId: forProject,
+        taskId: task.id,
+        filename: req.output.filename,
+        content: text,
+        mediaType: req.output.mediaType ?? 'text/markdown',
+      });
+      await engine.recordArtifacts(task.id, forProject, [ref]);
+      return { artifacts: [ref] };
+    } catch (thrown) {
+      log.warn('storing the result artifact failed', {
+        code: isNexarError(thrown) ? thrown.code : 'UNKNOWN',
+      });
+      return {
+        error: {
+          code: isNexarError(thrown) ? thrown.code : 'INTERNAL_ERROR',
+          message: 'The result could not be stored as an artifact',
+          retryable: false,
+        },
+      };
+    }
+  }
+
+  async function run(
+    req: WorkRequest,
+    task: NexarTask,
     signal: AbortSignal | undefined,
+    log: Logger,
   ): Promise<WorkResponse> {
-    const outcome = await engine.run(task, {
-      ...(signal === undefined ? {} : { signal }),
-      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    try {
+      const outcome = await engine.run(task, {
+        ...(signal === undefined ? {} : { signal }),
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      });
+      const { result, decision } = outcome;
+      const stored = await persist(req, outcome.task, result.text, log);
+      return {
+        version: WORK_BRIDGE_VERSION,
+        requestId: req.requestId,
+        status: 'completed',
+        taskId: outcome.task.id,
+        output: { text: result.text },
+        route: {
+          resourceId: decision.selected.resourceId,
+          policy: decision.policy.name,
+          reasonCodes: decision.selected.reasons.map((r) => r.code),
+          explanation: explainRouteDecision(decision),
+        },
+        usage: {
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          costUsd: result.usage.costUsd,
+        },
+        ...stored,
+      };
+    } catch (thrown) {
+      if (isNexarError(thrown) && thrown.code === 'POLICY_REJECTED') {
+        // The engine's workspace policy refused the directory before routing: nothing ran.
+        log.info('work request rejected', { code: thrown.code });
+        return rejected(req.requestId, {
+          code: thrown.code,
+          message: thrown.message,
+          issues: [{ path: 'workingDirectory', message: 'outside the project boundary' }],
+        });
+      }
+      if (isNexarError(thrown)) {
+        log.warn('work request failed', { code: thrown.code });
+        return failed(
+          req.requestId,
+          { code: thrown.code, message: thrown.message, retryable: thrown.retryable },
+          {
+            taskId: task.id,
+            ...(thrown.code === 'NO_ELIGIBLE_RESOURCE' ? { route: explainNoEligible(thrown) } : {}),
+          },
+        );
+      }
+      log.warn('work request failed unexpectedly', {
+        error: thrown instanceof Error ? thrown.message : String(thrown),
+      });
+      return internalFailure(req.requestId, task.id);
+    }
+  }
+
+  /** Answers with the job's final response, or undefined if it is still running after `waitMs`. */
+  function waitFor(job: Job, waitMs: number): Promise<WorkResponse | undefined> {
+    if (job.response !== undefined) return Promise.resolve(job.response);
+    if (waitMs <= 0) return Promise.resolve(undefined);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(undefined), waitMs);
+      timer.unref();
+      void job.settled.then((response) => {
+        clearTimeout(timer);
+        resolve(response);
+      });
     });
-    const { result, decision } = outcome;
-    return {
-      version: WORK_BRIDGE_VERSION,
-      requestId: req.requestId,
-      status: 'completed',
-      taskId: outcome.task.id,
-      output: { text: result.text },
-      route: {
-        resourceId: decision.selected.resourceId,
-        policy: decision.policy.name,
-        reasons: decision.selected.reasons.map((r) => ({
-          code: r.code,
-          effect: r.effect,
-          message: r.message,
+  }
+
+  function snapshot(job: Job): WorkResponse {
+    return (
+      job.response ?? {
+        version: WORK_BRIDGE_VERSION,
+        requestId: job.requestId,
+        status: 'running',
+        taskId: job.taskId,
+      }
+    );
+  }
+
+  /**
+   * Jobs are namespaced per client: another client's request id is indistinguishable from an
+   * unknown one, so ids cannot be probed or taken over across clients.
+   */
+  function jobKey(clientId: string | undefined, requestId: string): string {
+    return `${clientId ?? ''}\u0000${requestId}`;
+  }
+
+  /** Makes room for one more job by dropping the oldest finished one; false if all are running. */
+  function makeRoom(): boolean {
+    if (jobs.size < MAX_JOBS) return true;
+    let oldest: Job | undefined;
+    for (const job of jobs.values()) {
+      if (
+        job.response !== undefined &&
+        (oldest === undefined || job.createdAt < oldest.createdAt)
+      ) {
+        oldest = job;
+      }
+    }
+    if (oldest === undefined) return false;
+    jobs.delete(jobKey(oldest.clientId, oldest.requestId));
+    return true;
+  }
+
+  async function submit(input: unknown, opts: SubmitOptions): Promise<WorkResponse> {
+    const parsed = schema.safeParse(input);
+    if (!parsed.success) {
+      const requestId = readRequestId(input);
+      logger.info('work request rejected', { requestId, code: 'VALIDATION_ERROR' });
+      return rejected(requestId, {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid work request',
+        issues: parsed.error.issues.map((issue) => ({
+          path: issue.path.map(String).join('.'),
+          message: issue.message,
         })),
-      },
-      usage: {
-        inputTokens: result.usage.inputTokens,
-        outputTokens: result.usage.outputTokens,
-        costUsd: result.usage.costUsd,
-      },
+      });
+    }
+    const req = parsed.data;
+    const log = logger.child({ requestId: req.requestId });
+
+    if (!allowedSources.includes(req.source)) {
+      log.info('work request rejected', { source: req.source, code: 'POLICY_REJECTED' });
+      return rejected(req.requestId, {
+        code: 'POLICY_REJECTED',
+        message: `Source "${req.source}" is not allowed`,
+        issues: [{ path: 'source', message: 'not an allowed source' }],
+      });
+    }
+
+    if (opts.authorize !== undefined) {
+      try {
+        opts.authorize({
+          requestId: req.requestId,
+          source: req.source,
+          project: req.project,
+          taskKind: req.taskKind,
+          documentSets: req.documentSets ?? [],
+          ...(req.constraints?.maxCostUsd === undefined
+            ? {}
+            : { maxCostUsd: req.constraints.maxCostUsd }),
+        });
+      } catch (thrown) {
+        // Fail closed: anything but a NexarError is still a refusal.
+        const code = isNexarError(thrown) ? thrown.code : 'POLICY_REJECTED';
+        log.info('work request rejected', { code, stage: 'authorize' });
+        return rejected(req.requestId, {
+          code,
+          message: isNexarError(thrown) ? thrown.message : 'Not permitted for this client',
+        });
+      }
+    }
+
+    const waitMs = clampWait(opts.waitMs);
+    const existing = jobs.get(jobKey(opts.clientId, req.requestId));
+    if (existing !== undefined) {
+      log.info('work request resubmitted', { taskId: existing.taskId });
+      return (await waitFor(existing, waitMs)) ?? snapshot(existing);
+    }
+
+    const project = (() => {
+      try {
+        return projects.get(projectId(req.project));
+      } catch {
+        return undefined;
+      }
+    })();
+    if (project === undefined) {
+      log.info('work request rejected', { code: 'POLICY_REJECTED', stage: 'project' });
+      return rejected(req.requestId, {
+        code: 'POLICY_REJECTED',
+        message: 'Unknown project',
+        issues: [{ path: 'project', message: 'not a registered project' }],
+      });
+    }
+
+    let task: NexarTask;
+    try {
+      task = await prepare(req, project);
+    } catch (thrown) {
+      if (
+        isNexarError(thrown) &&
+        (thrown.code === 'POLICY_REJECTED' || thrown.code === 'VALIDATION_ERROR')
+      ) {
+        log.info('work request rejected', { code: thrown.code, stage: 'prepare' });
+        return rejected(req.requestId, {
+          code: thrown.code,
+          message: thrown.message,
+          issues: [{ path: 'documentSets', message: 'not usable in this project' }],
+        });
+      }
+      if (isNexarError(thrown)) {
+        log.warn('work request failed', { code: thrown.code, stage: 'prepare' });
+        return failed(req.requestId, {
+          code: thrown.code,
+          message: thrown.message,
+          retryable: thrown.retryable,
+        });
+      }
+      throw thrown;
+    }
+
+    if (!makeRoom()) {
+      log.warn('work request refused: too many jobs in progress');
+      return failed(
+        req.requestId,
+        { code: 'RESOURCE_UNAVAILABLE', message: 'Too many jobs in progress', retryable: true },
+        {},
+      );
+    }
+
+    log.info('work request accepted', {
+      source: req.source,
+      taskKind: req.taskKind,
+      project: req.project,
+      taskId: task.id,
+      requestChars: req.request.length,
+      systemPromptChars: req.systemPrompt?.length ?? 0,
+      documentSets: req.documentSets?.length ?? 0,
+    });
+    let finish!: (response: WorkResponse) => void;
+    const settled = new Promise<WorkResponse>((resolve) => {
+      finish = resolve;
+    });
+    const job: Job = {
+      requestId: req.requestId,
+      clientId: opts.clientId,
+      taskId: task.id,
+      createdAt: clock().getTime(),
+      settled,
+      response: undefined,
     };
+    jobs.set(jobKey(opts.clientId, req.requestId), job);
+    // `run` never rejects, so the job always settles.
+    void run(req, task, opts.signal, log).then((response) => {
+      job.response = response;
+      log.info('work request settled', { status: response.status, taskId: task.id });
+      finish(response);
+    });
+    return (await waitFor(job, waitMs)) ?? snapshot(job);
   }
 
   return {
     async submit(input, opts = {}) {
-      const parsed = schema.safeParse(input);
-      if (!parsed.success) {
-        const requestId = readRequestId(input);
-        logger.info('work request rejected', { requestId, code: 'VALIDATION_ERROR' });
-        return rejected(requestId, {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid work request',
-          issues: parsed.error.issues.map((issue) => ({
-            path: issue.path.map(String).join('.'),
-            message: issue.message,
-          })),
-        });
-      }
-      const req = parsed.data;
-      const log = logger.child({ requestId: req.requestId });
-
-      if (!allowedSources.includes(req.source)) {
-        log.info('work request rejected', { source: req.source, code: 'POLICY_REJECTED' });
-        return rejected(req.requestId, {
-          code: 'POLICY_REJECTED',
-          message: `Source "${req.source}" is not allowed`,
-          issues: [{ path: 'source', message: 'not an allowed source' }],
-        });
-      }
-      if (req.workingDirectory !== undefined && req.project === undefined) {
-        log.info('work request rejected', { source: req.source, code: 'POLICY_REJECTED' });
-        return rejected(req.requestId, {
-          code: 'POLICY_REJECTED',
-          message: 'A working directory requires a project',
-          issues: [{ path: 'workingDirectory', message: 'requires a project' }],
-        });
-      }
-
-      log.info('work request accepted', {
-        source: req.source,
-        taskKind: req.taskKind,
-        requestChars: req.request.length,
-        systemPromptChars: req.systemPrompt?.length ?? 0,
-      });
-      let building = true;
       try {
-        const task = buildTask(req);
-        building = false;
-        const response = await execute(task, req, opts.signal);
-        log.info('work request completed', { taskId: response.taskId });
-        return response;
+        return await submit(input, opts);
       } catch (thrown) {
-        // Both cases happen before routing: nothing ran.
-        // - building: unknown or malformed project
-        // - running: the engine's workspace policy rejected the working directory
-        if (
-          isNexarError(thrown) &&
-          (thrown.code === 'POLICY_REJECTED' || (building && thrown.code === 'VALIDATION_ERROR'))
-        ) {
-          log.info('work request rejected', { source: req.source, code: thrown.code });
-          return rejected(req.requestId, {
-            code: thrown.code,
-            message: thrown.message,
-            issues: building
-              ? [{ path: 'project', message: 'not a registered project' }]
-              : [{ path: 'workingDirectory', message: 'outside the project boundary' }],
-          });
-        }
-        if (isNexarError(thrown)) {
-          log.warn('work request failed', { code: thrown.code });
-          return failed(req.requestId, {
-            code: thrown.code,
-            message: thrown.message,
-            retryable: thrown.retryable,
-          });
-        }
-        log.warn('work request failed unexpectedly', {
+        logger.warn('work request failed unexpectedly', {
           error: thrown instanceof Error ? thrown.message : String(thrown),
         });
-        const internal = new NexarError(
-          'INTERNAL_ERROR',
-          'Internal error while running the request',
-        );
-        return failed(req.requestId, {
-          code: internal.code,
-          message: internal.message,
-          retryable: internal.retryable,
+        const requestId = readRequestId(input);
+        return requestId === null
+          ? rejected(null, { code: 'INTERNAL_ERROR', message: 'Internal error' })
+          : internalFailure(requestId);
+      }
+    },
+
+    status(requestId, opts = {}) {
+      const job = jobs.get(jobKey(opts.clientId, requestId));
+      if (job === undefined) {
+        return rejected(REQUEST_ID.test(requestId) ? requestId : null, {
+          code: 'VALIDATION_ERROR',
+          message: 'Unknown request',
         });
       }
+      return snapshot(job);
     },
   };
 }

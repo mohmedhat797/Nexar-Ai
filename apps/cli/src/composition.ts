@@ -23,6 +23,18 @@ export function stateBaseDir(loaded: LoadedConfig, io: CliIo): string {
   return loaded.path === undefined ? io.cwd : dirname(loaded.path);
 }
 
+function stateFile(loaded: LoadedConfig, io: CliIo, name: string): string {
+  return join(stateBaseDir(loaded, io), '.nexar', name);
+}
+
+/** Hashed client credentials (`nexar clients`). */
+export const clientsFilePath = (loaded: LoadedConfig, io: CliIo): string =>
+  stateFile(loaded, io, 'clients.json');
+
+/** Append-only request audit written by the MCP server. */
+export const auditFilePath = (loaded: LoadedConfig, io: CliIo): string =>
+  stateFile(loaded, io, 'audit.jsonl');
+
 /** Resolves the config (explicit path > NEXAR_CONFIG_PATH > cwd file > built-in default). */
 export function loadCliConfig(io: CliIo, explicitPath: string | undefined): Promise<LoadedConfig> {
   return loadConfig({
@@ -40,6 +52,7 @@ export async function compose(
   loaded: LoadedConfig,
   io: CliIo,
   logger: Logger,
+  options: { readonly workingDirectoryPolicy?: 'project-only' | 'project-or-unscoped' } = {},
 ): Promise<Composition> {
   const configDir = stateBaseDir(loaded, io);
   const adapters = [
@@ -56,8 +69,8 @@ export async function compose(
     logger,
     configDir,
     // The owner at their own terminal may run unscoped (`--cwd` without `--project`). External
-    // clients (the Work Bridge) must use an engine left at the secure 'project-only' default.
-    workingDirectoryPolicy: 'project-or-unscoped',
+    // clients (the MCP server / Work Bridge) must ask for 'project-only'.
+    workingDirectoryPolicy: options.workingDirectoryPolicy ?? 'project-or-unscoped',
     // The built-in default config has no telemetry path of its own.
     ...(loaded.source === 'default'
       ? { telemetry: new JsonlFileTelemetrySink(join(io.cwd, '.nexar', 'telemetry.jsonl')) }

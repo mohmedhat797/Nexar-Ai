@@ -1,0 +1,31 @@
+{
+  "name": "@nexar/integration-mcp",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.2.0",
+    "@nexar/access": "workspace:*",
+    "@nexar/contracts": "workspace:*",
+    "@nexar/integration-openworker": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.2.0",
+    "@nexar/core": "workspace:*",
+    "@nexar/integration-echo": "workspace:*",
+    "@nexar/projects": "workspace:*",
+    "@nexar/artifacts": "workspace:*"
+  }
+}

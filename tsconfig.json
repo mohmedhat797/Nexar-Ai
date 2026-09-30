@@ -26,6 +26,9 @@
       "path": "./integrations/openworker"
     },
     {
+      "path": "./integrations/mcp"
+    },
+    {
       "path": "./integrations/claude-code"
     },
     {
