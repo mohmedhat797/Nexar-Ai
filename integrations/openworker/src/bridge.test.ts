@@ -1,5 +1,7 @@
-import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   NexarError,
   resourceId,
@@ -10,7 +12,13 @@ import {
   type Logger,
   type NexarTask,
 } from '@nexar/contracts';
-import { createNexar, parseConfig, type NewTaskInput, type RunOutcome } from '@nexar/core';
+import {
+  createNexarWithProjects,
+  createNexar,
+  parseConfig,
+  type NewTaskInput,
+  type RunOutcome,
+} from '@nexar/core';
 import { EchoExecutionAdapter, echoResource } from '@nexar/integration-echo';
 import {
   WORK_BRIDGE_VERSION,
@@ -143,7 +151,6 @@ describe('createWorkBridge.submit', () => {
     const controller = new AbortController();
     await createWorkBridge({
       engine: stub.engine,
-      allowedWorkingDirectories: [resolve('/work')],
       timeoutMs: 5000,
     }).submit(
       valid({
@@ -164,7 +171,8 @@ describe('createWorkBridge.submit', () => {
       kind: 'analysis',
       prompt: 'summarize this',
       systemPrompt: 'be brief',
-      workingDirectory: resolve('/work/sub'),
+      projectId: 'proj',
+      workingDirectory: '/work/sub',
       origin: {
         source: 'openworker',
         project: 'proj',
@@ -264,40 +272,39 @@ describe('createWorkBridge.submit', () => {
   });
 
   describe('workingDirectory', () => {
-    const root = resolve('/srv/projects');
-
-    it('is rejected by default', async () => {
-      const res = await bridge(stubEngine()).submit(valid({ workingDirectory: root }));
+    it('is rejected without a project, before the engine is touched', async () => {
+      const stub = stubEngine();
+      const res = await bridge(stub).submit(valid({ workingDirectory: '/srv/projects' }));
       expect(res.status).toBe('rejected');
       expect(res.error?.code).toBe('POLICY_REJECTED');
+      expect(stub.created).toHaveLength(0);
+      expect(stub.runs).toHaveLength(0);
     });
 
-    it('is allowed when equal to or inside the allowlist', async () => {
-      const options = { allowedWorkingDirectories: [root] };
-      for (const dir of [root, `${root}/a/b`]) {
-        const res = await bridge(stubEngine(), options).submit(valid({ workingDirectory: dir }));
-        expect(res.status).toBe('completed');
-      }
-    });
-
-    it('rejects `..` escapes and sibling prefixes', async () => {
-      const options = { allowedWorkingDirectories: [root] };
-      for (const dir of [`${root}/../etc`, `${root}/a/../../etc`, `${root}-evil`, '/']) {
-        const stub = stubEngine();
-        const res = await bridge(stub, options).submit(valid({ workingDirectory: dir }));
-        expect(res.status).toBe('rejected');
-        expect(res.error?.code).toBe('POLICY_REJECTED');
-        expect(stub.runs).toHaveLength(0);
-      }
+    it('is passed through unchecked when a project is named (the engine enforces)', async () => {
+      const stub = stubEngine();
+      const res = await bridge(stub).submit(
+        valid({ project: 'proj', workingDirectory: '/srv/projects/../etc' }),
+      );
+      expect(res.status).toBe('completed');
+      expect(stub.created[0]?.workingDirectory).toBe('/srv/projects/../etc');
     });
 
     it('rejects relative paths', async () => {
-      const res = await bridge(stubEngine(), { allowedWorkingDirectories: [root] }).submit(
-        valid({ workingDirectory: 'projects/a' }),
+      const res = await bridge(stubEngine()).submit(
+        valid({ project: 'proj', workingDirectory: 'projects/a' }),
       );
       expect(res.status).toBe('rejected');
       expect(res.error?.code).toBe('VALIDATION_ERROR');
       expect(res.error?.issues?.[0]?.path).toBe('workingDirectory');
+    });
+
+    it('maps an engine POLICY_REJECTED to rejected', async () => {
+      const res = await bridge(
+        stubEngine(() => Promise.reject(new NexarError('POLICY_REJECTED', 'nope'))),
+      ).submit(valid({ project: 'proj', workingDirectory: '/x' }));
+      expect(res.status).toBe('rejected');
+      expect(res.error?.code).toBe('POLICY_REJECTED');
     });
   });
 
@@ -426,5 +433,82 @@ describe('with the real engine', () => {
     );
     expect(res.status).toBe('failed');
     expect(res.error?.code).toBe('NO_ELIGIBLE_RESOURCE');
+  });
+});
+
+describe('with the real engine and a real project', () => {
+  let base: string;
+  let outside: string;
+  let executed: number;
+
+  beforeEach(async () => {
+    base = await realpath(await mkdtemp(join(tmpdir(), 'nexar-bridge-')));
+    outside = join(base, 'outside');
+    await mkdir(join(base, 'allowed', 'sub'), { recursive: true });
+    await mkdir(outside);
+    await symlink(outside, join(base, 'allowed', 'link'));
+    executed = 0;
+  });
+  afterEach(async () => {
+    await rm(base, { recursive: true, force: true });
+  });
+
+  async function realBridge() {
+    const config = parseConfig(
+      {
+        version: 1,
+        resources: [echoResource()],
+        routing: { policy: 'deterministic', defaultResourceId: 'local-echo' },
+        projects: [{ id: 'demo', displayName: 'Demo', roots: [join(base, 'allowed')] }],
+      },
+      'test',
+    );
+    const echo = new EchoExecutionAdapter();
+    const spy = Object.assign(Object.create(echo) as EchoExecutionAdapter, {
+      execute: (...args: Parameters<EchoExecutionAdapter['execute']>) => {
+        executed++;
+        return echo.execute(...args);
+      },
+    });
+    const { nexar } = await createNexarWithProjects(config, { adapters: [spy] });
+    return createWorkBridge({ engine: nexar });
+  }
+
+  it('runs in a directory inside the project', async () => {
+    const res = await (
+      await realBridge()
+    ).submit(valid({ project: 'demo', workingDirectory: join(base, 'allowed', 'sub') }));
+    expect(res.status).toBe('completed');
+    expect(executed).toBe(1);
+  });
+
+  it('rejects the symlink attack (allowed/link -> outside) and never executes', async () => {
+    const res = await (
+      await realBridge()
+    ).submit(valid({ project: 'demo', workingDirectory: join(base, 'allowed', 'link') }));
+    expect(res.status).toBe('rejected');
+    expect(res.error?.code).toBe('POLICY_REJECTED');
+    expect(JSON.stringify(res)).not.toContain(base);
+    expect(executed).toBe(0);
+  });
+
+  it('rejects a `..` escape and an unknown project', async () => {
+    const b = await realBridge();
+    const escape = await b.submit(
+      valid({ project: 'demo', workingDirectory: join(base, 'allowed', '..', 'outside') }),
+    );
+    expect(escape.status).toBe('rejected');
+    const unknown = await b.submit(valid({ project: 'nope' }));
+    expect(unknown.status).toBe('rejected');
+    expect(unknown.error?.code).toBe('POLICY_REJECTED');
+    expect(executed).toBe(0);
+  });
+
+  it('rejects a working directory without a project', async () => {
+    const res = await (
+      await realBridge()
+    ).submit(valid({ workingDirectory: join(base, 'allowed') }));
+    expect(res.status).toBe('rejected');
+    expect(executed).toBe(0);
   });
 });

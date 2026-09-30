@@ -9,6 +9,7 @@
   "references": [
     { "path": "../../packages/contracts" },
     { "path": "../../packages/core" },
+    { "path": "../../packages/projects" },
     { "path": "../../packages/resource-controller" },
     { "path": "../../packages/telemetry" },
     { "path": "../../integrations/claude-code" },

@@ -1,14 +1,17 @@
 import { randomUUID } from 'node:crypto';
+import { realpath } from 'node:fs/promises';
 import {
   NexarError,
   emptyUsage,
   isNexarError,
+  projectId,
   taskId,
   toNexarError,
   unavailable,
   type ExecutionEvent,
   type ExecutionOutcome,
   type ExecutionRecord,
+  type ArtifactRef,
   type ExecutionResult,
   type Logger,
   type NexarTask,
@@ -21,6 +24,7 @@ import {
   type TelemetryEvent,
   type TelemetrySink,
 } from '@nexar/contracts';
+import { ProjectRegistry, mergeRequirements } from '@nexar/projects';
 import { requireSelected } from '@nexar/resource-controller';
 import type { ResourceRegistry } from '@nexar/resource-registry';
 import type { AdapterRegistry } from './adapter-registry.js';
@@ -33,6 +37,14 @@ export interface NexarDependencies {
   readonly logger: Logger;
   readonly clock?: () => Date;
   readonly newTaskId?: () => TaskId;
+  readonly projects?: ProjectRegistry;
+  /**
+   * Where a task may run. `'project-only'` (default, secure): a working directory is accepted only
+   * through a project, and is canonicalized against that project's working directories.
+   * `'project-or-unscoped'`: a task without a project may also name a directory, which is only
+   * canonicalized (for an owner at their own terminal, never for external clients).
+   */
+  readonly workingDirectoryPolicy?: 'project-only' | 'project-or-unscoped';
 }
 
 export interface NewTaskInput {
@@ -43,6 +55,9 @@ export interface NewTaskInput {
   readonly requirements?: Partial<TaskRequirements>;
   readonly origin?: TaskOrigin;
   readonly workingDirectory?: string;
+  /** Applies the project's defaults; its boundary is enforced by `run`. Unknown ids throw. */
+  readonly projectId?: string;
+  readonly attachments?: readonly ArtifactRef[];
   readonly metadata?: Record<string, unknown>;
 }
 
@@ -88,13 +103,19 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 export class Nexar {
   private readonly clock: () => Date;
   private readonly newTaskId: () => TaskId;
+  private readonly projects: ProjectRegistry;
+  private readonly workingDirectoryPolicy: 'project-only' | 'project-or-unscoped';
 
   constructor(private readonly deps: NexarDependencies) {
+    this.projects = deps.projects ?? ProjectRegistry.empty();
+    this.workingDirectoryPolicy = deps.workingDirectoryPolicy ?? 'project-only';
     this.clock = deps.clock ?? (() => new Date());
     this.newTaskId = deps.newTaskId ?? (() => taskId(`task_${randomUUID()}`));
   }
 
   createTask(input: NewTaskInput): NexarTask {
+    const project =
+      input.projectId === undefined ? undefined : this.projects.require(projectId(input.projectId));
     return {
       id: this.newTaskId(),
       kind: input.kind,
@@ -105,8 +126,13 @@ export class Nexar {
         ...(input.workingDirectory === undefined
           ? {}
           : { workingDirectory: input.workingDirectory }),
+        ...(input.attachments === undefined ? {} : { attachments: input.attachments }),
       },
-      requirements: { capabilities: [], ...input.requirements },
+      requirements:
+        project === undefined
+          ? { capabilities: [], ...input.requirements }
+          : mergeRequirements(project.defaults, input.requirements ?? {}),
+      ...(project === undefined ? {} : { projectId: project.id }),
       origin: input.origin ?? { source: 'cli' },
       createdAt: this.clock().toISOString(),
       ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
@@ -119,7 +145,38 @@ export class Nexar {
     return decision;
   }
 
-  async run(task: NexarTask, options: RunOptions = {}): Promise<RunOutcome> {
+  /**
+   * The working directory is enforced here, before routing and before any event, so a rejected task
+   * never reaches an adapter. The returned task carries the canonical path; only it flows onward.
+   */
+  private async enforceWorkspace(task: NexarTask): Promise<NexarTask> {
+    const requested = task.input.workingDirectory;
+    let canonical: string | undefined;
+    if (task.projectId !== undefined) {
+      const project = this.projects.require(task.projectId);
+      canonical = await this.projects.resolveWorkingDirectory(project, requested);
+    } else if (requested !== undefined) {
+      if (this.workingDirectoryPolicy === 'project-only') {
+        throw new NexarError('POLICY_REJECTED', 'A working directory requires a project', {
+          details: { reason: 'PROJECT_REQUIRED' },
+        });
+      }
+      try {
+        canonical = await realpath(requested);
+      } catch (error) {
+        const code = (error as { code?: unknown } | null)?.code;
+        // No `cause`: fs errors embed the path.
+        throw new NexarError('POLICY_REJECTED', 'Path is not accessible or does not exist', {
+          details: { reason: typeof code === 'string' ? code : 'UNKNOWN' },
+        });
+      }
+    }
+    if (canonical === undefined) return task;
+    return { ...task, input: { ...task.input, workingDirectory: canonical } };
+  }
+
+  async run(submitted: NexarTask, options: RunOptions = {}): Promise<RunOutcome> {
+    const task = await this.enforceWorkspace(submitted);
     // Never log the prompt: only ids and routing facts.
     const logger = this.deps.logger.child({ taskId: task.id });
     const decision = requireSelected(await this.route(task));
@@ -153,6 +210,7 @@ export class Nexar {
       taskId: task.id,
       taskKind: task.kind,
       origin: task.origin.source,
+      ...(task.projectId === undefined ? {} : { projectId: task.projectId }),
       resourceId,
       resourceKind: resource.kind.type,
       adapter: adapter.id,

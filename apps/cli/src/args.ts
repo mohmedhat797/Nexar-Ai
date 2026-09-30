@@ -1,6 +1,12 @@
 import { resolve } from 'node:path';
 import type { ParseArgsOptionsConfig } from 'node:util';
-import { resourceId, type Logger, type NexarTask, type ResourceId } from '@nexar/contracts';
+import {
+  resourceId,
+  type ArtifactRef,
+  type Logger,
+  type NexarTask,
+  type ResourceId,
+} from '@nexar/contracts';
 import type { Nexar } from '@nexar/core';
 import { UsageError, type CliIo } from './io.js';
 
@@ -39,6 +45,7 @@ export const TASK_OPTIONS = {
   prefer: { type: 'string', multiple: true },
   exclude: { type: 'string', multiple: true },
   'local-only': { type: 'boolean' },
+  project: { type: 'string' },
 } as const satisfies ParseArgsOptionsConfig;
 
 export function stringOption(ctx: CommandContext, name: string): string | undefined {
@@ -80,7 +87,7 @@ export async function readPrompt(ctx: CommandContext): Promise<string> {
 export async function buildTask(
   nexar: Nexar,
   ctx: CommandContext,
-  extra: { readonly cwd?: string } = {},
+  extra: { readonly cwd?: string; readonly attachments?: readonly ArtifactRef[] } = {},
 ): Promise<NexarTask> {
   const kind = stringOption(ctx, 'kind');
   if (kind === undefined || kind === '') throw new UsageError('--kind <kind> is required');
@@ -88,9 +95,14 @@ export async function buildTask(
   const capabilities = listOption(ctx, 'capability');
   const preferred = listOption(ctx, 'prefer').map(toResourceId);
   const excluded = listOption(ctx, 'exclude').map(toResourceId);
+  const project = stringOption(ctx, 'project');
   return nexar.createTask({
     kind,
     prompt,
+    ...(project === undefined ? {} : { projectId: project }),
+    ...(extra.attachments === undefined || extra.attachments.length === 0
+      ? {}
+      : { attachments: extra.attachments }),
     requirements: {
       capabilities,
       ...(preferred.length === 0 ? {} : { preferredResourceIds: preferred }),

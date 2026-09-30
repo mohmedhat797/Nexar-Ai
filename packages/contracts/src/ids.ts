@@ -7,6 +7,8 @@ export type Brand<T, B extends string> = T & { readonly __brand: B };
 export type TaskId = Brand<string, 'TaskId'>;
 /** Identifies an AI Resource (model, agent, tool runtime) in the registry. */
 export type ResourceId = Brand<string, 'ResourceId'>;
+/** Identifies a project: a named set of roots, working directories and document sets. */
+export type ProjectId = Brand<string, 'ProjectId'>;
 /** Identifies an execution adapter implementation. */
 export type AdapterId = Brand<string, 'AdapterId'>;
 
@@ -39,4 +41,9 @@ export function resourceId(s: string): ResourceId {
 /** Validates and brands an adapter id. */
 export function adapterId(s: string): AdapterId {
   return slug('AdapterId', s) as AdapterId;
+}
+
+/** Validates and brands a project id. */
+export function projectId(s: string): ProjectId {
+  return slug('ProjectId', s) as ProjectId;
 }

@@ -1,6 +1,11 @@
 import { dirname, join } from 'node:path';
 import type { Logger } from '@nexar/contracts';
-import { createNexar, loadConfig, type LoadedConfig, type NexarRuntime } from '@nexar/core';
+import {
+  createNexarWithProjects,
+  loadConfig,
+  type LoadedConfig,
+  type NexarRuntime,
+} from '@nexar/core';
 import { ClaudeCodeExecutionAdapter } from '@nexar/integration-claude-code';
 import { DeepSeekHarnessExecutionAdapter } from '@nexar/integration-deepseek-harness';
 import { EchoExecutionAdapter } from '@nexar/integration-echo';
@@ -22,8 +27,15 @@ export function loadCliConfig(io: CliIo, explicitPath: string | undefined): Prom
   });
 }
 
-/** The only place adapters are instantiated: every integration the CLI knows about. */
-export function compose(loaded: LoadedConfig, io: CliIo, logger: Logger): Composition {
+/**
+ * The only place adapters are instantiated: every integration the CLI knows about.
+ * Canonicalizes project roots, so a misconfigured project fails here with `CONFIGURATION_ERROR`.
+ */
+export async function compose(
+  loaded: LoadedConfig,
+  io: CliIo,
+  logger: Logger,
+): Promise<Composition> {
   const configDir = loaded.path === undefined ? io.cwd : dirname(loaded.path);
   const adapters = [
     new EchoExecutionAdapter(),
@@ -34,10 +46,13 @@ export function compose(loaded: LoadedConfig, io: CliIo, logger: Logger): Compos
     }),
     new PiExecutionAdapter({ env: io.env }),
   ];
-  const runtime = createNexar(loaded.config, {
+  const runtime = await createNexarWithProjects(loaded.config, {
     adapters,
     logger,
     configDir,
+    // The owner at their own terminal may run unscoped (`--cwd` without `--project`). External
+    // clients (the Work Bridge) must use an engine left at the secure 'project-only' default.
+    workingDirectoryPolicy: 'project-or-unscoped',
     // The built-in default config has no telemetry path of its own.
     ...(loaded.source === 'default'
       ? { telemetry: new JsonlFileTelemetrySink(join(io.cwd, '.nexar', 'telemetry.jsonl')) }

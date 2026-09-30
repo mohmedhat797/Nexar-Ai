@@ -56,6 +56,9 @@ importers:
       '@nexar/integration-pi':
         specifier: workspace:*
         version: link:../../integrations/pi
+      '@nexar/projects':
+        specifier: workspace:*
+        version: link:../../packages/projects
       '@nexar/resource-controller':
         specifier: workspace:*
         version: link:../../packages/resource-controller
@@ -89,6 +92,9 @@ importers:
       '@nexar/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@nexar/projects':
+        specifier: workspace:*
+        version: link:../../packages/projects
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -113,6 +119,9 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@nexar/projects':
+        specifier: workspace:*
+        version: link:../projects
       '@nexar/resource-controller':
         specifier: workspace:*
         version: link:../resource-controller
@@ -129,6 +138,12 @@ importers:
       '@nexar/integration-echo':
         specifier: workspace:*
         version: link:../../integrations/echo
+
+  packages/projects:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/resource-controller:
     dependencies:

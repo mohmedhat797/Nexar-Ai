@@ -24,6 +24,7 @@
     "@nexar/integration-deepseek-harness": "workspace:*",
     "@nexar/integration-echo": "workspace:*",
     "@nexar/integration-pi": "workspace:*",
+    "@nexar/projects": "workspace:*",
     "@nexar/resource-controller": "workspace:*",
     "@nexar/telemetry": "workspace:*"
   }

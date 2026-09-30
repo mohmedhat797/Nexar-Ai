@@ -1,7 +1,7 @@
 import type { ArtifactRef } from './artifacts.js';
 import type { NexarErrorCode } from './errors.js';
 import type { UsageReport } from './execution.js';
-import type { AdapterId, ResourceId, TaskId } from './ids.js';
+import type { AdapterId, ProjectId, ResourceId, TaskId } from './ids.js';
 import type { Measured } from './measured.js';
 import type { QuotaState, ResourceKindType } from './resource.js';
 import type { RouteDecision } from './routing.js';
@@ -16,6 +16,7 @@ export interface ExecutionRecord {
   readonly taskId: TaskId;
   readonly taskKind: TaskKind;
   readonly origin: TaskOrigin['source'];
+  readonly projectId?: ProjectId;
   readonly resourceId: ResourceId;
   readonly resourceKind: ResourceKindType;
   readonly adapter: AdapterId;

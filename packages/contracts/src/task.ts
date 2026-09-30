@@ -1,6 +1,6 @@
 import type { ArtifactRef } from './artifacts.js';
 import type { Capability } from './capabilities.js';
-import type { ResourceId, TaskId } from './ids.js';
+import type { ProjectId, ResourceId, TaskId } from './ids.js';
 
 /** Task kinds Nexar ships with first-class knowledge of. */
 export const KNOWN_TASK_KINDS = [
@@ -53,6 +53,8 @@ export interface NexarTask {
   readonly title?: string;
   readonly input: TaskInput;
   readonly requirements: TaskRequirements;
+  /** The project whose boundary and defaults apply to this task. */
+  readonly projectId?: ProjectId;
   readonly origin: TaskOrigin;
   /** ISO-8601 timestamp. */
   readonly createdAt: string;

@@ -136,5 +136,21 @@
   },
   "telemetry": {
     "jsonlPath": ".nexar/telemetry.jsonl"
-  }
+  },
+  "projects": [
+    {
+      "id": "demo-project",
+      "displayName": "Demo project",
+      "roots": ["../examples/demo-project"],
+      "workingDirectories": ["../examples/demo-project"],
+      "documentSets": {
+        "overview": ["../examples/demo-project/README.md", "../examples/demo-project/docs"]
+      },
+      "defaults": {
+        "capabilities": ["knowledge-work"],
+        "privacy": "standard",
+        "preferredResourceIds": ["claude-code"]
+      }
+    }
+  ]
 }

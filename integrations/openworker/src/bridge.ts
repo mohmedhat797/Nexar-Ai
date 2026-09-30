@@ -1,4 +1,3 @@
-import { isAbsolute, relative, resolve, sep } from 'node:path';
 import {
   NexarError,
   isNexarError,
@@ -16,7 +15,14 @@ import {
   type WorkResponseError,
 } from './schema.js';
 
-/** The slice of the Nexar engine the bridge needs; the real `Nexar` class satisfies it. */
+/**
+ * The slice of the Nexar engine the bridge needs; the real `Nexar` class satisfies it.
+ *
+ * SECURITY: the bridge never validates paths itself. Containment is the engine's realpath policy,
+ * so the engine MUST be built with `workingDirectoryPolicy: 'project-only'` (the `createNexar`
+ * default) and a `ProjectRegistry`. Never hand the bridge an engine configured as
+ * `'project-or-unscoped'`: that would let a request run in an unscoped directory.
+ */
 export interface WorkEngine {
   createTask(input: NewTaskInput): NexarTask;
   run(task: NexarTask, options?: RunOptions): Promise<RunOutcome>;
@@ -26,8 +32,6 @@ export interface WorkBridgeOptions {
   readonly engine: WorkEngine;
   /** Default `['openworker']`. */
   readonly allowedSources?: readonly string[];
-  /** Directories a request's `workingDirectory` must be inside. Default: none. */
-  readonly allowedWorkingDirectories?: readonly string[];
   /** Default 100_000. */
   readonly maxRequestChars?: number;
   readonly logger?: Logger;
@@ -47,12 +51,6 @@ const silent: Logger = {
 };
 
 const REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
-
-/** Separator-aware containment on resolved paths, so `..` cannot escape the directory. */
-function isInside(directory: string, candidate: string): boolean {
-  const rel = relative(directory, candidate);
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-}
 
 function readRequestId(input: unknown): string | null {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return null;
@@ -81,18 +79,17 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
   const { engine } = options;
   const logger = options.logger ?? silent;
   const allowedSources = options.allowedSources ?? ['openworker'];
-  const allowedDirs = (options.allowedWorkingDirectories ?? []).map((d) => resolve(d));
   const schema = createWorkRequestSchema(options.maxRequestChars ?? DEFAULT_MAX_REQUEST_CHARS);
 
-  async function execute(req: WorkRequest, signal: AbortSignal | undefined): Promise<WorkResponse> {
+  function buildTask(req: WorkRequest): NexarTask {
     const constraints = req.constraints;
-    const task = engine.createTask({
+    return engine.createTask({
       kind: req.taskKind,
       prompt: req.request,
       ...(req.systemPrompt === undefined ? {} : { systemPrompt: req.systemPrompt }),
-      ...(req.workingDirectory === undefined
-        ? {}
-        : { workingDirectory: resolve(req.workingDirectory) }),
+      ...(req.project === undefined ? {} : { projectId: req.project }),
+      // Passed through unchecked on purpose: the engine canonicalizes it against the project.
+      ...(req.workingDirectory === undefined ? {} : { workingDirectory: req.workingDirectory }),
       origin: {
         source: req.source,
         correlationId: req.requestId,
@@ -111,6 +108,13 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
       },
       metadata: { bridge: 'openworker', bridgeVersion: WORK_BRIDGE_VERSION },
     });
+  }
+
+  async function execute(
+    task: NexarTask,
+    req: WorkRequest,
+    signal: AbortSignal | undefined,
+  ): Promise<WorkResponse> {
     const outcome = await engine.run(task, {
       ...(signal === undefined ? {} : { signal }),
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
@@ -165,16 +169,13 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
           issues: [{ path: 'source', message: 'not an allowed source' }],
         });
       }
-      if (req.workingDirectory !== undefined) {
-        const target = resolve(req.workingDirectory);
-        if (!allowedDirs.some((dir) => isInside(dir, target))) {
-          log.info('work request rejected', { source: req.source, code: 'POLICY_REJECTED' });
-          return rejected(req.requestId, {
-            code: 'POLICY_REJECTED',
-            message: 'Working directory is not allowed',
-            issues: [{ path: 'workingDirectory', message: 'not inside an allowed directory' }],
-          });
-        }
+      if (req.workingDirectory !== undefined && req.project === undefined) {
+        log.info('work request rejected', { source: req.source, code: 'POLICY_REJECTED' });
+        return rejected(req.requestId, {
+          code: 'POLICY_REJECTED',
+          message: 'A working directory requires a project',
+          issues: [{ path: 'workingDirectory', message: 'requires a project' }],
+        });
       }
 
       log.info('work request accepted', {
@@ -183,11 +184,30 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
         requestChars: req.request.length,
         systemPromptChars: req.systemPrompt?.length ?? 0,
       });
+      let building = true;
       try {
-        const response = await execute(req, opts.signal);
+        const task = buildTask(req);
+        building = false;
+        const response = await execute(task, req, opts.signal);
         log.info('work request completed', { taskId: response.taskId });
         return response;
       } catch (thrown) {
+        // Both cases happen before routing: nothing ran.
+        // - building: unknown or malformed project
+        // - running: the engine's workspace policy rejected the working directory
+        if (
+          isNexarError(thrown) &&
+          (thrown.code === 'POLICY_REJECTED' || (building && thrown.code === 'VALIDATION_ERROR'))
+        ) {
+          log.info('work request rejected', { source: req.source, code: thrown.code });
+          return rejected(req.requestId, {
+            code: thrown.code,
+            message: thrown.message,
+            issues: building
+              ? [{ path: 'project', message: 'not a registered project' }]
+              : [{ path: 'workingDirectory', message: 'outside the project boundary' }],
+          });
+        }
         if (isNexarError(thrown)) {
           log.warn('work request failed', { code: thrown.code });
           return failed(req.requestId, {

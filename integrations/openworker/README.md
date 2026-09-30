@@ -14,7 +14,6 @@ import { createWorkBridge } from '@nexar/integration-openworker';
 const bridge = createWorkBridge({
   engine: nexar, // anything with createTask() / run(); the real Nexar class fits
   allowedSources: ['openworker'], // default
-  allowedWorkingDirectories: ['/home/me/projects'], // default: none
   maxRequestChars: 100_000, // default
   timeoutMs: 120_000,
 });
@@ -31,9 +30,11 @@ Request and system-prompt text is never logged; only ids, source, task kind and 
 | `rejected`  | Invalid or unauthorized input (`VALIDATION_ERROR`, `POLICY_REJECTED`). Nothing ran.                                                       |
 | `failed`    | The task was routed or ran and failed; `error.code` is a `NexarErrorCode`. Unknown errors become `INTERNAL_ERROR` with a generic message. |
 
-`workingDirectory` must be absolute and equal to, or inside, one of `allowedWorkingDirectories`
-(compared after `path.resolve`, so `..` escapes are refused). With no allowlist every value is
-rejected.
+`project` must name a project registered with the engine (`@nexar/projects`); unknown ids are
+`rejected`. `workingDirectory` must be absolute and is accepted **only together with `project`**. The
+bridge does no path checks itself: the engine resolves the path with `realpath` (symlinks and `..`
+included) and rejects anything outside the project's working directories with `POLICY_REJECTED`
+before any adapter runs. The engine must use the default `workingDirectoryPolicy: 'project-only'`.
 
 ## v0.2 plan
 

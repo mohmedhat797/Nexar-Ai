@@ -4,6 +4,7 @@ import { toNexarError, type LogLevel, type NexarErrorCode } from '@nexar/contrac
 import { createJsonLogger } from '@nexar/telemetry';
 import { GLOBAL_OPTIONS, type Command } from './args.js';
 import { doctorCommand } from './commands/doctor.js';
+import { projectsCommand } from './commands/projects.js';
 import { resourcesCommand } from './commands/resources.js';
 import { routeCommand } from './commands/route.js';
 import { runCommand } from './commands/run.js';
@@ -11,7 +12,13 @@ import { EXIT, UsageError, type CliIo } from './io.js';
 
 export const CLI_VERSION = '0.1.0';
 
-const COMMANDS: readonly Command[] = [doctorCommand, resourcesCommand, routeCommand, runCommand];
+const COMMANDS: readonly Command[] = [
+  doctorCommand,
+  resourcesCommand,
+  projectsCommand,
+  routeCommand,
+  runCommand,
+];
 const LOG_LEVELS: readonly string[] = ['debug', 'info', 'warn', 'error'];
 const GLOBAL_STRING_OPTIONS: ReadonlySet<string> = new Set(['--config', '--log-level']);
 
