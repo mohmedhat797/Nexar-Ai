@@ -1,0 +1,25 @@
+node_modules
+dist
+coverage
+*.tsbuildinfo
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local runtime state (sessions, telemetry, credentials)
+.nexar/
+
+# Local databases
+*.sqlite*
+*.db
+
+# OS / editor / logs
+.DS_Store
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json
