@@ -55,3 +55,18 @@ follow-ups, `01x` v0.2, `02x` v0.3, `03x` v0.4, `04x` v0.5.
 | ------------------------------------------------------- | ------------------------------------------- | --------- | ----------------------- |
 | [NXR-040](040-control-plane-adr-and-daemon-skeleton.md) | Control-plane ADR and local daemon skeleton | v0.5      | control-plane, security |
 | [NXR-041](041-nexar-mobile-pwa-shell.md)                | Nexar Mobile PWA shell                      | v0.5      | mobile                  |
+
+## GitHub issues
+
+Each item is mirrored as a GitHub issue (the file in this directory remains the source of truth):
+
+| Item    | Issue | Item    | Issue | Item    | Issue |
+| ------- | ----- | ------- | ----- | ------- | ----- |
+| NXR-001 | #1    | NXR-013 | #9    | NXR-024 | #14   |
+| NXR-002 | #2    | NXR-014 | #19   | NXR-030 | #15   |
+| NXR-003 | #3    | NXR-015 | #20   | NXR-031 | #16   |
+| NXR-004 | #4    | NXR-016 | #21   | NXR-032 | #17   |
+| NXR-005 | #5    | NXR-020 | #10   | NXR-033 | #18   |
+| NXR-010 | #6    | NXR-021 | #11   | NXR-040 | #22   |
+| NXR-011 | #7    | NXR-022 | #12   | NXR-041 | #23   |
+| NXR-012 | #8    | NXR-023 | #13   |         |       |
