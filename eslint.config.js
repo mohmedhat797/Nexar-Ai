@@ -28,4 +28,9 @@ export default tseslint.config(
     languageOptions: { globals: globals.node },
     rules: { 'no-console': 'warn' },
   },
+  {
+    // Repository scripts report to the terminal by design.
+    files: ['scripts/**'],
+    rules: { 'no-console': 'off' },
+  },
 );
