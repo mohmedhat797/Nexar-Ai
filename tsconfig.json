@@ -9,6 +9,9 @@
     },
     {
       "path": "./packages/resource-controller"
+    },
+    {
+      "path": "./packages/telemetry"
     }
   ]
 }
