@@ -32,3 +32,31 @@ usage data is available; keep ~$10 reserve.
 - Efficiency notes: parallel worktree dispatch (3 adapters + backlog at once) cut wall-clock time;
   pre-installing dependencies before dispatch avoided sandbox-network failures (first dispatch lost
   that step); briefs with exact contracts produced diffs that needed only small orchestrator fixes.
+
+## v0.2 — Personal Work
+
+| Date       | Unit                                                      | Model                       | Work                                                                      | Observed usage                                                                     | Outcome                                             |
+| ---------- | --------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------- |
+| 2026-09-30 | Orchestrator session (v0.2)                               | Opus 5.5                    | Release gate, planning, briefs, reviews, security fixes, live E2E, report | Not exposed to the session                                                         | See v0.2 report                                     |
+| 2026-09-30 | Research: MCP SDK + OpenWorker re-check (native subagent) | Sonnet                      | Evidence notes, headless OpenWorker install                               | Tokens only: 183k; cost not exposed                                                | 2 notes                                             |
+| 2026-09-30 | Delegate v0.2-A — project context (#11)                   | Sonnet 5.5                  | `@nexar/projects`, engine policy, CLI                                     | $2.418, 83 turns                                                                   | Accepted                                            |
+| 2026-09-30 | Delegate v0.2-B2 — approvals (#10), worktree              | Sonnet 5.5                  | `@nexar/approvals`                                                        | $0.800, 35 turns                                                                   | Accepted                                            |
+| 2026-09-30 | Delegate v0.2-C1 — access + audit (#7), worktree          | Sonnet 5.5                  | `@nexar/access`                                                           | $0.658, 23 turns                                                                   | Accepted                                            |
+| 2026-09-30 | Delegate v0.2-B1 — artifacts + approvals CLI (#12)        | Sonnet 5.5                  | `@nexar/artifacts`, CLI                                                   | $1.330, 46 turns                                                                   | Accepted with fix (.gitignore in existing .nexar)   |
+| 2026-09-30 | Delegate v0.2-C2 — MCP server + bridge v2 (#6, #7)        | Sonnet 5.5                  | `@nexar/integration-mcp`, bridge v2, CLI                                  | $3.954, 100 turns                                                                  | Accepted with fix (per-client request-id namespace) |
+| 2026-09-30 | Delegate v0.2-D — workflows, first attempt                | Sonnet 5.5                  | Aborted by container restart                                              | Not recorded (no result)                                                           | Re-dispatched                                       |
+| 2026-09-30 | Delegate v0.2-D2 — workflows (#8, #9)                     | Sonnet 5.5                  | `@nexar/workflows`, 4 workflows, CLI, bridge, MCP                         | $4.944, 100 turns                                                                  | Accepted                                            |
+| 2026-09-30 | Delegate v0.2-F — config path semantics                   | Sonnet 5.5                  | Root-relative project paths                                               | $0.251, 13 turns                                                                   | Accepted                                            |
+| 2026-09-30 | Delegate v0.2-G — documentation refresh                   | Sonnet 5.5                  | README, CLAUDE.md, architecture, security, ADR-013/014                    | $1.418, 54 turns                                                                   | Accepted                                            |
+| 2026-09-30 | Live runs (claude-code via Nexar)                         | Sonnet 5.5 via `claude` CLI | 4 live workflow/request runs + probes                                     | CLI-reported estimates: $0.0256 (raw), $0.0571 (CLI tech-doc); others not captured | Passed                                              |
+
+### v0.2 totals
+
+- Observed relay spend (8 completed dispatches): **$15.77** (sum of `totalCostUsd`; the aborted
+  first workflows dispatch reported nothing). Cumulative observed relay spend v0.1 + v0.2: **$24.86**.
+- Opus orchestrator cost and native-subagent cost are not exposed to the session and are not estimated.
+  The ~$25 observed-relay checkpoint is reached; since the Opus share is unknown, the true total is
+  higher — an owner-side check of actual usage is recommended before v0.3.
+- Efficiency: parallel worktrees (approvals, access alongside projects) and pre-linked packages kept
+  dispatches productive; the largest cost drivers were the two broadest briefs (MCP + bridge,
+  workflows, each hitting 100 turns) — v0.3 briefs should be split finer.

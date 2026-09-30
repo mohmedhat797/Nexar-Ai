@@ -74,3 +74,5 @@ Issue numbers are sequential in NXR order (verified against GitHub on 2026-09-30
 | NXR-010 | #6    | NXR-021 | #14   | NXR-040 | #22   |
 | NXR-011 | #7    | NXR-022 | #15   | NXR-041 | #23   |
 | NXR-012 | #8    | NXR-023 | #16   |         |       |
+
+NXR-017 (document export formats, follow-up from v0.2) is issue #25.
