@@ -21,6 +21,9 @@
     },
     {
       "path": "./integrations/openworker"
+    },
+    {
+      "path": "./integrations/claude-code"
     }
   ]
 }
