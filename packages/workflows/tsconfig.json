@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/*.test.ts", "dist"],
+  "references": [
+    { "path": "../artifacts" },
+    { "path": "../contracts" },
+    { "path": "../core" },
+    { "path": "../projects" }
+  ]
+}

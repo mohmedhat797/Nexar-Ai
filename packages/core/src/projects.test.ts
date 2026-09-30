@@ -62,6 +62,37 @@ describe('config: projects', () => {
     expect(p?.documentSets).toEqual({ docs: ['/cfg/dir/p/a.md', '/abs/b.md'] });
   });
 
+  it('resolves workflow directories and instruction files against baseDir', () => {
+    const [p] = parse(
+      [
+        project({
+          workflows: {
+            directories: ['p/flows', '/abs/flows'],
+            instructions: { sow: 'p/style.md', 'meeting-brief': '/abs/mb.md' },
+          },
+        }),
+      ],
+      '/cfg/dir',
+    ).projects;
+    expect(p?.workflows).toEqual({
+      directories: ['/cfg/dir/p/flows', '/abs/flows'],
+      instructions: { sow: '/cfg/dir/p/style.md', 'meeting-brief': '/abs/mb.md' },
+    });
+    expect(parse([project()]).projects[0]).not.toHaveProperty('workflows');
+  });
+
+  it.each([
+    ['an unknown key', { workflows: { extra: true } }],
+    ['an empty directory list', { workflows: { directories: [] } }],
+    [
+      'an instruction key that is not a workflow id',
+      { workflows: { instructions: { 'Bad Id': 'a.md' } } },
+    ],
+    ['an empty instruction path', { workflows: { instructions: { sow: '' } } }],
+  ])('rejects %s in workflows', (_name, extra) => {
+    expect(() => parse([project(extra)])).toThrow(/workflows/);
+  });
+
   it('carries defaults and metadata', () => {
     const [p] = parse([
       project({

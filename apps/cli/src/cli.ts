@@ -12,6 +12,7 @@ import { projectsCommand } from './commands/projects.js';
 import { resourcesCommand } from './commands/resources.js';
 import { routeCommand } from './commands/route.js';
 import { runCommand } from './commands/run.js';
+import { workflowsCommand } from './commands/workflows.js';
 import { EXIT, UsageError, type CliIo } from './io.js';
 
 import { CLI_VERSION } from './version.js';
@@ -26,6 +27,7 @@ const COMMANDS: readonly Command[] = [
   approvalsCommand,
   clientsCommand,
   mcpCommand,
+  workflowsCommand,
   routeCommand,
   runCommand,
 ];

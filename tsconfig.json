@@ -48,6 +48,9 @@
     },
     {
       "path": "./packages/artifacts"
+    },
+    {
+      "path": "./packages/workflows"
     }
   ]
 }

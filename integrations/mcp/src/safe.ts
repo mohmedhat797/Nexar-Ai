@@ -6,6 +6,7 @@ export const NEXAR_MCP_TOOLS = [
   'nexar.work_status',
   'nexar.route',
   'nexar.resources',
+  'nexar.workflows',
 ] as const;
 
 export type NexarMcpToolName = (typeof NEXAR_MCP_TOOLS)[number];

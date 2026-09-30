@@ -63,7 +63,8 @@ and the [ADRs](docs/adr/).
 | pi-ai adapter            | `@nexar/integration-pi`               | Direct models via exact-pinned `@earendil-works/pi-ai@0.99.2`; OpenAI-compatible local endpoints                                                |
 | OpenWorker Work Bridge   | `@nexar/integration-openworker`       | Versioned request/response contract + validating handler (no transport yet)                                                                     |
 | Echo adapter             | `@nexar/integration-echo`             | Deterministic offline resource for CI and zero-credential runs                                                                                  |
-| CLI                      | `@nexar/cli`                          | `nexar doctor`, `resources`, `route`, `run`                                                                                                     |
+| Workflows                | `@nexar/workflows`                    | Data-driven workflows (`workflows/`): technical docs, SOW, proposal, meeting brief; drafts only, untrusted-input boundary                       |
+| CLI                      | `@nexar/cli`                          | `nexar doctor`, `resources`, `route`, `run` (`--workflow`), `workflows`                                                                         |
 
 **Planned** — see [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) and [`docs/backlog/`](docs/backlog/):
 Nexar MCP server for OpenWorker and documentation workflows (v0.2); Codex / Antigravity / Delegate

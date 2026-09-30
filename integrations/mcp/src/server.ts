@@ -37,10 +37,35 @@ export interface RouteInput {
   readonly maxCostUsd?: number;
 }
 
+/** What `nexar.workflows` shows of a workflow; the runner's `LoadedWorkflow` satisfies it. */
+export interface WorkflowListing {
+  readonly summary: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly description: string;
+    readonly taskKind: string;
+    readonly inputs: readonly {
+      readonly name: string;
+      readonly label: string;
+      readonly type: string;
+      readonly required: boolean;
+      readonly maxLength?: number;
+      readonly maxItems?: number;
+    }[];
+    readonly outputs: readonly {
+      readonly id: string;
+      readonly mediaType: string;
+      readonly draft: boolean;
+    }[];
+  };
+}
+
 export interface NexarMcpDeps {
   readonly bridge: Pick<WorkBridge, 'submit' | 'status'>;
   readonly router: { route(input: RouteInput): Promise<RouteSummary> };
   readonly resources: { list(): Promise<readonly SafeResource[]> };
+  /** The workflow catalog; without it `nexar.workflows` lists nothing. */
+  readonly workflows?: { list(projectId?: string): readonly WorkflowListing[] };
   readonly clients: Pick<ClientRegistry, 'reload' | 'authenticate'>;
   readonly audit: AuditLog;
   /** `NEXAR_CLIENT_TOKEN`, read once by the launcher. Undefined means every call fails authentication. */
@@ -68,6 +93,7 @@ const RouteToolInput = z.strictObject({
   request: z.string().min(1).max(100_000).optional(),
 });
 const ResourcesInput = z.strictObject({});
+const WorkflowsInput = z.strictObject({ project: z.string().min(1).max(128).optional() });
 
 /**
  * The schema the SDK advertises and the handler uses. The SDK would otherwise validate before our
@@ -158,7 +184,7 @@ interface CallContext {
 }
 
 /**
- * The MCP face of Nexar: four tools over stdio, each call authenticated, authorized and audited.
+ * The MCP face of Nexar: five tools over stdio, each call authenticated, authorized and audited.
  * Returns a server factory for `serveStdio` (or, in tests, call it and connect the server to any
  * transport).
  *
@@ -250,12 +276,17 @@ export function createNexarMcpServer(deps: NexarMcpDeps): () => McpServer {
         ...(wait.data === undefined ? {} : { waitMs: wait.data * 1000 }),
         ...(deps.signal === undefined ? {} : { signal: deps.signal }),
         authorize: (request) => {
-          audit.setScope({ projectId: request.project, taskKind: request.taskKind });
+          audit.setScope({
+            projectId: request.project,
+            taskKind: request.taskKind,
+            ...(request.workflowId === undefined ? {} : { workflowId: request.workflowId }),
+          });
           try {
             authorize(identity, {
               tool: 'nexar.submit_work',
               taskKind: request.taskKind,
               projectId: request.project,
+              ...(request.workflowId === undefined ? {} : { workflowId: request.workflowId }),
               ...(request.maxCostUsd === undefined ? {} : { maxCostUsd: request.maxCostUsd }),
             });
           } catch (thrown) {
@@ -309,6 +340,48 @@ export function createNexarMcpServer(deps: NexarMcpDeps): () => McpServer {
       return result({ resources: await deps.resources.list() }, false);
     });
 
+  const workflows = (raw: unknown): Promise<CallToolResult> =>
+    call('nexar.workflows', raw, async ({ identity, audit }, args) => {
+      const input = parseArguments(WorkflowsInput, args);
+      if (input.project !== undefined) {
+        audit.setScope({ projectId: input.project });
+        try {
+          authorize(identity, { tool: 'nexar.workflows', projectId: input.project });
+        } catch (thrown) {
+          audit.setPolicy('rejected');
+          throw thrown;
+        }
+      }
+      // Only workflows this client could actually run: the same scopes `nexar.submit_work` applies.
+      const runnable = (deps.workflows?.list(input.project) ?? []).filter(({ summary }) => {
+        try {
+          authorize(identity, {
+            tool: 'nexar.workflows',
+            taskKind: summary.taskKind,
+            workflowId: summary.id,
+            ...(input.project === undefined ? {} : { projectId: input.project }),
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      await audit.finish('completed');
+      return result(
+        {
+          workflows: runnable.map(({ summary }) => ({
+            id: summary.id,
+            displayName: summary.displayName,
+            description: summary.description,
+            taskKind: summary.taskKind,
+            inputs: summary.inputs,
+            outputs: summary.outputs,
+          })),
+        },
+        false,
+      );
+    });
+
   return () => {
     const server = new McpServer(
       { name: 'nexar', version: deps.version },
@@ -319,7 +392,8 @@ export function createNexarMcpServer(deps: NexarMcpDeps): () => McpServer {
       {
         title: 'Submit work to Nexar',
         description:
-          'Run a task on the best AI resource Nexar can choose, inside a project. Returns the result, ' +
+          'Run a task on the best AI resource Nexar can choose, inside a project. Either send ' +
+          'request and taskKind, or workflow: { id, inputs } (see nexar.workflows). Returns the result, ' +
           'the routing explanation and any stored artifact. If the work is still running after ' +
           'waitSeconds (default 90), the status is "running": call nexar.work_status with the same ' +
           'requestId until it is completed or failed. Re-submitting the same requestId never starts a ' +
@@ -364,6 +438,19 @@ export function createNexarMcpServer(deps: NexarMcpDeps): () => McpServer {
         annotations: { readOnlyHint: true, openWorldHint: false },
       },
       resources,
+    );
+    server.registerTool(
+      'nexar.workflows',
+      {
+        title: 'List workflows',
+        description:
+          'List the workflows this client may run (id, name, task kind, inputs with their types and ' +
+          'limits). Run one with nexar.submit_work by passing workflow: { id, inputs } instead of ' +
+          'request and taskKind. Input values are treated as untrusted data, never as instructions.',
+        inputSchema: advertised(WorkflowsInput),
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      workflows,
     );
     return server;
   };

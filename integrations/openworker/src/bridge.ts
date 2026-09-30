@@ -11,6 +11,12 @@ import type { ArtifactStore } from '@nexar/artifacts';
 import type { NewTaskInput, RunOptions, RunOutcome } from '@nexar/core';
 import type { Project, ProjectRegistry } from '@nexar/projects';
 import { explainRouteDecision } from '@nexar/resource-controller';
+import type {
+  PrepareWorkflowInput,
+  PreparedWorkflow,
+  WorkflowRunOptions,
+  WorkflowRunResult,
+} from '@nexar/workflows';
 import {
   DEFAULT_MAX_REQUEST_CHARS,
   WORK_BRIDGE_VERSION,
@@ -38,12 +44,25 @@ export interface WorkEngine {
   ): Promise<void>;
 }
 
+/**
+ * The slice of `WorkflowRunner` the bridge needs. Same rule as {@link WorkEngine}: the runner must
+ * be built on the same engine and `ProjectRegistry` as the bridge.
+ */
+export interface WorkflowPort {
+  describe(workflowId: string, projectId?: string): { readonly taskKind: string } | undefined;
+  prepare(input: PrepareWorkflowInput): Promise<PreparedWorkflow>;
+  run(prepared: PreparedWorkflow, options?: WorkflowRunOptions): Promise<WorkflowRunResult>;
+}
+
 /** What an authorization hook sees: the validated, still-untrusted facts of a request. */
 export interface AuthorizableRequest {
   readonly requestId: string;
   readonly source: string;
   readonly project: string;
+  /** For a workflow request, the workflow's task kind (empty if the workflow does not exist). */
   readonly taskKind: string;
+  /** Set for workflow requests. */
+  readonly workflowId?: string;
   readonly documentSets: readonly string[];
   readonly maxCostUsd?: number;
 }
@@ -52,6 +71,8 @@ export interface WorkBridgeOptions {
   readonly engine: WorkEngine;
   readonly projects: ProjectRegistry;
   readonly artifacts: ArtifactStore;
+  /** Enables `workflow` requests; without it they are rejected. */
+  readonly workflows?: WorkflowPort;
   /** Default `['openworker']`. */
   readonly allowedSources?: readonly string[];
   /** Default 100_000. */
@@ -133,6 +154,24 @@ function clampWait(waitMs: number | undefined): number {
   return Math.min(Math.max(Math.floor(waitMs), 0), MAX_WAIT_MS);
 }
 
+/** Issues of a rejected workflow request: the runner's per-input problems, as response paths. */
+function workflowIssues(error: NexarError): { path: string; message: string }[] {
+  const raw = error.details?.['issues'];
+  const issues = Array.isArray(raw)
+    ? (raw as { input?: unknown; problem?: unknown }[]).flatMap((i) =>
+        typeof i.input === 'string' && typeof i.problem === 'string'
+          ? [
+              {
+                path: i.input === 'workflow' ? 'workflow.id' : `workflow.inputs.${i.input}`,
+                message: i.problem,
+              },
+            ]
+          : [],
+      )
+    : [];
+  return issues.length > 0 ? issues : [{ path: 'workflow', message: 'not usable in this project' }];
+}
+
 /** Explains a NO_ELIGIBLE_RESOURCE error from the ids and reason codes the engine attached. */
 function explainNoEligible(error: NexarError): NonNullable<WorkResponse['route']> {
   const entries = Array.isArray(error.details?.['rejected'])
@@ -160,15 +199,31 @@ interface Job {
   response: WorkResponse | undefined;
 }
 
+/** A request that is a plain prompt (no workflow): `request` and `taskKind` are known to be set. */
+type PlainRequest = WorkRequest & { readonly taskKind: string; readonly request: string };
+
+/** What a request turned into before running: a task, plus the prepared workflow if it was one. */
+interface Plan {
+  readonly task: NexarTask;
+  readonly workflow?: PreparedWorkflow;
+}
+
+/** Fields that belong to a plain prompt and must not be combined with `workflow`. */
+const PLAIN_ONLY_FIELDS = [
+  'request',
+  'taskKind',
+  'systemPrompt',
+  'output',
+  'documentSets',
+  'workingDirectory',
+] as const;
+
 /**
  * Transport-agnostic entry point: validates untrusted input, runs it on Nexar as an async job,
  * never throws.
- *
- * A request shape other than the plain prompt (for example a workflow) is added by extending
- * `createWorkRequestSchema` and branching in `prepare`; `run` and the job handling stay as they are.
  */
 export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
-  const { engine, projects, artifacts } = options;
+  const { engine, projects, artifacts, workflows } = options;
   const logger = options.logger ?? silent;
   const clock = options.clock ?? (() => new Date());
   const allowedSources = options.allowedSources ?? ['openworker'];
@@ -176,7 +231,7 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
   const jobs = new Map<string, Job>();
 
   /** The task for a request: resolves the project and document sets, then asks the engine. */
-  async function prepare(req: WorkRequest, project: Project): Promise<NexarTask> {
+  async function prepare(req: PlainRequest, project: Project): Promise<NexarTask> {
     const attachments = new Map<string, ArtifactRef>();
     for (const name of new Set(req.documentSets ?? [])) {
       for (const ref of await projects.resolveDocumentSet(project, name)) {
@@ -213,9 +268,43 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
     });
   }
 
+  /** Validates and renders a workflow request; the runner owns input validation. */
+  async function prepareWorkflow(
+    req: WorkRequest,
+    workflow: NonNullable<WorkRequest['workflow']>,
+    project: Project,
+  ): Promise<Plan> {
+    if (workflows === undefined)
+      throw new NexarError('VALIDATION_ERROR', 'Workflows are not enabled');
+    const constraints = req.constraints;
+    const prepared = await workflows.prepare({
+      workflowId: workflow.id,
+      projectId: project.id,
+      inputs: workflow.inputs,
+      origin: {
+        source: req.source,
+        project: project.id,
+        correlationId: req.requestId,
+        ...(req.requestedBy === undefined ? {} : { requestedBy: req.requestedBy }),
+      },
+      requirements: {
+        capabilities: constraints?.capabilities ?? [],
+        ...(constraints?.privacy === undefined ? {} : { privacy: constraints.privacy }),
+        ...(constraints?.maxCostUsd === undefined ? {} : { maxCostUsd: constraints.maxCostUsd }),
+        ...(constraints?.preferredResourceIds === undefined
+          ? {}
+          : { preferredResourceIds: constraints.preferredResourceIds.map(resourceId) }),
+        ...(constraints?.excludedResourceIds === undefined
+          ? {}
+          : { excludedResourceIds: constraints.excludedResourceIds.map(resourceId) }),
+      },
+    });
+    return { task: prepared.task, workflow: prepared };
+  }
+
   /** Persists the result text when the request asked for it; a storage failure never loses the text. */
   async function persist(
-    req: WorkRequest,
+    req: PlainRequest,
     task: NexarTask,
     text: string,
     log: Logger,
@@ -248,17 +337,30 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
 
   async function run(
     req: WorkRequest,
-    task: NexarTask,
+    plan: Plan,
     signal: AbortSignal | undefined,
     log: Logger,
   ): Promise<WorkResponse> {
+    const { task } = plan;
     try {
-      const outcome = await engine.run(task, {
+      const runOptions = {
         ...(signal === undefined ? {} : { signal }),
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-      });
+      };
+      let outcome: RunOutcome;
+      let stored: Pick<WorkResponse, 'artifacts' | 'error' | 'workflow'>;
+      if (plan.workflow !== undefined && workflows !== undefined) {
+        const ran = await workflows.run(plan.workflow, runOptions);
+        outcome = ran.outcome;
+        stored = {
+          artifacts: ran.artifacts,
+          workflow: { id: plan.workflow.workflowId, outputsSplit: ran.outputsSplit },
+        };
+      } else {
+        outcome = await engine.run(task, runOptions);
+        stored = await persist(req as PlainRequest, outcome.task, outcome.result.text, log);
+      }
       const { result, decision } = outcome;
-      const stored = await persist(req, outcome.task, result.text, log);
       return {
         version: WORK_BRIDGE_VERSION,
         requestId: req.requestId,
@@ -382,13 +484,44 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
       });
     }
 
+    // Exactly one shape: a plain prompt (`request` + `taskKind`) or a `workflow`.
+    const shapeIssues: { path: string; message: string }[] = [];
+    if (req.workflow === undefined) {
+      if (req.request === undefined) shapeIssues.push({ path: 'request', message: 'required' });
+      if (req.taskKind === undefined) shapeIssues.push({ path: 'taskKind', message: 'required' });
+    } else if (workflows === undefined) {
+      shapeIssues.push({ path: 'workflow', message: 'workflows are not enabled' });
+    } else {
+      for (const field of PLAIN_ONLY_FIELDS) {
+        if (req[field] !== undefined) {
+          shapeIssues.push({ path: field, message: 'cannot be combined with workflow' });
+        }
+      }
+    }
+    if (shapeIssues.length > 0) {
+      log.info('work request rejected', { code: 'VALIDATION_ERROR', stage: 'shape' });
+      return rejected(req.requestId, {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid work request',
+        issues: shapeIssues,
+      });
+    }
+    const workflowRequest = req.workflow;
+    // An unknown workflow has no task kind: '' passes only a wildcard scope, so a client without
+    // the scope cannot tell a missing workflow from a forbidden one.
+    const taskKind =
+      workflowRequest === undefined
+        ? (req.taskKind as string)
+        : (workflows?.describe(workflowRequest.id, req.project)?.taskKind ?? '');
+
     if (opts.authorize !== undefined) {
       try {
         opts.authorize({
           requestId: req.requestId,
           source: req.source,
           project: req.project,
-          taskKind: req.taskKind,
+          taskKind,
+          ...(workflowRequest === undefined ? {} : { workflowId: workflowRequest.id }),
           documentSets: req.documentSets ?? [],
           ...(req.constraints?.maxCostUsd === undefined
             ? {}
@@ -428,9 +561,12 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
       });
     }
 
-    let task: NexarTask;
+    let plan: Plan;
     try {
-      task = await prepare(req, project);
+      plan =
+        workflowRequest === undefined
+          ? { task: await prepare(req as PlainRequest, project) }
+          : await prepareWorkflow(req, workflowRequest, project);
     } catch (thrown) {
       if (
         isNexarError(thrown) &&
@@ -440,19 +576,25 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
         return rejected(req.requestId, {
           code: thrown.code,
           message: thrown.message,
-          issues: [{ path: 'documentSets', message: 'not usable in this project' }],
+          issues:
+            workflowRequest === undefined
+              ? [{ path: 'documentSets', message: 'not usable in this project' }]
+              : workflowIssues(thrown),
         });
       }
       if (isNexarError(thrown)) {
         log.warn('work request failed', { code: thrown.code, stage: 'prepare' });
+        // A workflow configuration message can name local files: keep it out of the response.
+        const generic = workflowRequest !== undefined && thrown.code === 'CONFIGURATION_ERROR';
         return failed(req.requestId, {
           code: thrown.code,
-          message: thrown.message,
+          message: generic ? 'Workflow configuration error' : thrown.message,
           retryable: thrown.retryable,
         });
       }
       throw thrown;
     }
+    const { task } = plan;
 
     if (!makeRoom()) {
       log.warn('work request refused: too many jobs in progress');
@@ -465,10 +607,11 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
 
     log.info('work request accepted', {
       source: req.source,
-      taskKind: req.taskKind,
+      taskKind,
+      ...(workflowRequest === undefined ? {} : { workflowId: workflowRequest.id }),
       project: req.project,
       taskId: task.id,
-      requestChars: req.request.length,
+      requestChars: req.request?.length ?? 0,
       systemPromptChars: req.systemPrompt?.length ?? 0,
       documentSets: req.documentSets?.length ?? 0,
     });
@@ -486,7 +629,7 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
     };
     jobs.set(jobKey(opts.clientId, req.requestId), job);
     // `run` never rejects, so the job always settles.
-    void run(req, task, opts.signal, log).then((response) => {
+    void run(req, plan, opts.signal, log).then((response) => {
       job.response = response;
       log.info('work request settled', { status: response.status, taskId: task.id });
       finish(response);

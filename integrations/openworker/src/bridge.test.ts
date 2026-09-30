@@ -312,7 +312,19 @@ describe('Work Bridge v2 with a stub engine', () => {
       ],
       ['unknown output key', { output: { filename: 'a', path: '/x' } }, 'output'],
       ['long requestedBy', { requestedBy: 'r'.repeat(129) }, 'requestedBy'],
-      ['workflow key is not part of the schema', { workflow: 'x' }, ''],
+      ['workflow must be an object', { workflow: 'x' }, 'workflow'],
+      ['workflow id charset', { workflow: { id: 'Bad_Id', inputs: {} } }, 'workflow.id'],
+      [
+        'workflow input name charset',
+        { workflow: { id: 'sow', inputs: { 'a b': 'x' } } },
+        'workflow.inputs.a b',
+      ],
+      [
+        'workflow input value type',
+        { workflow: { id: 'sow', inputs: { a: 5 } } },
+        'workflow.inputs.a',
+      ],
+      ['unknown workflow key', { workflow: { id: 'sow', inputs: {}, extra: 1 } }, 'workflow'],
     ];
 
     it.each(cases)('%s', async (_name, overrides, path) => {
@@ -774,11 +786,13 @@ describe('schema', () => {
     for (const key of ['request', 'project', 'documentSets', 'output', 'workingDirectory']) {
       expect(properties).toHaveProperty(key);
     }
-    expect(properties).not.toHaveProperty('workflow');
+    expect(properties).toHaveProperty('workflow');
     expect(schema['additionalProperties']).toBe(false);
+    // `taskKind`/`request` are optional in the schema: the bridge requires them unless `workflow` is set.
     expect(schema['required']).toEqual(
-      expect.arrayContaining(['version', 'requestId', 'source', 'project', 'taskKind', 'request']),
+      expect.arrayContaining(['version', 'requestId', 'source', 'project']),
     );
+    expect(schema['required']).not.toContain('request');
   });
 });
 

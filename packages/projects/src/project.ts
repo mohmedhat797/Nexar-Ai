@@ -10,6 +10,14 @@ export interface ProjectDefaults {
   readonly maxCostUsd?: number;
 }
 
+/** Per-project workflow customization; paths are absolute and validated against the roots on use. */
+export interface ProjectWorkflowSettings {
+  /** Extra workflow directories inside the project roots; a same-id workflow overrides a built-in. */
+  readonly directories?: readonly string[];
+  /** Workflow id → Markdown file (inside the project) of owner-written, trusted instructions. */
+  readonly instructions?: Readonly<Record<string, string>>;
+}
+
 /** What configuration supplies; all paths are already absolute. */
 export interface ProjectDefinition {
   readonly id: ProjectId;
@@ -26,6 +34,7 @@ export interface ProjectDefinition {
   readonly artifactsDirectory?: string;
   readonly documentSets?: Readonly<Record<string, readonly string[]>>;
   readonly defaults?: ProjectDefaults;
+  readonly workflows?: ProjectWorkflowSettings;
   readonly metadata?: Readonly<Record<string, string | number | boolean>>;
 }
 

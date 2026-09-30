@@ -15,6 +15,7 @@
     { "path": "../../packages/projects" },
     { "path": "../../packages/resource-controller" },
     { "path": "../../packages/telemetry" },
+    { "path": "../../packages/workflows" },
     { "path": "../../integrations/claude-code" },
     { "path": "../../integrations/deepseek-harness" },
     { "path": "../../integrations/echo" },

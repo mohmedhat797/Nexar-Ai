@@ -10,7 +10,13 @@ import {
 import { createWorkBridge } from '@nexar/integration-openworker';
 import { explainRouteDecision } from '@nexar/resource-controller';
 import type { Command } from '../args.js';
-import { auditFilePath, clientsFilePath, compose, loadCliConfig } from '../composition.js';
+import {
+  auditFilePath,
+  clientsFilePath,
+  compose,
+  composeWorkflows,
+  loadCliConfig,
+} from '../composition.js';
 import { CLI_VERSION } from '../version.js';
 import { EXIT, UsageError } from '../io.js';
 
@@ -36,10 +42,12 @@ export const mcpCommand: Command = {
     const clients = await ClientRegistry.open(clientsFilePath(loaded, ctx.io));
     const audit = new JsonlAuditLog(auditFilePath(loaded, ctx.io));
     const lifetime = new AbortController();
+    const { runner } = await composeWorkflows(runtime, ctx.io);
     const bridge = createWorkBridge({
       engine: runtime.nexar,
       projects: runtime.projects,
       artifacts: new LocalArtifactStore({ projects: runtime.projects }),
+      workflows: runner,
       logger: ctx.logger.child({ component: 'work-bridge' }),
       timeoutMs: JOB_TIMEOUT_MS,
     });
@@ -68,6 +76,7 @@ export const mcpCommand: Command = {
           return (await runtime.registry.refresh()).map(toSafeResource);
         },
       },
+      workflows: runner,
       clients,
       audit,
       token,

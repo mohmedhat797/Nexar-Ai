@@ -57,6 +57,9 @@ project's `workingDirectories`, and the check runs in the engine before any adap
   followed, at most 500 files). A symlink leading out of the roots is rejected.
 - `defaults` may use `capabilities`, `privacy`, `preferredResourceIds`, `excludedResourceIds`,
   `minContextTokens` and `maxCostUsd`; resource ids must exist in `resources`.
+- `workflows` (optional): `directories` (extra workflow directories inside the roots; a same-id workflow
+  overrides the built-in for this project) and `instructions` (workflow id → Markdown file inside the
+  project, rendered into prompts as trusted owner instructions). See [`workflows/README.md`](../workflows/README.md).
 - Inspect with `nexar projects list [--json]`; use with `nexar route|run --project <id>`.
 
 ### Artifacts

@@ -26,6 +26,7 @@
     "@nexar/core": "workspace:*",
     "@nexar/integration-echo": "workspace:*",
     "@nexar/projects": "workspace:*",
-    "@nexar/artifacts": "workspace:*"
+    "@nexar/artifacts": "workspace:*",
+    "@nexar/workflows": "workspace:*"
   }
 }

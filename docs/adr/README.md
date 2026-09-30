@@ -20,6 +20,7 @@ ADR (or amend status) when you change one.
 | [012](012-project-context-and-path-policy.md)      | Project context and realpath path policy                  | Accepted                       |
 | [015](015-client-identity-and-audit.md)            | Client identity, scoped credentials, and request audit    | Accepted                       |
 | [016](016-human-approvals.md)                      | Human approval framework (fail-closed, action-bound)      | Accepted                       |
+| [017](017-data-driven-workflows.md)                | Data-driven workflows with an untrusted-input boundary    | Accepted                       |
 
 Template: Status · Context · Decision · Rationale · Alternatives considered · Consequences · Risks ·
 Follow-up work.

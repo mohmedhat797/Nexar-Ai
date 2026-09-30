@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "sow",
+  "displayName": "Statement of Work",
+  "description": "Draft a Statement of Work: purpose, scope, deliverables, timeline, roles, acceptance, assumptions, exclusions and change control.",
+  "taskKind": "documentation",
+  "requirements": { "capabilities": ["knowledge-work"], "privacy": "standard" },
+  "inputs": [
+    {
+      "name": "clientName",
+      "label": "Client",
+      "type": "string",
+      "required": true,
+      "maxLength": 200
+    },
+    {
+      "name": "objectives",
+      "label": "Objectives",
+      "type": "text",
+      "required": true,
+      "maxLength": 20000
+    },
+    { "name": "deliverables", "label": "Deliverables", "type": "list", "maxItems": 50 },
+    { "name": "timeline", "label": "Timeline", "type": "text", "maxLength": 5000 },
+    { "name": "assumptions", "label": "Assumptions", "type": "list", "maxItems": 50 },
+    { "name": "references", "label": "Reference documents (document set)", "type": "document-set" }
+  ],
+  "systemTemplate": "system.md",
+  "template": "prompt.md",
+  "outputs": [
+    { "id": "sow", "filename": "{{project.id}}-sow-{{date}}.md", "mediaType": "text/markdown" }
+  ]
+}

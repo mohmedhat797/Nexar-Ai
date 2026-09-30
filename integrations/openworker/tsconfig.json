@@ -21,6 +21,9 @@
     },
     {
       "path": "../../packages/resource-controller"
+    },
+    {
+      "path": "../../packages/workflows"
     }
   ]
 }

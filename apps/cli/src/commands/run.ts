@@ -13,6 +13,7 @@ import { compose, loadCliConfig } from '../composition.js';
 import { formatMeasured } from '../format.js';
 import { EXIT, UsageError } from '../io.js';
 import { explainRouteDecision } from '@nexar/resource-controller';
+import { runWorkflow } from './run-workflow.js';
 
 function parseTimeout(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
@@ -44,16 +45,30 @@ export const runCommand: Command = {
   usage:
     'nexar run --kind <kind> [--capability <c>]... [--prefer <id>]... [--exclude <id>]... [--local-only]\n' +
     '          [--project <id>] [--document-set <name>]... [--timeout <ms>] [--cwd <dir>] [--quiet]\n' +
-    '          [--json] <prompt... | ->',
+    '          [--json] <prompt... | ->\n' +
+    '       nexar run --workflow <id> --project <id> [--input name=value]... [--input-file name=path]...\n' +
+    '          [--list-input name=a,b]... [--local-only] [--timeout <ms>] [--quiet] [--json]\n\n' +
+    'A workflow reads its inputs (see "nexar workflows list"), saves its result as artifacts and\n' +
+    'prints their paths; nothing is sent anywhere. All input values are untrusted text for the\n' +
+    'model. --input-file reads a local file (at most 100 KB). Invalid input exits with code 2 and\n' +
+    'lists every problem; nothing runs.',
   options: {
     ...TASK_OPTIONS,
     timeout: { type: 'string' },
     cwd: { type: 'string' },
     'document-set': { type: 'string', multiple: true },
     quiet: { type: 'boolean' },
+    workflow: { type: 'string' },
+    input: { type: 'string', multiple: true },
+    'input-file': { type: 'string', multiple: true },
+    'list-input': { type: 'string', multiple: true },
   },
   async run(ctx) {
     const timeoutMs = parseTimeout(stringOption(ctx, 'timeout'));
+    if (stringOption(ctx, 'workflow') !== undefined) return runWorkflow(ctx, timeoutMs);
+    for (const flag of ['input', 'input-file', 'list-input']) {
+      if (listOption(ctx, flag).length > 0) throw new UsageError(`--${flag} requires --workflow`);
+    }
     const quiet = flagOption(ctx, 'quiet');
     const cwd = stringOption(ctx, 'cwd');
     const loaded = await loadCliConfig(ctx.io, ctx.configPath);

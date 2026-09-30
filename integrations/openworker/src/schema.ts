@@ -7,6 +7,7 @@ export const WORK_BRIDGE_VERSION = 2;
 export const DEFAULT_MAX_REQUEST_CHARS = 100_000;
 
 const SLUG = /^[a-z][a-z0-9-]*$/;
+const WORKFLOW_INPUT_NAME = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
 
 const ResourceIdField = z.string().refine(
   (value) => {
@@ -31,8 +32,23 @@ export function createWorkRequestSchema(maxRequestChars: number = DEFAULT_MAX_RE
       .regex(/^[A-Za-z0-9._:-]+$/),
     source: z.string().min(1).max(64),
     project: z.string().min(1).max(128),
-    taskKind: z.string().min(1).max(64).regex(SLUG),
-    request: z.string().min(1).max(maxRequestChars),
+    // `taskKind` and `request` are required unless `workflow` is given (checked by the bridge, which
+    // also refuses to mix the two shapes; no refinement here so the schema stays extendable).
+    taskKind: z.string().min(1).max(64).regex(SLUG).optional(),
+    request: z.string().min(1).max(maxRequestChars).optional(),
+    /**
+     * Run a named workflow instead of a free-form request. Values are untrusted data for the
+     * workflow's prompt template; they never choose the project, directory or permissions.
+     */
+    workflow: z
+      .strictObject({
+        id: z.string().min(1).max(64).regex(SLUG),
+        inputs: z.record(
+          z.string().regex(WORKFLOW_INPUT_NAME),
+          z.union([z.string().max(maxRequestChars), z.array(z.string().max(10_000)).max(200)]),
+        ),
+      })
+      .optional(),
     systemPrompt: z.string().max(20_000).optional(),
     constraints: z
       .strictObject({
@@ -109,5 +125,7 @@ export interface WorkResponse {
     readonly costUsd: Measured<number>;
   };
   readonly artifacts?: readonly ArtifactRef[];
+  /** Present for workflow requests. `outputsSplit: false`: the markers were missing, see `artifacts`. */
+  readonly workflow?: { readonly id: string; readonly outputsSplit: boolean };
   readonly error?: WorkResponseError;
 }

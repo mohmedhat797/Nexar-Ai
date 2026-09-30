@@ -1,4 +1,6 @@
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { LocalArtifactStore } from '@nexar/artifacts';
 import type { Logger } from '@nexar/contracts';
 import {
   createNexarWithProjects,
@@ -11,6 +13,7 @@ import { DeepSeekHarnessExecutionAdapter } from '@nexar/integration-deepseek-har
 import { EchoExecutionAdapter } from '@nexar/integration-echo';
 import { PiExecutionAdapter } from '@nexar/integration-pi';
 import { JsonlFileTelemetrySink } from '@nexar/telemetry';
+import { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
 import type { CliIo } from './io.js';
 
 export interface Composition {
@@ -77,4 +80,32 @@ export async function compose(
       : {}),
   });
   return { loaded, runtime };
+}
+
+/**
+ * The shipped workflows: `<repo>/workflows`, found relative to this package (the same from `src`
+ * and `dist`), unless `NEXAR_WORKFLOWS_DIR` names another directory.
+ */
+export function builtinWorkflowsDir(io: CliIo): string {
+  const override = io.env['NEXAR_WORKFLOWS_DIR'];
+  if (override !== undefined && override !== '') return resolve(io.cwd, override);
+  return fileURLToPath(new URL('../../../workflows', import.meta.url));
+}
+
+/** The workflow catalog (built-in plus per-project) and a runner on the same engine and projects. */
+export async function composeWorkflows(
+  runtime: NexarRuntime,
+  io: CliIo,
+): Promise<{ readonly catalog: WorkflowCatalog; readonly runner: WorkflowRunner }> {
+  const catalog = await WorkflowCatalog.load({
+    builtinDir: builtinWorkflowsDir(io),
+    projects: runtime.projects,
+  });
+  const runner = new WorkflowRunner({
+    nexar: runtime.nexar,
+    projects: runtime.projects,
+    artifacts: new LocalArtifactStore({ projects: runtime.projects }),
+    catalog,
+  });
+  return { catalog, runner };
 }

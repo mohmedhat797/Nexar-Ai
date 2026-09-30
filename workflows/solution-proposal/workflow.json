@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "solution-proposal",
+  "displayName": "Solution Proposal",
+  "description": "Draft a solution proposal for a client problem, with options, a recommendation and next steps.",
+  "taskKind": "documentation",
+  "requirements": { "capabilities": ["knowledge-work"], "privacy": "standard" },
+  "inputs": [
+    {
+      "name": "clientName",
+      "label": "Client",
+      "type": "string",
+      "required": true,
+      "maxLength": 200
+    },
+    { "name": "problem", "label": "Problem", "type": "text", "required": true, "maxLength": 20000 },
+    { "name": "constraints", "label": "Constraints", "type": "list", "maxItems": 50 },
+    { "name": "options", "label": "Options to consider", "type": "list", "maxItems": 20 },
+    { "name": "references", "label": "Reference documents (document set)", "type": "document-set" }
+  ],
+  "systemTemplate": "system.md",
+  "template": "prompt.md",
+  "outputs": [
+    {
+      "id": "proposal",
+      "filename": "{{project.id}}-proposal-{{date}}.md",
+      "mediaType": "text/markdown"
+    }
+  ]
+}

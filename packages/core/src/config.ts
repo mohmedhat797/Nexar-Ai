@@ -126,6 +126,7 @@ const TaskKindRuleSchema = z.strictObject({
 
 const DOCUMENT_SET_NAME = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 const PathSchema = z.string().min(1);
+const WORKFLOW_ID = /^[a-z][a-z0-9-]{0,63}$/;
 
 const ProjectSchema = z.strictObject({
   id: ProjectIdSchema,
@@ -144,6 +145,12 @@ const ProjectSchema = z.strictObject({
       excludedResourceIds: z.array(ResourceIdSchema).optional(),
       minContextTokens: z.number().int().positive().optional(),
       maxCostUsd: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  workflows: z
+    .strictObject({
+      directories: z.array(PathSchema).min(1).optional(),
+      instructions: z.record(z.string().regex(WORKFLOW_ID), PathSchema).optional(),
     })
     .optional(),
   metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
@@ -273,6 +280,25 @@ export function parseConfig(
             ),
           }),
       ...(defaults === undefined ? {} : { defaults: defaults as ProjectDefaults }),
+      ...(project.workflows === undefined
+        ? {}
+        : {
+            workflows: {
+              ...(project.workflows.directories === undefined
+                ? {}
+                : { directories: abs(project.workflows.directories) }),
+              ...(project.workflows.instructions === undefined
+                ? {}
+                : {
+                    instructions: Object.fromEntries(
+                      Object.entries(project.workflows.instructions).map(([id, path]) => [
+                        id,
+                        resolve(baseDir, path),
+                      ]),
+                    ),
+                  }),
+            },
+          }),
       ...(project.metadata === undefined ? {} : { metadata: project.metadata }),
     });
   }

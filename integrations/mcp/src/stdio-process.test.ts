@@ -77,6 +77,7 @@ describe.skipIf(!existsSync(MAIN))('nexar mcp serve (real process, stdio)', () =
         'nexar.route',
         'nexar.submit_work',
         'nexar.work_status',
+        'nexar.workflows',
       ]);
 
       const submit = textOf(
