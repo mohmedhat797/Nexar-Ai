@@ -340,3 +340,123 @@ Base: `https://github.com/andrewyng/openworker/blob/e8923509a9e91d2825313f8418f6
 - `docs/openshell.md`, `docs/config.example.toml`, `surfaces/gui/src-tauri/src/lib.rs`, `surfaces/gui/package.json`
 - Git: tags and 163 commits since 2026-08-31 from the shallow clone; web: https://github.com/andrewyng/openworker (non-fork, MIT)
 - Local clone: `/tmp/claude-0/-home-user-Nexar-Ai/59a81680-491c-5deb-b80c-2faba7aec06a/scratchpad/upstream/openworker`
+
+---
+
+# v0.2 re-check (2026-09-30)
+
+Appended during v0.2 planning. The v0.1 sections above remain the baseline snapshot.
+
+
+| Field | Value |
+| --- | --- |
+| Source | https://github.com/andrewyng/openworker (canonical), MIT licence |
+| v0.1 snapshot | `e8923509a9e91d2825313f8418f6129a00b1603e` (v0.3.0, 2026-09-30) |
+| Current `main` HEAD | `e8923509a9e91d2825313f8418f6129a00b1603e`, committed 2026-09-30 10:18:22 -0700, "Merge pull request #706 from andrewyng/release-0.3.0" (confirmed with `git ls-remote origin HEAD` and a depth-300 clone) |
+| Latest tag | `v0.3.0` (annotated tag object `300232e9b9e7...` peels to `e892350`). Previous: v0.2.1, v0.2.0, v0.1.7 |
+| Commits since snapshot | **0** (`git rev-list --count e892350..HEAD` = 0) |
+| Inspected | 2026-09-30 (source read, then installed and run headless, no API keys, no model calls) |
+
+All code paths below are therefore identical to the v0.1 snapshot; this note turns the v0.1 open questions into verified answers. Permalinks use `e892350`.
+
+### 1. What changed since the snapshot
+
+Nothing. No MCP, approval, automation or provider changes exist beyond v0.1. The most recent MCP-touching commit is `7ea4de3` "OPE-136: MCP permission model - EXTERNAL floor, durable per-tool trust, run grants" (2026-08-31), already in the snapshot. Re-run this check before building against it: the project is pre-1.0 and releases quickly (v0.3.0 shipped the same day as this inspection).
+
+### 2. MCP client configuration
+
+- Standard `mcpServers` JSON, Claude Desktop / Cursor paste-compatible (`coworker/mcp/config.py:1-11`).
+  - **Global**: `~/.config/coworker/mcp.json` on Linux/macOS, `%APPDATA%\coworker\mcp.json` on Windows; override with `COWORKER_STATE_DIR` or `OPENWORKER_BASE_DIR` (`coworker/secrets.py:28-50`, `mcp/config.py:44`). Global wins on name clash.
+  - **Workspace**: `<workspace>/.coworker/mcp.json`, read only when that workspace is trusted (`mcp/config.py:55-65`, `server/manager.py:541`). Use the global file for Nexar.
+- REST (`coworker/server/app.py:1246-1345`): `GET /v1/mcp`, `POST /v1/mcp` body `{"name": "...", "config": {...}}` (writes the global file atomically), `PATCH/DELETE /v1/mcp/{name}`, `GET /v1/mcp/{name}/tools` (spawns + lists; returns name and description only), `POST /v1/mcp/{name}/connect`, `POST /v1/mcp/reload`, trust endpoints. Auth: header `x-openworker-token: <COWORKER_API_TOKEN>` on everything except `/v1/health` (`app.py:193-245`). `GET /v1/mcp` masks env values as `"***"`.
+- Parsed fields (`mcp/config.py:26-41,68-86`): `command`, `args[]`, `env{}`, `cwd`, `enabled` (default true), `include_tools[]`, `exclude_tools[]`, `requires_approval` (default **true**), `type`/`url`/`headers`/`auth` for HTTP. A server is stdio unless `type` is http/sse/streamable-http or `url` is set. `${VAR}` is resolved anywhere in the entry at load time from the OpenWorker process env plus `<state_dir>/.env` (`mcp/config.py:8,69`, `secrets.py:157-164`).
+
+### Exact stdio entry (verified end to end, see section 6)
+
+```json
+{
+  "mcpServers": {
+    "nexar": {
+      "command": "node",
+      "args": ["/abs/path/to/nexar/apps/mcp/dist/main.js"],
+      "env": { "NEXAR_CLIENT_TOKEN": "${NEXAR_CLIENT_TOKEN}" },
+      "cwd": "/abs/path/to/nexar",
+      "requires_approval": true
+    }
+  }
+}
+```
+
+Or via REST: `curl -X POST -H 'x-openworker-token: $T' -H 'content-type: application/json' -d '{"name":"nexar","config":{...}}' http://127.0.0.1:8765/v1/mcp`. Use absolute paths and an absolute `node` (child PATH is minimal, see below). Server name `nexar` determines the tool prefix.
+
+### 3. stdio behaviour
+
+- **Spawn**: OpenWorker's own thin client over the Python `mcp` SDK (`pyproject.toml`: `mcp>=1.28.1,<2`; installed here 1.30.0). `StdioServerParameters(command, args, env=server.env or None, cwd)` and `stdio_client(params, errlog=tempfile)` (`mcp/client.py:170-182`). Child stderr is captured to a temp file and its last 20 lines are shown as crash evidence (`client.py:27-43`); stdout must be protocol-only.
+- **Env: explicit plus a tiny whitelist, NOT inherited.** The Python SDK merges `get_default_environment()` (POSIX whitelist `HOME, LOGNAME, PATH, SHELL, TERM, USER`; `mcp/client/stdio/__init__.py:28-66`) with the entry's `env`. Verified: with `SECRET_PARENT_ONLY=leak` set in the OpenWorker process, the child saw only `HOME, NEXAR_CLIENT_TOKEN, PATH, SHELL, TERM` (no `SECRET_PARENT_ONLY`).
+- **Passing a secret**: put `"NEXAR_CLIENT_TOKEN": "${NEXAR_CLIENT_TOKEN}"` in `env` and export the variable in the OpenWorker server's environment, or put `NEXAR_CLIENT_TOKEN=...` in `~/.config/coworker/.env`. Verified: resolved to the real value in the child. A literal value in `env` also works but is stored in plain text in `mcp.json` (upstream's own comment: mcp.json "is plain text and paste-shareable", `mcp/oauth.py:8`). `${VAR}` is looked up in the OpenWorker process env first, then `.env`; **an unresolved reference is passed through as the literal text `${NEXAR_CLIENT_TOKEN}`** (`secrets.py:157-170`, code-read), so the Nexar server should reject a token that starts with `${`. This is compatible with Nexar's rule "config holds credential references": `mcp.json` holds `${NEXAR_CLIENT_TOKEN}`, not the value.
+- **Lifecycle**: one persistent connection per server name owned by a single `MCPManager` for the OpenWorker server process (`client.py:53-83`), lazily spawned when the first session opens (`server/manager.py:1955-1985`), shared by all sessions, torn down at shutdown or on REST delete. Nexar's MCP server is therefore a long-lived single process serving concurrent sessions: keep it stateless per call, reentrant, and exit cleanly on stdin EOF.
+- **Startup**: `ClientSession.initialize()` then `list_tools()` once at connect (`client.py:184-187`); the tool list is cached per connection (refreshed by the REST Test action). Failures are recorded and the session proceeds without the tools; a transcript notice appears once per failure episode (`manager.py:1985-2030`).
+- **Tool names**: `mcp__<server>__<tool>` with every char outside `[A-Za-z0-9_-]` replaced by `_`, truncated to 64 (`mcp/tools.py:22-31`). Verified: `nexar.route` -> `mcp__nexar__nexar_route`, `nexar.submit_work` -> `mcp__nexar__nexar_submit_work`. Collision risk: `nexar.route` and `nexar_route` map to the same name; keep our names dot-only.
+- **Timeouts**: hard 120 s per tool call, enforced on the OpenWorker side with `future.result(timeout)` (`tools.py:63,71-73`); the Python SDK has no default read timeout (`read_timeout_seconds=None`). Nothing in the call path passes a different value, so `nexar.submit_work` must return within 120 s, e.g. return a run id immediately and poll via another tool. Whether the underlying coroutine is cancelled on timeout is UNVERIFIED (the code does not cancel it).
+- **Result flattening** (`client.py:208-223`): only `text` content blocks are forwarded (other blocks become the literal `[image]`, `[resource]`); `structuredContent` is used **only if there is no text**; `isError` becomes `{"error": "<text>"}`. So Nexar must put the useful JSON in a text block (verified through OpenWorker's real `MCPManager`: `route -> '{"resource":"fake-local",...}'`, denied -> `{'error': 'policy denied'}`, bad args -> `{'error': 'Input validation error: ...'}`).
+- **Schema**: the tool `inputSchema` is forwarded verbatim as the OpenAI function `parameters`, description truncated to 1024 chars (`tools.py:34-43`). Keep schemas simple; `outputSchema` is ignored.
+
+### 4. Approvals for MCP tools
+
+- Every tool from a custom MCP server gets `category="mcp"`, `risk_level="medium"`, `requires_approval=<server flag, default true>` (`tools.py:82-88`), and the risk classifier **floors it to EXTERNAL always**; config cannot lower it (`coworker/risk.py:91-133`). Nexar's read-only tools (`route`, `resources`) are treated like writes.
+- Resulting behaviour (`coworker/permissions.py:~360-510`), default mode `interactive` (`config.py:41`):
+  - `discuss` / `plan` modes: **denied** outright (read-only modes deny every non-READ tool; not overridable).
+  - `interactive`: approval card per call; "Allow for this request", "allow for session", or "Always allow this tool" (writes a per-tool trust rule to `risk_overrides.json`) are user choices.
+  - `requires_approval: false` in `mcp.json` (legacy) or a per-tool trust rule waives the card (`permissions.py:486-503`) in all modes except `auto-approve`, where the LLM reviewer still judges it. Read-only modes still deny.
+  - `bypass-approvals`: runs without a card.
+  - Unattended sessions route the card to the Inbox and suspend (`coworker/unattended.py` docstring).
+- Nexar-side consequence: to make `nexar.route`/`nexar.resources` frictionless a user must mint trust rules (or set `requires_approval:false`), and `nexar.submit_work` should stay gated; a recommended setup should document this. No per-tool flag exists in `mcp.json`; use `include_tools`/`exclude_tools` to limit exposure.
+
+### 5. Automations and unattended runs (answers the v0.1 open question)
+
+- **MCP tools are NOT available to scheduled (headless) automation runs.** Only one call site builds MCP tools: `manager.prepare_mcp_tools(...)` from the WebSocket session handler (`server/app.py:2862`; definition `server/manager.py:1925`, no-op if the engine exists). The scheduler path `_run_scheduled_task` -> `_build_task_engine` (`manager.py:6026-6063`) calls `build_engine(...)` with no `extra_tools`, so no MCP tools are registered. Same for engines rebuilt by `deliver_to_session`/mention/self-wake paths (`get_engine(..., extra_tools=None)`; `manager.py:772,889`). Confirmed by code reading only; not executed because it requires a model call. Persisted-session resumes after a restart also lack MCP tools until a WS client reopens the session (same code path reasoning, UNVERIFIED by execution).
+- Manual "Run now" goes over a normal WS session (`prepare_manual_run`, `manager.py:7056+`), so it **does** get MCP tools, and in an unattended WS session approvals go to the Inbox.
+- Implication: OpenWorker cannot call Nexar from an automation today. Nexar must not assume unattended OpenWorker can reach it; for unattended flows use the REST automation API (`POST /v1/automations`) without MCP, or wait for upstream to pass `extra_tools` in `_build_task_engine`. File/track upstream issue (UNVERIFIED whether one exists).
+
+### 6. Headless install and run (verified)
+
+- Environment: Linux x86_64, glibc 2.39, Python 3.11.15, uv present, no desktop, no API keys.
+- **Route A, source install into a venv, worked** (3 s with warm uv cache): `uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python .` from a clone; provides `openworker`, `openworker-server`, `openworker-connectors`, `openworker-acceptor`, `ocw`. `openworker-server --host 127.0.0.1 --port 18765` started ("Application startup complete"); `GET /v1/health` returned `{"status":"ok"}` without token, and full info with `x-openworker-token`. A token can be fixed via `COWORKER_API_TOKEN`; otherwise a random token is written to `<state_dir>/sidecar-<port>.token` (`server/run.py:130-140`). State isolated with `COWORKER_STATE_DIR`.
+- **Route B, upstream's headless installer, worked**: `packaging/install.sh` on Linux x86_64/aarch64 with glibc >= 2.31 downloads `openworker-linux-x86_64.tar.gz` from the GitHub release, checks SHA-256, no Python needed. I downloaded the v0.3.0 tarball (96 MB), the published `.sha256` matched (`ac03b449...1e52`), `openworker version` printed `openworker 0.3.0`, and the bundled `openworker/openworker-server` started on port 18766 and served `/v1/health` and `/v1/mcp`.
+- **Trap: PyPI `openworker` is a placeholder.** `pip install openworker` / `uv tool install openworker` (the installer's non-glibc fallback route, `install.sh` `install_python`) resolves to `openworker 0.0.1` uploaded 2026-09-18, summary "Placeholder: the installable runtime is coming to this name." It is not v0.3.0. Do not use `pip/uv/pipx install openworker` for CI or docs; use the release tarball or a source checkout at a pinned SHA. (Whether the upstream owner controls that PyPI name: UNVERIFIED; author listed as rohit.prasad15@gmail.com.)
+- The headless CLI surface is `openworker join <link>` / `openworker up` (machine enrolment to a controller app) plus `openworker-server` for a standalone API server (`README.md:92-117`, `coworker/cli.py`). Without an API key no model call can be made; providers and keys are configured via `/v1/providers`.
+- **End-to-end interop check (no model)**: registered a v2-SDK Nexar-style stdio server via `POST /v1/mcp`; `GET /v1/mcp/nexar/tools` returned its tools; then drove OpenWorker's own `MCPManager` in Python against the same `mcp.json`: `initialize` succeeded (Python `mcp` 1.30.0 to TS SDK 2.2.0, legacy era), tools listed, calls, errors and env behaviour as reported above. All processes were stopped afterwards.
+
+### Implications for Nexar v0.2
+
+1. Ship the `mcpServers` snippet above as `config/openworker.mcp.example.json`; a `nexar mcp config` helper could print it with absolute paths. Keep the token out of the file: `${NEXAR_CLIENT_TOKEN}` only.
+2. The MCP server must not rely on inherited env: it gets only PATH/HOME/USER/LOGNAME/SHELL/TERM plus declared keys. Nexar's own config location, endpoint and token must come from `env` (or files under HOME).
+3. Responses: JSON in a `text` block (and optionally `structuredContent`); use `isError` for failures; keep each call under 120 s; make `nexar.submit_work` asynchronous (run id + poll/`nexar.resources`-style status tool).
+4. Approvals will fire for every Nexar tool in default mode; document trust-rule minting, and accept that `discuss`/`plan` modes will deny even read-only Nexar tools. Consider exposing idempotent read tools with clear descriptions; OpenWorker's EXTERNAL floor cannot be lowered by us.
+5. Do not plan on unattended/automation use via MCP. The v0.2 acceptance scenario should be an attended OpenWorker session (Run now or chat).
+6. Test plan: a contract test spawning the built Nexar MCP binary with the Python SDK is optional; TS-side `StdioClientTransport` test with the exact OpenWorker env shape (`env: { PATH, HOME, NEXAR_CLIENT_TOKEN }` only) is sufficient and offline. A live OpenWorker smoke test belongs behind `NEXAR_LIVE_TESTS`/a separate opt-in (needs Python and an OpenWorker install).
+7. Pin OpenWorker by SHA/tag and release tarball checksum in docs; never point users at PyPI `openworker`.
+
+### Open questions
+
+- Does upstream intend MCP in automations (`_build_task_engine` without `extra_tools`)? Not verified by execution; propose an upstream issue or PR.
+- Tool-call timeout cancellation (does the child keep working after the 120 s caller timeout) is UNVERIFIED by execution.
+- Whether OpenWorker re-lists tools after `notifications/tools/list_changed` (the TS server advertises `listChanged: true`): not handled in `client.py` (list only at connect/Test); UNVERIFIED at runtime. Consider `listChanged: false` if the tool set is static.
+- Modern-era (2026-07-28) MCP: OpenWorker's Python client (`mcp<2`, `LATEST_PROTOCOL_VERSION = 2025-11-25`) only speaks legacy `initialize`; Python `mcp` 2.x removed `streamablehttp_client`, so upstream may stay on 1.x for a while. The TS v2 server handles both.
+- Windows/macOS behaviour (env whitelist differs) not examined.
+
+### Sources
+
+- Repo at snapshot/HEAD: https://github.com/andrewyng/openworker/tree/e8923509a9e91d2825313f8418f6129a00b1603e
+- Config: https://github.com/andrewyng/openworker/blob/e8923509a9e91d2825313f8418f6129a00b1603e/coworker/mcp/config.py
+- Client/spawn/results: https://github.com/andrewyng/openworker/blob/e8923509a9e91d2825313f8418f6129a00b1603e/coworker/mcp/client.py
+- Names/timeout/metadata: https://github.com/andrewyng/openworker/blob/e8923509a9e91d2825313f8418f6129a00b1603e/coworker/mcp/tools.py
+- Risk floor: https://github.com/andrewyng/openworker/blob/e8923509a9e91d2825313f8418f6129a00b1603e/coworker/risk.py
+- Permission evaluation: https://github.com/andrewyng/openworker/blob/e8923509a9e91d2825313f8418f6129a00b1603e/coworker/permissions.py
+- Session/automation wiring: `coworker/server/manager.py` (`prepare_mcp_tools` 1925, `_build_task_engine` 6026, `_run_scheduled_task` 6840s), `coworker/server/app.py` (2862, /v1/mcp 1246)
+- Installer: https://github.com/andrewyng/openworker/blob/e8923509a9e91d2825313f8418f6129a00b1603e/packaging/install.sh
+- Release asset: https://github.com/andrewyng/openworker/releases/tag/v0.3.0
+- PyPI placeholder: https://pypi.org/project/openworker/
+- Python `mcp` env whitelist: `mcp/client/stdio/__init__.py` in `mcp==1.30.0` (installed in scratchpad `ow-venv`)
+- Earlier snapshot note: `docs/research/upstream/openworker.md` in the Nexar repo
+- Local evidence (scratchpad `v02-research/`): `ow-probe.py`, `ow-server.log`, `ow-state/mcp.json`, `mcp-post.json`
