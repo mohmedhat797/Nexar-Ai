@@ -115,7 +115,7 @@ export async function writeOverlay(
 ): Promise<string> {
   // Render first so invalid configuration fails before touching the filesystem.
   const text = renderPatchOverlay({ piAiProviders });
-  await mkdir(dshHome(stateDir), { recursive: true });
+  await mkdir(dshHome(stateDir), { recursive: true, mode: 0o700 });
   const path = join(stateDir, 'nexar.patch.yml');
   await writeFile(path, text, { mode: 0o600 });
   await chmod(path, 0o600);

@@ -35,7 +35,7 @@ export class JsonlFileTelemetrySink implements TelemetrySink {
   }
 
   private async append(line: string): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
+    await mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 });
     await appendFile(this.filePath, line, { mode: 0o600 });
     // `mode` applies only on creation and is subject to umask; enforce it.
     await chmod(this.filePath, 0o600);
