@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: format · lint · typecheck · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Format
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Upstream boundaries and tracked-secret guard
+        run: pnpm check:boundaries
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test (offline; live tests are skipped without NEXAR_LIVE_TESTS)
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: CLI smoke (offline echo resource, no credentials)
+        run: |
+          node apps/cli/dist/main.js resources
+          node apps/cli/dist/main.js run --kind general "ci smoke"
+
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        # Pinned CLI release, run directly: no third-party action, no token required.
+        run: |
+          set -euo pipefail
+          VERSION=8.28.0
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks git --redact --verbose --exit-code 1 .

@@ -1,0 +1,30 @@
+{
+  "name": "@nexar/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "nexar": "./dist/main.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@nexar/contracts": "workspace:*",
+    "@nexar/core": "workspace:*",
+    "@nexar/integration-claude-code": "workspace:*",
+    "@nexar/integration-deepseek-harness": "workspace:*",
+    "@nexar/integration-echo": "workspace:*",
+    "@nexar/integration-pi": "workspace:*",
+    "@nexar/resource-controller": "workspace:*",
+    "@nexar/telemetry": "workspace:*"
+  }
+}

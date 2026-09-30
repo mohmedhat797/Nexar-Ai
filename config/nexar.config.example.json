@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "resources": [
+    {
+      "id": "claude-code",
+      "displayName": "Claude Code",
+      "kind": {
+        "type": "agent",
+        "agent": "claude-code",
+        "interface": "cli",
+        "underlying": {
+          "provider": "anthropic"
+        }
+      },
+      "capabilities": [
+        "text-generation",
+        "reasoning",
+        "knowledge-work",
+        "coding",
+        "repo-editing",
+        "code-review",
+        "tool-use",
+        "long-context"
+      ],
+      "runtime": {
+        "adapter": "claude-code",
+        "locality": "local",
+        "options": {
+          "permissionMode": "plan"
+        }
+      },
+      "auth": {
+        "mode": "subscription",
+        "credential": {
+          "source": "runtime-managed",
+          "description": "Claude Code login (claude auth)"
+        }
+      },
+      "cost": {
+        "model": "subscription"
+      },
+      "dataLocality": "third-party",
+      "tags": ["native-agent"]
+    },
+    {
+      "id": "deepseek-harness",
+      "displayName": "DeepSeek Harness (deepseek-v4-flash)",
+      "kind": {
+        "type": "agent",
+        "agent": "deepseek-harness",
+        "interface": "rpc",
+        "underlying": {
+          "provider": "deepseek-official",
+          "model": "deepseek-v4-flash"
+        }
+      },
+      "capabilities": [
+        "text-generation",
+        "reasoning",
+        "knowledge-work",
+        "coding",
+        "repo-editing",
+        "code-review",
+        "tool-use",
+        "shell-execution"
+      ],
+      "runtime": {
+        "adapter": "deepseek-harness",
+        "locality": "local",
+        "options": {
+          "provider": "deepseek-official",
+          "model": "deepseek-v4-flash"
+        }
+      },
+      "auth": {
+        "mode": "api-key",
+        "credential": {
+          "source": "env",
+          "name": "DEEPSEEK_API_KEY"
+        }
+      },
+      "cost": {
+        "model": "unknown"
+      },
+      "dataLocality": "third-party",
+      "tags": ["agent-runtime"]
+    },
+    {
+      "id": "anthropic-sonnet",
+      "displayName": "anthropic/claude-sonnet-4-5",
+      "kind": {
+        "type": "model",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5",
+        "access": "api"
+      },
+      "capabilities": ["text-generation", "reasoning", "knowledge-work"],
+      "runtime": {
+        "adapter": "pi",
+        "locality": "remote"
+      },
+      "auth": {
+        "mode": "api-key",
+        "credential": {
+          "source": "env",
+          "name": "ANTHROPIC_API_KEY"
+        }
+      },
+      "cost": {
+        "model": "unknown"
+      },
+      "dataLocality": "third-party"
+    }
+  ],
+  "routing": {
+    "policy": "deterministic",
+    "defaultResourceId": "claude-code",
+    "taskKinds": {
+      "coding": {
+        "requiredCapabilities": ["coding", "repo-editing"],
+        "preferredResourceIds": ["claude-code", "deepseek-harness"]
+      },
+      "review": {
+        "requiredCapabilities": ["code-review"],
+        "preferredResourceIds": ["claude-code"]
+      },
+      "documentation": {
+        "requiredCapabilities": ["knowledge-work"],
+        "preferredResourceIds": ["anthropic-sonnet", "claude-code"]
+      },
+      "analysis": {
+        "requiredCapabilities": ["reasoning"],
+        "preferredResourceIds": ["anthropic-sonnet", "deepseek-harness", "claude-code"]
+      }
+    }
+  },
+  "telemetry": {
+    "jsonlPath": ".nexar/telemetry.jsonl"
+  }
+}
