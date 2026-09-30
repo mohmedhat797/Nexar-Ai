@@ -1,0 +1,102 @@
+import { resolve } from 'node:path';
+import type { ParseArgsOptionsConfig } from 'node:util';
+import { resourceId, type Logger, type NexarTask, type ResourceId } from '@nexar/contracts';
+import type { Nexar } from '@nexar/core';
+import { UsageError, type CliIo } from './io.js';
+
+type OptionValue = string | boolean | (string | boolean)[] | undefined;
+
+/** What a command receives: global options already resolved, plus its own raw option values. */
+export interface CommandContext {
+  readonly io: CliIo;
+  readonly logger: Logger;
+  readonly configPath: string | undefined;
+  readonly json: boolean;
+  readonly values: Readonly<Record<string, OptionValue>>;
+  readonly positionals: readonly string[];
+}
+
+export interface Command {
+  readonly name: string;
+  readonly summary: string;
+  readonly usage: string;
+  readonly options: ParseArgsOptionsConfig;
+  run(ctx: CommandContext): Promise<number>;
+}
+
+export const GLOBAL_OPTIONS = {
+  config: { type: 'string' },
+  'log-level': { type: 'string' },
+  json: { type: 'boolean' },
+  help: { type: 'boolean', short: 'h' },
+  version: { type: 'boolean' },
+} as const satisfies ParseArgsOptionsConfig;
+
+/** Options shared by `route` and `run`. */
+export const TASK_OPTIONS = {
+  kind: { type: 'string' },
+  capability: { type: 'string', multiple: true },
+  prefer: { type: 'string', multiple: true },
+  exclude: { type: 'string', multiple: true },
+  'local-only': { type: 'boolean' },
+} as const satisfies ParseArgsOptionsConfig;
+
+export function stringOption(ctx: CommandContext, name: string): string | undefined {
+  const value = ctx.values[name];
+  return typeof value === 'string' ? value : undefined;
+}
+
+export function listOption(ctx: CommandContext, name: string): string[] {
+  const value = ctx.values[name];
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+export function flagOption(ctx: CommandContext, name: string): boolean {
+  return ctx.values[name] === true;
+}
+
+function toResourceId(raw: string): ResourceId {
+  try {
+    return resourceId(raw);
+  } catch {
+    throw new UsageError(`invalid resource id "${raw}"`);
+  }
+}
+
+/** The prompt: positional words joined, or all of stdin when the only positional is `-`. */
+export async function readPrompt(ctx: CommandContext): Promise<string> {
+  let prompt: string;
+  if (ctx.positionals.length === 1 && ctx.positionals[0] === '-') {
+    if (ctx.io.stdin === undefined) throw new UsageError('stdin is not available for prompt "-"');
+    prompt = (await ctx.io.stdin()).replace(/\r?\n$/, '');
+  } else {
+    prompt = ctx.positionals.join(' ');
+  }
+  if (prompt.trim() === '') throw new UsageError('a prompt is required');
+  return prompt;
+}
+
+/** Builds a task from the shared task options. `cwd` becomes the task's working directory. */
+export async function buildTask(
+  nexar: Nexar,
+  ctx: CommandContext,
+  extra: { readonly cwd?: string } = {},
+): Promise<NexarTask> {
+  const kind = stringOption(ctx, 'kind');
+  if (kind === undefined || kind === '') throw new UsageError('--kind <kind> is required');
+  const prompt = await readPrompt(ctx);
+  const capabilities = listOption(ctx, 'capability');
+  const preferred = listOption(ctx, 'prefer').map(toResourceId);
+  const excluded = listOption(ctx, 'exclude').map(toResourceId);
+  return nexar.createTask({
+    kind,
+    prompt,
+    requirements: {
+      capabilities,
+      ...(preferred.length === 0 ? {} : { preferredResourceIds: preferred }),
+      ...(excluded.length === 0 ? {} : { excludedResourceIds: excluded }),
+      ...(flagOption(ctx, 'local-only') ? { privacy: 'local-only' as const } : {}),
+    },
+    ...(extra.cwd === undefined ? {} : { workingDirectory: resolve(ctx.io.cwd, extra.cwd) }),
+  });
+}

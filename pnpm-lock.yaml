@@ -36,6 +36,33 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@22.20.4)(@vitest/coverage-v8@5.0.3)(vite@8.3.1(@types/node@22.20.4))
 
+  apps/cli:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@nexar/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@nexar/integration-claude-code':
+        specifier: workspace:*
+        version: link:../../integrations/claude-code
+      '@nexar/integration-deepseek-harness':
+        specifier: workspace:*
+        version: link:../../integrations/deepseek-harness
+      '@nexar/integration-echo':
+        specifier: workspace:*
+        version: link:../../integrations/echo
+      '@nexar/integration-pi':
+        specifier: workspace:*
+        version: link:../../integrations/pi
+      '@nexar/resource-controller':
+        specifier: workspace:*
+        version: link:../../packages/resource-controller
+      '@nexar/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
+
   integrations/claude-code:
     dependencies:
       '@nexar/contracts':
