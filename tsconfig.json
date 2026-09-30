@@ -6,6 +6,9 @@
     },
     {
       "path": "./packages/resource-registry"
+    },
+    {
+      "path": "./packages/resource-controller"
     }
   ]
 }

@@ -38,6 +38,15 @@ importers:
 
   packages/contracts: {}
 
+  packages/resource-controller:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@nexar/resource-registry':
+        specifier: workspace:*
+        version: link:../resource-registry
+
   packages/resource-registry:
     dependencies:
       '@nexar/contracts':
