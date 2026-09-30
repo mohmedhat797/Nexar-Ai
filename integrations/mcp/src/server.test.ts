@@ -249,7 +249,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
   });
 
   describe('tools/list', () => {
-    it('lists the four tools with input schemas and no list-changed promise', async () => {
+    it('lists the five tools with input schemas and no list-changed promise', async () => {
       const { client } = await asClient();
       const { tools } = await client.listTools();
       expect(tools.map((t) => t.name).sort()).toEqual([...ALL_TOOLS].sort());
