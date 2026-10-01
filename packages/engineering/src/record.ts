@@ -90,6 +90,11 @@ export interface EngineeringRecord {
 export const RECORD_FILE = 'record.json';
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
+/** True for a well-formed engineering task id (also the directory name under `engineering/`). */
+export function isTaskId(id: string): boolean {
+  return TASK_ID.test(id);
+}
+
 function assertTaskId(id: string): void {
   if (!TASK_ID.test(id)) throw new NexarError('VALIDATION_ERROR', 'Invalid engineering task id');
 }
