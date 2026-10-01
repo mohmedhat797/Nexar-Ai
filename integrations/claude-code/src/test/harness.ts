@@ -40,6 +40,8 @@ export function task(overrides: Partial<NexarTask['input']> = {}): NexarTask {
 export interface Harness {
   readonly adapter: ClaudeCodeExecutionAdapter;
   readonly events: ExecutionEvent[];
+  /** The file fake-claude appends invocations to (a launcher must forward it as `FAKE_CLAUDE_RECORD`). */
+  readonly recordFile: string;
   context(signal?: AbortSignal): ExecutionContext;
   /** Every recorded fake-claude invocation so far. */
   invocations(): FakeInvocation[];
@@ -62,6 +64,7 @@ export function harness(
   return {
     adapter,
     events,
+    recordFile: record,
     context: (signal = new AbortController().signal) => ({
       signal,
       logger: silentLogger,

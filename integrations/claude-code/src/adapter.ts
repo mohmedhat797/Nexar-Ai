@@ -6,21 +6,24 @@ import type {
   ExecutionContext,
   ExecutionRequest,
   ExecutionResult,
+  LaunchSpec,
   Measured,
   ResourceDescriptor,
   ResourceState,
   UsageReport,
+  EngineeringWorkspace,
 } from '@nexar/contracts';
 import { buildChildEnv } from './env.js';
-import { parseClaudeResult } from './parse.js';
+import { parseClaudeResult, parseToolCallNames } from './parse.js';
 import type { ParsedClaudeResult } from './parse.js';
 import { runProcess } from './process.js';
 import type { ProcessOutcome } from './process.js';
 import { CLAUDE_CODE_ADAPTER_ID } from './resource.js';
-import { readSettings } from './settings.js';
+import { DEFAULT_ALLOW_HOSTS, readSettings } from './settings.js';
 import type { ClaudeCodeSettings } from './settings.js';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_ENGINEERING_TIMEOUT_MS = 30 * 60 * 1000;
 const PROBE_TIMEOUT_MS = 5000;
 const STDERR_EXCERPT_CHARS = 500;
 const AUTH_FAILURE = /not logged in|authentication|\b401\b/i;
@@ -62,6 +65,72 @@ export function buildClaudeArgs(
   }
   // `--tools` is variadic, so it goes last; an empty list disables all tools.
   args.push('--tools', ...(settings.tools.length > 0 ? settings.tools : ['']));
+  return args;
+}
+
+/** Deny rules for git writes; defense in depth only (the launcher mounts `.git` read-only). */
+const GIT_DENY_RULES: readonly string[] = [
+  'Bash(git commit:*)',
+  'Bash(git commit *)',
+  'Bash(git push:*)',
+  'Bash(git push *)',
+  'Bash(git add:*)',
+  'Bash(git add *)',
+  'Bash(git reset *)',
+  'Bash(git checkout *)',
+  'Bash(git remote *)',
+  'Bash(git config *)',
+];
+
+const ENGINEERING_TOOLS = {
+  'read-write': ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash'],
+  'read-only': ['Read', 'Glob', 'Grep', 'Bash'],
+} as const;
+
+/** The complete environment of a sandboxed claude: nothing is inherited from the parent. */
+const ENGINEERING_ENV: Readonly<Record<string, string>> = {
+  LANG: 'C.UTF-8',
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+  CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: '1',
+  ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+};
+
+/**
+ * Builds the argv for a run inside Nexar's sandbox (excluding any binary prefix args). The prompt
+ * is never part of it. Claude's own sandbox is disabled (it cannot nest); `--setting-sources user`
+ * keeps a worktree's `.claude/settings.json` hooks and MCP servers from running.
+ */
+export function buildEngineeringArgs(
+  settings: ClaudeCodeSettings,
+  systemPrompt: string | undefined,
+  access: 'read-only' | 'read-write',
+): string[] {
+  const args = [
+    '-p',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--no-session-persistence',
+    '--permission-mode',
+    'acceptEdits',
+    '--permission-prompts',
+    'none',
+    '--setting-sources',
+    'user',
+    '--strict-mcp-config',
+    '--disable-slash-commands',
+    '--settings',
+    '{"sandbox":{"enabled":false}}',
+  ];
+  if (settings.model !== undefined) args.push('--model', settings.model);
+  if (settings.maxTurns !== undefined) args.push('--max-turns', String(settings.maxTurns));
+  if (systemPrompt !== undefined && systemPrompt !== '') {
+    args.push('--append-system-prompt', systemPrompt);
+  }
+  // `--allowedTools`, `--disallowedTools` and `--tools` are variadic; `--tools` goes last.
+  args.push('--allowedTools', 'Bash', '--disallowedTools', ...GIT_DENY_RULES);
+  args.push('--tools', ...ENGINEERING_TOOLS[access]);
   return args;
 }
 
@@ -136,12 +205,22 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
   async execute(request: ExecutionRequest, context: ExecutionContext): Promise<ExecutionResult> {
     const { task, resource } = request;
     const settings = readSettings(resource);
+    const { workspace } = context;
+    if (workspace?.access === 'read-write' && workspace.launcher.isolation !== 'sandbox') {
+      throw new NexarError('POLICY_REJECTED', 'write mode requires the Nexar sandbox', {
+        details: { adapter: this.id },
+      });
+    }
     if (context.signal.aborted) throw cancelled();
+
+    // Never log argv or the prompt: both can carry user content.
+    const logger = context.logger.child({ adapter: this.id, resourceId: resource.id });
+    if (workspace !== undefined) {
+      return this.executeInWorkspace(request, context, settings, workspace);
+    }
 
     const args = [...this.prefixArgs, ...buildClaudeArgs(settings, task.input.systemPrompt)];
     const timeoutMs = settings.timeoutMs ?? this.defaultTimeoutMs;
-    // Never log argv or the prompt: both can carry user content.
-    const logger = context.logger.child({ adapter: this.id, resourceId: resource.id });
     logger.debug('spawning claude', {
       model: settings.model,
       permissionMode: settings.permissionMode,
@@ -158,7 +237,79 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
       spawnImpl: this.spawnImpl,
       onSpawn: () => context.onEvent?.({ type: 'status', message: 'claude: started' }),
     });
+    return this.conclude(outcome, settings, timeoutMs, context);
+  }
 
+  /** Engineering lanes: spawn only what `launcher.prepare` returns, and always dispose it. */
+  private async executeInWorkspace(
+    request: ExecutionRequest,
+    context: ExecutionContext,
+    settings: ClaudeCodeSettings,
+    workspace: EngineeringWorkspace,
+  ): Promise<ExecutionResult> {
+    const { task, resource } = request;
+    const sandboxed = workspace.launcher.isolation === 'sandbox';
+    const allowHosts = settings.sandbox?.allowHosts ?? DEFAULT_ALLOW_HOSTS;
+    const timeoutMs = settings.engineeringTimeoutMs ?? DEFAULT_ENGINEERING_TIMEOUT_MS;
+    const logger = context.logger.child({ adapter: this.id, resourceId: resource.id });
+
+    const claudeArgs = sandboxed
+      ? buildEngineeringArgs(settings, task.input.systemPrompt, workspace.access)
+      : buildClaudeArgs(settings, task.input.systemPrompt);
+    const spec: LaunchSpec = {
+      command: this.command,
+      args: [...this.prefixArgs, ...claudeArgs],
+      env: { ...ENGINEERING_ENV },
+      workspace: workspace.path,
+      workspaceAccess: workspace.access,
+      network: { mode: 'proxy', allowHosts: [...allowHosts] },
+      mounts: (settings.sandbox?.mounts ?? []).map((m) => ({ ...m })),
+    };
+
+    const prepared = await workspace.launcher.prepare(spec, context.signal);
+    try {
+      logger.debug('spawning claude in workspace', {
+        model: settings.model,
+        access: workspace.access,
+        isolation: prepared.isolation,
+      });
+      const outcome = await runProcess({
+        command: prepared.command,
+        args: prepared.args,
+        cwd: prepared.cwd,
+        env: prepared.env,
+        stdin: task.input.prompt,
+        timeoutMs,
+        signal: context.signal,
+        spawnImpl: this.spawnImpl,
+        onSpawn: () => context.onEvent?.({ type: 'status', message: 'claude: started' }),
+        ...(sandboxed
+          ? {
+              onStdoutLine: (line: string) => {
+                // Names only: tool inputs can carry file contents and commands.
+                for (const name of parseToolCallNames(line)) {
+                  context.onEvent?.({ type: 'tool-call', name });
+                }
+              },
+            }
+          : {}),
+      });
+      return this.conclude(outcome, settings, timeoutMs, context);
+    } finally {
+      try {
+        await prepared.dispose();
+      } catch (e) {
+        logger.warn('launcher dispose failed', { error: e instanceof Error ? e.name : 'unknown' });
+      }
+    }
+  }
+
+  private conclude(
+    outcome: ProcessOutcome,
+    settings: ClaudeCodeSettings,
+    timeoutMs: number,
+    context: ExecutionContext,
+  ): ExecutionResult {
     switch (outcome.kind) {
       case 'spawn-error':
         throw spawnFailure(outcome.error, this.command);
@@ -174,7 +325,12 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
 
     const parsed = parseClaudeResult(outcome.stdout);
     const subtype = parsed?.subtype;
-    const details = { exitCode: outcome.exitCode, ...(subtype !== undefined ? { subtype } : {}) };
+    const denials = parsed?.permissionDenials;
+    const details = {
+      exitCode: outcome.exitCode,
+      ...(subtype !== undefined ? { subtype } : {}),
+      ...(denials !== undefined ? { permissionDenials: denials } : {}),
+    };
 
     if (parsed === undefined && outcome.exitCode === 0) {
       throw new NexarError('PROVIDER_ERROR', 'claude produced no parseable JSON result', {
@@ -190,6 +346,9 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
       throw failure(outcome, parsed, details);
     }
 
+    if (denials !== undefined && denials > 0) {
+      context.onEvent?.({ type: 'status', message: `claude: ${denials} permission denial(s)` });
+    }
     context.onEvent?.({ type: 'status', message: 'claude: finished' });
 
     const model = parsed.model ?? settings.model;

@@ -12,6 +12,8 @@ export interface ParsedClaudeResult {
   readonly cacheWriteTokens?: number;
   /** First key of `modelUsage`, i.e. the model the CLI actually used. */
   readonly model?: string;
+  /** Number of `permission_denials` entries (the entries themselves are never kept). */
+  readonly permissionDenials?: number;
 }
 
 type Json = Readonly<Record<string, unknown>>;
@@ -82,5 +84,25 @@ export function parseClaudeResult(stdout: string): ParsedClaudeResult | undefine
   if (cacheWrite !== undefined) out.cacheWriteTokens = cacheWrite;
   const model = Object.keys(modelUsage)[0];
   if (model !== undefined) out.model = model;
+  if (Array.isArray(r['permission_denials']))
+    out.permissionDenials = r['permission_denials'].length;
   return out;
+}
+
+/**
+ * Tool names from one stream-json line, if it is an `assistant` message with `tool_use` blocks.
+ * Tool inputs are deliberately never read.
+ */
+export function parseToolCallNames(line: string): string[] {
+  const v = tryParse(line);
+  if (!isRecord(v) || v['type'] !== 'assistant' || !isRecord(v['message'])) return [];
+  const content = v['message']['content'];
+  if (!Array.isArray(content)) return [];
+  const names: string[] = [];
+  for (const block of content) {
+    if (isRecord(block) && block['type'] === 'tool_use' && typeof block['name'] === 'string') {
+      names.push(block['name']);
+    }
+  }
+  return names;
 }

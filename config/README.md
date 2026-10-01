@@ -131,6 +131,32 @@ sandbox for write-mode lanes. Optional `runtime.options`: `binary`, `model`,
 `reasoningEffort` (`low`/`medium`/`high`), `timeoutMs`, `codexHome`, and `allowHosts` (sandbox egress
 allowlist, default `chatgpt.com`, `auth.openai.com`, `api.openai.com`). Unknown options are rejected.
 
+### Claude Code in engineering lanes (`runtime.options.sandbox`)
+
+When a task runs in an engineering workspace, `claude` is launched through Nexar's sandbox with an
+empty environment (no `ANTHROPIC_*`, no tokens). Two optional keys on the `claude-code` resource:
+
+```json
+"options": {
+  "engineeringTimeoutMs": 1800000,
+  "sandbox": {
+    "allowHosts": ["api.anthropic.com", "claude.ai", "platform.claude.com"],
+    "mounts": [
+      {
+        "hostPath": "/home/you/.claude/.credentials.json",
+        "sandboxPath": "/home/agent/.claude/.credentials.json",
+        "access": "read-write"
+      }
+    ]
+  }
+}
+```
+
+`allowHosts` is the egress allowlist (the values above are the default). `mounts` is how the login
+reaches the sandbox: mount only the single credentials file, not the home or `~/.claude` directory.
+Nexar never opens or reads a mount; it hands the declaration to the launcher, which validates it.
+Write mode is refused unless the launcher is the Nexar sandbox.
+
 **The example deliberately contains no `local-echo` test double.** In a real configuration an
 always-eligible echo resource would silently "succeed" whenever the real resources are unavailable.
 When nothing is eligible, Nexar reports `NO_ELIGIBLE_RESOURCE` with the reasons instead. The offline

@@ -24,6 +24,7 @@ export function claudeCodeResource(
       'repo-editing',
       'code-review',
       'tool-use',
+      'shell-execution',
       'long-context',
     ],
     runtime: {
