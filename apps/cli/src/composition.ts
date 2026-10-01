@@ -25,7 +25,7 @@ import { EchoExecutionAdapter } from '@nexar/integration-echo';
 import { PiExecutionAdapter } from '@nexar/integration-pi';
 import { EngineeringRunner, PlanCatalog } from '@nexar/engineering';
 import { SandboxLauncher, type SandboxAvailability } from '@nexar/sandbox';
-import { JsonlFileTelemetrySink } from '@nexar/telemetry';
+import { JsonlFileTelemetrySink, TelemetryQuotaSource } from '@nexar/telemetry';
 import { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
 import type { CliSeams, EngineeringRunnerPort } from './args.js';
 import type { CliIo } from './io.js';
@@ -33,6 +33,8 @@ import type { CliIo } from './io.js';
 export interface Composition {
   readonly loaded: LoadedConfig;
   readonly runtime: NexarRuntime;
+  /** Accounting over the configured telemetry file; absent when no telemetry file is configured. */
+  readonly quotaSource?: TelemetryQuotaSource;
 }
 
 /** Where Nexar keeps local state: the config file's directory, or the cwd for the built-in default. */
@@ -92,8 +94,23 @@ export async function compose(
       stateDir: join(configDir, '.nexar', 'runtimes', 'delegate-skills'),
     }),
   ];
+  // Without a telemetry file nothing can be accounted: quota stays unknown rather than "0 used".
+  const telemetryPath =
+    loaded.source === 'default'
+      ? join(io.cwd, '.nexar', 'telemetry.jsonl')
+      : loaded.config.telemetry.jsonlPath === undefined
+        ? undefined
+        : resolve(configDir, loaded.config.telemetry.jsonlPath);
+  const quotaSource =
+    telemetryPath === undefined
+      ? undefined
+      : new TelemetryQuotaSource({
+          path: telemetryPath,
+          allowances: loaded.config.routing.resourceIntelligence.allowances,
+        });
   const runtime = await createNexarWithProjects(loaded.config, {
     adapters,
+    ...(quotaSource === undefined ? {} : { quotaSource }),
     logger,
     configDir,
     // The owner at their own terminal may run unscoped (`--cwd` without `--project`). External
@@ -104,7 +121,7 @@ export async function compose(
       ? { telemetry: new JsonlFileTelemetrySink(join(io.cwd, '.nexar', 'telemetry.jsonl')) }
       : {}),
   });
-  return { loaded, runtime };
+  return { loaded, runtime, ...(quotaSource === undefined ? {} : { quotaSource }) };
 }
 
 /**

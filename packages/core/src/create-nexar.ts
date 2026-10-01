@@ -7,7 +7,12 @@ import type {
   TelemetrySink,
 } from '@nexar/contracts';
 import { ProjectRegistry } from '@nexar/projects';
-import { DeterministicRoutingPolicy, ResourceController } from '@nexar/resource-controller';
+import {
+  DeterministicRoutingPolicy,
+  ResourceController,
+  type HistorySource,
+  type QuotaSource,
+} from '@nexar/resource-controller';
 import { InMemoryResourceRegistry, type ResourceProbe } from '@nexar/resource-registry';
 import { CompositeTelemetrySink, JsonlFileTelemetrySink, noopLogger } from '@nexar/telemetry';
 import { AdapterRegistry } from './adapter-registry.js';
@@ -25,6 +30,10 @@ export interface CreateNexarOptions {
   readonly projects?: ProjectRegistry;
   /** Default `'project-only'`; see `NexarDependencies.workingDirectoryPolicy`. */
   readonly workingDirectoryPolicy?: NexarDependencies['workingDirectoryPolicy'];
+  /** Quota observations merged into each candidate before routing (ADR-020 §4). */
+  readonly quotaSource?: QuotaSource;
+  /** Routing history handed to the policy as data (ADR-020 §7). */
+  readonly historySource?: HistorySource;
 }
 
 export interface NexarRuntime {
@@ -54,7 +63,13 @@ export function createNexar(config: NexarConfig, options: CreateNexarOptions): N
       ? {}
       : { defaultResourceId: config.routing.defaultResourceId }),
   });
-  const controller = new ResourceController({ registry, policy, refreshBeforeRouting: true });
+  const controller = new ResourceController({
+    registry,
+    policy,
+    refreshBeforeRouting: true,
+    ...(options.quotaSource === undefined ? {} : { quotaSource: options.quotaSource }),
+    ...(options.historySource === undefined ? {} : { historySource: options.historySource }),
+  });
 
   const sinks: TelemetrySink[] = [];
   if (options.telemetry !== undefined) sinks.push(options.telemetry);
@@ -82,6 +97,7 @@ export function createNexar(config: NexarConfig, options: CreateNexarOptions): N
     telemetry,
     logger,
     projects,
+    quotaExhaustedHoldMs: config.routing.resourceIntelligence.quota.exhaustedHoldMs,
     ...(options.workingDirectoryPolicy === undefined
       ? {}
       : { workingDirectoryPolicy: options.workingDirectoryPolicy }),

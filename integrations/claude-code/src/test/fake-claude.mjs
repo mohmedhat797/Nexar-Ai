@@ -11,6 +11,9 @@
 //   FAKE_CLAUDE_TOOLS       comma-separated tool names to emit as tool_use (default "Read,Bash")
 //   FAKE_CLAUDE_DENIALS     number of permission_denials entries to put in the result
 //   FAKE_CLAUDE_NO_RESULT   "1" omits the final result line
+//   FAKE_CLAUDE_RATE_LIMIT  JSON object emitted as the rate_limit_info of a rate_limit_event line
+//                           (print and stream modes), before the result
+//   FAKE_CLAUDE_RATE_LIMIT_EXTRA  JSON object merged into the event itself (undocumented fields)
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const argv = process.argv.slice(2);
@@ -48,7 +51,17 @@ function record(stdin) {
 
 const streaming = argv.includes('stream-json');
 
+function emitRateLimit() {
+  const raw = process.env.FAKE_CLAUDE_RATE_LIMIT;
+  if (!raw) return;
+  const extra = JSON.parse(process.env.FAKE_CLAUDE_RATE_LIMIT_EXTRA ?? '{}');
+  process.stdout.write(
+    JSON.stringify({ type: 'rate_limit_event', rate_limit_info: JSON.parse(raw), ...extra }) + '\n',
+  );
+}
+
 function emit(result) {
+  emitRateLimit();
   if (!streaming) {
     process.stdout.write(JSON.stringify(result) + '\n');
     return;

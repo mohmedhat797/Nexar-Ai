@@ -21,6 +21,8 @@ import {
   type Logger,
   type NexarTask,
   type ProjectId,
+  type QuotaObservation,
+  type ResourceId,
   type ResourceRouter,
   type RouteDecision,
   type TaskId,
@@ -33,7 +35,10 @@ import {
 import { ProjectRegistry, mergeRequirements } from '@nexar/projects';
 import { requireSelected } from '@nexar/resource-controller';
 import type { ResourceRegistry } from '@nexar/resource-registry';
+import { isQuotaObserved } from '@nexar/telemetry';
 import type { AdapterRegistry } from './adapter-registry.js';
+
+const DEFAULT_QUOTA_EXHAUSTED_HOLD_MS = 60 * 60 * 1000;
 
 export interface NexarDependencies {
   readonly registry: ResourceRegistry;
@@ -51,6 +56,8 @@ export interface NexarDependencies {
    * canonicalized (for an owner at their own terminal, never for external clients).
    */
   readonly workingDirectoryPolicy?: 'project-only' | 'project-or-unscoped';
+  /** How long a `QUOTA_EXHAUSTED` failure without a reset time blocks the resource; default 1 h. */
+  readonly quotaExhaustedHoldMs?: number;
 }
 
 export interface NewTaskInput {
@@ -144,10 +151,12 @@ export class Nexar {
   private readonly newTaskId: () => TaskId;
   private readonly projects: ProjectRegistry;
   private readonly workingDirectoryPolicy: 'project-only' | 'project-or-unscoped';
+  private readonly quotaExhaustedHoldMs: number;
 
   constructor(private readonly deps: NexarDependencies) {
     this.projects = deps.projects ?? ProjectRegistry.empty();
     this.workingDirectoryPolicy = deps.workingDirectoryPolicy ?? 'project-only';
+    this.quotaExhaustedHoldMs = deps.quotaExhaustedHoldMs ?? DEFAULT_QUOTA_EXHAUSTED_HOLD_MS;
     this.clock = deps.clock ?? (() => new Date());
     this.newTaskId = deps.newTaskId ?? (() => taskId(`task_${randomUUID()}`));
   }
@@ -361,6 +370,9 @@ export class Nexar {
       });
       logger.warn('execution failed', { resourceId, outcome, code: error.code });
       await this.emit({ type: 'execution.finished', at: record.endedAt, record });
+      if (error.code === 'QUOTA_EXHAUSTED') {
+        await this.recordQuota(resourceId, [this.exhaustedSignal(error)]);
+      }
       throw error;
     }
 
@@ -377,6 +389,9 @@ export class Nexar {
     });
     logger.info('execution finished', { resourceId, latencyMs: record.latencyMs });
     await this.emit({ type: 'execution.finished', at: record.endedAt, record });
+    if (result.quotaObservations !== undefined) {
+      await this.recordQuota(resourceId, result.quotaObservations);
+    }
     return { task, decision, result, record };
   }
 
@@ -393,6 +408,43 @@ export class Nexar {
       ...(forProject === undefined ? {} : { projectId: forProject }),
       artifacts,
     });
+  }
+
+  /** The observation recorded when a run fails with `QUOTA_EXHAUSTED` (ADR-020 §4). */
+  private exhaustedSignal(error: NexarError): QuotaObservation {
+    const now = this.clock();
+    const reported = (error.details as { resetsAt?: unknown } | undefined)?.resetsAt;
+    const reportedMs = typeof reported === 'string' ? Date.parse(reported) : Number.NaN;
+    const resetsAt =
+      Number.isFinite(reportedMs) && reportedMs > now.getTime()
+        ? new Date(reportedMs)
+        : new Date(now.getTime() + this.quotaExhaustedHoldMs);
+    return {
+      unit: 'percent',
+      limit: 100,
+      used: 100,
+      remaining: 0,
+      resetsAt: resetsAt.toISOString(),
+      observedAt: now.toISOString(),
+      provenance: { limit: 'vendor-reported', usage: 'vendor-reported' },
+      label: 'exhausted-signal',
+    };
+  }
+
+  /** Emits one `quota.observed` per well-formed observation; malformed ones are dropped. */
+  private async recordQuota(
+    resourceId: ResourceId,
+    observations: readonly QuotaObservation[],
+  ): Promise<void> {
+    for (const observation of observations) {
+      const event: TelemetryEvent = {
+        type: 'quota.observed',
+        at: this.now(),
+        resourceId,
+        observation,
+      };
+      if (isQuotaObserved(event)) await this.emit(event);
+    }
   }
 
   private now(): string {

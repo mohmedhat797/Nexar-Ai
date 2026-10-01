@@ -14,8 +14,8 @@ import type {
   EngineeringWorkspace,
 } from '@nexar/contracts';
 import { buildChildEnv } from './env.js';
-import { parseClaudeResult, parseToolCallNames } from './parse.js';
-import type { ParsedClaudeResult } from './parse.js';
+import { findRateLimit, parseClaudeResult, parseToolCallNames } from './parse.js';
+import type { ParsedClaudeResult, ParsedRateLimit } from './parse.js';
 import { runProcess } from './process.js';
 import type { ProcessOutcome } from './process.js';
 import { CLAUDE_CODE_ADAPTER_ID } from './resource.js';
@@ -336,6 +336,7 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
     }
 
     const parsed = parseClaudeResult(outcome.stdout);
+    const rateLimit = findRateLimit(outcome.stdout, this.clock());
     const subtype = parsed?.subtype;
     const denials = parsed?.permissionDenials;
     const details = {
@@ -361,7 +362,7 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
       parsed.isError ||
       subtype?.startsWith('error')
     ) {
-      throw failure(outcome, parsed, details);
+      throw failure(outcome, parsed, details, rateLimit);
     }
 
     if (denials !== undefined && denials > 0) {
@@ -380,6 +381,7 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
         ...(this.runtimeVersion !== undefined ? { runtimeVersion: this.runtimeVersion } : {}),
       },
       retries: 0,
+      ...(rateLimit === undefined ? {} : { quotaObservations: [rateLimit.observation] }),
     };
   }
 
@@ -414,7 +416,18 @@ function failure(
   outcome: Extract<ProcessOutcome, { kind: 'exited' }>,
   parsed: ParsedClaudeResult | undefined,
   details: Record<string, unknown>,
+  rateLimit: ParsedRateLimit | undefined,
 ): NexarError {
+  if (rateLimit?.rejected === true) {
+    const resetsAt = rateLimit.observation.resetsAt;
+    return new NexarError(
+      'QUOTA_EXHAUSTED',
+      'claude reported that its usage allowance is exhausted',
+      {
+        details: { ...details, ...(resetsAt === undefined ? {} : { resetsAt }) },
+      },
+    );
+  }
   const evidence = [outcome.stderr, parsed?.text ?? '', String(parsed?.apiErrorStatus ?? '')];
   const authFailure = evidence.some((s) => AUTH_FAILURE.test(s));
 
