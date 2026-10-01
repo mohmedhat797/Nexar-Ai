@@ -7,11 +7,12 @@ export const routeCommand: Command = {
   name: 'route',
   summary: 'Explain which resource would run a task (no execution)',
   usage:
-    'nexar route --kind <kind> [--capability <c>]... [--prefer <id>]... [--exclude <id>]... [--local-only] [--json] <prompt...>',
+    'nexar route --kind <kind> [--capability <c>]... [--prefer <id>]... [--exclude <id>]... [--local-only]\n' +
+    '           [--project <id>] [--json] <prompt...>',
   options: TASK_OPTIONS,
   async run(ctx) {
     const loaded = await loadCliConfig(ctx.io, ctx.configPath);
-    const { runtime } = compose(loaded, ctx.io, ctx.logger);
+    const { runtime } = await compose(loaded, ctx.io, ctx.logger);
     const task = await buildTask(runtime.nexar, ctx);
     const decision = await runtime.nexar.route(task);
     ctx.io.stdout(

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "meeting-brief",
+  "displayName": "Meeting Brief",
+  "description": "Prepare a brief for a meeting and a follow-up email draft. Nothing is sent or scheduled.",
+  "taskKind": "meeting-preparation",
+  "requirements": { "capabilities": ["knowledge-work"], "privacy": "standard" },
+  "inputs": [
+    {
+      "name": "meetingTitle",
+      "label": "Meeting title",
+      "type": "string",
+      "required": true,
+      "maxLength": 200
+    },
+    { "name": "attendees", "label": "Attendees", "type": "list", "maxItems": 50, "maxLength": 200 },
+    { "name": "agenda", "label": "Agenda items", "type": "list", "maxItems": 50 },
+    { "name": "priorNotes", "label": "Prior notes", "type": "text", "maxLength": 50000 },
+    { "name": "recentDecisions", "label": "Recent decisions", "type": "list", "maxItems": 50 },
+    { "name": "actionItems", "label": "Open action items", "type": "list", "maxItems": 50 },
+    { "name": "references", "label": "Reference documents (document set)", "type": "document-set" },
+    {
+      "name": "followUpRequest",
+      "label": "Message to answer or follow up (for example an email received)",
+      "type": "text",
+      "maxLength": 20000
+    }
+  ],
+  "systemTemplate": "system.md",
+  "template": "prompt.md",
+  "outputs": [
+    {
+      "id": "brief",
+      "filename": "{{project.id}}-meeting-brief-{{date}}.md",
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "follow-up-draft",
+      "filename": "{{project.id}}-follow-up-DRAFT-{{date}}.md",
+      "mediaType": "text/markdown",
+      "draft": true
+    }
+  ]
+}

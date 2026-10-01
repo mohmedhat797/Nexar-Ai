@@ -91,14 +91,37 @@ export class RuntimeProcess {
     });
   }
 
-  /** Makes sure the child is gone: end stdin, SIGTERM, then SIGKILL after a grace period. */
+  /**
+   * Makes sure the runtime AND everything it started are gone: end stdin, SIGTERM the process group,
+   * then SIGKILL after a grace period. The group is swept even when the leader already exited, so
+   * tool subprocesses (shells, test runners) cannot outlive a timeout or cancellation.
+   */
   async stop(graceMs = KILL_GRACE_MS): Promise<void> {
     this.client.close();
-    if (this.exited) return;
-    this.child.kill('SIGTERM');
-    if (await this.waitForExit(graceMs)) return;
-    this.child.kill('SIGKILL');
-    await this.waitForExit(graceMs);
+    if (!this.exited) {
+      this.signal('SIGTERM');
+      if (!(await this.waitForExit(graceMs))) {
+        this.signal('SIGKILL');
+        await this.waitForExit(graceMs);
+      }
+    }
+    this.signalGroup('SIGKILL');
+  }
+
+  private signal(sig: NodeJS.Signals): void {
+    if (!this.signalGroup(sig)) this.child.kill(sig);
+  }
+
+  /** Signals the runtime's process group (POSIX); false if unavailable or already empty. */
+  private signalGroup(sig: NodeJS.Signals): boolean {
+    const pid = this.child.pid;
+    if (process.platform === 'win32' || pid === undefined) return false;
+    try {
+      process.kill(-pid, sig);
+      return true;
+    } catch {
+      return false; // ESRCH: the group is already gone.
+    }
   }
 
   private markExited(info: ExitInfo): void {
@@ -137,6 +160,8 @@ export function spawnRuntime(options: LaunchOptions, overlayPath: string): Runti
     env: { ...options.env },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
+    // Own process group so stop() can terminate the runtime's whole subprocess tree (POSIX).
+    detached: process.platform !== 'win32',
   });
   return new RuntimeProcess(child);
 }

@@ -36,7 +36,7 @@ export const resourcesCommand: Command = {
   options: { 'no-refresh': { type: 'boolean' } },
   async run(ctx) {
     const loaded = await loadCliConfig(ctx.io, ctx.configPath);
-    const { runtime } = compose(loaded, ctx.io, ctx.logger);
+    const { runtime } = await compose(loaded, ctx.io, ctx.logger);
     const snapshots = flagOption(ctx, 'no-refresh')
       ? runtime.registry.snapshot()
       : await runtime.registry.refresh();

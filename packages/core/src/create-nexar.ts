@@ -6,12 +6,13 @@ import type {
   ResourceState,
   TelemetrySink,
 } from '@nexar/contracts';
+import { ProjectRegistry } from '@nexar/projects';
 import { DeterministicRoutingPolicy, ResourceController } from '@nexar/resource-controller';
 import { InMemoryResourceRegistry, type ResourceProbe } from '@nexar/resource-registry';
 import { CompositeTelemetrySink, JsonlFileTelemetrySink, noopLogger } from '@nexar/telemetry';
 import { AdapterRegistry } from './adapter-registry.js';
 import type { NexarConfig } from './config.js';
-import { Nexar } from './engine.js';
+import { Nexar, type NexarDependencies } from './engine.js';
 
 export interface CreateNexarOptions {
   readonly adapters: readonly ExecutionAdapter[];
@@ -20,6 +21,10 @@ export interface CreateNexarOptions {
   readonly telemetry?: TelemetrySink;
   /** Directory that relative config paths (e.g. `telemetry.jsonlPath`) resolve against. */
   readonly configDir?: string;
+  /** Built with `await ProjectRegistry.create(config.projects)`; default: no projects. */
+  readonly projects?: ProjectRegistry;
+  /** Default `'project-only'`; see `NexarDependencies.workingDirectoryPolicy`. */
+  readonly workingDirectoryPolicy?: NexarDependencies['workingDirectoryPolicy'];
 }
 
 export interface NexarRuntime {
@@ -27,6 +32,7 @@ export interface NexarRuntime {
   readonly registry: InMemoryResourceRegistry;
   readonly adapters: AdapterRegistry;
   readonly controller: ResourceController;
+  readonly projects: ProjectRegistry;
 }
 
 const discardSink: TelemetrySink = { emit: () => undefined };
@@ -68,8 +74,28 @@ export function createNexar(config: NexarConfig, options: CreateNexarOptions): N
           }),
         );
 
-  const nexar = new Nexar({ registry, router: controller, adapters, telemetry, logger });
-  return { nexar, registry, adapters, controller };
+  const projects = options.projects ?? ProjectRegistry.empty();
+  const nexar = new Nexar({
+    registry,
+    router: controller,
+    adapters,
+    telemetry,
+    logger,
+    projects,
+    ...(options.workingDirectoryPolicy === undefined
+      ? {}
+      : { workingDirectoryPolicy: options.workingDirectoryPolicy }),
+  });
+  return { nexar, registry, adapters, controller, projects };
+}
+
+/** `createNexar` with the project registry built from `config.projects` (canonicalizes roots). */
+export async function createNexarWithProjects(
+  config: NexarConfig,
+  options: CreateNexarOptions,
+): Promise<NexarRuntime> {
+  const projects = options.projects ?? (await ProjectRegistry.create(config.projects));
+  return createNexar(config, { ...options, projects });
 }
 
 function probeFor(descriptor: ResourceDescriptor, adapters: AdapterRegistry): ResourceProbe {

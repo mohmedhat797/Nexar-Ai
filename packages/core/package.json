@@ -16,6 +16,7 @@
   ],
   "dependencies": {
     "@nexar/contracts": "workspace:*",
+    "@nexar/projects": "workspace:*",
     "@nexar/resource-controller": "workspace:*",
     "@nexar/resource-registry": "workspace:*",
     "@nexar/telemetry": "workspace:*",

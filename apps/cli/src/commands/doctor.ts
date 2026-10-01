@@ -108,7 +108,7 @@ async function configAndResources(
 ): Promise<readonly [Section, Section]> {
   try {
     const loaded = await loadCliConfig(ctx.io, ctx.configPath);
-    const { runtime } = compose(loaded, ctx.io, ctx.logger);
+    const { runtime } = await compose(loaded, ctx.io, ctx.logger);
     const configSection: Section = {
       id: 'config',
       title: 'Config',

@@ -15,8 +15,12 @@
     "dist"
   ],
   "dependencies": {
+    "@nexar/artifacts": "workspace:*",
     "@nexar/contracts": "workspace:*",
     "@nexar/core": "workspace:*",
+    "@nexar/projects": "workspace:*",
+    "@nexar/resource-controller": "workspace:*",
+    "@nexar/workflows": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {

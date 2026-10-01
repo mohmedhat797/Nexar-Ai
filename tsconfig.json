@@ -14,6 +14,9 @@
       "path": "./packages/telemetry"
     },
     {
+      "path": "./packages/projects"
+    },
+    {
       "path": "./integrations/echo"
     },
     {
@@ -21,6 +24,9 @@
     },
     {
       "path": "./integrations/openworker"
+    },
+    {
+      "path": "./integrations/mcp"
     },
     {
       "path": "./integrations/claude-code"
@@ -33,6 +39,18 @@
     },
     {
       "path": "./apps/cli"
+    },
+    {
+      "path": "./packages/approvals"
+    },
+    {
+      "path": "./packages/access"
+    },
+    {
+      "path": "./packages/artifacts"
+    },
+    {
+      "path": "./packages/workflows"
     }
   ]
 }

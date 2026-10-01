@@ -8,10 +8,22 @@
   "exclude": ["**/*.test.ts", "dist"],
   "references": [
     {
+      "path": "../../packages/artifacts"
+    },
+    {
       "path": "../../packages/contracts"
     },
     {
       "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/projects"
+    },
+    {
+      "path": "../../packages/resource-controller"
+    },
+    {
+      "path": "../../packages/workflows"
     }
   ]
 }

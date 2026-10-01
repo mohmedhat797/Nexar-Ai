@@ -1,15 +1,17 @@
 import { readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import {
   KNOWN_CAPABILITIES,
   NexarError,
   adapterId,
+  projectId,
   resourceId,
   type ResourceDescriptor,
   type ResourceId,
 } from '@nexar/contracts';
 import { DEFAULT_TASK_KIND_RULES, type TaskKindRule } from '@nexar/resource-controller';
+import type { ProjectDefaults, ProjectDefinition } from '@nexar/projects';
 
 /** Validated, branded configuration consumed by `createNexar`. */
 export interface NexarConfig {
@@ -25,6 +27,11 @@ export interface NexarConfig {
     /** Relative paths are resolved against the config file's directory. */
     readonly jsonlPath?: string;
   };
+  /**
+   * Project paths are absolute. `roots` resolve against the config directory; every other
+   * project-internal path resolves against the project's first root.
+   */
+  readonly projects: readonly ProjectDefinition[];
 }
 
 function branded<T>(kind: string, make: (s: string) => T): z.ZodType<T, string> {
@@ -39,6 +46,7 @@ function branded<T>(kind: string, make: (s: string) => T): z.ZodType<T, string> 
 }
 
 const ResourceIdSchema = branded('resource id', resourceId);
+const ProjectIdSchema = branded('project id', projectId);
 const AdapterIdSchema = branded('adapter id', adapterId);
 const StringList = z.array(z.string());
 const FreeForm = z.record(z.string(), z.unknown());
@@ -119,6 +127,38 @@ const TaskKindRuleSchema = z.strictObject({
   preferredResourceIds: z.array(ResourceIdSchema).optional(),
 });
 
+const DOCUMENT_SET_NAME = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
+const PathSchema = z.string().min(1);
+const WORKFLOW_ID = /^[a-z][a-z0-9-]{0,63}$/;
+
+const ProjectSchema = z.strictObject({
+  id: ProjectIdSchema,
+  displayName: z.string().min(1),
+  roots: z.array(PathSchema).min(1),
+  workingDirectories: z.array(PathSchema).min(1).optional(),
+  artifactsDirectory: PathSchema.optional(),
+  documentSets: z
+    .record(z.string().regex(DOCUMENT_SET_NAME), z.array(PathSchema).min(1))
+    .optional(),
+  defaults: z
+    .strictObject({
+      capabilities: StringList.optional(),
+      privacy: z.enum(['standard', 'local-only']).optional(),
+      preferredResourceIds: z.array(ResourceIdSchema).optional(),
+      excludedResourceIds: z.array(ResourceIdSchema).optional(),
+      minContextTokens: z.number().int().positive().optional(),
+      maxCostUsd: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  workflows: z
+    .strictObject({
+      directories: z.array(PathSchema).min(1).optional(),
+      instructions: z.record(z.string().regex(WORKFLOW_ID), PathSchema).optional(),
+    })
+    .optional(),
+  metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+});
+
 /** Zod schema of the JSON config file. Strict everywhere: unknown keys are errors. */
 export const NexarConfigSchema = z.strictObject({
   version: z.literal(1),
@@ -131,6 +171,7 @@ export const NexarConfigSchema = z.strictObject({
     })
     .optional(),
   telemetry: z.strictObject({ jsonlPath: z.string().min(1).optional() }).optional(),
+  projects: z.array(ProjectSchema).optional(),
 });
 
 function configError(message: string, origin: string): NexarError {
@@ -139,8 +180,29 @@ function configError(message: string, origin: string): NexarError {
   });
 }
 
+/** Lexical check (no filesystem): relative, and still inside the first root after `..` is applied. */
+function assertArtifactsDirectory(id: string, directory: string, origin: string): void {
+  const escapes = isAbsolute(directory) || /^[A-Za-z]:/.test(directory);
+  const rel = relative('/root', resolve('/root', directory));
+  if (escapes || rel === '' || rel === '..' || rel.startsWith('../') || directory.includes('\0')) {
+    throw configError(
+      `projects.${id}.artifactsDirectory must be a relative path inside the project root`,
+      origin,
+    );
+  }
+}
+
+export interface ParseConfigOptions {
+  /** Directory relative project paths resolve against. Default: `process.cwd()`. */
+  readonly baseDir?: string;
+}
+
 /** Validates a config JSON value and converts it to branded contract types. */
-export function parseConfig(json: unknown, origin: string): NexarConfig {
+export function parseConfig(
+  json: unknown,
+  origin: string,
+  options: ParseConfigOptions = {},
+): NexarConfig {
   const parsed = NexarConfigSchema.safeParse(json);
   if (!parsed.success) {
     const lines = parsed.error.issues.map(
@@ -179,6 +241,73 @@ export function parseConfig(json: unknown, origin: string): NexarConfig {
     taskKinds[kind] = rule as TaskKindRule;
   }
 
+  const baseDir = options.baseDir ?? process.cwd();
+  const projectIds = new Set<string>();
+  const projects: ProjectDefinition[] = [];
+  for (const project of data.projects ?? []) {
+    if (projectIds.has(project.id)) {
+      throw configError(`duplicate project id "${project.id}"`, origin);
+    }
+    projectIds.add(project.id);
+    const defaults = project.defaults;
+    for (const id of [
+      ...(defaults?.preferredResourceIds ?? []),
+      ...(defaults?.excludedResourceIds ?? []),
+    ]) {
+      if (!known.has(id)) {
+        throw configError(
+          `projects.${project.id}.defaults references unknown resource "${id}"`,
+          origin,
+        );
+      }
+    }
+    if (project.artifactsDirectory !== undefined) {
+      assertArtifactsDirectory(project.id, project.artifactsDirectory, origin);
+    }
+    const roots = project.roots.map((p) => resolve(baseDir, p));
+    const firstRoot = roots[0] as string;
+    const abs = (paths: readonly string[]): string[] => paths.map((p) => resolve(firstRoot, p));
+    projects.push({
+      id: project.id,
+      displayName: project.displayName,
+      roots,
+      ...(project.workingDirectories === undefined
+        ? {}
+        : { workingDirectories: abs(project.workingDirectories) }),
+      ...(project.artifactsDirectory === undefined
+        ? {}
+        : { artifactsDirectory: project.artifactsDirectory }),
+      ...(project.documentSets === undefined
+        ? {}
+        : {
+            documentSets: Object.fromEntries(
+              Object.entries(project.documentSets).map(([name, entries]) => [name, abs(entries)]),
+            ),
+          }),
+      ...(defaults === undefined ? {} : { defaults: defaults as ProjectDefaults }),
+      ...(project.workflows === undefined
+        ? {}
+        : {
+            workflows: {
+              ...(project.workflows.directories === undefined
+                ? {}
+                : { directories: abs(project.workflows.directories) }),
+              ...(project.workflows.instructions === undefined
+                ? {}
+                : {
+                    instructions: Object.fromEntries(
+                      Object.entries(project.workflows.instructions).map(([id, path]) => [
+                        id,
+                        resolve(firstRoot, path),
+                      ]),
+                    ),
+                  }),
+            },
+          }),
+      ...(project.metadata === undefined ? {} : { metadata: project.metadata }),
+    });
+  }
+
   const jsonlPath = data.telemetry?.jsonlPath;
   return {
     version: 1,
@@ -189,6 +318,7 @@ export function parseConfig(json: unknown, origin: string): NexarConfig {
       taskKinds,
     },
     telemetry: jsonlPath === undefined ? {} : { jsonlPath },
+    projects,
   };
 }
 
@@ -244,7 +374,7 @@ async function readConfigFile(path: string, origin: string): Promise<NexarConfig
   } catch (cause) {
     throw new NexarError('CONFIGURATION_ERROR', `Config ${path} is not valid JSON`, { cause });
   }
-  return parseConfig(json, origin);
+  return parseConfig(json, origin, { baseDir: dirname(path) });
 }
 
 /** Resolution order: explicit path > NEXAR_CONFIG_PATH > `<cwd>/nexar.config.json` > built-in default. */

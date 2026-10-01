@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "technical-documentation",
+  "displayName": "Technical Documentation",
+  "description": "Produce technical documentation for a system, component or process in this project.",
+  "taskKind": "documentation",
+  "requirements": { "capabilities": ["knowledge-work"], "privacy": "standard" },
+  "inputs": [
+    { "name": "subject", "label": "Subject", "type": "string", "required": true, "maxLength": 200 },
+    { "name": "audience", "label": "Audience", "type": "string", "maxLength": 200 },
+    {
+      "name": "scope",
+      "label": "Scope and key facts",
+      "type": "text",
+      "required": true,
+      "maxLength": 20000
+    },
+    { "name": "references", "label": "Reference documents (document set)", "type": "document-set" },
+    {
+      "name": "sections",
+      "label": "Sections to include",
+      "type": "list",
+      "maxItems": 30,
+      "maxLength": 100
+    }
+  ],
+  "systemTemplate": "system.md",
+  "template": "prompt.md",
+  "outputs": [
+    {
+      "id": "documentation",
+      "filename": "{{project.id}}-technical-documentation-{{date}}.md",
+      "mediaType": "text/markdown"
+    }
+  ]
+}

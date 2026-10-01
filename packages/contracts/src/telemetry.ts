@@ -1,7 +1,7 @@
 import type { ArtifactRef } from './artifacts.js';
 import type { NexarErrorCode } from './errors.js';
 import type { UsageReport } from './execution.js';
-import type { AdapterId, ResourceId, TaskId } from './ids.js';
+import type { AdapterId, ProjectId, ResourceId, TaskId } from './ids.js';
 import type { Measured } from './measured.js';
 import type { QuotaState, ResourceKindType } from './resource.js';
 import type { RouteDecision } from './routing.js';
@@ -16,6 +16,7 @@ export interface ExecutionRecord {
   readonly taskId: TaskId;
   readonly taskKind: TaskKind;
   readonly origin: TaskOrigin['source'];
+  readonly projectId?: ProjectId;
   readonly resourceId: ResourceId;
   readonly resourceKind: ResourceKindType;
   readonly adapter: AdapterId;
@@ -51,7 +52,14 @@ export type TelemetryEvent =
       readonly taskId: TaskId;
       readonly resourceId: ResourceId;
     }
-  | { readonly type: 'execution.finished'; readonly at: string; readonly record: ExecutionRecord };
+  | { readonly type: 'execution.finished'; readonly at: string; readonly record: ExecutionRecord }
+  | {
+      readonly type: 'artifacts.stored';
+      readonly at: string;
+      readonly taskId: TaskId;
+      readonly projectId?: ProjectId;
+      readonly artifacts: readonly ArtifactRef[];
+    };
 
 /** Destination for telemetry events; implementations decide storage and delivery. */
 export interface TelemetrySink {

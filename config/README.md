@@ -29,6 +29,82 @@ A resource names _where_ its credential lives; the file must never contain the s
 keeps its own login (Nexar never reads or copies it). The schema has no field that could hold a
 secret, and unknown keys are rejected.
 
+## Projects
+
+A project names where Nexar may work and what defaults apply. It is the filesystem trust boundary:
+a task's working directory is accepted only if it resolves (through symlinks and `..`) inside the
+project's `workingDirectories`, and the check runs in the engine before any adapter executes.
+
+```json
+{
+  "id": "demo-project",
+  "displayName": "Demo project",
+  "roots": ["../examples/demo-project"],
+  "workingDirectories": ["."],
+  "documentSets": { "overview": ["README.md", "docs/overview.md"] },
+  "workflows": { "instructions": { "sow": "docs/sow-instructions.md" } },
+  "defaults": { "capabilities": ["knowledge-work"], "preferredResourceIds": ["claude-code"] }
+}
+```
+
+Relative paths resolve as follows (absolute paths stay absolute):
+
+| Field                                                                                                         | Relative to                 |
+| ------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `roots`, `telemetry.jsonlPath`                                                                                | the config file's directory |
+| `workingDirectories`, `documentSets`, `workflows.directories`, `workflows.instructions`, `artifactsDirectory` | the project's first root    |
+
+- `roots` (at least one) bound everything the project may touch. `workingDirectories` default to the
+  roots and must each be inside a root. Roots and working directories must exist and be directories,
+  otherwise Nexar fails with `CONFIGURATION_ERROR`.
+- `documentSets` map a name to files or directories inside the roots. `nexar run --project <id>
+--document-set <name>` attaches them as references (`file://` URIs), never as inlined content.
+  Directories expand recursively to regular files (dot-entries skipped, symlinked directories not
+  followed, at most 500 files). A symlink leading out of the roots is rejected.
+- `defaults` may use `capabilities`, `privacy`, `preferredResourceIds`, `excludedResourceIds`,
+  `minContextTokens` and `maxCostUsd`; resource ids must exist in `resources`.
+- `workflows` (optional): `directories` (extra workflow directories inside the roots; a same-id workflow
+  overrides the built-in for this project) and `instructions` (workflow id → Markdown file inside the
+  project, rendered into prompts as trusted owner instructions). See [`workflows/README.md`](../workflows/README.md).
+- Inspect with `nexar projects list [--json]`; use with `nexar route|run --project <id>`.
+
+### Artifacts
+
+Task outputs (SOWs, proposals, briefs, drafts) are stored by `@nexar/artifacts` inside the project:
+
+```
+<first root>/.nexar/artifacts/<task-id>/<file>          final outputs
+<first root>/.nexar/artifacts/<task-id>/drafts/<file>   drafts that need review
+```
+
+`<task-id>` is the task id reduced to `[A-Za-z0-9._-]` (`:` becomes `-`). Set the optional
+`artifactsDirectory` (relative to the first root, must stay inside it; `..` or an absolute path is a
+`CONFIGURATION_ERROR`) to use `<artifactsDirectory>/<task-id>/…` instead. File names are
+sanitized and their extension is forced to match the media type (`.md`, `.txt`, `.json`, `.csv`).
+Files are never overwritten (a collision becomes `name-2.md`, `name-3.md`, …), symlinks are never
+followed, directories are `0700` and files `0600`. When Nexar creates the default `.nexar`
+directory it adds a `.nexar/.gitignore` containing `*` so artifacts are not committed by accident;
+a custom `artifactsDirectory` gets no `.gitignore`, so add one yourself if needed.
+List a task's artifacts with `nexar artifacts list --project <id> --task <task-id> [--json]`.
+
+### Precedence: project defaults vs. explicit task values
+
+| Field                  | Rule                                                                              |
+| ---------------------- | --------------------------------------------------------------------------------- |
+| `capabilities`         | union of project and explicit                                                     |
+| `privacy`              | most restrictive wins; an explicit `standard` cannot relax a `local-only` project |
+| `preferredResourceIds` | explicit if given (even empty = no preference), otherwise the project's           |
+| `excludedResourceIds`  | union (exclusions accumulate)                                                     |
+| `minContextTokens`     | explicit if set, otherwise the project's                                          |
+| `maxCostUsd`           | the lower of the two                                                              |
+
+### Working-directory policy
+
+The engine defaults to `project-only`: a working directory is accepted only with a project (and is
+replaced by its canonical path). The CLI deliberately uses `project-or-unscoped` so the owner at
+their own terminal can run `nexar run --cwd <dir>` without a project; the directory is then only
+canonicalized. External clients such as the OpenWorker Work Bridge must always go through a project.
+
 ## What the example does
 
 | Resource           | Adapter            | Notes                                                     |

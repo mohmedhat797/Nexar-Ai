@@ -11,15 +11,20 @@ Change an architectural decision only via a new/amended ADR.
 
 ## Component responsibilities
 
-| Concept                   | Package                        | Owns                                                                |
-| ------------------------- | ------------------------------ | ------------------------------------------------------------------- |
-| Contracts                 | `packages/contracts`           | Domain types, `NexarError`, `Measured<T>`. Zero deps.               |
-| Resource Registry         | `packages/resource-registry`   | What resources exist + dynamic state + probes. **No routing.**      |
-| Resource Controller (NRC) | `packages/resource-controller` | "Who executes?" — policy + explainable `RouteDecision`.             |
-| Telemetry                 | `packages/telemetry`           | Structured JSON logs (stderr, redacted), telemetry sinks.           |
-| Core                      | `packages/core`                | Engine (task → route → execute → record), adapter registry, config. |
-| Adapters                  | `integrations/*`               | The **only** code that knows an upstream.                           |
-| CLI                       | `apps/cli`                     | Thin client: `doctor`, `resources`, `route`, `run`.                 |
+| Concept                   | Package                        | Owns                                                                         |
+| ------------------------- | ------------------------------ | ---------------------------------------------------------------------------- |
+| Contracts                 | `packages/contracts`           | Domain types, `NexarError`, `Measured<T>`. Zero deps.                        |
+| Resource Registry         | `packages/resource-registry`   | What resources exist + dynamic state + probes. **No routing.**               |
+| Resource Controller (NRC) | `packages/resource-controller` | "Who executes?" — policy + explainable `RouteDecision`.                      |
+| Telemetry                 | `packages/telemetry`           | Structured JSON logs (stderr, redacted), telemetry sinks.                    |
+| Core                      | `packages/core`                | Engine (task → route → execute → record), adapter registry, config.          |
+| Projects                  | `packages/projects`            | Projects, `resolveContainedPath` (realpath policy), defaults, document sets. |
+| Artifacts                 | `packages/artifacts`           | `LocalArtifactStore`: safe names, no overwrite, contained writes.            |
+| Approvals                 | `packages/approvals`           | Fail-closed, fingerprint-bound, single-use approvals; outward-action gate.   |
+| Access                    | `packages/access`              | Client tokens, scopes, allowlisted JSONL request audit.                      |
+| Workflows                 | `packages/workflows`           | Workflow catalog, template renderer, runner. Data in `workflows/`.           |
+| Adapters                  | `integrations/*`               | The **only** code that knows an upstream (incl. `mcp`, `openworker` bridge). |
+| CLI                       | `apps/cli`                     | Thin client: `doctor`, `resources`, `route`, `run`, plus the commands below. |
 
 Three questions stay separate: **who executes** (NRC) · **how work is orchestrated** (DSH / native
 agent loop) · **how the provider is called** (pi-ai / runtime internals).
@@ -28,11 +33,15 @@ agent loop) · **how the provider is called** (pi-ai / runtime internals).
 
 ```bash
 pnpm install          # Node >= 22.19, pnpm 10
-pnpm check            # format:check → lint → typecheck → test → build (the CI gate)
+pnpm check            # format:check → lint → boundaries → typecheck → test → build (the CI gate)
 pnpm test             # vitest (offline, deterministic)
 NEXAR_LIVE_TESTS=1 pnpm test   # opt-in live tests (may cost money; never in CI)
 pnpm build && node apps/cli/dist/main.js doctor
 ```
+
+CLI: `doctor` · `resources` · `route` · `run` (`--project`, `--document-set`, `--workflow`, `--input`,
+`--input-file`, `--list-input`) · `projects list` · `artifacts list` · `approvals list|approve|deny` ·
+`clients add|list|revoke` · `mcp serve` · `workflows list`. Check flags with `--help`.
 
 ## Rules
 
@@ -50,11 +59,41 @@ _references_ (`{ source: 'env', name }`), never values. Never read or copy a run
 credentials (Claude/Codex/DSH logins) — use their supported CLI/SDK. Probes never make paid calls.
 Launch subprocess runtimes with an explicit, minimal env. Don't log prompts at info+.
 
+**Path safety (ADR-012):** any path from a request, workflow input or model output goes through
+`resolveContainedPath`; pass the canonical result onward, never the original string. Never echo a
+rejected path in an error or log. Project-internal config paths resolve against the project's first
+root; `roots` resolve against the config file's directory. The engine enforces workspace policy before
+routing (default `project-only`; the CLI uses `project-or-unscoped`).
+
+**Artifacts (ADR-013):** write only through `LocalArtifactStore` (sanitized names, forced extension,
+`O_EXCL` no-overwrite, per-level realpath checks, 0600/0700). Drafts go under `drafts/`. Refs and
+hashes go into telemetry, never content.
+
+**MCP / Work Bridge (ADR-014, ADR-015):** stdio only; stdout carries protocol frames only (logs to
+stderr); every tool call is authenticated, authorized and audited exactly once; never expose the server
+over a network or add a network transport without an ADR and security review. Audit records are a field
+allowlist: no prompts, paths, content or tokens. Request fields must never widen scopes or paths.
+
+**Approvals (ADR-016):** deny by default. v0.2 registers **no** outward executors (no email, calendar,
+upload, push); adding one needs an ADR, an executor and approval binding. Nexar produces drafts only.
+
+**Workflows (ADR-017):** a workflow is data (`workflow.json` + Markdown templates in `workflows/`), not
+code. Every input is rendered inside an `<untrusted-input>` wrapper and never reaches the trusted system
+prompt; documents are passed as references, not content; outputs are draft-only. `@nexar/workflows`
+must not import mail, HTTP or approval-execution code (a static test enforces this).
+
 **Tests:** every behavior change ships with tests. CI must never call paid APIs.
 
 **Git:** feature branch → one logical Conventional Commit per accepted unit (`feat:`, `fix:`,
 `docs:`, `test:`, `chore:`, `ci:`) → push → PR to `main`. Never force-push or rewrite published
 history. `pnpm check` must pass before every commit.
+
+## Local state (`.nexar/`, git-ignored, never committed)
+
+Next to the config file (or the cwd with the built-in config): `clients.json` (hashed tokens, 0600),
+`audit.jsonl` (request audit), `approvals/` (approval records), `runtimes/` (isolated runtime state),
+`telemetry.jsonl` (where configured). Artifacts live under each project root:
+`<root>/.nexar/artifacts/<task>/[drafts/]`.
 
 ## Development workflow (ADR-009)
 
@@ -73,4 +112,4 @@ history. `pnpm check` must pass before every commit.
 
 ADRs `docs/adr/` · research snapshots (with SHAs) `docs/research/upstream/` · roadmap
 `docs/roadmap/ROADMAP.md` · backlog `docs/backlog/` · devlogs/reports `docs/devlog/` ·
-example config `config/`. If it matters later, write it into the repo.
+example config `config/` · workflows `workflows/`. If it matters later, write it into the repo.

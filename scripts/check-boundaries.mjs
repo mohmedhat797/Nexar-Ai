@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 /** Upstream import prefix → the only directory allowed to import it. */
 const UPSTREAMS = [
   { prefix: '@earendil-works/', owner: 'integrations/pi/' },
+  { prefix: '@modelcontextprotocol/', owner: 'integrations/mcp/' },
   { prefix: '@mariozechner/', owner: null }, // deprecated scope: never allowed
   { prefix: '@deepseek-ai/', owner: null }, // Nexar speaks the DSH wire protocol, no npm deps (ADR-002)
   { prefix: '@anthropic-ai/', owner: null },
