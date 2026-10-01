@@ -1,0 +1,2 @@
+ID                                    STATUS    CREATED                   EXPIRES                   RISK    ACTION              TASK              PROJECT           CLIENT  SUMMARY
+apr_8f377d0d777c8b7507a3e1b3e9836a34  consumed  2026-10-01T09:04:58.185Z  2026-10-01T09:34:58.185Z  medium  engineering.commit  eng-aa4d2a96ce83  engineering-demo  -       nexar: Add an optional second parameter to slugify: slugify(text, { maxLength } (2 files, review approve) → nexar/eng-aa4d2a96ce83
