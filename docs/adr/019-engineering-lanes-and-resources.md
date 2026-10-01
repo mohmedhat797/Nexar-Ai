@@ -117,18 +117,23 @@ The NRC picks a **resource**. The resource's `runtime.adapter` names the executo
 
 ```ts
 interface EngineeringWorkspace {
-  readonly path: string; // canonical worktree path as the process sees it
+  readonly path: string; // canonical host path of the task worktree
   readonly access: 'read-only' | 'read-write';
   readonly launcher: ProcessLauncher;
 }
 interface ProcessLauncher {
   readonly isolation: 'none' | 'sandbox';
-  launch(spec: LaunchSpec, signal: AbortSignal): LaunchedProcess;
+  prepare(spec: LaunchSpec, signal: AbortSignal): Promise<PreparedLaunch>;
 }
 ```
 
-- `LaunchSpec` holds `command`, `args`, an explicit `env` allowlist, stdin mode, `network` (`none`,
-  or `proxy` with a domain allowlist), and narrow `mounts` (credential mounts, ADR-018 section 7).
+- `LaunchSpec` holds `command`, `args`, the complete `env` (nothing is inherited), the workspace and
+  its access mode, `network` (`none`, or `proxy` with an exact-host allowlist) and narrow `mounts`
+  (credential mounts, ADR-018 section 7).
+- `prepare` returns the **wrapped** command, args and env that the adapter spawns, the path at which
+  the workspace appears to the process, and a `dispose()` that stops the per-launch proxy. Adapters
+  keep their own spawn, stream parsing and process-group kill logic, so the launcher does not
+  re-implement process handling.
 - `@nexar/sandbox` implements `isolation: 'sandbox'` with the verified bwrap profile and the egress
   proxy. If bwrap or user namespaces are missing, it fails with the new error code
   `SANDBOX_UNAVAILABLE` and never falls back.

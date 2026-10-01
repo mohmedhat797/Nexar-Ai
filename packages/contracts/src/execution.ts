@@ -1,5 +1,6 @@
 import type { ArtifactRef } from './artifacts.js';
 import type { AdapterId } from './ids.js';
+import type { EngineeringWorkspace } from './launcher.js';
 import type { Logger } from './logging.js';
 import { unavailable } from './measured.js';
 import type { Measured } from './measured.js';
@@ -42,6 +43,12 @@ export interface ExecutionContext {
   readonly signal: AbortSignal;
   readonly logger: Logger;
   readonly onEvent?: (event: ExecutionEvent) => void;
+  /**
+   * Present only for engineering lanes (ADR-019). An adapter given a `read-write`
+   * workspace MUST refuse (`POLICY_REJECTED`) unless `launcher.isolation === 'sandbox'`,
+   * and MUST spawn its runtime only through `launcher.prepare`.
+   */
+  readonly workspace?: EngineeringWorkspace;
 }
 
 /** What an adapter returns, including what was actually resolved at runtime. */
