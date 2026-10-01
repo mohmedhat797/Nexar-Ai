@@ -16,7 +16,10 @@
     "apps/*/src/**/*.ts",
     "packages/*/src/**/*.ts",
     "integrations/*/src/**/*.ts",
+    "apps/desktop/e2e/**/*.ts",
+    "apps/desktop/vite.config.ts",
     "tests/**/*.ts",
     "vitest.config.ts"
-  ]
+  ],
+  "exclude": ["apps/desktop/src/renderer/**"]
 }

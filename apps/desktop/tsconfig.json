@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist/types",
+    "emitDeclarationOnly": true,
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": ["**/*.test.ts", "dist"],
+  "references": [
+    { "path": "../../packages/approvals" },
+    { "path": "../../packages/artifacts" },
+    { "path": "../../packages/contracts" },
+    { "path": "../../packages/core" },
+    { "path": "../../packages/host" },
+    { "path": "../../packages/projects" },
+    { "path": "../../packages/resource-controller" },
+    { "path": "../../packages/workflows" }
+  ]
+}

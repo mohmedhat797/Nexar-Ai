@@ -1,0 +1,59 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/*.test.ts", "dist"],
+  "references": [
+    {
+      "path": "../approvals"
+    },
+    {
+      "path": "../artifacts"
+    },
+    {
+      "path": "../contracts"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../engineering"
+    },
+    {
+      "path": "../../integrations/antigravity"
+    },
+    {
+      "path": "../../integrations/claude-code"
+    },
+    {
+      "path": "../../integrations/codex"
+    },
+    {
+      "path": "../../integrations/deepseek-harness"
+    },
+    {
+      "path": "../../integrations/delegate-skills"
+    },
+    {
+      "path": "../../integrations/echo"
+    },
+    {
+      "path": "../../integrations/pi"
+    },
+    {
+      "path": "../resource-registry"
+    },
+    {
+      "path": "../sandbox"
+    },
+    {
+      "path": "../telemetry"
+    },
+    {
+      "path": "../workflows"
+    }
+  ]
+}

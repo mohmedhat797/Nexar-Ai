@@ -26,7 +26,9 @@ Change an architectural decision only via a new/amended ADR.
 | Sandbox                   | `packages/sandbox`             | bwrap profile, `SandboxLauncher`, egress proxy; the only code that invokes bwrap.                                       |
 | Worktrees                 | `packages/worktrees`           | Private clone, sandboxed harvest, patch policy, verification clone, `commitPatch`.                                      |
 | Engineering               | `packages/engineering`         | Lane plans (`engineering/`), runner, gates, review verdict, task records.                                               |
+| Host                      | `packages/host`                | Shared composition for CLI and desktop: config loading; the only place adapters are instantiated.                       |
 | Adapters                  | `integrations/*`               | The **only** code that knows an upstream (incl. `mcp`, `openworker` bridge, `codex`, `antigravity`, `delegate-skills`). |
+| Desktop                   | `apps/desktop`                 | Electron app (ADR-021): main process hosts the engine; sandboxed renderer; one zod-validated bridge.                    |
 | CLI                       | `apps/cli`                     | Thin client: `doctor`, `resources`, `route`, `run`, plus the commands below.                                            |
 
 Three questions stay separate: **who executes** (NRC) · **how work is orchestrated** (DSH / native
@@ -40,7 +42,11 @@ pnpm check            # format:check → lint → boundaries → typecheck → t
 pnpm test             # vitest (offline, deterministic)
 NEXAR_LIVE_TESTS=1 pnpm test   # opt-in live tests (may cost money; never in CI)
 pnpm build && node apps/cli/dist/main.js doctor
+pnpm --filter @nexar/desktop start   # the desktop app (after pnpm build)
+xvfb-run -a pnpm desktop:e2e         # Playwright drives the real app (Windows/macOS: without xvfb-run)
 ```
+
+Continuing locally: [`docs/guides/local-development.md`](docs/guides/local-development.md).
 
 CLI: `doctor` · `resources` (`--discovered`) · `route` (`--explain`) · `run` (`--project`, `--document-set`, `--workflow`, `--input`,
 `--input-file`, `--list-input`; both take `--max-cost`, `--require-known-quota`) · `projects list` · `artifacts list` · `approvals list|approve|deny` ·
@@ -118,6 +124,18 @@ must not import mail, HTTP or approval-execution code (a static test enforces th
   providers only, no LAN scans, config wins collisions, discovered ≠ authenticated.
 - `deterministic@1` stays byte-for-byte unchanged; a new behavior is a new versioned policy.
 
+**Desktop (ADR-021, ADR-022, ADR-023):**
+
+- The renderer is untrusted: `sandbox`, `contextIsolation`, no Node, strict CSP, no navigation or new
+  windows. Never render model output as HTML (`dangerouslySetInnerHTML` is forbidden).
+- Every bridge channel has a strict zod schema validated in the main process; errors leave as
+  `{ code, message }` without paths or stacks; only the app's own page may call the bridge. Add a
+  channel in `src/shared/channels.ts` + `api.ts`, `src/main/<area>.ts`, the preload, and tests.
+- Renderer paths are project-relative and contained (`resolveProjectPath`); projects are added only
+  through the native folder dialog; the engine runs with the `project-only` workspace policy.
+- No network listener in the app. Secrets never cross IPC; API keys (when built) are encrypted with
+  `safeStorage` and resolved in main at call time. Schedules never auto-approve.
+
 **Tests:** every behavior change ships with tests. CI must never call paid APIs.
 
 **Git:** feature branch → one logical Conventional Commit per accepted unit (`feat:`, `fix:`,
@@ -129,7 +147,8 @@ history. `pnpm check` must pass before every commit.
 Next to the config file (or the cwd with the built-in config): `clients.json` (hashed tokens, 0600),
 `audit.jsonl` (request audit), `approvals/` (approval records), `runtimes/` (isolated runtime state),
 `engineering/<task>/record.json` (engineering task records), `telemetry.jsonl` (where configured).
-Artifacts live under each project root: `<root>/.nexar/artifacts/<task>/[drafts/]`. Engineering
+The desktop app keeps the same files in `<appData>/Nexar` (`%APPDATA%\Nexar` on Windows) plus
+`desktop-settings.json`. Artifacts live under each project root: `<root>/.nexar/artifacts/<task>/[drafts/]`. Engineering
 worktrees live outside the repo, on the plane's own filesystem:
 `$XDG_DATA_HOME/nexar/worktrees/<project>/<task>/` (default `~/.local/share/nexar/worktrees`).
 

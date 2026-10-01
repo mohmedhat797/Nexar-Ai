@@ -17,7 +17,7 @@ jobs:
   check:
     name: format · lint · typecheck · test · build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -65,6 +65,11 @@ jobs:
         run: |
           node apps/cli/dist/main.js resources
           node apps/cli/dist/main.js run --kind general "ci smoke"
+
+      # Nexar Desktop (ADR-021): drives the real Electron app with Playwright on a virtual display.
+      # Offline: only the echo resource is used. --no-sandbox is passed by the test, not the app.
+      - name: Desktop E2E (Electron under Xvfb)
+        run: xvfb-run -a pnpm desktop:e2e
 
   secrets:
     name: secret scan

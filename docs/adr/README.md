@@ -26,6 +26,9 @@ ADR (or amend status) when you change one.
 | [018](018-engineering-execution-plane.md)          | Engineering execution plane (Windows → WSL2 → bubblewrap)          | Accepted                       |
 | [019](019-engineering-lanes-and-resources.md)      | Engineering lanes, resource selection, Nexar acceptance            | Accepted                       |
 | [020](020-resource-intelligence-scheduler.md)      | Resource Intelligence: explainable quota- and cost-aware scheduler | Accepted                       |
+| [021](021-nexar-desktop.md)                        | Nexar Desktop: Electron app with Cowork and Code modes             | Accepted                       |
+| [022](022-provider-credentials.md)                 | Providers and credentials in Nexar Desktop (encrypted key store)   | Accepted                       |
+| [023](023-scheduled-tasks.md)                      | Scheduled tasks                                                    | Accepted                       |
 
 Template: Status · Context · Decision · Rationale · Alternatives considered · Consequences · Risks ·
 Follow-up work.

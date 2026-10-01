@@ -133,6 +133,16 @@ Telemetry and explanations carry ids, codes, counts and numbers only. Quota labe
 never printed by `nexar resources`, and discovery reports carry source ids, statuses, counts and
 error codes, never paths or messages.
 
+## v0.5 controls (Nexar Desktop, ADR-021)
+
+| #   | Control                                                                                                                                                               | Enforced in                                                           | Proven by                                                                               |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 31  | The renderer is untrusted: `sandbox`, `contextIsolation`, no Node integration, strict CSP (header and meta), navigation, new windows, webviews and permissions denied | `apps/desktop/src/main/window.ts`, `src/renderer/index.html`          | `apps/desktop/e2e/desktop.e2e.ts` (web preferences, no `require`/`process` in the page) |
+| 32  | One narrow bridge: fixed channels only, every request validated by a strict zod schema in the main process, errors mapped to codes, crashes answered generically      | `apps/desktop/src/main/{bridge,channel}.ts`, `src/preload/preload.ts` | `apps/desktop/src/main/bridge.test.ts`                                                  |
+| 33  | Paths from the renderer are project-relative, contained with `resolveContainedPath` and never echoed; projects are added only through the native folder dialog        | `apps/desktop/src/main/{channel,projects}.ts`                         | `bridge.test.ts` (`..`, absolute and symlink escapes)                                   |
+| 34  | Only Nexar artifacts of the store's own file types can be opened with the OS default handler                                                                          | `apps/desktop/src/main/artifacts.ts`                                  | `bridge.test.ts` (planted `.exe` and `.html` refused)                                   |
+| 35  | Model output is rendered as text, never as HTML; no network listener; the engine uses the `project-only` workspace policy                                             | `apps/desktop/src/renderer/*`, `src/main/engine-host.ts`              | `bridge.test.ts`, E2E                                                                   |
+
 ## Known gaps (tracked in the backlog)
 
 - **v0.2 read-only runs are still unsandboxed.** The OS-level sandbox gap is closed for engineering
