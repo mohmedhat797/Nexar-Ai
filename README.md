@@ -158,6 +158,23 @@ node apps/cli/dist/main.js run --workflow sow --project demo-project \
 Project ids come from the `projects` list in your config (`nexar projects list`); the example config
 defines `demo-project`. Inputs are untrusted text for the model. See [`workflows/README.md`](workflows/README.md).
 
+## Nexar Desktop (v0.5, in progress)
+
+A desktop app ([ADR-021](docs/adr/021-nexar-desktop.md)) that works on your project folders, like
+Claude Cowork or the Codex app, with Nexar's routing, approvals and safety rules underneath.
+
+```bash
+pnpm install && pnpm build
+pnpm --filter @nexar/desktop start      # opens the app
+xvfb-run -a pnpm desktop:e2e            # drives the real app with Playwright (Linux, offline)
+```
+
+Working today: open a folder as a project, Cowork chat with a "why this AI?" explanation, results
+saved as drafts in the project, project files with preview, AI resources, approvals, workflows, and
+six themes. Coming next: Windows packaging and fixes, providers and API keys, AI behavior settings,
+scheduled tasks, Code mode on the WSL2 engineering plane, and OpenWorker as the Cowork agent
+([backlog NXR-051 to NXR-056](docs/backlog/README.md)). The app has not been run on Windows yet.
+
 ## Resource intelligence (v0.4)
 
 `routing.policy: "resource-intelligence"` turns on `resource-intelligence@1` ([ADR-020](docs/adr/020-resource-intelligence-scheduler.md));

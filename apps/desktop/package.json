@@ -1,0 +1,34 @@
+{
+  "name": "@nexar/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main/main.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "electron .",
+    "e2e": "node scripts/e2e.mjs"
+  },
+  "dependencies": {
+    "@nexar/approvals": "workspace:*",
+    "@nexar/artifacts": "workspace:*",
+    "@nexar/contracts": "workspace:*",
+    "@nexar/core": "workspace:*",
+    "@nexar/host": "workspace:*",
+    "@nexar/projects": "workspace:*",
+    "@nexar/resource-controller": "workspace:*",
+    "@nexar/workflows": "workspace:*",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "electron": "44.5.1",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.63.0",
+    "vite": "8.3.2"
+  }
+}

@@ -7,8 +7,8 @@
     "node": ">=22.19"
   },
   "scripts": {
-    "build": "tsc -b",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "build": "tsc -b && pnpm --filter @nexar/desktop build",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p apps/desktop/tsconfig.renderer.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
@@ -16,7 +16,8 @@
     "format:check": "prettier --check .",
     "clean": "node scripts/clean.mjs",
     "check": "pnpm format:check && pnpm lint && pnpm check:boundaries && pnpm typecheck && pnpm test && pnpm build",
-    "check:boundaries": "node scripts/check-boundaries.mjs"
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "desktop:e2e": "pnpm --filter @nexar/desktop e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
