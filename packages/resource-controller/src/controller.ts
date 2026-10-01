@@ -2,12 +2,32 @@ import {
   NexarError,
   type CandidateAssessment,
   type NexarTask,
+  type PolicyStamp,
+  type QuotaObservation,
+  type ResourceId,
+  type ResourceSnapshot,
   type RouteDecision,
   type RouteReason,
   type ResourceRouter,
+  type RoutingFacts,
+  type RoutingHistory,
   type RoutingPolicy,
 } from '@nexar/contracts';
 import type { ResourceRegistry } from '@nexar/resource-registry';
+import { estimateTaskSize, laneRoleOf } from './size.js';
+
+/** Supplies quota observations per resource (ADR-020 §4); read outside the policy. */
+export interface QuotaSource {
+  observe(
+    ids: readonly ResourceId[],
+    now: Date,
+  ): Promise<ReadonlyMap<ResourceId, readonly QuotaObservation[]>>;
+}
+
+/** Supplies routing history aggregates (ADR-020 §7); read outside the policy. */
+export interface HistorySource {
+  read(now: Date): Promise<RoutingHistory | undefined>;
+}
 
 export interface ResourceControllerOptions {
   readonly registry: ResourceRegistry;
@@ -15,6 +35,10 @@ export interface ResourceControllerOptions {
   readonly clock?: () => Date;
   /** Probe resources before every routing decision; default false. */
   readonly refreshBeforeRouting?: boolean;
+  /** Quota observations merged into each candidate's state before evaluation. */
+  readonly quotaSource?: QuotaSource;
+  /** History handed to the policy as data. */
+  readonly historySource?: HistorySource;
 }
 
 type SelectedDecision = Extract<RouteDecision, { outcome: 'selected' }>;
@@ -25,21 +49,37 @@ export class ResourceController implements ResourceRouter {
   private readonly policy: RoutingPolicy;
   private readonly clock: () => Date;
   private readonly refreshBeforeRouting: boolean;
+  private readonly quotaSource: QuotaSource | undefined;
+  private readonly historySource: HistorySource | undefined;
 
   constructor(options: ResourceControllerOptions) {
     this.registry = options.registry;
     this.policy = options.policy;
     this.clock = options.clock ?? (() => new Date());
     this.refreshBeforeRouting = options.refreshBeforeRouting ?? false;
+    this.quotaSource = options.quotaSource;
+    this.historySource = options.historySource;
   }
 
   async route(task: NexarTask): Promise<RouteDecision> {
-    const candidates = this.refreshBeforeRouting
+    const now = this.clock();
+    const probed = this.refreshBeforeRouting
       ? await this.registry.refresh()
       : this.registry.snapshot();
+    const candidates = await this.withQuotas(probed, now);
+    const laneRole = laneRoleOf(task);
+    const facts: RoutingFacts = {
+      now: now.toISOString(),
+      size: estimateTaskSize(task),
+      ...(laneRole === undefined ? {} : { laneRole }),
+    };
+    // A failing history source means "no history" (neutral factors), never a failed route.
+    const history = await this.historySource?.read(now).catch(() => undefined);
     const assessments = this.policy.evaluate({
       task: { id: task.id, kind: task.kind, requirements: task.requirements },
       candidates,
+      facts,
+      ...(history === undefined ? {} : { history }),
     });
     this.validate(
       candidates.map((c) => c.descriptor.id),
@@ -48,8 +88,12 @@ export class ResourceController implements ResourceRouter {
 
     const eligible = assessments.filter((a) => a.eligible);
     const rejected = assessments.filter((a) => !a.eligible);
-    const policy = { name: this.policy.name, version: this.policy.version };
-    const decidedAt = this.clock().toISOString();
+    const policy: PolicyStamp = {
+      name: this.policy.name,
+      version: this.policy.version,
+      ...(this.policy.configId === undefined ? {} : { configId: this.policy.configId }),
+    };
+    const decidedAt = now.toISOString();
     const [selected, ...alternatives] = eligible;
     if (selected === undefined) {
       return { outcome: 'no-eligible-resource', taskId: task.id, rejected, policy, decidedAt };
@@ -63,6 +107,27 @@ export class ResourceController implements ResourceRouter {
       policy,
       decidedAt,
     };
+  }
+
+  /** Merges observed quotas into each snapshot; a failing source leaves quota unknown. */
+  private async withQuotas(
+    snapshots: readonly ResourceSnapshot[],
+    now: Date,
+  ): Promise<readonly ResourceSnapshot[]> {
+    if (this.quotaSource === undefined) return snapshots;
+    const observed = await this.quotaSource
+      .observe(
+        snapshots.map((s) => s.descriptor.id),
+        now,
+      )
+      .catch(() => undefined);
+    if (observed === undefined) return snapshots;
+    return snapshots.map((s) => {
+      const quotas = observed.get(s.descriptor.id);
+      return quotas === undefined || quotas.length === 0
+        ? s
+        : { descriptor: s.descriptor, state: { ...s.state, quotas } };
+    });
   }
 
   private validate(

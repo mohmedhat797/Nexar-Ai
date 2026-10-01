@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NexarError } from '@nexar/contracts';
+import { DEFAULT_RESOURCE_INTELLIGENCE_SETTINGS } from '@nexar/resource-controller';
 import { parseConfig } from './config.js';
 
 const resource = (id: string) => ({
@@ -157,5 +158,71 @@ describe('global engineering settings', () => {
     problem(config(undefined, { token: 'x' }));
     problem(config(undefined, { approvalTtlMs: 0 }));
     problem(config(undefined, { author: { name: 'x' } }));
+  });
+});
+
+describe('config: routing.resourceIntelligence', () => {
+  const base = (routing: Record<string, unknown>) => ({
+    version: 1,
+    resources: [
+      {
+        id: 'a',
+        displayName: 'A',
+        kind: { type: 'model', provider: 'p', model: 'm', access: 'api' },
+        capabilities: ['text-generation'],
+        runtime: { adapter: 'echo', locality: 'local' },
+        auth: { mode: 'none' },
+        cost: { model: 'free' },
+        dataLocality: 'local',
+      },
+    ],
+    routing,
+  });
+
+  it('defaults to the deterministic policy and documented settings', () => {
+    const config = parseConfig(base({ policy: 'deterministic' }), 'test');
+    expect(config.routing.policy).toBe('deterministic');
+    expect(config.routing.resourceIntelligence).toEqual(DEFAULT_RESOURCE_INTELLIGENCE_SETTINGS);
+  });
+
+  it('overlays given settings on the defaults', () => {
+    const config = parseConfig(
+      base({
+        policy: 'resource-intelligence',
+        resourceIntelligence: {
+          weights: { quota: 0.5 },
+          cost: { unknownUnderLimit: 'allow' },
+          reservations: [
+            { resourceId: 'a', reserveFraction: 0.3, reservedFor: { laneRoles: ['review'] } },
+          ],
+          allowances: [{ resourceId: 'a', unit: 'requests', limit: 50, window: { hours: 5 } }],
+        },
+      }),
+      'test',
+    );
+    const ri = config.routing.resourceIntelligence;
+    expect(config.routing.policy).toBe('resource-intelligence');
+    expect(ri.weights.quota).toBe(0.5);
+    expect(ri.weights.cost).toBe(DEFAULT_RESOURCE_INTELLIGENCE_SETTINGS.weights.cost);
+    expect(ri.cost.unknownUnderLimit).toBe('allow');
+    expect(ri.cost.defaultOutputTokens).toBe(4096);
+    expect(ri.reservations).toHaveLength(1);
+    expect(ri.allowances[0]?.window).toEqual({ hours: 5 });
+  });
+
+  it('rejects unknown resources, out-of-range values and unknown keys', () => {
+    const bad = [
+      { reservations: [{ resourceId: 'zzz', reserveFraction: 0.3, reservedFor: {} }] },
+      { allowances: [{ resourceId: 'zzz', unit: 'requests', limit: 1, window: 'daily' }] },
+      { reservations: [{ resourceId: 'a', reserveFraction: 1, reservedFor: {} }] },
+      { quota: { unknownScore: 2 } },
+      { weights: { quota: -1 } },
+      { surprise: true },
+    ];
+    for (const resourceIntelligence of bad) {
+      expect(() =>
+        parseConfig(base({ policy: 'resource-intelligence', resourceIntelligence }), 'test'),
+      ).toThrow(/Invalid Nexar config/);
+    }
   });
 });

@@ -11,7 +11,12 @@ import {
   type ResourceDescriptor,
   type ResourceId,
 } from '@nexar/contracts';
-import { DEFAULT_TASK_KIND_RULES, type TaskKindRule } from '@nexar/resource-controller';
+import {
+  DEFAULT_RESOURCE_INTELLIGENCE_SETTINGS,
+  DEFAULT_TASK_KIND_RULES,
+  type ResourceIntelligenceSettings,
+  type TaskKindRule,
+} from '@nexar/resource-controller';
 import type { ProjectDefaults, ProjectDefinition } from '@nexar/projects';
 
 /** Validated, branded configuration consumed by `createNexar`. */
@@ -19,10 +24,13 @@ export interface NexarConfig {
   readonly version: 1;
   readonly resources: readonly ResourceDescriptor[];
   readonly routing: {
-    readonly policy: 'deterministic';
+    /** `deterministic` (v0.1 behaviour, default) or `resource-intelligence` (ADR-020). */
+    readonly policy: 'deterministic' | 'resource-intelligence';
     readonly defaultResourceId?: ResourceId;
     /** Built-in rules with the file's overrides merged on top. */
     readonly taskKinds: Readonly<Record<string, TaskKindRule>>;
+    /** Resolved settings (defaults applied); used by `resource-intelligence` and quota accounting. */
+    readonly resourceIntelligence: ResourceIntelligenceSettings;
   };
   readonly telemetry: {
     /** Relative paths are resolved against the config file's directory. */
@@ -214,15 +222,88 @@ const ProjectSchema = z.strictObject({
   metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
 });
 
+const Fraction = z.number().min(0).max(1);
+const Weight = z.number().min(0).max(100);
+const QuotaWindowSchema = z.union([
+  z.enum(['daily', 'weekly', 'monthly']),
+  z.strictObject({
+    hours: z
+      .number()
+      .positive()
+      .max(24 * 366),
+  }),
+]);
+const ResourceIntelligenceSchema = z.strictObject({
+  weights: z
+    .strictObject({
+      default: Weight.optional(),
+      availability: Weight.optional(),
+      auth: Weight.optional(),
+      quota: Weight.optional(),
+      cost: Weight.optional(),
+      latency: Weight.optional(),
+      success: Weight.optional(),
+      lane: Weight.optional(),
+    })
+    .optional(),
+  preferences: z.enum(['authoritative', 'weighted']).optional(),
+  history: z
+    .strictObject({
+      windowDays: z.number().int().min(1).max(365).optional(),
+      minSamples: z.number().int().min(1).max(10_000).optional(),
+    })
+    .optional(),
+  quota: z
+    .strictObject({
+      unknownScore: Fraction.optional(),
+      staleAfterMs: z.number().int().positive().optional(),
+      exhaustedHoldMs: z.number().int().positive().optional(),
+    })
+    .optional(),
+  cost: z
+    .strictObject({
+      defaultOutputTokens: z.number().int().positive().max(10_000_000).optional(),
+      unknownUnderLimit: z.enum(['reject', 'allow']).optional(),
+      costScaleUsd: z.number().positive().optional(),
+      subscriptionScore: Fraction.optional(),
+    })
+    .optional(),
+  latencyScaleMs: z.number().positive().optional(),
+  reservations: z
+    .array(
+      z.strictObject({
+        resourceId: ResourceIdSchema,
+        reserveFraction: z.number().gt(0).lt(1),
+        reservedFor: z.strictObject({
+          taskKinds: StringList.optional(),
+          laneRoles: z.array(z.enum(LANE_ROLES)).optional(),
+        }),
+      }),
+    )
+    .optional(),
+  allowances: z
+    .array(
+      z.strictObject({
+        resourceId: ResourceIdSchema,
+        unit: z.enum(['requests', 'tokens', 'usd']),
+        limit: z.number().positive(),
+        window: QuotaWindowSchema,
+        label: z.string().min(1).max(64).optional(),
+      }),
+    )
+    .optional(),
+});
+
 /** Zod schema of the JSON config file. Strict everywhere: unknown keys are errors. */
 export const NexarConfigSchema = z.strictObject({
   version: z.literal(1),
   resources: z.array(ResourceSchema),
   routing: z
     .strictObject({
-      policy: z.literal('deterministic'),
+      policy: z.enum(['deterministic', 'resource-intelligence']),
       defaultResourceId: ResourceIdSchema.optional(),
       taskKinds: z.record(z.string(), TaskKindRuleSchema).optional(),
+      resourceIntelligence: ResourceIntelligenceSchema.optional(),
     })
     .optional(),
   telemetry: z.strictObject({ jsonlPath: z.string().min(1).optional() }).optional(),
@@ -390,9 +471,14 @@ export function parseConfig(
     version: 1,
     resources,
     routing: {
-      policy: 'deterministic',
+      policy: routing?.policy ?? 'deterministic',
       ...(defaultResourceId === undefined ? {} : { defaultResourceId }),
       taskKinds,
+      resourceIntelligence: resolveResourceIntelligence(
+        routing?.resourceIntelligence,
+        known,
+        origin,
+      ),
     },
     telemetry: jsonlPath === undefined ? {} : { jsonlPath },
     projects,
@@ -489,4 +575,51 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     if (!missing) throw error;
   }
   return { config: defaultConfig(), source: 'default' };
+}
+
+type ResourceIntelligenceInput = z.infer<typeof ResourceIntelligenceSchema>;
+
+/** Overlays the defined keys of `over` on `base` (absent keys keep their defaults). */
+function withDefaults<T extends object>(
+  base: T,
+  over: { [K in keyof T]?: T[K] | undefined } | undefined,
+): T {
+  const result = { ...base };
+  for (const key of Object.keys(over ?? {}) as (keyof T)[]) {
+    const value = over?.[key];
+    if (value !== undefined) result[key] = value;
+  }
+  return result;
+}
+
+/** Applies documented defaults and checks every referenced resource exists. */
+function resolveResourceIntelligence(
+  input: ResourceIntelligenceInput | undefined,
+  resourceIds: ReadonlySet<string>,
+  origin: string,
+): ResourceIntelligenceSettings {
+  const d = DEFAULT_RESOURCE_INTELLIGENCE_SETTINGS;
+  if (input === undefined) return d;
+  const refs = [
+    ...(input.reservations ?? []).map((r) => ['reservations', r.resourceId] as const),
+    ...(input.allowances ?? []).map((a) => ['allowances', a.resourceId] as const),
+  ];
+  for (const [where, id] of refs) {
+    if (!resourceIds.has(id)) {
+      throw configError(
+        `routing.resourceIntelligence.${where} references unknown resource "${id}"`,
+        origin,
+      );
+    }
+  }
+  return {
+    weights: withDefaults(d.weights, input.weights),
+    preferences: input.preferences ?? d.preferences,
+    history: withDefaults(d.history, input.history),
+    quota: withDefaults(d.quota, input.quota),
+    cost: withDefaults(d.cost, input.cost),
+    latencyScaleMs: input.latencyScaleMs ?? d.latencyScaleMs,
+    reservations: (input.reservations ?? []) as ResourceIntelligenceSettings['reservations'],
+    allowances: (input.allowances ?? []) as ResourceIntelligenceSettings['allowances'],
+  };
 }
