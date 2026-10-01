@@ -31,6 +31,18 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # The sandbox integration tests need bubblewrap + socat. Ubuntu 24.04 restricts unprivileged
+      # user namespaces; allow them for bwrap only (ADR-018), never via the global sysctl.
+      - name: Sandbox prerequisites (bubblewrap, socat, bwrap-scoped AppArmor profile)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap socat
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n  include if exists <local/bwrap>\n}\n' | sudo tee /etc/apparmor.d/bwrap >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          fi
+          bwrap --unshare-user --unshare-net --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev true && echo "bwrap ok"
+
       - name: Format
         run: pnpm format:check
 
