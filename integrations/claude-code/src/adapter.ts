@@ -49,6 +49,7 @@ export interface ClaudeCodeAdapterOptions {
 export function buildClaudeArgs(
   settings: ClaudeCodeSettings,
   systemPrompt: string | undefined,
+  maxCostUsd?: number,
 ): string[] {
   const args = [
     '-p',
@@ -60,6 +61,7 @@ export function buildClaudeArgs(
   ];
   if (settings.model !== undefined) args.push('--model', settings.model);
   if (settings.maxTurns !== undefined) args.push('--max-turns', String(settings.maxTurns));
+  if (maxCostUsd !== undefined) args.push('--max-budget-usd', String(maxCostUsd));
   if (systemPrompt !== undefined && systemPrompt !== '') {
     args.push('--append-system-prompt', systemPrompt);
   }
@@ -105,6 +107,7 @@ export function buildEngineeringArgs(
   settings: ClaudeCodeSettings,
   systemPrompt: string | undefined,
   access: 'read-only' | 'read-write',
+  maxCostUsd?: number,
 ): string[] {
   const args = [
     '-p',
@@ -125,6 +128,7 @@ export function buildEngineeringArgs(
   ];
   if (settings.model !== undefined) args.push('--model', settings.model);
   if (settings.maxTurns !== undefined) args.push('--max-turns', String(settings.maxTurns));
+  if (maxCostUsd !== undefined) args.push('--max-budget-usd', String(maxCostUsd));
   if (systemPrompt !== undefined && systemPrompt !== '') {
     args.push('--append-system-prompt', systemPrompt);
   }
@@ -219,7 +223,10 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
       return this.executeInWorkspace(request, context, settings, workspace);
     }
 
-    const args = [...this.prefixArgs, ...buildClaudeArgs(settings, task.input.systemPrompt)];
+    const args = [
+      ...this.prefixArgs,
+      ...buildClaudeArgs(settings, task.input.systemPrompt, task.requirements.maxCostUsd),
+    ];
     const timeoutMs = settings.timeoutMs ?? this.defaultTimeoutMs;
     logger.debug('spawning claude', {
       model: settings.model,
@@ -254,8 +261,13 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
     const logger = context.logger.child({ adapter: this.id, resourceId: resource.id });
 
     const claudeArgs = sandboxed
-      ? buildEngineeringArgs(settings, task.input.systemPrompt, workspace.access)
-      : buildClaudeArgs(settings, task.input.systemPrompt);
+      ? buildEngineeringArgs(
+          settings,
+          task.input.systemPrompt,
+          workspace.access,
+          task.requirements.maxCostUsd,
+        )
+      : buildClaudeArgs(settings, task.input.systemPrompt, task.requirements.maxCostUsd);
     const spec: LaunchSpec = {
       command: this.command,
       args: [...this.prefixArgs, ...claudeArgs],
@@ -335,6 +347,12 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
     if (parsed === undefined && outcome.exitCode === 0) {
       throw new NexarError('PROVIDER_ERROR', 'claude produced no parseable JSON result', {
         details,
+      });
+    }
+    if (subtype === 'error_max_budget_usd') {
+      // A caller-set budget was reached: a policy outcome, not a resource fault.
+      throw new NexarError('POLICY_REJECTED', 'claude stopped at the requested maxCostUsd budget', {
+        details: { ...details, reason: 'max-budget-usd' },
       });
     }
     if (

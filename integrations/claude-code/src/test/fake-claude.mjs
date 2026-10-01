@@ -3,7 +3,7 @@
 // Env controls:
 //   FAKE_CLAUDE_RECORD      file to which each invocation (argv, stdin, env, pid) is appended as JSON
 //   FAKE_CLAUDE_ENV_KEYS    comma-separated env names whose values are recorded (names of all are too)
-//   FAKE_CLAUDE_MODE        success | error | garbage | hang | auth   (for print-mode runs)
+//   FAKE_CLAUDE_MODE        success | error | budget | garbage | hang | auth   (for print-mode runs)
 //   FAKE_CLAUDE_LOGGED_OUT  "1" makes `auth status` report loggedIn:false
 //   FAKE_CLAUDE_OMIT_USAGE  "1" drops usage/cost/turns from the success result
 //   With `--output-format stream-json` in argv the fake emits stream events (an init line, an
@@ -131,6 +131,16 @@ if (argv[0] === '--version') {
         result: 'overloaded',
       });
       process.stderr.write('upstream exploded\n');
+      process.exitCode = 1;
+      break;
+    case 'budget':
+      emit({
+        type: 'result',
+        subtype: 'error_max_budget_usd',
+        is_error: true,
+        total_cost_usd: 0.06,
+        result: 'budget reached',
+      });
       process.exitCode = 1;
       break;
     case 'garbage':

@@ -8,11 +8,15 @@ import {
   taskId,
   toNexarError,
   unavailable,
+  valueOf,
+  type CostEstimateRecord,
   type EngineeringWorkspace,
   type ExecutionEvent,
   type ExecutionOutcome,
   type ExecutionRecord,
   type ArtifactRef,
+  type CostEstimate,
+  type Measured,
   type ExecutionResult,
   type Logger,
   type NexarTask,
@@ -105,6 +109,33 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
       },
     );
   });
+}
+
+/**
+ * Estimate vs actual (observability only). Absent unless the selected candidate carried an
+ * estimate; errors are computed only from numeric (measured or estimated) values.
+ */
+function costEstimateRecord(
+  estimate: CostEstimate | undefined,
+  actualUsd: Measured<number>,
+): CostEstimateRecord | undefined {
+  if (estimate === undefined) return undefined;
+  const est = valueOf(estimate.cashUsd);
+  const act = valueOf(actualUsd);
+  const absoluteErrorUsd =
+    est !== undefined && act !== undefined && Number.isFinite(est + act)
+      ? Math.abs(est - act)
+      : undefined;
+  return {
+    estimator: estimate.estimator,
+    class: estimate.class,
+    estimatedUsd: estimate.cashUsd,
+    actualUsd,
+    ...(absoluteErrorUsd === undefined ? {} : { absoluteErrorUsd }),
+    ...(absoluteErrorUsd !== undefined && act !== undefined && act > 0
+      ? { relativeError: absoluteErrorUsd / act }
+      : {}),
+  };
 }
 
 /** Task → route → execute → record. Knows no upstream; speaks only contracts. */
@@ -270,9 +301,11 @@ export class Nexar {
         Partial<Pick<ExecutionRecord, 'provider' | 'model' | 'runtimeVersion' | 'error'>>,
     ): ExecutionRecord => {
       const ended = this.clock();
+      const costEstimate = costEstimateRecord(decision.selected.cost, extra.usage.costUsd);
       return {
         ...base,
         ...extra,
+        ...(costEstimate === undefined ? {} : { costEstimate }),
         endedAt: ended.toISOString(),
         latencyMs: ended.getTime() - started.getTime(),
       };

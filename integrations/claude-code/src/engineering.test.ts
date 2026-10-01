@@ -192,6 +192,29 @@ describe('engineering argv', () => {
     expect(launcher.specs[0]?.workspaceAccess).toBe('read-write');
   });
 
+  it('passes --max-budget-usd only when maxCostUsd is set', async () => {
+    const { hh, launcher, ctx } = rig('sandbox', 'read-write');
+    const plain = request();
+    await hh.adapter.execute(plain, ctx());
+    await hh.adapter.execute(
+      { ...plain, task: { ...plain.task, requirements: { capabilities: [], maxCostUsd: 1.5 } } },
+      ctx(),
+    );
+    const [a, b] = launcher.specs;
+    expect(a?.args).not.toContain('--max-budget-usd');
+    const i = b?.args.indexOf('--max-budget-usd') ?? -1;
+    expect(i).toBeGreaterThan(0);
+    expect(b?.args[i + 1]).toBe('1.5');
+    expect(b?.args.indexOf('--allowedTools') ?? 0).toBeGreaterThan(i);
+  });
+
+  it('maps error_max_budget_usd from the stream to POLICY_REJECTED', async () => {
+    const { hh, ctx } = rig('sandbox', 'read-write', { FAKE_CLAUDE_MODE: 'budget' });
+    const err = await rejection(hh.adapter.execute(request(), ctx()));
+    expect(err.code).toBe('POLICY_REJECTED');
+    expect(err.details).toMatchObject({ reason: 'max-budget-usd' });
+  });
+
   it('uses a tool list without Edit/Write for read-only workspaces', async () => {
     const { hh, launcher, ctx } = rig('sandbox', 'read-only');
     await hh.adapter.execute(request(), ctx());
