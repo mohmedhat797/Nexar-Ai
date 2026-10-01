@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "implement-review",
+  "displayName": "Implement, gate, review",
+  "description": "One resource implements the goal, Nexar runs the gates on a fresh clone, and a different resource reviews the patch.",
+  "lanes": [
+    {
+      "id": "feature",
+      "role": "feature",
+      "access": "read-write",
+      "taskKind": "coding",
+      "capabilities": ["coding", "repo-editing"],
+      "system": "feature.system.md",
+      "brief": "feature.md"
+    },
+    {
+      "id": "review",
+      "role": "review",
+      "access": "read-only",
+      "taskKind": "review",
+      "capabilities": ["code-review"],
+      "system": "review.system.md",
+      "brief": "review.md"
+    }
+  ]
+}

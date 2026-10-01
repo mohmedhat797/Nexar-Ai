@@ -233,6 +233,30 @@ importers:
         specifier: workspace:*
         version: link:../../integrations/echo
 
+  packages/engineering:
+    dependencies:
+      '@nexar/approvals':
+        specifier: workspace:*
+        version: link:../approvals
+      '@nexar/artifacts':
+        specifier: workspace:*
+        version: link:../artifacts
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@nexar/core':
+        specifier: workspace:*
+        version: link:../core
+      '@nexar/projects':
+        specifier: workspace:*
+        version: link:../projects
+      '@nexar/workflows':
+        specifier: workspace:*
+        version: link:../workflows
+      '@nexar/worktrees':
+        specifier: workspace:*
+        version: link:../worktrees
+
   packages/projects:
     dependencies:
       '@nexar/contracts':

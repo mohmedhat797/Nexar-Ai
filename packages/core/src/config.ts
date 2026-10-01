@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import {
@@ -32,6 +33,17 @@ export interface NexarConfig {
    * project-internal path resolves against the project's first root.
    */
   readonly projects: readonly ProjectDefinition[];
+  /** Engineering plane settings (ADR-019); absent when the file has no `engineering` section. */
+  readonly engineering?: EngineeringConfig;
+}
+
+/** Global engineering settings. Paths are absolute (`~/` expanded, relative → config directory). */
+export interface EngineeringConfig {
+  readonly worktreesDir?: string;
+  /** Host toolchain directories for the sandbox launcher; carried, not interpreted here. */
+  readonly toolchainPaths: readonly string[];
+  readonly author: { readonly name: string; readonly email: string };
+  readonly approvalTtlMs: number;
 }
 
 function branded<T>(kind: string, make: (s: string) => T): z.ZodType<T, string> {
@@ -130,6 +142,48 @@ const TaskKindRuleSchema = z.strictObject({
 const DOCUMENT_SET_NAME = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 const PathSchema = z.string().min(1);
 const WORKFLOW_ID = /^[a-z][a-z0-9-]{0,63}$/;
+const LANE_ROLES = ['architecture', 'feature', 'tests', 'debugging', 'review'] as const;
+
+const ArgvSchema = z.array(z.string().min(1)).min(1);
+const EngineeringCommandSchema = z.strictObject({
+  name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
+  command: ArgvSchema,
+  timeoutMs: z.number().int().positive().max(86_400_000).default(600_000),
+});
+
+const ProjectEngineeringSchema = z.strictObject({
+  repository: PathSchema.default('.'),
+  baseBranch: z.string().min(1).default('main'),
+  setup: z.array(EngineeringCommandSchema).default([]),
+  setupAllowHosts: z.array(z.string().min(1)).default([]),
+  gates: z.array(EngineeringCommandSchema).default([]),
+  laneTimeoutMs: z.number().int().positive().max(86_400_000).default(1_800_000),
+  maxReworkRounds: z.number().int().min(0).max(3).default(1),
+  reviewDiversity: z.enum(['preferred', 'required']).default('preferred'),
+  ownerApproval: z.enum(['always', 'never']).default('always'),
+  lanePreferences: z
+    .strictObject(
+      Object.fromEntries(LANE_ROLES.map((role) => [role, z.array(ResourceIdSchema).optional()])),
+    )
+    .default({}),
+  patchPolicy: z
+    .strictObject({
+      denyGlobs: z.array(z.string().min(1)).default([]),
+      allowSymlinks: z.boolean().default(false),
+      allowModeChanges: z.boolean().default(false),
+      maxBytes: z.number().int().positive().default(5_242_880),
+    })
+    .default({ denyGlobs: [], allowSymlinks: false, allowModeChanges: false, maxBytes: 5_242_880 }),
+});
+
+const EngineeringSchema = z.strictObject({
+  worktreesDir: PathSchema.optional(),
+  toolchainPaths: z.array(PathSchema).default([]),
+  author: z
+    .strictObject({ name: z.string().min(1), email: z.string().min(1) })
+    .default({ name: 'Nexar', email: 'nexar@localhost' }),
+  approvalTtlMs: z.number().int().positive().default(1_800_000),
+});
 
 const ProjectSchema = z.strictObject({
   id: ProjectIdSchema,
@@ -150,6 +204,7 @@ const ProjectSchema = z.strictObject({
       maxCostUsd: z.number().nonnegative().optional(),
     })
     .optional(),
+  engineering: ProjectEngineeringSchema.optional(),
   workflows: z
     .strictObject({
       directories: z.array(PathSchema).min(1).optional(),
@@ -172,6 +227,7 @@ export const NexarConfigSchema = z.strictObject({
     .optional(),
   telemetry: z.strictObject({ jsonlPath: z.string().min(1).optional() }).optional(),
   projects: z.array(ProjectSchema).optional(),
+  engineering: EngineeringSchema.optional(),
 });
 
 function configError(message: string, origin: string): NexarError {
@@ -261,6 +317,16 @@ export function parseConfig(
         );
       }
     }
+    for (const [role, ids] of Object.entries(project.engineering?.lanePreferences ?? {})) {
+      for (const id of ids ?? []) {
+        if (!known.has(id)) {
+          throw configError(
+            `projects.${project.id}.engineering.lanePreferences.${role} references unknown resource "${id}"`,
+            origin,
+          );
+        }
+      }
+    }
     if (project.artifactsDirectory !== undefined) {
       assertArtifactsDirectory(project.id, project.artifactsDirectory, origin);
     }
@@ -304,10 +370,21 @@ export function parseConfig(
                   }),
             },
           }),
+      ...(project.engineering === undefined
+        ? {}
+        : {
+            engineering: {
+              ...project.engineering,
+              repository: resolve(firstRoot, project.engineering.repository),
+            },
+          }),
       ...(project.metadata === undefined ? {} : { metadata: project.metadata }),
     });
   }
 
+  const engineering = data.engineering;
+  const expand = (path: string): string =>
+    path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : resolve(baseDir, path);
   const jsonlPath = data.telemetry?.jsonlPath;
   return {
     version: 1,
@@ -319,6 +396,18 @@ export function parseConfig(
     },
     telemetry: jsonlPath === undefined ? {} : { jsonlPath },
     projects,
+    ...(engineering === undefined
+      ? {}
+      : {
+          engineering: {
+            ...(engineering.worktreesDir === undefined
+              ? {}
+              : { worktreesDir: expand(engineering.worktreesDir) }),
+            toolchainPaths: engineering.toolchainPaths.map(expand),
+            author: engineering.author,
+            approvalTtlMs: engineering.approvalTtlMs,
+          },
+        }),
   };
 }
 

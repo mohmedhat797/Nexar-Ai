@@ -18,6 +18,42 @@ export interface ProjectWorkflowSettings {
   readonly instructions?: Readonly<Record<string, string>>;
 }
 
+/** Lane roles of an engineering plan (ADR-019). `debugging` is the built-in rework lane. */
+export type EngineeringLaneRole = 'architecture' | 'feature' | 'tests' | 'debugging' | 'review';
+
+/** A setup step or gate: an argv array (never a shell string) run in the sandbox. */
+export interface EngineeringCommand {
+  readonly name: string;
+  readonly command: readonly string[];
+  readonly timeoutMs: number;
+}
+
+/** Patch validation policy for a project (see `@nexar/worktrees`). */
+export interface EngineeringPatchPolicy {
+  readonly denyGlobs: readonly string[];
+  readonly allowSymlinks: boolean;
+  readonly allowModeChanges: boolean;
+  readonly maxBytes: number;
+}
+
+/** Engineering settings of a project, with every default applied (ADR-019). */
+export interface ProjectEngineeringSettings {
+  /** Absolute; resolved against the first root. Containment is enforced on use. */
+  readonly repository: string;
+  readonly baseBranch: string;
+  readonly setup: readonly EngineeringCommand[];
+  /** Egress for setup only; empty = no network. */
+  readonly setupAllowHosts: readonly string[];
+  readonly gates: readonly EngineeringCommand[];
+  readonly laneTimeoutMs: number;
+  /** 0..3 */
+  readonly maxReworkRounds: number;
+  readonly reviewDiversity: 'preferred' | 'required';
+  readonly ownerApproval: 'always' | 'never';
+  readonly lanePreferences: Readonly<Partial<Record<EngineeringLaneRole, readonly ResourceId[]>>>;
+  readonly patchPolicy: EngineeringPatchPolicy;
+}
+
 /** What configuration supplies; all paths are already absolute. */
 export interface ProjectDefinition {
   readonly id: ProjectId;
@@ -35,6 +71,7 @@ export interface ProjectDefinition {
   readonly documentSets?: Readonly<Record<string, readonly string[]>>;
   readonly defaults?: ProjectDefaults;
   readonly workflows?: ProjectWorkflowSettings;
+  readonly engineering?: ProjectEngineeringSettings;
   readonly metadata?: Readonly<Record<string, string | number | boolean>>;
 }
 

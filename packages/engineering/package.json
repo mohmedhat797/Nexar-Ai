@@ -1,0 +1,26 @@
+{
+  "name": "@nexar/engineering",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@nexar/contracts": "workspace:*",
+    "@nexar/core": "workspace:*",
+    "@nexar/projects": "workspace:*",
+    "@nexar/worktrees": "workspace:*",
+    "@nexar/approvals": "workspace:*",
+    "@nexar/artifacts": "workspace:*",
+    "@nexar/workflows": "workspace:*"
+  }
+}
