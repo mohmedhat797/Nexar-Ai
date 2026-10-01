@@ -44,11 +44,11 @@ built from recent history, selectable by config, with per-factor reasons in the 
 
 ## Acceptance criteria
 
-- [ ] The policy selects differently from `deterministic@1` when history clearly favors another resource.
-- [ ] With no history the result matches the deterministic ordering (documented).
-- [ ] Every decision lists each factor's value, weight and contribution.
-- [ ] Same inputs and history produce the same decision (pure, deterministic).
-- [ ] Malformed or old-schema telemetry lines are skipped without failure.
+- [x] The policy selects differently from `deterministic@1` when history clearly favors another resource.
+- [x] With no history the result matches the deterministic ordering (documented).
+- [x] Every decision lists each factor's value, weight and contribution.
+- [x] Same inputs and history produce the same decision (pure, deterministic).
+- [x] Malformed or old-schema telemetry lines are skipped without failure.
 
 ## Testing expectations
 

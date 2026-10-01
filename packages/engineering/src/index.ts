@@ -16,7 +16,15 @@ export {
   type PlanLaneRole,
 } from './plan.js';
 export {
+  aggregateLaneHistory,
+  laneHistoryProvider,
+  readLaneHistory,
+  type LaneHistoryOptions,
+  type LaneHistoryResult,
+} from './lane-history.js';
+export {
   RECORD_FILE,
+  isTaskId,
   listEngineeringRecords,
   readEngineeringRecord,
   recordPathFor,

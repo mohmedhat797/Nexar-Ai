@@ -70,6 +70,25 @@ describe('execute: invocation', () => {
     expect(call?.argv.join(' ')).not.toContain('PROMPT-SENTINEL');
   });
 
+  it('adds --max-budget-usd only when maxCostUsd is set', async () => {
+    h = harness();
+    const base = task();
+    await h.adapter.execute({ task: base, resource: claudeCodeResource() }, h.context());
+    await h.adapter.execute(
+      {
+        task: { ...base, requirements: { ...base.requirements, maxCostUsd: 0.05 } },
+        resource: claudeCodeResource(),
+      },
+      h.context(),
+    );
+    const [without, withBudget] = h.invocations();
+    expect(without?.argv).not.toContain('--max-budget-usd');
+    const i = withBudget?.argv.indexOf('--max-budget-usd') ?? -1;
+    expect(i).toBeGreaterThan(0);
+    expect(withBudget?.argv[i + 1]).toBe('0.05');
+    expect(withBudget?.argv.indexOf('--tools') ?? 0).toBeGreaterThan(i);
+  });
+
   it('defaults to plan mode, read-only tools and no --model', async () => {
     h = harness();
     await h.adapter.execute({ task: task(), resource: claudeCodeResource() }, h.context());
@@ -245,6 +264,18 @@ describe('execute: errors', () => {
     expect(err.message).toContain('error_during_execution');
     expect(err.message).toContain('529');
     expect(err.message).toContain('upstream exploded');
+    expect(err.message).not.toContain('PROMPT-SENTINEL');
+  });
+
+  it('maps error_max_budget_usd to POLICY_REJECTED, not a provider fault', async () => {
+    h = harness({ FAKE_CLAUDE_MODE: 'budget' });
+    const err = await rejection(run(h));
+    expect(err.code).toBe('POLICY_REJECTED');
+    expect(err.details).toEqual({
+      exitCode: 1,
+      subtype: 'error_max_budget_usd',
+      reason: 'max-budget-usd',
+    });
     expect(err.message).not.toContain('PROMPT-SENTINEL');
   });
 

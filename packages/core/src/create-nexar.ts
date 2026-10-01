@@ -4,10 +4,17 @@ import type {
   Logger,
   ResourceDescriptor,
   ResourceState,
+  RoutingPolicy,
   TelemetrySink,
 } from '@nexar/contracts';
 import { ProjectRegistry } from '@nexar/projects';
-import { DeterministicRoutingPolicy, ResourceController } from '@nexar/resource-controller';
+import {
+  DeterministicRoutingPolicy,
+  ResourceController,
+  ResourceIntelligencePolicy,
+  type HistorySource,
+  type QuotaSource,
+} from '@nexar/resource-controller';
 import { InMemoryResourceRegistry, type ResourceProbe } from '@nexar/resource-registry';
 import { CompositeTelemetrySink, JsonlFileTelemetrySink, noopLogger } from '@nexar/telemetry';
 import { AdapterRegistry } from './adapter-registry.js';
@@ -25,6 +32,10 @@ export interface CreateNexarOptions {
   readonly projects?: ProjectRegistry;
   /** Default `'project-only'`; see `NexarDependencies.workingDirectoryPolicy`. */
   readonly workingDirectoryPolicy?: NexarDependencies['workingDirectoryPolicy'];
+  /** Quota observations merged into each candidate before routing (ADR-020 §4). */
+  readonly quotaSource?: QuotaSource;
+  /** Routing history handed to the policy as data (ADR-020 §7). */
+  readonly historySource?: HistorySource;
 }
 
 export interface NexarRuntime {
@@ -32,6 +43,8 @@ export interface NexarRuntime {
   readonly registry: InMemoryResourceRegistry;
   readonly adapters: AdapterRegistry;
   readonly controller: ResourceController;
+  /** The routing policy selected by `config.routing.policy`. */
+  readonly policy: RoutingPolicy;
   readonly projects: ProjectRegistry;
 }
 
@@ -48,13 +61,26 @@ export function createNexar(config: NexarConfig, options: CreateNexarOptions): N
     registry.register(descriptor, { probe: probeFor(descriptor, adapters) });
   }
 
-  const policy = new DeterministicRoutingPolicy({
-    taskKinds: config.routing.taskKinds,
-    ...(config.routing.defaultResourceId === undefined
+  const defaultResource =
+    config.routing.defaultResourceId === undefined
       ? {}
-      : { defaultResourceId: config.routing.defaultResourceId }),
+      : { defaultResourceId: config.routing.defaultResourceId };
+  const policy: RoutingPolicy =
+    config.routing.policy === 'resource-intelligence'
+      ? new ResourceIntelligencePolicy({
+          taskKinds: config.routing.taskKinds,
+          ...defaultResource,
+          settings: config.routing.resourceIntelligence,
+        })
+      : new DeterministicRoutingPolicy({ taskKinds: config.routing.taskKinds, ...defaultResource });
+  const controller = new ResourceController({
+    registry,
+    policy,
+    logger,
+    refreshBeforeRouting: true,
+    ...(options.quotaSource === undefined ? {} : { quotaSource: options.quotaSource }),
+    ...(options.historySource === undefined ? {} : { historySource: options.historySource }),
   });
-  const controller = new ResourceController({ registry, policy, refreshBeforeRouting: true });
 
   const sinks: TelemetrySink[] = [];
   if (options.telemetry !== undefined) sinks.push(options.telemetry);
@@ -82,11 +108,12 @@ export function createNexar(config: NexarConfig, options: CreateNexarOptions): N
     telemetry,
     logger,
     projects,
+    quotaExhaustedHoldMs: config.routing.resourceIntelligence.quota.exhaustedHoldMs,
     ...(options.workingDirectoryPolicy === undefined
       ? {}
       : { workingDirectoryPolicy: options.workingDirectoryPolicy }),
   });
-  return { nexar, registry, adapters, controller, projects };
+  return { nexar, registry, adapters, controller, policy, projects };
 }
 
 /** `createNexar` with the project registry built from `config.projects` (canonicalizes roots). */

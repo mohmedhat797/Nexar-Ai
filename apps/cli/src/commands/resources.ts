@@ -1,4 +1,5 @@
-import type { ResourceDescriptor, ResourceSnapshot } from '@nexar/contracts';
+import type { QuotaAssessment, ResourceDescriptor, ResourceSnapshot } from '@nexar/contracts';
+import { assessQuota } from '@nexar/resource-controller';
 import { flagOption, type Command } from '../args.js';
 import { compose, loadCliConfig } from '../composition.js';
 import { renderTable } from '../format.js';
@@ -16,47 +17,104 @@ export function describeKind(kind: ResourceDescriptor['kind']): string {
   }
 }
 
-function toRow(snapshot: ResourceSnapshot): Record<string, unknown> {
+/** `2026-10-02T00:00Z`: minute precision is enough for a reset time. */
+function shortTime(iso: string): string {
+  return iso.replace(/:\d{2}(\.\d+)?Z$/, 'Z');
+}
+
+/**
+ * `unknown`, `stale`, `62% left · resets 2026-10-02T00:00Z · owner-declared+nexar-accounting` or
+ * `exhausted until …`. Only the assessment's computed fields are shown: never labels or identifiers.
+ */
+export function describeQuota(a: QuotaAssessment): string {
+  const resets = a.resetsAt === undefined ? [] : [`resets ${shortTime(a.resetsAt)}`];
+  const source = a.sources.length === 0 ? [] : [a.sources.join(',')];
+  switch (a.freshness) {
+    case 'unknown':
+      return 'unknown';
+    case 'known-stale':
+      return 'stale';
+    case 'exhausted':
+      return a.resetsAt === undefined ? 'exhausted' : `exhausted until ${shortTime(a.resetsAt)}`;
+    case 'known-current':
+      return [`${Math.round((a.headroom ?? 0) * 100)}% left`, ...resets, ...source].join(' · ');
+  }
+}
+
+function toRow(snapshot: ResourceSnapshot, quota: QuotaAssessment): Record<string, unknown> {
   const { descriptor, state } = snapshot;
   return {
     id: descriptor.id,
     kind: describeKind(descriptor.kind),
     adapter: descriptor.runtime.adapter,
+    provenance: descriptor.provenance ?? 'configured',
     availability: state.availability,
     auth: state.auth,
     capabilities: descriptor.capabilities,
+    quota,
     ...(state.detail === undefined ? {} : { detail: state.detail }),
   };
 }
 
 export const resourcesCommand: Command = {
   name: 'resources',
-  summary: 'List configured resources and their probed state',
-  usage: 'nexar resources [--json] [--no-refresh]',
-  options: { 'no-refresh': { type: 'boolean' } },
+  summary: 'List configured (and discovered) resources and their probed state',
+  usage: 'nexar resources [--discovered] [--json] [--no-refresh]',
+  options: { 'no-refresh': { type: 'boolean' }, discovered: { type: 'boolean' } },
   async run(ctx) {
     const loaded = await loadCliConfig(ctx.io, ctx.configPath);
-    const { runtime } = await compose(loaded, ctx.io, ctx.logger);
+    // `--discovered` runs discovery for this listing even when routing does not use it.
+    const discovered = flagOption(ctx, 'discovered');
+    const { runtime, quotaSource, discovery } = await compose(loaded, ctx.io, ctx.logger, {
+      ...(discovered ? { discover: 'always' as const } : {}),
+    });
     const snapshots = flagOption(ctx, 'no-refresh')
       ? runtime.registry.snapshot()
       : await runtime.registry.refresh();
-    const rows = snapshots.map(toRow);
+    const now = new Date();
+    const settings = loaded.config.routing.resourceIntelligence.quota;
+    // A failing or absent source leaves quota unknown, as in routing.
+    const observed = await (
+      quotaSource?.observe(
+        snapshots.map((s) => s.descriptor.id),
+        now,
+      ) ?? Promise.resolve(undefined)
+    ).catch(() => undefined);
+    const rows = snapshots.map((s) =>
+      toRow(s, assessQuota(observed?.get(s.descriptor.id), now, settings)),
+    );
     if (ctx.json) {
-      ctx.io.stdout(JSON.stringify(rows, null, 2) + '\n');
+      const body = discovered ? { resources: rows, discovery: discovery ?? null } : rows;
+      ctx.io.stdout(JSON.stringify(body, null, 2) + '\n');
       return EXIT.ok;
     }
     const table = renderTable(
-      ['ID', 'KIND', 'ADAPTER', 'AVAILABILITY', 'AUTH', 'CAPABILITIES'],
+      ['ID', 'KIND', 'ADAPTER', 'PROVENANCE', 'AVAILABILITY', 'AUTH', 'QUOTA', 'CAPABILITIES'],
       rows.map((r) => [
         String(r['id']),
         String(r['kind']),
         String(r['adapter']),
+        String(r['provenance']),
         String(r['availability']),
         String(r['auth']),
+        describeQuota(r['quota'] as QuotaAssessment),
         (r['capabilities'] as readonly string[]).join(','),
       ]),
     );
     ctx.io.stdout(table + '\n');
+    if (discovered && discovery !== undefined) {
+      // Source ids, statuses, counts and error codes only: never paths or messages.
+      const report = renderTable(
+        ['SOURCE', 'STATUS', 'FOUND', 'ERROR'],
+        discovery.reports.map((r) => [r.source, r.status, String(r.count), r.errorCode ?? '']),
+      );
+      ctx.io.stdout(`\nDiscovery sources:\n${report}\n`);
+      if (discovery.collisions > 0) {
+        ctx.io.stdout(
+          `${String(discovery.collisions)} discovered id(s) skipped: configured or found earlier\n`,
+        );
+      }
+    }
     return EXIT.ok;
   },
 };

@@ -43,11 +43,11 @@ honest about estimate quality.
 
 ## Acceptance criteria
 
-- [ ] `cost.not-evaluated` is no longer emitted when an estimate is possible.
-- [ ] A candidate exceeding `maxCostUsd` is rejected with `cost.exceeds-limit` and the numbers in the explanation.
-- [ ] Unknown-cost resources follow the documented not-estimable policy.
-- [ ] Estimates are labeled `estimated` with a basis, and the prompt text never enters the policy.
-- [ ] Estimate vs actual cost is recorded in telemetry.
+- [x] `cost.not-evaluated` is no longer emitted when an estimate is possible.
+- [x] A candidate exceeding `maxCostUsd` is rejected with `cost.exceeds-limit` and the numbers in the explanation.
+- [x] Unknown-cost resources follow the documented not-estimable policy.
+- [x] Estimates are labeled `estimated` with a basis, and the prompt text never enters the policy.
+- [x] Estimate vs actual cost is recorded in telemetry.
 
 ## Testing expectations
 

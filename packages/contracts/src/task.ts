@@ -25,7 +25,12 @@ export interface TaskRequirements {
   readonly capabilities: readonly Capability[];
   readonly privacy?: 'standard' | 'local-only';
   readonly minContextTokens?: number;
+  /** Hard per-task cash ceiling, enforced by routing (ADR-020 §5). */
   readonly maxCostUsd?: number;
+  /** Reject candidates whose quota is unknown or stale (ADR-020 §4). */
+  readonly requireKnownQuota?: boolean;
+  /** Upper bound on output tokens, used for cost estimation. */
+  readonly requestedMaxOutputTokens?: number;
   readonly preferredResourceIds?: readonly ResourceId[];
   readonly excludedResourceIds?: readonly ResourceId[];
 }

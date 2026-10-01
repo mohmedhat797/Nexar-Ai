@@ -454,7 +454,7 @@ export class EngineeringExecution {
           ...(lane.preferred === undefined ? {} : { preferredResourceIds: lane.preferred }),
           ...(excluded.length === 0 ? {} : { excludedResourceIds: excluded }),
         },
-        metadata: { engineeringTaskId: this.target.taskId, lane: lane.id, round },
+        metadata: { engineeringTaskId: this.target.taskId, lane: lane.id, role: lane.role, round },
       });
       current = { taskId: task.id, startedMs: clock().getTime() };
       return nexar.run(task, {

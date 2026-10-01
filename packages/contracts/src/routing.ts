@@ -1,4 +1,11 @@
 import type { ResourceId, TaskId } from './ids.js';
+import type {
+  CostEstimate,
+  QuotaAssessment,
+  RoutingFacts,
+  RoutingHistory,
+  ScoreFactor,
+} from './intelligence.js';
 import type { ResourceSnapshot } from './resource.js';
 import type { NexarTask } from './task.js';
 
@@ -16,12 +23,32 @@ export interface CandidateAssessment {
   readonly eligible: boolean;
   readonly score: number;
   readonly reasons: readonly RouteReason[];
+  /** Owner-preference tier used before the score (ADR-020 §6); higher wins. */
+  readonly tier?: number;
+  readonly quota?: QuotaAssessment;
+  readonly cost?: CostEstimate;
+  /** Per-factor breakdown; `score` is the sum of contributions. */
+  readonly factors?: readonly ScoreFactor[];
 }
 
 /** Everything a policy may look at; deliberately excludes the task payload. */
 export interface RoutingInput {
   readonly task: Pick<NexarTask, 'id' | 'kind' | 'requirements'>;
   readonly candidates: readonly ResourceSnapshot[];
+  /** Controller-computed facts (size, lane role, clock); never the prompt. */
+  readonly facts?: RoutingFacts;
+  /** Aggregates read outside the policy; the policy never opens files. */
+  readonly history?: RoutingHistory;
+}
+
+/** Identifies the policy that produced a decision, for reproducibility. */
+export interface PolicyStamp {
+  readonly name: string;
+  readonly version: string;
+  /** Short hash of the canonical routing configuration. */
+  readonly configId?: string;
+  /** Set when the controller fell back to another policy (never silent). */
+  readonly fallback?: { readonly from: string; readonly reason: string };
 }
 
 /**
@@ -32,6 +59,8 @@ export interface RoutingInput {
 export interface RoutingPolicy {
   readonly name: string;
   readonly version: string;
+  /** Short hash of the policy's configuration, if it has one. */
+  readonly configId?: string;
   evaluate(input: RoutingInput): readonly CandidateAssessment[];
 }
 
@@ -43,14 +72,14 @@ export type RouteDecision =
       readonly selected: CandidateAssessment;
       readonly alternatives: readonly CandidateAssessment[];
       readonly rejected: readonly CandidateAssessment[];
-      readonly policy: { readonly name: string; readonly version: string };
+      readonly policy: PolicyStamp;
       readonly decidedAt: string;
     }
   | {
       readonly outcome: 'no-eligible-resource';
       readonly taskId: TaskId;
       readonly rejected: readonly CandidateAssessment[];
-      readonly policy: { readonly name: string; readonly version: string };
+      readonly policy: PolicyStamp;
       readonly decidedAt: string;
     };
 

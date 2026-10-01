@@ -1,3 +1,5 @@
+import type { QuotaObservation } from '@nexar/contracts';
+
 /** The fields of a `claude -p --output-format json` result that Nexar uses. */
 export interface ParsedClaudeResult {
   readonly text: string;
@@ -105,4 +107,62 @@ export function parseToolCallNames(line: string): string[] {
     }
   }
   return names;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** A documented allowance signal, and whether the CLI said the request was rejected. */
+export interface ParsedRateLimit {
+  readonly observation: QuotaObservation;
+  readonly rejected: boolean;
+}
+
+/** `resetsAt` as the CLI reports it: epoch seconds, or milliseconds when above 1e12. */
+function resetIso(raw: unknown, now: Date): string | undefined {
+  const n = num(raw);
+  if (n === undefined) return undefined;
+  const ms = n > 1e12 ? n : n * 1000;
+  const t = now.getTime();
+  if (ms < t - DAY_MS || ms > t + 60 * DAY_MS) return undefined;
+  return new Date(ms).toISOString();
+}
+
+/**
+ * The allowance signal of one stream-json line, if it is a documented `rate_limit_event`
+ * (`rate_limit_info: { status, resetsAt?, utilization? }`). Every other field is ignored.
+ */
+export function parseRateLimitEvent(line: string, now: Date): ParsedRateLimit | undefined {
+  const v = tryParse(line);
+  if (!isRecord(v) || v['type'] !== 'rate_limit_event' || !isRecord(v['rate_limit_info'])) {
+    return undefined;
+  }
+  const info = v['rate_limit_info'];
+  const rejected = info['status'] === 'rejected';
+  const utilization = num(info['utilization']);
+  if (!rejected && utilization === undefined) return undefined;
+  const used = rejected ? 100 : Math.min(100, Math.max(0, (utilization ?? 0) * 100));
+  const resetsAt = resetIso(info['resetsAt'], now);
+  return {
+    rejected,
+    observation: {
+      unit: 'percent',
+      limit: 100,
+      used,
+      remaining: 100 - used,
+      ...(resetsAt === undefined ? {} : { resetsAt }),
+      observedAt: now.toISOString(),
+      provenance: { limit: 'vendor-reported', usage: 'vendor-reported' },
+      label: 'claude-rate-limit',
+    },
+  };
+}
+
+/** The latest documented `rate_limit_event` in claude's stream-json stdout, if any. */
+export function findRateLimit(stdout: string, now: Date): ParsedRateLimit | undefined {
+  let latest: ParsedRateLimit | undefined;
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.includes('rate_limit_event')) continue;
+    latest = parseRateLimitEvent(line, now) ?? latest;
+  }
+  return latest;
 }

@@ -11,6 +11,11 @@ const DEFAULT_CAPABILITIES: readonly Capability[] = [
 ];
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+/** True when the URL's host is a loopback name or address. */
+export function isLoopbackUrl(url: string): boolean {
+  return LOOPBACK_HOSTS.has(new URL(url).hostname);
+}
+
 /** Input for {@link piModelResource}. */
 export interface PiModelResourceInput {
   readonly id: string;

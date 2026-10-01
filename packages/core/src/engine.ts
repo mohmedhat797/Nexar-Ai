@@ -8,15 +8,21 @@ import {
   taskId,
   toNexarError,
   unavailable,
+  valueOf,
+  type CostEstimateRecord,
   type EngineeringWorkspace,
   type ExecutionEvent,
   type ExecutionOutcome,
   type ExecutionRecord,
   type ArtifactRef,
+  type CostEstimate,
+  type Measured,
   type ExecutionResult,
   type Logger,
   type NexarTask,
   type ProjectId,
+  type QuotaObservation,
+  type ResourceId,
   type ResourceRouter,
   type RouteDecision,
   type TaskId,
@@ -29,7 +35,10 @@ import {
 import { ProjectRegistry, mergeRequirements } from '@nexar/projects';
 import { requireSelected } from '@nexar/resource-controller';
 import type { ResourceRegistry } from '@nexar/resource-registry';
+import { isQuotaObserved } from '@nexar/telemetry';
 import type { AdapterRegistry } from './adapter-registry.js';
+
+const DEFAULT_QUOTA_EXHAUSTED_HOLD_MS = 60 * 60 * 1000;
 
 export interface NexarDependencies {
   readonly registry: ResourceRegistry;
@@ -47,6 +56,8 @@ export interface NexarDependencies {
    * canonicalized (for an owner at their own terminal, never for external clients).
    */
   readonly workingDirectoryPolicy?: 'project-only' | 'project-or-unscoped';
+  /** How long a `QUOTA_EXHAUSTED` failure without a reset time blocks the resource; default 1 h. */
+  readonly quotaExhaustedHoldMs?: number;
 }
 
 export interface NewTaskInput {
@@ -107,16 +118,45 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
+/**
+ * Estimate vs actual (observability only). Absent unless the selected candidate carried an
+ * estimate; errors are computed only from numeric (measured or estimated) values.
+ */
+function costEstimateRecord(
+  estimate: CostEstimate | undefined,
+  actualUsd: Measured<number>,
+): CostEstimateRecord | undefined {
+  if (estimate === undefined) return undefined;
+  const est = valueOf(estimate.cashUsd);
+  const act = valueOf(actualUsd);
+  const absoluteErrorUsd =
+    est !== undefined && act !== undefined && Number.isFinite(est + act)
+      ? Math.abs(est - act)
+      : undefined;
+  return {
+    estimator: estimate.estimator,
+    class: estimate.class,
+    estimatedUsd: estimate.cashUsd,
+    actualUsd,
+    ...(absoluteErrorUsd === undefined ? {} : { absoluteErrorUsd }),
+    ...(absoluteErrorUsd !== undefined && act !== undefined && act > 0
+      ? { relativeError: absoluteErrorUsd / act }
+      : {}),
+  };
+}
+
 /** Task → route → execute → record. Knows no upstream; speaks only contracts. */
 export class Nexar {
   private readonly clock: () => Date;
   private readonly newTaskId: () => TaskId;
   private readonly projects: ProjectRegistry;
   private readonly workingDirectoryPolicy: 'project-only' | 'project-or-unscoped';
+  private readonly quotaExhaustedHoldMs: number;
 
   constructor(private readonly deps: NexarDependencies) {
     this.projects = deps.projects ?? ProjectRegistry.empty();
     this.workingDirectoryPolicy = deps.workingDirectoryPolicy ?? 'project-only';
+    this.quotaExhaustedHoldMs = deps.quotaExhaustedHoldMs ?? DEFAULT_QUOTA_EXHAUSTED_HOLD_MS;
     this.clock = deps.clock ?? (() => new Date());
     this.newTaskId = deps.newTaskId ?? (() => taskId(`task_${randomUUID()}`));
   }
@@ -261,6 +301,8 @@ export class Nexar {
         policy: decision.policy.name,
         policyVersion: decision.policy.version,
         reasonCodes: decision.selected.reasons.map((r) => r.code),
+        ...(decision.policy.configId === undefined ? {} : { configId: decision.policy.configId }),
+        ...(decision.policy.fallback === undefined ? {} : { fallback: decision.policy.fallback }),
       },
       startedAt: started.toISOString(),
       quotaImpact: unavailable('not tracked in v0.1'),
@@ -270,9 +312,11 @@ export class Nexar {
         Partial<Pick<ExecutionRecord, 'provider' | 'model' | 'runtimeVersion' | 'error'>>,
     ): ExecutionRecord => {
       const ended = this.clock();
+      const costEstimate = costEstimateRecord(decision.selected.cost, extra.usage.costUsd);
       return {
         ...base,
         ...extra,
+        ...(costEstimate === undefined ? {} : { costEstimate }),
         endedAt: ended.toISOString(),
         latencyMs: ended.getTime() - started.getTime(),
       };
@@ -328,6 +372,9 @@ export class Nexar {
       });
       logger.warn('execution failed', { resourceId, outcome, code: error.code });
       await this.emit({ type: 'execution.finished', at: record.endedAt, record });
+      if (error.code === 'QUOTA_EXHAUSTED') {
+        await this.recordQuota(resourceId, [this.exhaustedSignal(error)]);
+      }
       throw error;
     }
 
@@ -344,6 +391,9 @@ export class Nexar {
     });
     logger.info('execution finished', { resourceId, latencyMs: record.latencyMs });
     await this.emit({ type: 'execution.finished', at: record.endedAt, record });
+    if (result.quotaObservations !== undefined) {
+      await this.recordQuota(resourceId, result.quotaObservations);
+    }
     return { task, decision, result, record };
   }
 
@@ -360,6 +410,43 @@ export class Nexar {
       ...(forProject === undefined ? {} : { projectId: forProject }),
       artifacts,
     });
+  }
+
+  /** The observation recorded when a run fails with `QUOTA_EXHAUSTED` (ADR-020 §4). */
+  private exhaustedSignal(error: NexarError): QuotaObservation {
+    const now = this.clock();
+    const reported = (error.details as { resetsAt?: unknown } | undefined)?.resetsAt;
+    const reportedMs = typeof reported === 'string' ? Date.parse(reported) : Number.NaN;
+    const resetsAt =
+      Number.isFinite(reportedMs) && reportedMs > now.getTime()
+        ? new Date(reportedMs)
+        : new Date(now.getTime() + this.quotaExhaustedHoldMs);
+    return {
+      unit: 'percent',
+      limit: 100,
+      used: 100,
+      remaining: 0,
+      resetsAt: resetsAt.toISOString(),
+      observedAt: now.toISOString(),
+      provenance: { limit: 'vendor-reported', usage: 'vendor-reported' },
+      label: 'exhausted-signal',
+    };
+  }
+
+  /** Emits one `quota.observed` per well-formed observation; malformed ones are dropped. */
+  private async recordQuota(
+    resourceId: ResourceId,
+    observations: readonly QuotaObservation[],
+  ): Promise<void> {
+    for (const observation of observations) {
+      const event: TelemetryEvent = {
+        type: 'quota.observed',
+        at: this.now(),
+        resourceId,
+        observation,
+      };
+      if (isQuotaObserved(event)) await this.emit(event);
+    }
   }
 
   private now(): string {

@@ -3,7 +3,7 @@
 // Env controls:
 //   FAKE_CLAUDE_RECORD      file to which each invocation (argv, stdin, env, pid) is appended as JSON
 //   FAKE_CLAUDE_ENV_KEYS    comma-separated env names whose values are recorded (names of all are too)
-//   FAKE_CLAUDE_MODE        success | error | garbage | hang | auth   (for print-mode runs)
+//   FAKE_CLAUDE_MODE        success | error | budget | garbage | hang | auth   (for print-mode runs)
 //   FAKE_CLAUDE_LOGGED_OUT  "1" makes `auth status` report loggedIn:false
 //   FAKE_CLAUDE_OMIT_USAGE  "1" drops usage/cost/turns from the success result
 //   With `--output-format stream-json` in argv the fake emits stream events (an init line, an
@@ -11,6 +11,9 @@
 //   FAKE_CLAUDE_TOOLS       comma-separated tool names to emit as tool_use (default "Read,Bash")
 //   FAKE_CLAUDE_DENIALS     number of permission_denials entries to put in the result
 //   FAKE_CLAUDE_NO_RESULT   "1" omits the final result line
+//   FAKE_CLAUDE_RATE_LIMIT  JSON object emitted as the rate_limit_info of a rate_limit_event line
+//                           (print and stream modes), before the result
+//   FAKE_CLAUDE_RATE_LIMIT_EXTRA  JSON object merged into the event itself (undocumented fields)
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const argv = process.argv.slice(2);
@@ -48,7 +51,17 @@ function record(stdin) {
 
 const streaming = argv.includes('stream-json');
 
+function emitRateLimit() {
+  const raw = process.env.FAKE_CLAUDE_RATE_LIMIT;
+  if (!raw) return;
+  const extra = JSON.parse(process.env.FAKE_CLAUDE_RATE_LIMIT_EXTRA ?? '{}');
+  process.stdout.write(
+    JSON.stringify({ type: 'rate_limit_event', rate_limit_info: JSON.parse(raw), ...extra }) + '\n',
+  );
+}
+
 function emit(result) {
+  emitRateLimit();
   if (!streaming) {
     process.stdout.write(JSON.stringify(result) + '\n');
     return;
@@ -131,6 +144,16 @@ if (argv[0] === '--version') {
         result: 'overloaded',
       });
       process.stderr.write('upstream exploded\n');
+      process.exitCode = 1;
+      break;
+    case 'budget':
+      emit({
+        type: 'result',
+        subtype: 'error_max_budget_usd',
+        is_error: true,
+        total_cost_usd: 0.06,
+        result: 'budget reached',
+      });
       process.exitCode = 1;
       break;
     case 'garbage':

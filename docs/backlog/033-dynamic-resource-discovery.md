@@ -44,11 +44,11 @@ discovery never makes paid calls or leaks secrets.
 
 ## Acceptance criteria
 
-- [ ] Sources can be enabled or disabled in config; a failing source does not break the registry.
-- [ ] Discovered resources merge with configured ones deterministically, with config winning.
-- [ ] No discovered resource exposes a secret or claims `authenticated` without a probe.
-- [ ] `nexar resources` shows the origin of each resource.
-- [ ] Provider allowlist is honored for the pi catalog.
+- [x] Sources can be enabled or disabled in config; a failing source does not break the registry.
+- [x] Discovered resources merge with configured ones deterministically, with config winning.
+- [x] No discovered resource exposes a secret or claims `authenticated` without a probe.
+- [x] `nexar resources` shows the origin of each resource.
+- [x] Provider allowlist is honored for the pi catalog.
 
 ## Testing expectations
 

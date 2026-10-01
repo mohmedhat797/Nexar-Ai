@@ -41,9 +41,9 @@ policy, with the reason codes visible in each `RouteDecision`.
 
 ## Acceptance criteria
 
-- [ ] Given recorded outcomes, the policy ranks eligible resources deterministically and explains why.
-- [ ] Missing or unavailable usage never counts as zero.
-- [ ] Scoring cannot select a resource that is ineligible by capability, privacy or review diversity.
+- [x] Given recorded outcomes, the policy ranks eligible resources deterministically and explains why.
+- [x] Missing or unavailable usage never counts as zero.
+- [x] Scoring cannot select a resource that is ineligible by capability, privacy or review diversity.
 
 ## Testing expectations
 

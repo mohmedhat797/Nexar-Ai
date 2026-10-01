@@ -205,3 +205,88 @@ Write mode is refused unless the launcher is the Nexar sandbox.
 always-eligible echo resource would silently "succeed" whenever the real resources are unavailable.
 When nothing is eligible, Nexar reports `NO_ELIGIBLE_RESOURCE` with the reasons instead. The offline
 echo resource exists only in the built-in default configuration (used when no config file is found).
+
+## Resource intelligence (v0.4)
+
+`routing.policy` selects the routing policy: `deterministic` (default, unchanged since v0.1) or
+`resource-intelligence` ([ADR-020](../docs/adr/020-resource-intelligence-scheduler.md)). Every
+setting below is optional; the values shown are the defaults. Changing any of them changes the
+policy's `configId`, which is recorded with every decision.
+
+```json
+{
+  "routing": {
+    "policy": "resource-intelligence",
+    "defaultResourceId": "claude-code",
+    "resourceIntelligence": {
+      "weights": {
+        "default": 0.1,
+        "availability": 0.1,
+        "auth": 0.05,
+        "quota": 0.2,
+        "cost": 0.15,
+        "latency": 0.1,
+        "success": 0.2,
+        "lane": 0.2
+      },
+      "preferences": "authoritative",
+      "history": { "windowDays": 30, "minSamples": 5 },
+      "quota": { "unknownScore": 0.5, "staleAfterMs": 900000, "exhaustedHoldMs": 3600000 },
+      "cost": {
+        "defaultOutputTokens": 4096,
+        "unknownUnderLimit": "reject",
+        "costScaleUsd": 0.1,
+        "subscriptionScore": 0.9
+      },
+      "latencyScaleMs": 60000,
+      "reservations": [],
+      "allowances": []
+    }
+  }
+}
+```
+
+- **`preferences`**: `authoritative` ranks explicit owner preferences (task `--prefer`, engineering
+  `lanePreferences`, then `taskKinds.*.preferredResourceIds`) before any score. `weighted` turns them
+  into the `default` factor so strong history can outrank a weak preference.
+- **`allowances`** declare a budget you know about, which Nexar counts from its own telemetry (it
+  needs `telemetry.jsonlPath`): `{ "resourceId": "codex", "unit": "requests", "limit": 200,
+"window": "daily" }`. Units: `requests`, `tokens`, `usd`; windows: `daily`, `weekly`, `monthly` (UTC)
+  or `{ "hours": 5 }` (rolling). Runs whose usage was not measured are counted as unaccounted, never as zero.
+- **`reservations`** keep the last part of an allowance for named work: `{ "resourceId": "claude-code",
+"reserveFraction": 0.3, "reservedFor": { "taskKinds": ["review"], "laneRoles": ["review"] } }`.
+  Once known headroom is at or below 30%, other tasks are routed elsewhere (`quota.reserved`).
+- **`cost.unknownUnderLimit`**: with `--max-cost` (`maxCostUsd`), a resource whose cost cannot be
+  estimated is rejected (`reject`, default) or allowed (`allow`).
+- Per task: `--max-cost <usd>` and `--require-known-quota` on `nexar route` and `nexar run`.
+
+Quota is never read from vendor dashboards, private APIs or credential stores. With nothing declared
+or observed, quota is `unknown`, which is neither unlimited nor zero.
+
+### Discovery
+
+```json
+{
+  "discovery": {
+    "enabled": false,
+    "refreshIntervalMs": 600000,
+    "timeoutMs": 3000,
+    "excludeIds": [],
+    "sources": {
+      "cli": { "enabled": true },
+      "piCatalog": { "enabled": false, "providers": ["anthropic"], "maxModels": 50 },
+      "localEndpoints": {
+        "enabled": true,
+        "endpoints": [{ "id": "ollama", "kind": "ollama", "baseUrl": "http://127.0.0.1:11434" }]
+      }
+    }
+  }
+}
+```
+
+`nexar resources --discovered` always shows what discovery finds and a per-source report;
+discovered resources join routing only with `"enabled": true`. Configured resources win every id
+collision. CLI detection only stats `claude`, `codex`, `agy` and `dsh` on `PATH` (with `PATHEXT` on
+Windows); it never runs them. The pi catalog needs an explicit provider list. Endpoints are contacted
+only if listed here, with no redirects and bounded responses. Discovered ids cannot be referenced
+from routing rules; to prefer one, add it to `resources`.

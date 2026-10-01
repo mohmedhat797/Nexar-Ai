@@ -44,6 +44,7 @@ export const runCommand: Command = {
   summary: 'Route a task to a resource and execute it',
   usage:
     'nexar run --kind <kind> [--capability <c>]... [--prefer <id>]... [--exclude <id>]... [--local-only]\n' +
+    '          [--max-cost <usd>] [--require-known-quota]\n' +
     '          [--project <id>] [--document-set <name>]... [--timeout <ms>] [--cwd <dir>] [--quiet]\n' +
     '          [--json] <prompt... | ->\n' +
     '       nexar run --workflow <id> --project <id> [--input name=value]... [--input-file name=path]...\n' +

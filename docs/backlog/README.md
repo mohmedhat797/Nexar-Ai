@@ -37,28 +37,30 @@ NXR-010 to NXR-016 were delivered in v0.2. NXR-017 is a follow-up and is not sch
 
 NXR-020 to NXR-024 were delivered in v0.3. NXR-025 to NXR-029 are follow-ups (milestone v0.3.x unless noted).
 
-| Id                                                    | Title                                        | Milestone | Labels                        | Status                    |
-| ----------------------------------------------------- | -------------------------------------------- | --------- | ----------------------------- | ------------------------- |
-| [NXR-020](020-deepseek-harness-acp-adapter.md)        | DeepSeek Harness ACP adapter                 | v0.3      | integration, deepseek-harness | Done (v0.3)               |
-| [NXR-021](021-codex-native-agent-adapter.md)          | Codex native agent adapter                   | v0.3      | integration, codex            | Done (v0.3)               |
-| [NXR-022](022-antigravity-agy-adapter.md)             | Google Antigravity (`agy`) adapter           | v0.3      | integration, antigravity      | Done (v0.3), experimental |
-| [NXR-023](023-delegate-skills-adapter.md)             | Product-time Delegate Skills adapter         | v0.3      | integration, delegate-skills  | Done (v0.3)               |
-| [NXR-024](024-os-level-sandbox-for-agent-runtimes.md) | OS-level sandbox for agent runtimes          | v0.3      | security                      | Done (v0.3)               |
-| [NXR-025](025-seccomp-filter-for-sandbox.md)          | Seccomp filter for the sandbox               | v0.3.x    | security, sandbox             | Planned                   |
-| [NXR-026](026-launcher-env-via-args-fd.md)            | Pass launcher environment via `--args <fd>`  | v0.3.x    | security, sandbox             | Planned                   |
-| [NXR-027](027-parallel-engineering-lanes.md)          | Parallel engineering lanes with a merge step | v0.4      | engineering                   | Planned                   |
-| [NXR-028](028-mcp-engineering-scope.md)               | MCP engineering scope                        | v0.5      | mcp, security, engineering    | Planned                   |
-| [NXR-029](029-antigravity-live-validation.md)         | Antigravity live validation and ADR-020      | v0.3.x    | integration, antigravity      | Planned                   |
+| Id                                                    | Title                                         | Milestone | Labels                        | Status                    |
+| ----------------------------------------------------- | --------------------------------------------- | --------- | ----------------------------- | ------------------------- |
+| [NXR-020](020-deepseek-harness-acp-adapter.md)        | DeepSeek Harness ACP adapter                  | v0.3      | integration, deepseek-harness | Done (v0.3)               |
+| [NXR-021](021-codex-native-agent-adapter.md)          | Codex native agent adapter                    | v0.3      | integration, codex            | Done (v0.3)               |
+| [NXR-022](022-antigravity-agy-adapter.md)             | Google Antigravity (`agy`) adapter            | v0.3      | integration, antigravity      | Done (v0.3), experimental |
+| [NXR-023](023-delegate-skills-adapter.md)             | Product-time Delegate Skills adapter          | v0.3      | integration, delegate-skills  | Done (v0.3)               |
+| [NXR-024](024-os-level-sandbox-for-agent-runtimes.md) | OS-level sandbox for agent runtimes           | v0.3      | security                      | Done (v0.3)               |
+| [NXR-025](025-seccomp-filter-for-sandbox.md)          | Seccomp filter for the sandbox                | v0.3.x    | security, sandbox             | Planned                   |
+| [NXR-026](026-launcher-env-via-args-fd.md)            | Pass launcher environment via `--args <fd>`   | v0.3.x    | security, sandbox             | Planned                   |
+| [NXR-027](027-parallel-engineering-lanes.md)          | Parallel engineering lanes with a merge step  | v0.4      | engineering                   | Planned                   |
+| [NXR-028](028-mcp-engineering-scope.md)               | MCP engineering scope                         | v0.5      | mcp, security, engineering    | Planned                   |
+| [NXR-029](029-antigravity-live-validation.md)         | Antigravity live validation and promotion ADR | v0.3.x    | integration, antigravity      | Planned                   |
 
 ## v0.4 — Resource Intelligence
 
-| Id                                                  | Title                                          | Milestone | Labels                         |
-| --------------------------------------------------- | ---------------------------------------------- | --------- | ------------------------------ |
-| [NXR-030](030-quota-and-allowance-tracking.md)      | Quota and subscription-allowance tracking      | v0.4      | resource-controller            |
-| [NXR-031](031-pre-execution-cost-estimation.md)     | Pre-execution cost estimation and `maxCostUsd` | v0.4      | resource-controller            |
-| [NXR-032](032-history-scoring-routing-policy.md)    | Scoring routing policy using telemetry history | v0.4      | resource-controller, telemetry |
-| [NXR-033](033-dynamic-resource-discovery.md)        | Dynamic resource discovery                     | v0.4      | resource-registry              |
-| [NXR-034](034-engineering-telemetry-for-scoring.md) | Engineering lane outcomes as scoring input     | v0.4      | resource-controller, telemetry |
+NXR-030 to NXR-034 were delivered in v0.4 ([ADR-020](../adr/020-resource-intelligence-scheduler.md)).
+
+| Id                                                  | Title                                          | Milestone | Labels                         | Status      |
+| --------------------------------------------------- | ---------------------------------------------- | --------- | ------------------------------ | ----------- |
+| [NXR-030](030-quota-and-allowance-tracking.md)      | Quota and subscription-allowance tracking      | v0.4      | resource-controller            | Done (v0.4) |
+| [NXR-031](031-pre-execution-cost-estimation.md)     | Pre-execution cost estimation and `maxCostUsd` | v0.4      | resource-controller            | Done (v0.4) |
+| [NXR-032](032-history-scoring-routing-policy.md)    | Scoring routing policy using telemetry history | v0.4      | resource-controller, telemetry | Done (v0.4) |
+| [NXR-033](033-dynamic-resource-discovery.md)        | Dynamic resource discovery                     | v0.4      | resource-registry              | Done (v0.4) |
+| [NXR-034](034-engineering-telemetry-for-scoring.md) | Engineering lane outcomes as scoring input     | v0.4      | resource-controller, telemetry | Done (v0.4) |
 
 ## v0.5 — Nexar Mobile
 

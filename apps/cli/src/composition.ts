@@ -4,6 +4,8 @@ import { ApprovalGate, FileApprovalStore, type ApprovalStore } from '@nexar/appr
 import { LocalArtifactStore } from '@nexar/artifacts';
 import {
   NexarError,
+  type DiscoverySource,
+  type DiscoverySourceReport,
   type EgressEvent,
   type Logger,
   type ProcessLauncher,
@@ -12,20 +14,39 @@ import {
 import {
   createNexarWithProjects,
   loadConfig,
+  type DiscoveryConfig,
   type EngineeringConfig,
   type LoadedConfig,
   type NexarRuntime,
 } from '@nexar/core';
-import { AntigravityExecutionAdapter } from '@nexar/integration-antigravity';
-import { ClaudeCodeExecutionAdapter } from '@nexar/integration-claude-code';
-import { CodexExecutionAdapter } from '@nexar/integration-codex';
-import { DeepSeekHarnessExecutionAdapter } from '@nexar/integration-deepseek-harness';
+import {
+  AntigravityExecutionAdapter,
+  antigravityCliDiscoverySource,
+} from '@nexar/integration-antigravity';
+import {
+  ClaudeCodeExecutionAdapter,
+  claudeCodeCliDiscoverySource,
+} from '@nexar/integration-claude-code';
+import { CodexExecutionAdapter, codexCliDiscoverySource } from '@nexar/integration-codex';
+import {
+  DeepSeekHarnessExecutionAdapter,
+  deepseekHarnessCliDiscoverySource,
+} from '@nexar/integration-deepseek-harness';
 import { DelegateSkillsExecutionAdapter } from '@nexar/integration-delegate-skills';
 import { EchoExecutionAdapter } from '@nexar/integration-echo';
-import { PiExecutionAdapter } from '@nexar/integration-pi';
-import { EngineeringRunner, PlanCatalog } from '@nexar/engineering';
+import {
+  PiExecutionAdapter,
+  localEndpointDiscoverySource,
+  piCatalogDiscoverySource,
+} from '@nexar/integration-pi';
+import { DiscoveryService, mergeDiscovered } from '@nexar/resource-registry';
+import { EngineeringRunner, PlanCatalog, laneHistoryProvider } from '@nexar/engineering';
 import { SandboxLauncher, type SandboxAvailability } from '@nexar/sandbox';
-import { JsonlFileTelemetrySink } from '@nexar/telemetry';
+import {
+  JsonlFileTelemetrySink,
+  TelemetryHistorySource,
+  TelemetryQuotaSource,
+} from '@nexar/telemetry';
 import { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
 import type { CliSeams, EngineeringRunnerPort } from './args.js';
 import type { CliIo } from './io.js';
@@ -33,6 +54,45 @@ import type { CliIo } from './io.js';
 export interface Composition {
   readonly loaded: LoadedConfig;
   readonly runtime: NexarRuntime;
+  /** Accounting over the configured telemetry file; absent when no telemetry file is configured. */
+  readonly quotaSource?: TelemetryQuotaSource;
+  /** Execution history (telemetry file, when configured) and engineering lane history. */
+  readonly historySource: TelemetryHistorySource;
+  /** Present when discovery ran (config `discovery.enabled` or `discover: 'always'`). */
+  readonly discovery?: {
+    readonly reports: readonly DiscoverySourceReport[];
+    readonly collisions: number;
+  };
+}
+
+/**
+ * Every discovery source the CLI knows about (ADR-020 §9) plus the ids the owner's config switches
+ * off. Detection lives in the integrations; this only instantiates them.
+ */
+export function discoverySources(
+  config: DiscoveryConfig,
+  env: Readonly<Record<string, string | undefined>>,
+): { readonly sources: readonly DiscoverySource[]; readonly disabled: readonly string[] } {
+  const cli = [
+    claudeCodeCliDiscoverySource({ env }),
+    codexCliDiscoverySource({ env }),
+    antigravityCliDiscoverySource({ env }),
+    deepseekHarnessCliDiscoverySource({ env }),
+  ];
+  const piCatalog = piCatalogDiscoverySource({
+    providers: config.piCatalog.providers,
+    maxModels: config.piCatalog.maxModels,
+  });
+  const local = localEndpointDiscoverySource({ endpoints: config.localEndpoints.endpoints });
+  const disabled = [
+    ...(config.cli.enabled ? [] : cli.map((s) => s.id)),
+    ...(config.piCatalog.enabled ? [] : [piCatalog.id]),
+    // Nothing to ask without owner-listed endpoints: there is no scanning.
+    ...(config.localEndpoints.enabled && config.localEndpoints.endpoints.length > 0
+      ? []
+      : [local.id]),
+  ];
+  return { sources: [...cli, piCatalog, local], disabled };
 }
 
 /** Where Nexar keeps local state: the config file's directory, or the cwd for the built-in default. */
@@ -73,9 +133,30 @@ export async function compose(
     readonly workingDirectoryPolicy?: 'project-only' | 'project-or-unscoped';
     /** Lets the DeepSeek Harness adapter answer ACP permission requests through Nexar approvals. */
     readonly approvals?: { readonly gate: ApprovalGate; readonly store: ApprovalStore };
+    /** `config` (default): discover only when `discovery.enabled`; `always`: for `--discovered`. */
+    readonly discover?: 'config' | 'always';
   } = {},
 ): Promise<Composition> {
   const configDir = stateBaseDir(loaded, io);
+  // Configured resources always win; discovered ones only add new ids (ADR-020 §9).
+  const discoveryConfig = loaded.config.discovery;
+  let resources = mergeDiscovered(loaded.config.resources, []).resources;
+  let discovery: Composition['discovery'];
+  if (discoveryConfig.enabled || options.discover === 'always') {
+    const { sources, disabled } = discoverySources(discoveryConfig, io.env);
+    const service = new DiscoveryService({
+      sources,
+      disabled,
+      refreshIntervalMs: discoveryConfig.refreshIntervalMs,
+      timeoutMs: discoveryConfig.timeoutMs,
+    });
+    const result = await service.discover();
+    const merged = mergeDiscovered(loaded.config.resources, result.batches, {
+      excludeIds: discoveryConfig.excludeIds,
+    });
+    resources = merged.resources;
+    discovery = { reports: result.reports, collisions: merged.collisions };
+  }
   const adapters = [
     new EchoExecutionAdapter(),
     new ClaudeCodeExecutionAdapter({ env: io.env }),
@@ -92,19 +173,51 @@ export async function compose(
       stateDir: join(configDir, '.nexar', 'runtimes', 'delegate-skills'),
     }),
   ];
-  const runtime = await createNexarWithProjects(loaded.config, {
-    adapters,
-    logger,
-    configDir,
-    // The owner at their own terminal may run unscoped (`--cwd` without `--project`). External
-    // clients (the MCP server / Work Bridge) must ask for 'project-only'.
-    workingDirectoryPolicy: options.workingDirectoryPolicy ?? 'project-or-unscoped',
-    // The built-in default config has no telemetry path of its own.
-    ...(loaded.source === 'default'
-      ? { telemetry: new JsonlFileTelemetrySink(join(io.cwd, '.nexar', 'telemetry.jsonl')) }
-      : {}),
+  // Without a telemetry file nothing can be accounted: quota stays unknown rather than "0 used".
+  const telemetryPath =
+    loaded.source === 'default'
+      ? join(io.cwd, '.nexar', 'telemetry.jsonl')
+      : loaded.config.telemetry.jsonlPath === undefined
+        ? undefined
+        : resolve(configDir, loaded.config.telemetry.jsonlPath);
+  const quotaSource =
+    telemetryPath === undefined
+      ? undefined
+      : new TelemetryQuotaSource({
+          path: telemetryPath,
+          allowances: loaded.config.routing.resourceIntelligence.allowances,
+        });
+  // Execution history from telemetry (when configured) plus engineering lane history (ADR-020 §7-8).
+  const { windowDays } = loaded.config.routing.resourceIntelligence.history;
+  const historySource = new TelemetryHistorySource({
+    ...(telemetryPath === undefined ? {} : { path: telemetryPath }),
+    windowDays,
+    lanes: laneHistoryProvider(nexarStateDir(loaded, io), windowDays),
   });
-  return { loaded, runtime };
+  const runtime = await createNexarWithProjects(
+    { ...loaded.config, resources },
+    {
+      adapters,
+      ...(quotaSource === undefined ? {} : { quotaSource }),
+      historySource,
+      logger,
+      configDir,
+      // The owner at their own terminal may run unscoped (`--cwd` without `--project`). External
+      // clients (the MCP server / Work Bridge) must ask for 'project-only'.
+      workingDirectoryPolicy: options.workingDirectoryPolicy ?? 'project-or-unscoped',
+      // The built-in default config has no telemetry path of its own.
+      ...(loaded.source === 'default'
+        ? { telemetry: new JsonlFileTelemetrySink(join(io.cwd, '.nexar', 'telemetry.jsonl')) }
+        : {}),
+    },
+  );
+  return {
+    loaded,
+    runtime,
+    ...(quotaSource === undefined ? {} : { quotaSource }),
+    historySource,
+    ...(discovery === undefined ? {} : { discovery }),
+  };
 }
 
 /**

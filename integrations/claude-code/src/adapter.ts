@@ -14,8 +14,8 @@ import type {
   EngineeringWorkspace,
 } from '@nexar/contracts';
 import { buildChildEnv } from './env.js';
-import { parseClaudeResult, parseToolCallNames } from './parse.js';
-import type { ParsedClaudeResult } from './parse.js';
+import { findRateLimit, parseClaudeResult, parseToolCallNames } from './parse.js';
+import type { ParsedClaudeResult, ParsedRateLimit } from './parse.js';
 import { runProcess } from './process.js';
 import type { ProcessOutcome } from './process.js';
 import { CLAUDE_CODE_ADAPTER_ID } from './resource.js';
@@ -49,6 +49,7 @@ export interface ClaudeCodeAdapterOptions {
 export function buildClaudeArgs(
   settings: ClaudeCodeSettings,
   systemPrompt: string | undefined,
+  maxCostUsd?: number,
 ): string[] {
   const args = [
     '-p',
@@ -60,6 +61,7 @@ export function buildClaudeArgs(
   ];
   if (settings.model !== undefined) args.push('--model', settings.model);
   if (settings.maxTurns !== undefined) args.push('--max-turns', String(settings.maxTurns));
+  if (maxCostUsd !== undefined) args.push('--max-budget-usd', String(maxCostUsd));
   if (systemPrompt !== undefined && systemPrompt !== '') {
     args.push('--append-system-prompt', systemPrompt);
   }
@@ -105,6 +107,7 @@ export function buildEngineeringArgs(
   settings: ClaudeCodeSettings,
   systemPrompt: string | undefined,
   access: 'read-only' | 'read-write',
+  maxCostUsd?: number,
 ): string[] {
   const args = [
     '-p',
@@ -125,6 +128,7 @@ export function buildEngineeringArgs(
   ];
   if (settings.model !== undefined) args.push('--model', settings.model);
   if (settings.maxTurns !== undefined) args.push('--max-turns', String(settings.maxTurns));
+  if (maxCostUsd !== undefined) args.push('--max-budget-usd', String(maxCostUsd));
   if (systemPrompt !== undefined && systemPrompt !== '') {
     args.push('--append-system-prompt', systemPrompt);
   }
@@ -219,7 +223,10 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
       return this.executeInWorkspace(request, context, settings, workspace);
     }
 
-    const args = [...this.prefixArgs, ...buildClaudeArgs(settings, task.input.systemPrompt)];
+    const args = [
+      ...this.prefixArgs,
+      ...buildClaudeArgs(settings, task.input.systemPrompt, task.requirements.maxCostUsd),
+    ];
     const timeoutMs = settings.timeoutMs ?? this.defaultTimeoutMs;
     logger.debug('spawning claude', {
       model: settings.model,
@@ -254,8 +261,13 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
     const logger = context.logger.child({ adapter: this.id, resourceId: resource.id });
 
     const claudeArgs = sandboxed
-      ? buildEngineeringArgs(settings, task.input.systemPrompt, workspace.access)
-      : buildClaudeArgs(settings, task.input.systemPrompt);
+      ? buildEngineeringArgs(
+          settings,
+          task.input.systemPrompt,
+          workspace.access,
+          task.requirements.maxCostUsd,
+        )
+      : buildClaudeArgs(settings, task.input.systemPrompt, task.requirements.maxCostUsd);
     const spec: LaunchSpec = {
       command: this.command,
       args: [...this.prefixArgs, ...claudeArgs],
@@ -324,6 +336,7 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
     }
 
     const parsed = parseClaudeResult(outcome.stdout);
+    const rateLimit = findRateLimit(outcome.stdout, this.clock());
     const subtype = parsed?.subtype;
     const denials = parsed?.permissionDenials;
     const details = {
@@ -337,13 +350,19 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
         details,
       });
     }
+    if (subtype === 'error_max_budget_usd') {
+      // A caller-set budget was reached: a policy outcome, not a resource fault.
+      throw new NexarError('POLICY_REJECTED', 'claude stopped at the requested maxCostUsd budget', {
+        details: { ...details, reason: 'max-budget-usd' },
+      });
+    }
     if (
       outcome.exitCode !== 0 ||
       parsed === undefined ||
       parsed.isError ||
       subtype?.startsWith('error')
     ) {
-      throw failure(outcome, parsed, details);
+      throw failure(outcome, parsed, details, rateLimit);
     }
 
     if (denials !== undefined && denials > 0) {
@@ -362,6 +381,7 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
         ...(this.runtimeVersion !== undefined ? { runtimeVersion: this.runtimeVersion } : {}),
       },
       retries: 0,
+      ...(rateLimit === undefined ? {} : { quotaObservations: [rateLimit.observation] }),
     };
   }
 
@@ -396,7 +416,18 @@ function failure(
   outcome: Extract<ProcessOutcome, { kind: 'exited' }>,
   parsed: ParsedClaudeResult | undefined,
   details: Record<string, unknown>,
+  rateLimit: ParsedRateLimit | undefined,
 ): NexarError {
+  if (rateLimit?.rejected === true) {
+    const resetsAt = rateLimit.observation.resetsAt;
+    return new NexarError(
+      'QUOTA_EXHAUSTED',
+      'claude reported that its usage allowance is exhausted',
+      {
+        details: { ...details, ...(resetsAt === undefined ? {} : { resetsAt }) },
+      },
+    );
+  }
   const evidence = [outcome.stderr, parsed?.text ?? '', String(parsed?.apiErrorStatus ?? '')];
   const authFailure = evidence.some((s) => AUTH_FAILURE.test(s));
 

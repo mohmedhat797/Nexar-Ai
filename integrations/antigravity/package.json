@@ -15,6 +15,7 @@
     "dist"
   ],
   "dependencies": {
-    "@nexar/contracts": "workspace:*"
+    "@nexar/contracts": "workspace:*",
+    "@nexar/resource-registry": "workspace:*"
   }
 }
