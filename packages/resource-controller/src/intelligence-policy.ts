@@ -276,8 +276,13 @@ export class ResourceIntelligencePolicy implements FallbackRoutingPolicy {
     // Unauthenticated candidates never get here (hard filter); only "unknown" is uncertain.
     const authCertain = descriptor.auth.mode === 'none' || state.auth !== 'unknown';
     add('auth', authCertain ? 1 : NEUTRAL, false);
-    add('quota', candidate.quotaFactor.value, candidate.quotaFactor.neutral);
-    add('cost', candidate.costFactor.value, candidate.costFactor.neutral);
+    add(
+      'quota',
+      candidate.quotaFactor.value,
+      candidate.quotaFactor.neutral,
+      candidate.quota.freshness,
+    );
+    add('cost', candidate.costFactor.value, candidate.costFactor.neutral, candidate.cost.class);
 
     const min = settings.history.minSamples;
     const agg = own(own(input.history?.executions, descriptor.id), input.task.kind);
