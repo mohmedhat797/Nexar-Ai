@@ -1,5 +1,6 @@
 import type { Capability } from './capabilities.js';
 import type { AdapterId, ResourceId } from './ids.js';
+import type { QuotaObservation } from './intelligence.js';
 
 /**
  * What kind of AI Resource this is. A discriminated union (not an enum) so each
@@ -82,6 +83,8 @@ export interface ResourceDescriptor {
   readonly dataLocality: 'local' | 'third-party';
   readonly tags?: readonly string[];
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /** Where the descriptor came from: `configured` or `discovered:<source>` (ADR-020 §9). */
+  readonly provenance?: string;
 }
 
 /** Whether a resource can currently take work. */
@@ -102,7 +105,10 @@ export interface QuotaState {
 export interface ResourceState {
   readonly availability: Availability;
   readonly auth: AuthState;
+  /** @deprecated v0.1 single-figure quota; v0.4 uses `quotas`. */
   readonly quota?: QuotaState;
+  /** Quota observations with provenance (ADR-020 §4). Absent means unknown. */
+  readonly quotas?: readonly QuotaObservation[];
   readonly detail?: string;
   readonly observedAt: string;
 }

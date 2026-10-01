@@ -2,6 +2,7 @@ import type { ArtifactRef } from './artifacts.js';
 import type { NexarErrorCode } from './errors.js';
 import type { UsageReport } from './execution.js';
 import type { AdapterId, ProjectId, ResourceId, TaskId } from './ids.js';
+import type { CostEstimateRecord, QuotaObservation } from './intelligence.js';
 import type { Measured } from './measured.js';
 import type { QuotaState, ResourceKindType } from './resource.js';
 import type { RouteDecision } from './routing.js';
@@ -41,6 +42,8 @@ export interface ExecutionRecord {
     readonly retryable: boolean;
   };
   readonly artifacts: readonly ArtifactRef[];
+  /** Pre-execution estimate vs measured actual (ADR-020 §5); observability only. */
+  readonly costEstimate?: CostEstimateRecord;
 }
 
 /** Steps of an engineering task (ADR-019); each lane's own execution is a normal execution record. */
@@ -70,6 +73,13 @@ export type TelemetryEvent =
       readonly taskId: TaskId;
       readonly projectId?: ProjectId;
       readonly artifacts: readonly ArtifactRef[];
+    }
+  | {
+      /** An allowance signal reported by a runtime during a call (ADR-020 §4). */
+      readonly type: 'quota.observed';
+      readonly at: string;
+      readonly resourceId: ResourceId;
+      readonly observation: QuotaObservation;
     }
   | {
       readonly type: 'engineering.step';

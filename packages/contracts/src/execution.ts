@@ -1,5 +1,6 @@
 import type { ArtifactRef } from './artifacts.js';
 import type { AdapterId } from './ids.js';
+import type { QuotaObservation } from './intelligence.js';
 import type { EngineeringWorkspace } from './launcher.js';
 import type { Logger } from './logging.js';
 import { unavailable } from './measured.js';
@@ -62,6 +63,11 @@ export interface ExecutionResult {
     readonly runtimeVersion?: string;
   };
   readonly retries: number;
+  /**
+   * Allowance signals the runtime reported during this call through a documented interface
+   * (provenance `vendor-reported`, ADR-020 §4). Never derived from credentials.
+   */
+  readonly quotaObservations?: readonly QuotaObservation[];
 }
 
 /**
