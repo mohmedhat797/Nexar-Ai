@@ -48,8 +48,11 @@ describe.skipIf(!realAvailable)('SandboxLauncher (real bubblewrap)', () => {
     await writeFile(join(ws, '.git', 'HEAD'), 'ref: refs/heads/main\n');
     await mkdir(join(home, '.ssh'), { recursive: true });
     await writeFile(join(home, 'canary.txt'), 'secret');
+    await mkdir(join(root, 'run'));
     launcher = new SandboxLauncher({
       homeDir: home,
+      // A private base, so parallel test files creating run dirs cannot interfere.
+      runDirBase: join(root, 'run'),
       onEgress: (event) => events.push(event),
       lookup: async () => [{ address: '93.184.216.34', family: 4 }],
       connect: () => net.connect(upstreamPort, '127.0.0.1'),
@@ -152,10 +155,8 @@ describe.skipIf(!realAvailable)('SandboxLauncher (real bubblewrap)', () => {
     });
 
     it('removes the run directory after dispose', async () => {
-      const before = (await readdir(tmpdir())).filter((n) => n.startsWith('nexar-sbx-'));
       await run(proxySpec('true'));
-      const after = (await readdir(tmpdir())).filter((n) => n.startsWith('nexar-sbx-'));
-      expect(after.sort()).toEqual(before.sort());
+      expect(await readdir(join(root, 'run'))).toEqual([]);
     });
   });
 
