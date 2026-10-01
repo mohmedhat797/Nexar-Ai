@@ -43,7 +43,43 @@ export interface NexarConfig {
   readonly projects: readonly ProjectDefinition[];
   /** Engineering plane settings (ADR-019); absent when the file has no `engineering` section. */
   readonly engineering?: EngineeringConfig;
+  /** Resource discovery (ADR-020 §9); defaults applied, disabled unless the file enables it. */
+  readonly discovery: DiscoveryConfig;
 }
+
+/** Resolved discovery settings. Discovered ids are not referenceable from routing rules in v0.4. */
+export interface DiscoveryConfig {
+  /** Register discovered resources for routing; `nexar resources --discovered` works either way. */
+  readonly enabled: boolean;
+  readonly refreshIntervalMs: number;
+  /** Per source. */
+  readonly timeoutMs: number;
+  readonly excludeIds: readonly string[];
+  readonly cli: { readonly enabled: boolean };
+  readonly piCatalog: {
+    readonly enabled: boolean;
+    readonly providers: readonly string[];
+    readonly maxModels: number;
+  };
+  readonly localEndpoints: {
+    readonly enabled: boolean;
+    readonly endpoints: readonly {
+      readonly id: string;
+      readonly kind: 'ollama' | 'openai-compatible';
+      readonly baseUrl: string;
+    }[];
+  };
+}
+
+export const DEFAULT_DISCOVERY_CONFIG: DiscoveryConfig = {
+  enabled: false,
+  refreshIntervalMs: 10 * 60 * 1000,
+  timeoutMs: 3000,
+  excludeIds: [],
+  cli: { enabled: true },
+  piCatalog: { enabled: false, providers: [], maxModels: 50 },
+  localEndpoints: { enabled: true, endpoints: [] },
+};
 
 /** Global engineering settings. Paths are absolute (`~/` expanded, relative → config directory). */
 export interface EngineeringConfig {
@@ -294,6 +330,43 @@ const ResourceIntelligenceSchema = z.strictObject({
     .optional(),
 });
 
+const DiscoverySchema = z.strictObject({
+  enabled: z.boolean().optional(),
+  refreshIntervalMs: z.number().int().positive().optional(),
+  timeoutMs: z.number().int().positive().max(60_000).optional(),
+  excludeIds: StringList.optional(),
+  sources: z
+    .strictObject({
+      cli: z.strictObject({ enabled: z.boolean().optional() }).optional(),
+      piCatalog: z
+        .strictObject({
+          enabled: z.boolean().optional(),
+          providers: z.array(z.string().min(1)).optional(),
+          maxModels: z.number().int().min(1).max(500).optional(),
+        })
+        .optional(),
+      localEndpoints: z
+        .strictObject({
+          enabled: z.boolean().optional(),
+          endpoints: z
+            .array(
+              z.strictObject({
+                id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,31}$/),
+                kind: z.enum(['ollama', 'openai-compatible']),
+                baseUrl: z
+                  .string()
+                  .url()
+                  .refine((u) => /^https?:\/\//.test(u), 'must be an http(s) URL'),
+              }),
+            )
+            .max(32)
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
 /** Zod schema of the JSON config file. Strict everywhere: unknown keys are errors. */
 export const NexarConfigSchema = z.strictObject({
   version: z.literal(1),
@@ -309,6 +382,7 @@ export const NexarConfigSchema = z.strictObject({
   telemetry: z.strictObject({ jsonlPath: z.string().min(1).optional() }).optional(),
   projects: z.array(ProjectSchema).optional(),
   engineering: EngineeringSchema.optional(),
+  discovery: DiscoverySchema.optional(),
 });
 
 function configError(message: string, origin: string): NexarError {
@@ -467,6 +541,7 @@ export function parseConfig(
   const expand = (path: string): string =>
     path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : resolve(baseDir, path);
   const jsonlPath = data.telemetry?.jsonlPath;
+  const discovery = resolveDiscovery(data.discovery, origin);
   return {
     version: 1,
     resources,
@@ -482,6 +557,7 @@ export function parseConfig(
     },
     telemetry: jsonlPath === undefined ? {} : { jsonlPath },
     projects,
+    discovery,
     ...(engineering === undefined
       ? {}
       : {
@@ -593,6 +669,41 @@ function withDefaults<T extends object>(
 }
 
 /** Applies documented defaults and checks every referenced resource exists. */
+function resolveDiscovery(
+  input: z.infer<typeof DiscoverySchema> | undefined,
+  origin: string,
+): DiscoveryConfig {
+  const d = DEFAULT_DISCOVERY_CONFIG;
+  if (input === undefined) return d;
+  const pi = input.sources?.piCatalog;
+  const local = input.sources?.localEndpoints;
+  const piCatalog = {
+    enabled: pi?.enabled ?? d.piCatalog.enabled,
+    providers: [...new Set(pi?.providers ?? [])],
+    maxModels: pi?.maxModels ?? d.piCatalog.maxModels,
+  };
+  // The catalog is never enumerated without an explicit owner allowlist.
+  if (piCatalog.enabled && piCatalog.providers.length === 0) {
+    throw configError(
+      'discovery.sources.piCatalog.enabled requires a non-empty providers list',
+      origin,
+    );
+  }
+  const endpoints = local?.endpoints ?? [];
+  if (new Set(endpoints.map((e) => e.id)).size !== endpoints.length) {
+    throw configError('discovery.sources.localEndpoints.endpoints ids must be unique', origin);
+  }
+  return {
+    enabled: input.enabled ?? d.enabled,
+    refreshIntervalMs: input.refreshIntervalMs ?? d.refreshIntervalMs,
+    timeoutMs: input.timeoutMs ?? d.timeoutMs,
+    excludeIds: input.excludeIds ?? d.excludeIds,
+    cli: { enabled: input.sources?.cli?.enabled ?? d.cli.enabled },
+    piCatalog,
+    localEndpoints: { enabled: local?.enabled ?? d.localEndpoints.enabled, endpoints },
+  };
+}
+
 function resolveResourceIntelligence(
   input: ResourceIntelligenceInput | undefined,
   resourceIds: ReadonlySet<string>,

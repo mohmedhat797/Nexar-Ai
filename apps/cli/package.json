@@ -35,6 +35,7 @@
     "@nexar/integration-pi": "workspace:*",
     "@nexar/projects": "workspace:*",
     "@nexar/resource-controller": "workspace:*",
+    "@nexar/resource-registry": "workspace:*",
     "@nexar/sandbox": "workspace:*",
     "@nexar/telemetry": "workspace:*",
     "@nexar/workflows": "workspace:*"

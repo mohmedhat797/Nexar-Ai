@@ -89,6 +89,9 @@ importers:
       '@nexar/resource-controller':
         specifier: workspace:*
         version: link:../../packages/resource-controller
+      '@nexar/resource-registry':
+        specifier: workspace:*
+        version: link:../../packages/resource-registry
       '@nexar/sandbox':
         specifier: workspace:*
         version: link:../../packages/sandbox
@@ -104,18 +107,27 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@nexar/resource-registry':
+        specifier: workspace:*
+        version: link:../../packages/resource-registry
 
   integrations/claude-code:
     dependencies:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@nexar/resource-registry':
+        specifier: workspace:*
+        version: link:../../packages/resource-registry
 
   integrations/codex:
     dependencies:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@nexar/resource-registry':
+        specifier: workspace:*
+        version: link:../../packages/resource-registry
 
   integrations/deepseek-harness:
     dependencies:
@@ -125,6 +137,9 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@nexar/resource-registry':
+        specifier: workspace:*
+        version: link:../../packages/resource-registry
     devDependencies:
       '@nexar/sandbox':
         specifier: workspace:*

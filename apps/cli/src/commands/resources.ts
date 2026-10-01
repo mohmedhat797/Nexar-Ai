@@ -47,6 +47,7 @@ function toRow(snapshot: ResourceSnapshot, quota: QuotaAssessment): Record<strin
     id: descriptor.id,
     kind: describeKind(descriptor.kind),
     adapter: descriptor.runtime.adapter,
+    provenance: descriptor.provenance ?? 'configured',
     availability: state.availability,
     auth: state.auth,
     capabilities: descriptor.capabilities,
@@ -57,12 +58,16 @@ function toRow(snapshot: ResourceSnapshot, quota: QuotaAssessment): Record<strin
 
 export const resourcesCommand: Command = {
   name: 'resources',
-  summary: 'List configured resources and their probed state',
-  usage: 'nexar resources [--json] [--no-refresh]',
-  options: { 'no-refresh': { type: 'boolean' } },
+  summary: 'List configured (and discovered) resources and their probed state',
+  usage: 'nexar resources [--discovered] [--json] [--no-refresh]',
+  options: { 'no-refresh': { type: 'boolean' }, discovered: { type: 'boolean' } },
   async run(ctx) {
     const loaded = await loadCliConfig(ctx.io, ctx.configPath);
-    const { runtime, quotaSource } = await compose(loaded, ctx.io, ctx.logger);
+    // `--discovered` runs discovery for this listing even when routing does not use it.
+    const discovered = flagOption(ctx, 'discovered');
+    const { runtime, quotaSource, discovery } = await compose(loaded, ctx.io, ctx.logger, {
+      ...(discovered ? { discover: 'always' as const } : {}),
+    });
     const snapshots = flagOption(ctx, 'no-refresh')
       ? runtime.registry.snapshot()
       : await runtime.registry.refresh();
@@ -79,15 +84,17 @@ export const resourcesCommand: Command = {
       toRow(s, assessQuota(observed?.get(s.descriptor.id), now, settings)),
     );
     if (ctx.json) {
-      ctx.io.stdout(JSON.stringify(rows, null, 2) + '\n');
+      const body = discovered ? { resources: rows, discovery: discovery ?? null } : rows;
+      ctx.io.stdout(JSON.stringify(body, null, 2) + '\n');
       return EXIT.ok;
     }
     const table = renderTable(
-      ['ID', 'KIND', 'ADAPTER', 'AVAILABILITY', 'AUTH', 'QUOTA', 'CAPABILITIES'],
+      ['ID', 'KIND', 'ADAPTER', 'PROVENANCE', 'AVAILABILITY', 'AUTH', 'QUOTA', 'CAPABILITIES'],
       rows.map((r) => [
         String(r['id']),
         String(r['kind']),
         String(r['adapter']),
+        String(r['provenance']),
         String(r['availability']),
         String(r['auth']),
         describeQuota(r['quota'] as QuotaAssessment),
@@ -95,6 +102,19 @@ export const resourcesCommand: Command = {
       ]),
     );
     ctx.io.stdout(table + '\n');
+    if (discovered && discovery !== undefined) {
+      // Source ids, statuses, counts and error codes only: never paths or messages.
+      const report = renderTable(
+        ['SOURCE', 'STATUS', 'FOUND', 'ERROR'],
+        discovery.reports.map((r) => [r.source, r.status, String(r.count), r.errorCode ?? '']),
+      );
+      ctx.io.stdout(`\nDiscovery sources:\n${report}\n`);
+      if (discovery.collisions > 0) {
+        ctx.io.stdout(
+          `${String(discovery.collisions)} discovered id(s) skipped: configured or found earlier\n`,
+        );
+      }
+    }
     return EXIT.ok;
   },
 };

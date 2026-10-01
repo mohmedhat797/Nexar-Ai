@@ -16,7 +16,8 @@
   ],
   "dependencies": {
     "@nexar/approvals": "workspace:*",
-    "@nexar/contracts": "workspace:*"
+    "@nexar/contracts": "workspace:*",
+    "@nexar/resource-registry": "workspace:*"
   },
   "devDependencies": {
     "@nexar/sandbox": "workspace:*"

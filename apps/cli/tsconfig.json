@@ -7,25 +7,68 @@
   "include": ["src/**/*.ts"],
   "exclude": ["**/*.test.ts", "dist"],
   "references": [
-    { "path": "../../packages/access" },
-    { "path": "../../packages/approvals" },
-    { "path": "../../packages/artifacts" },
-    { "path": "../../packages/contracts" },
-    { "path": "../../packages/core" },
-    { "path": "../../packages/engineering" },
-    { "path": "../../packages/projects" },
-    { "path": "../../packages/resource-controller" },
-    { "path": "../../packages/sandbox" },
-    { "path": "../../packages/telemetry" },
-    { "path": "../../packages/workflows" },
-    { "path": "../../integrations/antigravity" },
-    { "path": "../../integrations/claude-code" },
-    { "path": "../../integrations/codex" },
-    { "path": "../../integrations/deepseek-harness" },
-    { "path": "../../integrations/delegate-skills" },
-    { "path": "../../integrations/echo" },
-    { "path": "../../integrations/mcp" },
-    { "path": "../../integrations/openworker" },
-    { "path": "../../integrations/pi" }
+    {
+      "path": "../../packages/access"
+    },
+    {
+      "path": "../../packages/approvals"
+    },
+    {
+      "path": "../../packages/artifacts"
+    },
+    {
+      "path": "../../packages/contracts"
+    },
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/engineering"
+    },
+    {
+      "path": "../../packages/projects"
+    },
+    {
+      "path": "../../packages/resource-controller"
+    },
+    {
+      "path": "../../packages/sandbox"
+    },
+    {
+      "path": "../../packages/telemetry"
+    },
+    {
+      "path": "../../packages/workflows"
+    },
+    {
+      "path": "../../integrations/antigravity"
+    },
+    {
+      "path": "../../integrations/claude-code"
+    },
+    {
+      "path": "../../integrations/codex"
+    },
+    {
+      "path": "../../integrations/deepseek-harness"
+    },
+    {
+      "path": "../../integrations/delegate-skills"
+    },
+    {
+      "path": "../../integrations/echo"
+    },
+    {
+      "path": "../../integrations/mcp"
+    },
+    {
+      "path": "../../integrations/openworker"
+    },
+    {
+      "path": "../../integrations/pi"
+    },
+    {
+      "path": "../../packages/resource-registry"
+    }
   ]
 }

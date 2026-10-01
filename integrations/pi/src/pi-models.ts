@@ -126,6 +126,39 @@ export async function createAllowlistedModels(
   return models;
 }
 
+/** Nexar-owned view of one static catalog chat model; rates are USD per 1M tokens. */
+export interface CatalogModel {
+  readonly id: string;
+  readonly contextWindow: number;
+  readonly maxTokens: number;
+  readonly inputPerMillionTokens: number;
+  readonly outputPerMillionTokens: number;
+}
+
+/**
+ * The static pi-ai catalog's chat models for one provider. Reads no credentials and makes no
+ * network call (`getModelsOfType` is the synchronous last-known list).
+ */
+export async function listCatalogModels(provider: string): Promise<readonly CatalogModel[]> {
+  const models = createModels();
+  const factory = PROVIDER_FACTORIES[provider];
+  if (factory === undefined) {
+    const { builtinProviders } = await import('@earendil-works/pi-ai/providers/all');
+    for (const p of builtinProviders()) {
+      if (p.id === provider) models.setProvider(p);
+    }
+  } else {
+    models.setProvider(await factory());
+  }
+  return models.getModelsOfType('chat', provider).map((m) => ({
+    id: m.id,
+    contextWindow: m.contextWindow,
+    maxTokens: m.maxTokens,
+    inputPerMillionTokens: m.cost.input,
+    outputPerMillionTokens: m.cost.output,
+  }));
+}
+
 /** Describes an OpenAI-compatible endpoint to expose as a one-model collection. */
 export interface LocalEndpoint {
   readonly provider: string;

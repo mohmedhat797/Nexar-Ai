@@ -1,5 +1,6 @@
 export * from './artifacts.js';
 export * from './capabilities.js';
+export * from './discovery.js';
 export * from './errors.js';
 export * from './execution.js';
 export * from './ids.js';

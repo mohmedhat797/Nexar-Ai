@@ -10,9 +10,13 @@ describe('upstream isolation (ADR-008)', () => {
     expect(Object.keys(mod).sort()).toEqual(
       [
         'DEFAULT_ALLOWED_PROVIDERS',
+        'LOCAL_ENDPOINTS_SOURCE_ID',
         'PI_ADAPTER_ID',
         'PI_AI_VERSION',
+        'PI_CATALOG_SOURCE_ID',
         'PiExecutionAdapter',
+        'localEndpointDiscoverySource',
+        'piCatalogDiscoverySource',
         'piModelResource',
         'toExecutionResult',
       ].sort(),
