@@ -9,14 +9,13 @@ import {
   type ResourceId,
 } from '@nexar/contracts';
 import type { Nexar } from '@nexar/core';
-import type { EngineeringRunner } from '@nexar/engineering';
+import type { EngineeringRunnerPort, EngineeringSeams } from '@nexar/host';
 import type { SandboxAvailability, SelfTestOptions, SelfTestResult } from '@nexar/sandbox';
 import { UsageError, type CliIo } from './io.js';
 
 type OptionValue = string | boolean | (string | boolean)[] | undefined;
 
-/** What the engineering commands need from the runner; tests substitute a fake. */
-export type EngineeringRunnerPort = Pick<EngineeringRunner, 'run' | 'cleanup'>;
+export type { EngineeringRunnerPort };
 
 /** Result of a `<command> --version` probe. */
 export type VersionProbe =
@@ -27,10 +26,7 @@ export type VersionProbe =
  * `runCli` passes `{}` in production.
  */
 export interface CliSeams {
-  readonly engineering?: {
-    readonly runner?: EngineeringRunnerPort;
-    readonly launcher?: ProcessLauncher;
-  };
+  readonly engineering?: EngineeringSeams;
   readonly sandbox?: {
     readonly availability?: () => Promise<SandboxAvailability>;
     readonly runSelfTest?: (

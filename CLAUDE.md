@@ -26,6 +26,7 @@ Change an architectural decision only via a new/amended ADR.
 | Sandbox                   | `packages/sandbox`             | bwrap profile, `SandboxLauncher`, egress proxy; the only code that invokes bwrap.                                       |
 | Worktrees                 | `packages/worktrees`           | Private clone, sandboxed harvest, patch policy, verification clone, `commitPatch`.                                      |
 | Engineering               | `packages/engineering`         | Lane plans (`engineering/`), runner, gates, review verdict, task records.                                               |
+| Host                      | `packages/host`                | Shared composition for CLI and desktop: config loading; the only place adapters are instantiated.                       |
 | Adapters                  | `integrations/*`               | The **only** code that knows an upstream (incl. `mcp`, `openworker` bridge, `codex`, `antigravity`, `delegate-skills`). |
 | CLI                       | `apps/cli`                     | Thin client: `doctor`, `resources`, `route`, `run`, plus the commands below.                                            |
 

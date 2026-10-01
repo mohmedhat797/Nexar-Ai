@@ -56,42 +56,24 @@ importers:
       '@nexar/engineering':
         specifier: workspace:*
         version: link:../../packages/engineering
-      '@nexar/integration-antigravity':
+      '@nexar/host':
         specifier: workspace:*
-        version: link:../../integrations/antigravity
-      '@nexar/integration-claude-code':
-        specifier: workspace:*
-        version: link:../../integrations/claude-code
-      '@nexar/integration-codex':
-        specifier: workspace:*
-        version: link:../../integrations/codex
+        version: link:../../packages/host
       '@nexar/integration-deepseek-harness':
         specifier: workspace:*
         version: link:../../integrations/deepseek-harness
-      '@nexar/integration-delegate-skills':
-        specifier: workspace:*
-        version: link:../../integrations/delegate-skills
-      '@nexar/integration-echo':
-        specifier: workspace:*
-        version: link:../../integrations/echo
       '@nexar/integration-mcp':
         specifier: workspace:*
         version: link:../../integrations/mcp
       '@nexar/integration-openworker':
         specifier: workspace:*
         version: link:../../integrations/openworker
-      '@nexar/integration-pi':
-        specifier: workspace:*
-        version: link:../../integrations/pi
       '@nexar/projects':
         specifier: workspace:*
         version: link:../../packages/projects
       '@nexar/resource-controller':
         specifier: workspace:*
         version: link:../../packages/resource-controller
-      '@nexar/resource-registry':
-        specifier: workspace:*
-        version: link:../../packages/resource-registry
       '@nexar/sandbox':
         specifier: workspace:*
         version: link:../../packages/sandbox
@@ -302,6 +284,57 @@ importers:
       '@nexar/worktrees':
         specifier: workspace:*
         version: link:../worktrees
+
+  packages/host:
+    dependencies:
+      '@nexar/approvals':
+        specifier: workspace:*
+        version: link:../approvals
+      '@nexar/artifacts':
+        specifier: workspace:*
+        version: link:../artifacts
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@nexar/core':
+        specifier: workspace:*
+        version: link:../core
+      '@nexar/engineering':
+        specifier: workspace:*
+        version: link:../engineering
+      '@nexar/integration-antigravity':
+        specifier: workspace:*
+        version: link:../../integrations/antigravity
+      '@nexar/integration-claude-code':
+        specifier: workspace:*
+        version: link:../../integrations/claude-code
+      '@nexar/integration-codex':
+        specifier: workspace:*
+        version: link:../../integrations/codex
+      '@nexar/integration-deepseek-harness':
+        specifier: workspace:*
+        version: link:../../integrations/deepseek-harness
+      '@nexar/integration-delegate-skills':
+        specifier: workspace:*
+        version: link:../../integrations/delegate-skills
+      '@nexar/integration-echo':
+        specifier: workspace:*
+        version: link:../../integrations/echo
+      '@nexar/integration-pi':
+        specifier: workspace:*
+        version: link:../../integrations/pi
+      '@nexar/resource-registry':
+        specifier: workspace:*
+        version: link:../resource-registry
+      '@nexar/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
+      '@nexar/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
+      '@nexar/workflows':
+        specifier: workspace:*
+        version: link:../workflows
 
   packages/projects:
     dependencies:
