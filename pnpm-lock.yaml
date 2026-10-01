@@ -53,6 +53,9 @@ importers:
       '@nexar/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@nexar/engineering':
+        specifier: workspace:*
+        version: link:../../packages/engineering
       '@nexar/integration-antigravity':
         specifier: workspace:*
         version: link:../../integrations/antigravity
@@ -86,6 +89,9 @@ importers:
       '@nexar/resource-controller':
         specifier: workspace:*
         version: link:../../packages/resource-controller
+      '@nexar/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/sandbox
       '@nexar/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry

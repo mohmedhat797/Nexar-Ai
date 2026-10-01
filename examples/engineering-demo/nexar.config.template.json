@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "resources": [
+    {
+      "id": "claude-code",
+      "displayName": "Claude Code",
+      "kind": {
+        "type": "agent",
+        "agent": "claude-code",
+        "interface": "cli",
+        "underlying": { "provider": "anthropic" }
+      },
+      "capabilities": [
+        "text-generation",
+        "reasoning",
+        "coding",
+        "repo-editing",
+        "code-review",
+        "tool-use"
+      ],
+      "runtime": {
+        "adapter": "claude-code",
+        "locality": "local",
+        "options": {
+          "sandbox": {
+            "mounts": []
+          }
+        }
+      },
+      "auth": {
+        "mode": "subscription",
+        "credential": {
+          "source": "runtime-managed",
+          "description": "Claude Code login (claude auth), made inside the engineering distro"
+        }
+      },
+      "cost": { "model": "subscription" },
+      "dataLocality": "third-party",
+      "tags": ["native-agent"]
+    },
+    {
+      "id": "codex",
+      "displayName": "Codex",
+      "kind": {
+        "type": "agent",
+        "agent": "codex",
+        "interface": "cli",
+        "underlying": { "provider": "openai" }
+      },
+      "capabilities": [
+        "text-generation",
+        "reasoning",
+        "coding",
+        "repo-editing",
+        "code-review",
+        "tool-use",
+        "shell-execution"
+      ],
+      "runtime": {
+        "adapter": "codex",
+        "locality": "local"
+      },
+      "auth": {
+        "mode": "subscription",
+        "credential": {
+          "source": "runtime-managed",
+          "description": "Codex login (codex login, ChatGPT sign-in), made inside the engineering distro"
+        }
+      },
+      "cost": { "model": "subscription" },
+      "dataLocality": "third-party",
+      "tags": ["native-agent"]
+    }
+  ],
+  "routing": {
+    "policy": "deterministic",
+    "defaultResourceId": "claude-code"
+  },
+  "telemetry": {
+    "jsonlPath": ".nexar/telemetry.jsonl"
+  },
+  "engineering": {
+    "toolchainPaths": ["/opt/node22"],
+    "author": { "name": "Nexar", "email": "nexar@localhost" }
+  },
+  "projects": [
+    {
+      "id": "engineering-demo",
+      "displayName": "Engineering demo",
+      "roots": ["__REPO__"],
+      "engineering": {
+        "baseBranch": "main",
+        "gates": [{ "name": "test", "command": ["node", "--test"], "timeoutMs": 120000 }],
+        "reviewDiversity": "required",
+        "ownerApproval": "always",
+        "maxReworkRounds": 1,
+        "lanePreferences": {
+          "feature": ["codex"],
+          "review": ["claude-code"]
+        }
+      }
+    }
+  ]
+}

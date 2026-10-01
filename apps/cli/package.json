@@ -23,6 +23,7 @@
     "@nexar/artifacts": "workspace:*",
     "@nexar/contracts": "workspace:*",
     "@nexar/core": "workspace:*",
+    "@nexar/engineering": "workspace:*",
     "@nexar/integration-antigravity": "workspace:*",
     "@nexar/integration-claude-code": "workspace:*",
     "@nexar/integration-codex": "workspace:*",
@@ -34,6 +35,7 @@
     "@nexar/integration-pi": "workspace:*",
     "@nexar/projects": "workspace:*",
     "@nexar/resource-controller": "workspace:*",
+    "@nexar/sandbox": "workspace:*",
     "@nexar/telemetry": "workspace:*",
     "@nexar/workflows": "workspace:*"
   }

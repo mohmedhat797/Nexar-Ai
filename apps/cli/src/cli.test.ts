@@ -195,6 +195,7 @@ describe('nexar cli (in-process, offline)', () => {
       'config',
       'resources',
       'external',
+      'engineering',
     ]);
     expect(code).toBe(report.ok ? 0 : 1);
     const resources = report.sections.find((s) => s.id === 'resources');
