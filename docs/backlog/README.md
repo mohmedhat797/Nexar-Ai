@@ -52,13 +52,15 @@ NXR-020 to NXR-024 were delivered in v0.3. NXR-025 to NXR-029 are follow-ups (mi
 
 ## v0.4 — Resource Intelligence
 
-| Id                                                  | Title                                          | Milestone | Labels                         |
-| --------------------------------------------------- | ---------------------------------------------- | --------- | ------------------------------ |
-| [NXR-030](030-quota-and-allowance-tracking.md)      | Quota and subscription-allowance tracking      | v0.4      | resource-controller            |
-| [NXR-031](031-pre-execution-cost-estimation.md)     | Pre-execution cost estimation and `maxCostUsd` | v0.4      | resource-controller            |
-| [NXR-032](032-history-scoring-routing-policy.md)    | Scoring routing policy using telemetry history | v0.4      | resource-controller, telemetry |
-| [NXR-033](033-dynamic-resource-discovery.md)        | Dynamic resource discovery                     | v0.4      | resource-registry              |
-| [NXR-034](034-engineering-telemetry-for-scoring.md) | Engineering lane outcomes as scoring input     | v0.4      | resource-controller, telemetry |
+NXR-030 to NXR-034 were delivered in v0.4 ([ADR-020](../adr/020-resource-intelligence-scheduler.md)).
+
+| Id                                                  | Title                                          | Milestone | Labels                         | Status      |
+| --------------------------------------------------- | ---------------------------------------------- | --------- | ------------------------------ | ----------- |
+| [NXR-030](030-quota-and-allowance-tracking.md)      | Quota and subscription-allowance tracking      | v0.4      | resource-controller            | Done (v0.4) |
+| [NXR-031](031-pre-execution-cost-estimation.md)     | Pre-execution cost estimation and `maxCostUsd` | v0.4      | resource-controller            | Done (v0.4) |
+| [NXR-032](032-history-scoring-routing-policy.md)    | Scoring routing policy using telemetry history | v0.4      | resource-controller, telemetry | Done (v0.4) |
+| [NXR-033](033-dynamic-resource-discovery.md)        | Dynamic resource discovery                     | v0.4      | resource-registry              | Done (v0.4) |
+| [NXR-034](034-engineering-telemetry-for-scoring.md) | Engineering lane outcomes as scoring input     | v0.4      | resource-controller, telemetry | Done (v0.4) |
 
 ## v0.5 — Nexar Mobile
 

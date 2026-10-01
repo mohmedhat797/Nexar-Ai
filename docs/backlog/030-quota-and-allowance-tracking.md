@@ -45,11 +45,11 @@ resources with a reason code, and can hold back headroom by configured rules.
 
 ## Acceptance criteria
 
-- [ ] Quota is stored in `ResourceState` from at least one real source and from config-declared limits.
-- [ ] An exhausted resource is rejected with a documented reason code and human text.
-- [ ] A reservation rule keeps headroom for a configured task kind and is visible in the decision.
-- [ ] Stale or unknown quota does not silently count as available or exhausted; behavior is documented.
-- [ ] Policy output stays pure: same inputs give the same decision.
+- [x] Quota is stored in `ResourceState` from at least one real source and from config-declared limits.
+- [x] An exhausted resource is rejected with a documented reason code and human text.
+- [x] A reservation rule keeps headroom for a configured task kind and is visible in the decision.
+- [x] Stale or unknown quota does not silently count as available or exhausted; behavior is documented.
+- [x] Policy output stays pure: same inputs give the same decision.
 
 ## Testing expectations
 

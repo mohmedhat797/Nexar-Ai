@@ -14,9 +14,9 @@ Change an architectural decision only via a new/amended ADR.
 | Concept                   | Package                        | Owns                                                                                                                    |
 | ------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | Contracts                 | `packages/contracts`           | Domain types, `NexarError`, `Measured<T>`. Zero deps.                                                                   |
-| Resource Registry         | `packages/resource-registry`   | What resources exist + dynamic state + probes. **No routing.**                                                          |
-| Resource Controller (NRC) | `packages/resource-controller` | "Who executes?" — policy + explainable `RouteDecision`.                                                                 |
-| Telemetry                 | `packages/telemetry`           | Structured JSON logs (stderr, redacted), telemetry sinks.                                                               |
+| Resource Registry         | `packages/resource-registry`   | What resources exist + dynamic state + probes; discovery merge + cache. **No routing.**                                 |
+| Resource Controller (NRC) | `packages/resource-controller` | "Who executes?" — `deterministic@1` / `resource-intelligence@1`, quota, cost, explainable `RouteDecision`.              |
+| Telemetry                 | `packages/telemetry`           | Structured JSON logs (stderr, redacted), sinks, bounded readers (quota accounting, history).                            |
 | Core                      | `packages/core`                | Engine (task → route → execute → record), adapter registry, config.                                                     |
 | Projects                  | `packages/projects`            | Projects, `resolveContainedPath` (realpath policy), defaults, document sets.                                            |
 | Artifacts                 | `packages/artifacts`           | `LocalArtifactStore`: safe names, no overwrite, contained writes.                                                       |
@@ -42,8 +42,8 @@ NEXAR_LIVE_TESTS=1 pnpm test   # opt-in live tests (may cost money; never in CI)
 pnpm build && node apps/cli/dist/main.js doctor
 ```
 
-CLI: `doctor` · `resources` · `route` · `run` (`--project`, `--document-set`, `--workflow`, `--input`,
-`--input-file`, `--list-input`) · `projects list` · `artifacts list` · `approvals list|approve|deny` ·
+CLI: `doctor` · `resources` (`--discovered`) · `route` (`--explain`) · `run` (`--project`, `--document-set`, `--workflow`, `--input`,
+`--input-file`, `--list-input`; both take `--max-cost`, `--require-known-quota`) · `projects list` · `artifacts list` · `approvals list|approve|deny` ·
 `clients add|list|revoke` · `mcp serve` · `workflows list` · `engineer run|list|show|plans|cleanup` ·
 `sandbox selftest`. Check flags with `--help`.
 
@@ -100,6 +100,23 @@ must not import mail, HTTP or approval-execution code (a static test enforces th
 - Records and telemetry carry ids, counts and hashes only; no prompts, diffs, gate output or paths.
 - Never call `recoverAfterRestart` from engineering commands (it would cancel pending requests of a concurrently running MCP server).
 - `@nexar/engineering` imports no network, mail or push code (static test).
+
+**Resource intelligence (ADR-020):**
+
+- Hard filters run before scoring; a score never re-admits a rejected candidate and never authorizes
+  anything (sandbox, patch policy, review diversity, gates, approval and commit stay outside routing).
+  Keep the seeded invariant tests green when adding a filter or factor.
+- Policies are pure: no IO, no real clock (`facts.now`), never the prompt (only `TaskSizeEstimate`).
+  Quota, history and discovery are read outside the policy; a failing source means "unknown".
+- Quota is `unknown` unless owner-declared, Nexar-accounted or vendor-reported through a documented
+  interface. Never scrape dashboards, call private APIs, read credential stores or infer limits; never
+  treat unknown as unlimited or zero. Never fabricate usage or cost (`Measured<T>`).
+- History and engineering records are untrusted input: bounded, shape-guarded, clamped,
+  prototype-safe, no symlinks. Owner preferences rank before learned signals by default.
+- Fallback to `deterministic@1` reuses the same hard filters and is recorded in `policy.fallback`.
+- Discovery finds candidates only: stat binaries (never run them), owner-listed endpoints and pi
+  providers only, no LAN scans, config wins collisions, discovered ≠ authenticated.
+- `deterministic@1` stays byte-for-byte unchanged; a new behavior is a new versioned policy.
 
 **Tests:** every behavior change ships with tests. CI must never call paid APIs.
 

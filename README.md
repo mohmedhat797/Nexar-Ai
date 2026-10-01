@@ -74,34 +74,34 @@ and the [ADRs](docs/adr/).
 
 ## Implemented vs planned
 
-**Implemented (v0.1 to v0.3)**
+**Implemented (v0.1 to v0.4)**
 
-| Area                     | Package                               | Notes                                                                                                                                                                                                                                 |
-| ------------------------ | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Domain contracts         | `@nexar/contracts`                    | Tasks, AI resources (descriptor vs state), routing, execution boundary, telemetry, typed errors                                                                                                                                       |
-| Resource Registry        | `@nexar/resource-registry`            | Descriptors + probed state, filtering, discovery seam                                                                                                                                                                                 |
-| Resource Controller      | `@nexar/resource-controller`          | Deterministic policy v1, explainable decisions with reason codes                                                                                                                                                                      |
-| Telemetry                | `@nexar/telemetry`                    | Redacting JSON logger, JSONL / in-memory sinks                                                                                                                                                                                        |
-| Core engine              | `@nexar/core`                         | Task → route → execute → record; timeouts, cancellation; strict config; workspace policy enforced before routing                                                                                                                      |
-| Projects                 | `@nexar/projects`                     | Projects with realpath containment (ADR-012), default merging, document sets as references                                                                                                                                            |
-| Artifacts                | `@nexar/artifacts`                    | Local store under `<project>/.nexar/artifacts/<task>/`: sanitized names, no overwrite, drafts under `drafts/` (ADR-013)                                                                                                               |
-| Approvals                | `@nexar/approvals`                    | Fail-closed, fingerprint-bound, single-use approvals with a file store; no outward executors are registered (ADR-016)                                                                                                                 |
-| Access                   | `@nexar/access`                       | Scoped client tokens (hashed at rest, revocable) and a one-record-per-request audit log (ADR-015)                                                                                                                                     |
-| Workflows                | `@nexar/workflows` + `workflows/`     | Data-driven: technical documentation, SOW, solution proposal, meeting brief (+ follow-up draft); untrusted-input boundary, drafts only (ADR-017)                                                                                      |
-| MCP server               | `@nexar/integration-mcp`              | stdio-only server (`@modelcontextprotocol/server@2.2.0`): `nexar.submit_work`, `work_status`, `route`, `resources`, `workflows`                                                                                                       |
-| OpenWorker Work Bridge   | `@nexar/integration-openworker`       | Work Bridge v2: project-required requests, async jobs, per-client idempotent request ids, result artifact, route explanations, workflow requests                                                                                      |
-| Claude Code adapter      | `@nexar/integration-claude-code`      | Native agent via `claude -p`; read-only by default; **verified live**                                                                                                                                                                 |
-| DeepSeek Harness adapter | `@nexar/integration-deepseek-harness` | Nexar-owned JSON-RPC client for `dsh --profile sdk`; handshake verified against real `dsh 0.2.0-rc.2`; model execution needs `DEEPSEEK_API_KEY`; stops its whole process group                                                        |
-| pi-ai adapter            | `@nexar/integration-pi`               | Direct models via exact-pinned `@earendil-works/pi-ai@0.99.2`; OpenAI-compatible local endpoints                                                                                                                                      |
-| Echo adapter             | `@nexar/integration-echo`             | Deterministic offline resource for CI and zero-credential runs                                                                                                                                                                        |
-| Sandbox (v0.3)           | `@nexar/sandbox`                      | Fail-closed bubblewrap launcher (explicit namespaces, read-only root, `.git` read-only), allowlisting egress proxy over a unix socket, self-test (ADR-018)                                                                            |
-| Worktrees (v0.3)         | `@nexar/worktrees`                    | Private clone per task, sandboxed patch harvest, patch policy, verification clone, plumbing commit on `nexar/<task>` that never touches your tree and never pushes                                                                    |
-| Engineering (v0.3)       | `@nexar/engineering` + `engineering/` | Lane plans as data, per-lane routing, gates, review lane with diversity, owner approval, allowlisted task records (ADR-019)                                                                                                           |
-| Codex adapter (v0.3)     | `@nexar/integration-codex`            | Native agent via `codex exec --json`; write mode only in the sandbox                                                                                                                                                                  |
-| Antigravity (v0.3)       | `@nexar/integration-antigravity`      | **Experimental, opt-in** `agy` adapter; refuses to run until `acknowledgeExperimental` is set; not validated live                                                                                                                     |
-| Delegate Skills (v0.3)   | `@nexar/integration-delegate-skills`  | Relay executor for a Codex resource: runs a sha256-pinned relay in the sandbox; Nexar still routes                                                                                                                                    |
-| DSH ACP (v0.3)           | `@nexar/integration-deepseek-harness` | `dsh --profile acp` for engineering lanes; ACP permission requests become approvals (deny by default)                                                                                                                                 |
-| CLI                      | `@nexar/cli`                          | `doctor`, `resources`, `route`, `run`, `projects list`, `artifacts list`, `approvals list\|approve\|deny`, `clients add\|list\|revoke`, `mcp serve`, `workflows list`, `engineer run\|list\|show\|plans\|cleanup`, `sandbox selftest` |
+| Area                     | Package                               | Notes                                                                                                                                                                                                                                                            |
+| ------------------------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Domain contracts         | `@nexar/contracts`                    | Tasks, AI resources (descriptor vs state), routing, execution boundary, telemetry, typed errors                                                                                                                                                                  |
+| Resource Registry        | `@nexar/resource-registry`            | Descriptors + probed state; v0.4 discovery merge (config wins, provenance) and cache                                                                                                                                                                             |
+| Resource Controller      | `@nexar/resource-controller`          | `deterministic@1` (default) and v0.4 `resource-intelligence@1`: hard filters, quota, cost, history scoring, fallback                                                                                                                                             |
+| Telemetry                | `@nexar/telemetry`                    | Redacting JSON logger, JSONL sinks; v0.4 bounded readers for quota accounting and history                                                                                                                                                                        |
+| Core engine              | `@nexar/core`                         | Task → route → execute → record; timeouts, cancellation; strict config; workspace policy enforced before routing                                                                                                                                                 |
+| Projects                 | `@nexar/projects`                     | Projects with realpath containment (ADR-012), default merging, document sets as references                                                                                                                                                                       |
+| Artifacts                | `@nexar/artifacts`                    | Local store under `<project>/.nexar/artifacts/<task>/`: sanitized names, no overwrite, drafts under `drafts/` (ADR-013)                                                                                                                                          |
+| Approvals                | `@nexar/approvals`                    | Fail-closed, fingerprint-bound, single-use approvals with a file store; no outward executors are registered (ADR-016)                                                                                                                                            |
+| Access                   | `@nexar/access`                       | Scoped client tokens (hashed at rest, revocable) and a one-record-per-request audit log (ADR-015)                                                                                                                                                                |
+| Workflows                | `@nexar/workflows` + `workflows/`     | Data-driven: technical documentation, SOW, solution proposal, meeting brief (+ follow-up draft); untrusted-input boundary, drafts only (ADR-017)                                                                                                                 |
+| MCP server               | `@nexar/integration-mcp`              | stdio-only server (`@modelcontextprotocol/server@2.2.0`): `nexar.submit_work`, `work_status`, `route`, `resources`, `workflows`                                                                                                                                  |
+| OpenWorker Work Bridge   | `@nexar/integration-openworker`       | Work Bridge v2: project-required requests, async jobs, per-client idempotent request ids, result artifact, route explanations, workflow requests                                                                                                                 |
+| Claude Code adapter      | `@nexar/integration-claude-code`      | Native agent via `claude -p`; read-only by default; **verified live**                                                                                                                                                                                            |
+| DeepSeek Harness adapter | `@nexar/integration-deepseek-harness` | Nexar-owned JSON-RPC client for `dsh --profile sdk`; handshake verified against real `dsh 0.2.0-rc.2`; model execution needs `DEEPSEEK_API_KEY`; stops its whole process group                                                                                   |
+| pi-ai adapter            | `@nexar/integration-pi`               | Direct models via exact-pinned `@earendil-works/pi-ai@0.99.2`; OpenAI-compatible local endpoints                                                                                                                                                                 |
+| Echo adapter             | `@nexar/integration-echo`             | Deterministic offline resource for CI and zero-credential runs                                                                                                                                                                                                   |
+| Sandbox (v0.3)           | `@nexar/sandbox`                      | Fail-closed bubblewrap launcher (explicit namespaces, read-only root, `.git` read-only), allowlisting egress proxy over a unix socket, self-test (ADR-018)                                                                                                       |
+| Worktrees (v0.3)         | `@nexar/worktrees`                    | Private clone per task, sandboxed patch harvest, patch policy, verification clone, plumbing commit on `nexar/<task>` that never touches your tree and never pushes                                                                                               |
+| Engineering (v0.3)       | `@nexar/engineering` + `engineering/` | Lane plans as data, per-lane routing, gates, review lane with diversity, owner approval, allowlisted task records (ADR-019)                                                                                                                                      |
+| Codex adapter (v0.3)     | `@nexar/integration-codex`            | Native agent via `codex exec --json`; write mode only in the sandbox                                                                                                                                                                                             |
+| Antigravity (v0.3)       | `@nexar/integration-antigravity`      | **Experimental, opt-in** `agy` adapter; refuses to run until `acknowledgeExperimental` is set; not validated live                                                                                                                                                |
+| Delegate Skills (v0.3)   | `@nexar/integration-delegate-skills`  | Relay executor for a Codex resource: runs a sha256-pinned relay in the sandbox; Nexar still routes                                                                                                                                                               |
+| DSH ACP (v0.3)           | `@nexar/integration-deepseek-harness` | `dsh --profile acp` for engineering lanes; ACP permission requests become approvals (deny by default)                                                                                                                                                            |
+| CLI                      | `@nexar/cli`                          | `doctor`, `resources [--discovered]`, `route [--explain]`, `run`, `projects list`, `artifacts list`, `approvals list\|approve\|deny`, `clients add\|list\|revoke`, `mcp serve`, `workflows list`, `engineer run\|list\|show\|plans\|cleanup`, `sandbox selftest` |
 
 **Verified live:** OpenWorker v0.3.0's own MCP client (`coworker.mcp.MCPManager`) drove
 `nexar mcp serve` → Claude Code → artifacts for a raw request, the `sow` workflow and `meeting-brief`
@@ -118,16 +118,23 @@ commit and never pushed. A debug egress log shows the only denied hosts were `ab
 [`docs/devlog/evidence/v0.3/`](docs/devlog/evidence/v0.3/). Antigravity and the WSL2-specific checks
 are not validated yet.
 
+**Verified live (v0.4):** discovery on a real host found the installed `claude` CLI (config won the
+id collision; Codex is configured by path), and `nexar route --explain` ranked Claude Code and Codex
+with `resource-intelligence@1` from the real v0.3 telemetry and engineering records, without running
+a task. The v0.3 history has one sample per resource, below the default `minSamples` of 5, so with
+default settings those factors are neutral. Evidence:
+[`docs/devlog/v0.4-resource-intelligence-report.md`](docs/devlog/v0.4-resource-intelligence-report.md).
+
 **Planned, not built** — see [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) and [`docs/backlog/`](docs/backlog/):
 
 - Outward actions: sending email, calendar changes, publishing or uploading (approvals exist; no executors).
 - Network (HTTP) MCP transport and remote/mobile access (v0.5 control plane).
 - DOCX / PDF / PPTX export ([NXR-017](docs/backlog/017-document-export-formats.md)).
 - Memory and retrieval (v0.6); automation and scheduling (v0.7).
-- Quota- and cost-aware routing (v0.4).
 - Parallel engineering lanes, a seccomp filter for the sandbox, MCP access to engineering, and live
   Antigravity validation (see [`docs/backlog/`](docs/backlog/)).
-- Telemetry-driven resource scoring (v0.4); v0.3 records lane outcomes but does not score.
+- Vendor quota probes: none of the installed runtimes has a supported, non-experimental quota
+  interface yet, so their quota is shown as `unknown` unless the owner declares an allowance.
 
 ## Using Nexar from OpenWorker
 
@@ -150,6 +157,35 @@ node apps/cli/dist/main.js run --workflow sow --project demo-project \
 
 Project ids come from the `projects` list in your config (`nexar projects list`); the example config
 defines `demo-project`. Inputs are untrusted text for the model. See [`workflows/README.md`](workflows/README.md).
+
+## Resource intelligence (v0.4)
+
+`routing.policy: "resource-intelligence"` turns on `resource-intelligence@1` ([ADR-020](docs/adr/020-resource-intelligence-scheduler.md));
+`deterministic@1` stays the default. Hard filters (capability, availability, auth, privacy, context,
+quota exhausted or reserved, cost over `maxCostUsd`) run first; a score only reorders what is left
+and can never re-admit a rejected resource or grant any permission. Owner preferences rank before any
+learned signal.
+
+```bash
+nexar route --explain --kind coding "refactor the billing module"   # every candidate, factor by factor
+nexar route --kind general --max-cost 0.05 --require-known-quota "…"  # budget and strict quota
+nexar resources                    # QUOTA and PROVENANCE columns
+nexar resources --discovered       # what discovery finds, and a per-source report
+```
+
+- **Quota** is `unknown` unless observed: owner-declared allowances counted by Nexar from its own
+  telemetry, Claude Code's documented rate-limit events, and `QUOTA_EXHAUSTED` failures. Unknown is
+  never treated as unlimited or as zero. Reservations keep headroom for named task kinds or lane roles.
+- **Cost** is estimated before execution from size metadata only (the policy never sees the prompt);
+  the estimate and the measured actual are both recorded. Unknown cost under a strict limit is rejected.
+- **History** (success rate, latency, engineering lane quality) is read from local telemetry and
+  engineering records as untrusted input; below `minSamples` every history factor is neutral.
+- **Discovery** (installed `claude` / `codex` / `agy` / `dsh`, the pi-ai catalog for providers you list,
+  and Ollama / OpenAI-compatible endpoints you list) is off for routing until `discovery.enabled`;
+  configured resources always win, and discovered resources are never treated as authenticated.
+
+Settings live under `routing.resourceIntelligence` and `discovery`; see
+[`config/README.md`](config/README.md#resource-intelligence-v04).
 
 ## Engineering tasks
 
@@ -226,6 +262,9 @@ mounts that Nexar never reads, and gates with no network. Agents cannot commit o
 harvests and validates the patch and creates the commit itself, locally, after approval. Threat
 assumptions and known gaps (no seccomp filter yet; v0.2 read-only runs are still unsandboxed; prompt
 injection is mitigated, not prevented): [`docs/architecture/security.md`](docs/architecture/security.md).
+v0.4 routing intelligence is never authorization: scores only reorder resources that passed every hard
+filter, history files are bounded untrusted input, discovery stats binaries without running them and
+only contacts endpoints the owner lists, and nothing reads runtime credentials to infer quota.
 
 ## Repository map
 

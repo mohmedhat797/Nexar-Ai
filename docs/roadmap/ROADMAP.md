@@ -49,15 +49,21 @@ Original scope:
 - Codebase analysis, implementation / test / review lanes, automated gates before accept.
 - Capability taxonomy review.
 
-## v0.4 — Resource Intelligence
+## v0.4 — Resource Intelligence _(delivered)_
 
-The NRC evolves from deterministic policy to capability- + quota- + cost- + latency- +
-historical-performance-aware scoring (still explainable; no ML until telemetry history justifies it).
+The NRC gained an explainable, quota-, cost- and history-aware policy, `resource-intelligence@1`
+([ADR-020](../adr/020-resource-intelligence-scheduler.md)); `deterministic@1` stays the default. No ML.
 
-- Quota and subscription-allowance tracking (reset times, reservation policy).
-- Cost estimation before execution (`maxCostUsd` enforcement).
-- Historical success/quality/latency from telemetry.
-- Dynamic resource discovery (pi-ai catalog, installed CLIs, local runtimes).
+- Quota observations with provenance and freshness (owner-declared allowances accounted by Nexar,
+  documented vendor signals), reservations, strict-unknown mode (NXR-030).
+- Pre-execution cost estimation, `maxCostUsd` enforcement, estimate vs actual (NXR-031).
+- Historical success and latency from telemetry, engineering lane quality per role (NXR-032, NXR-034).
+- Discovery of installed CLIs, the pi-ai catalog and owner-listed local endpoints, with provenance
+  (NXR-033).
+- `nexar route --explain`, deterministic fallback that keeps every hard filter.
+
+Report: [`docs/devlog/v0.4-resource-intelligence-report.md`](../devlog/v0.4-resource-intelligence-report.md) ·
+next: [`v0.5-readiness.md`](v0.5-readiness.md).
 
 ## v0.5 — Nexar Mobile
 

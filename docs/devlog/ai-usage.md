@@ -106,7 +106,25 @@ Usage review at milestone start (observed values only):
 - Owner subscriptions used for live checks (Claude Code, Codex via ChatGPT): plan allowance is
   **unknown** to Nexar (no supported quota interface; see `docs/research/upstream/v0.4/`).
 
-| Date       | Unit                               | Model    | Work                                                                     | Observed usage                       | Outcome                                           |
-| ---------- | ---------------------------------- | -------- | ------------------------------------------------------------------------ | ------------------------------------ | ------------------------------------------------- |
-| 2026-10-01 | Orchestrator session (v0.4)        | Opus 5.5 | v0.3 close, ADR-020, contracts, briefs, reviews                          | Not exposed to the session           | In progress                                       |
-| 2026-10-01 | Upstream refresh (native subagent) | Sonnet   | Quota/probe/cost surfaces of Claude Code, Codex, agy, dsh, pi-ai, Ollama | Tokens only: ~202k; cost not exposed | `docs/research/upstream/v0.4/upstream-refresh.md` |
+| Date       | Unit                               | Model      | Work                                                                     | Observed usage                       | Outcome                                                                |
+| ---------- | ---------------------------------- | ---------- | ------------------------------------------------------------------------ | ------------------------------------ | ---------------------------------------------------------------------- |
+| 2026-10-01 | Orchestrator session (v0.4)        | Opus 5.5   | v0.3 close, ADR-020, contracts, briefs, reviews, D/F completion, docs    | Not exposed to the session           | Done                                                                   |
+| 2026-10-01 | Upstream refresh (native subagent) | Sonnet     | Quota/probe/cost surfaces of Claude Code, Codex, agy, dsh, pi-ai, Ollama | Tokens only: ~202k; cost not exposed | `docs/research/upstream/v0.4/upstream-refresh.md`                      |
+| 2026-10-01 | NXR-031 cost (relay)               | Sonnet 5.5 | `cost.ts`, estimate vs actual, Claude Code `--max-budget-usd`            | $0.811                               | Merged after review (`101c68f`)                                        |
+| 2026-10-01 | NXR-030 quota (relay)              | Sonnet 5.5 | `quota.ts`, telemetry reader + accounting source, rate-limit events, CLI | $1.827                               | Merged after review + one fix (`74fb1d2`)                              |
+| 2026-10-01 | NXR-034 lane history (relay)       | Sonnet 5.5 | `lane-history.ts`                                                        | $0.514                               | Merged after symlink hardening (`cb83306`)                             |
+| 2026-10-01 | NXR-032 scoring (relay)            | Sonnet 5.5 | Policy, hard filters, fallback, history reader, `--explain`              | $1.120                               | Interrupted by the relay's session limit; finished by Opus (`7b4e18b`) |
+| 2026-10-01 | NXR-033 discovery (relay)          | Sonnet 5.5 | Sources, merge, cache                                                    | $0.811                               | Interrupted by the relay's session limit; finished by Opus (`149c646`) |
+
+v0.4 totals (observed values only):
+
+- Observed relay spend for v0.4: **$5.08** (five dispatches; sum of `totalCostUsd`, including the two
+  interrupted runs).
+- Cumulative observed relay spend v0.1–v0.4: **$46.70**.
+- Opus orchestrator spend and the remaining credit balance: **unknown** (not exposed; not estimated).
+- Process note: three delegates ran in parallel git worktrees. The scoring and discovery delegates hit
+  the relay CLI's session limit (resets 22:10 UTC) after writing most of their code but no tests, CLI
+  wiring or config. Rather than wait two hours, the orchestrator reviewed the partial work, fixed four
+  test bugs and two source bugs (unmapped fetch errors, unsorted catalog output), moved the `PATH` lookup
+  out of `@nexar/contracts`, and wrote the remaining tests, config, CLI wiring and docs itself. That
+  deviates from the Sonnet-implements rule (ADR-009) for those two units; Opus still reviewed every line.

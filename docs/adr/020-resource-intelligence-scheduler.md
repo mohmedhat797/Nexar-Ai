@@ -327,3 +327,30 @@ credentials or account identifiers. The security audit (ADR-015) is unchanged.
   `owner-declared`.
 - Token estimation by characters ÷ 4 is approximate. It is labelled `estimated` with a basis.
 - Sparse history keeps factors neutral for a long time. This is intended.
+
+## Implementation notes (v0.4, 2026-10-01)
+
+These record how the build resolved details the decision above left open. None changes a decision.
+
+- **Lane preferences are tier 3.** The engineering runner passes `lanePreferences` as task
+  `preferredResourceIds`, so they rank with task preferences (tier 3). Task-kind preferences are tier 2. Inside a tier, the owner's list order decides before any score.
+- **`preferences: "weighted"`** sets every tier to 1 and turns the `default` factor into a preference
+  value (task 1, task kind 0.75, default resource 0.5, none 0), so strong history can outrank a weak
+  preference.
+- **The `lane` factor appears only when the task carries a lane role.** Without one it is omitted, so
+  it never shifts non-engineering scores.
+- **Latency percentiles use successful runs only.** A fast failure must not look like good latency.
+  Timeouts count as resource faults.
+- **Fallback stamp.** The fallback decision is stamped `deterministic@1` with
+  `fallback: { from: "resource-intelligence@1", reason: <code> }` and keeps the original `configId`.
+  It is implemented as an optional `evaluateFallback` on the policy, so the hard-filter stage is
+  shared code, not a copy.
+- **Discovery plumbing.** The `DiscoverySource` port lives in `@nexar/contracts`. `PATH` lookup and
+  the merge and cache live in `@nexar/resource-registry`, and each CLI integration supplies its own
+  binary name and descriptor. Discovered ids cannot be referenced from routing rules in v0.4; owners
+  add a config entry instead. Discovery is off for routing by default; `nexar resources --discovered`
+  always shows it.
+- **Allowance accounting needs a telemetry file.** Without `telemetry.jsonlPath`, declared allowances
+  stay `unknown`, never "0 used".
+- **Per-task flags.** `--max-cost` and `--require-known-quota` on `nexar route` and `nexar run` set
+  `maxCostUsd` and `requireKnownQuota`.
