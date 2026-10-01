@@ -1,6 +1,7 @@
 import {
   NexarError,
   type CandidateAssessment,
+  type Logger,
   type NexarTask,
   type PolicyStamp,
   type QuotaObservation,
@@ -11,9 +12,11 @@ import {
   type ResourceRouter,
   type RoutingFacts,
   type RoutingHistory,
+  type RoutingInput,
   type RoutingPolicy,
 } from '@nexar/contracts';
 import type { ResourceRegistry } from '@nexar/resource-registry';
+import { isFallbackRoutingPolicy } from './fallback.js';
 import { estimateTaskSize, laneRoleOf } from './size.js';
 
 /** Supplies quota observations per resource (ADR-020 §4); read outside the policy. */
@@ -39,6 +42,8 @@ export interface ResourceControllerOptions {
   readonly quotaSource?: QuotaSource;
   /** History handed to the policy as data. */
   readonly historySource?: HistorySource;
+  /** Receives the warning when the controller falls back (codes only, never prompts). */
+  readonly logger?: Logger;
 }
 
 type SelectedDecision = Extract<RouteDecision, { outcome: 'selected' }>;
@@ -51,6 +56,7 @@ export class ResourceController implements ResourceRouter {
   private readonly refreshBeforeRouting: boolean;
   private readonly quotaSource: QuotaSource | undefined;
   private readonly historySource: HistorySource | undefined;
+  private readonly logger: Logger | undefined;
 
   constructor(options: ResourceControllerOptions) {
     this.registry = options.registry;
@@ -59,6 +65,7 @@ export class ResourceController implements ResourceRouter {
     this.refreshBeforeRouting = options.refreshBeforeRouting ?? false;
     this.quotaSource = options.quotaSource;
     this.historySource = options.historySource;
+    this.logger = options.logger;
   }
 
   async route(task: NexarTask): Promise<RouteDecision> {
@@ -75,12 +82,26 @@ export class ResourceController implements ResourceRouter {
     };
     // A failing history source means "no history" (neutral factors), never a failed route.
     const history = await this.historySource?.read(now).catch(() => undefined);
-    const assessments = this.policy.evaluate({
+    const input: RoutingInput = {
       task: { id: task.id, kind: task.kind, requirements: task.requirements },
       candidates,
       facts,
       ...(history === undefined ? {} : { history }),
-    });
+    };
+    let assessments: readonly CandidateAssessment[];
+    let fallback: PolicyStamp['fallback'];
+    try {
+      assessments = this.policy.evaluate(input);
+    } catch (error) {
+      // Fail closed unless the policy can rank the same hard-filter stage deterministically.
+      if (!isFallbackRoutingPolicy(this.policy)) throw error;
+      fallback = {
+        from: `${this.policy.name}@${this.policy.version}`,
+        reason: error instanceof NexarError ? error.code : 'INTERNAL_ERROR',
+      };
+      this.logger?.warn('routing policy failed; using deterministic fallback', { ...fallback });
+      assessments = this.policy.evaluateFallback(input);
+    }
     this.validate(
       candidates.map((c) => c.descriptor.id),
       assessments,
@@ -88,11 +109,20 @@ export class ResourceController implements ResourceRouter {
 
     const eligible = assessments.filter((a) => a.eligible);
     const rejected = assessments.filter((a) => !a.eligible);
-    const policy: PolicyStamp = {
-      name: this.policy.name,
-      version: this.policy.version,
-      ...(this.policy.configId === undefined ? {} : { configId: this.policy.configId }),
-    };
+    const configId = this.policy.configId;
+    const policy: PolicyStamp =
+      fallback === undefined
+        ? {
+            name: this.policy.name,
+            version: this.policy.version,
+            ...(configId === undefined ? {} : { configId }),
+          }
+        : {
+            name: 'deterministic',
+            version: '1',
+            ...(configId === undefined ? {} : { configId }),
+            fallback,
+          };
     const decidedAt = now.toISOString();
     const [selected, ...alternatives] = eligible;
     if (selected === undefined) {
@@ -167,6 +197,13 @@ const MARKERS: Record<RouteReason['effect'], string> = {
   neutral: '·',
 };
 
+function fallbackLine(policy: PolicyStamp): string {
+  const fallback = policy.fallback;
+  return fallback === undefined
+    ? ''
+    : `Fallback: ${fallback.from} → ${policy.name}@${policy.version} (${fallback.reason})`;
+}
+
 /** Renders a decision as human-readable text. */
 export function explainRouteDecision(
   decision: RouteDecision,
@@ -186,6 +223,7 @@ export function explainRouteDecision(
 
   if (decision.outcome === 'no-eligible-resource') {
     lines.push(`No eligible resource for task ${decision.taskId}`);
+    if (decision.policy.fallback !== undefined) lines.push(fallbackLine(decision.policy));
     rejectedLines();
     return lines.join('\n');
   }
@@ -193,8 +231,9 @@ export function explainRouteDecision(
   const { selected, alternatives, policy } = decision;
   lines.push(
     `Selected resource: ${selected.resourceId} (score ${String(selected.score)}, policy ${policy.name}@${policy.version})`,
-    'Reasons:',
   );
+  if (policy.fallback !== undefined) lines.push(fallbackLine(policy));
+  lines.push('Reasons:');
   for (const x of selected.reasons) {
     lines.push(`  ${MARKERS[x.effect]} ${x.code}: ${x.message}`);
   }

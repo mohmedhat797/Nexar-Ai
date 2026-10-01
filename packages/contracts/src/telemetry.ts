@@ -28,6 +28,10 @@ export interface ExecutionRecord {
     readonly policy: string;
     readonly policyVersion: string;
     readonly reasonCodes: readonly string[];
+    /** Short hash of the routing configuration (ADR-020 §6). */
+    readonly configId?: string;
+    /** Set when the controller fell back to another policy (ADR-020 §11). */
+    readonly fallback?: { readonly from: string; readonly reason: string };
   };
   readonly startedAt: string;
   readonly endedAt: string;

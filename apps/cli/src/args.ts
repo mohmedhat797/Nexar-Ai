@@ -80,6 +80,8 @@ export const TASK_OPTIONS = {
   prefer: { type: 'string', multiple: true },
   exclude: { type: 'string', multiple: true },
   'local-only': { type: 'boolean' },
+  'max-cost': { type: 'string' },
+  'require-known-quota': { type: 'boolean' },
   project: { type: 'string' },
 } as const satisfies ParseArgsOptionsConfig;
 
@@ -103,6 +105,17 @@ function toResourceId(raw: string): ResourceId {
   } catch {
     throw new UsageError(`invalid resource id "${raw}"`);
   }
+}
+
+/** `--max-cost <usd>`: a non-negative, finite USD amount (ADR-020 §5). */
+function maxCostOption(ctx: CommandContext): number | undefined {
+  const raw = stringOption(ctx, 'max-cost');
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (raw.trim() === '' || !Number.isFinite(value) || value < 0) {
+    throw new UsageError('--max-cost must be a non-negative number of US dollars');
+  }
+  return value;
 }
 
 /** The prompt: positional words joined, or all of stdin when the only positional is `-`. */
@@ -131,6 +144,7 @@ export async function buildTask(
   const preferred = listOption(ctx, 'prefer').map(toResourceId);
   const excluded = listOption(ctx, 'exclude').map(toResourceId);
   const project = stringOption(ctx, 'project');
+  const maxCostUsd = maxCostOption(ctx);
   return nexar.createTask({
     kind,
     prompt,
@@ -143,6 +157,8 @@ export async function buildTask(
       ...(preferred.length === 0 ? {} : { preferredResourceIds: preferred }),
       ...(excluded.length === 0 ? {} : { excludedResourceIds: excluded }),
       ...(flagOption(ctx, 'local-only') ? { privacy: 'local-only' as const } : {}),
+      ...(maxCostUsd === undefined ? {} : { maxCostUsd }),
+      ...(flagOption(ctx, 'require-known-quota') ? { requireKnownQuota: true } : {}),
     },
     ...(extra.cwd === undefined ? {} : { workingDirectory: resolve(ctx.io.cwd, extra.cwd) }),
   });

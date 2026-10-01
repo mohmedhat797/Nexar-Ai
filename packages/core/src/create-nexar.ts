@@ -4,12 +4,14 @@ import type {
   Logger,
   ResourceDescriptor,
   ResourceState,
+  RoutingPolicy,
   TelemetrySink,
 } from '@nexar/contracts';
 import { ProjectRegistry } from '@nexar/projects';
 import {
   DeterministicRoutingPolicy,
   ResourceController,
+  ResourceIntelligencePolicy,
   type HistorySource,
   type QuotaSource,
 } from '@nexar/resource-controller';
@@ -41,6 +43,8 @@ export interface NexarRuntime {
   readonly registry: InMemoryResourceRegistry;
   readonly adapters: AdapterRegistry;
   readonly controller: ResourceController;
+  /** The routing policy selected by `config.routing.policy`. */
+  readonly policy: RoutingPolicy;
   readonly projects: ProjectRegistry;
 }
 
@@ -57,15 +61,22 @@ export function createNexar(config: NexarConfig, options: CreateNexarOptions): N
     registry.register(descriptor, { probe: probeFor(descriptor, adapters) });
   }
 
-  const policy = new DeterministicRoutingPolicy({
-    taskKinds: config.routing.taskKinds,
-    ...(config.routing.defaultResourceId === undefined
+  const defaultResource =
+    config.routing.defaultResourceId === undefined
       ? {}
-      : { defaultResourceId: config.routing.defaultResourceId }),
-  });
+      : { defaultResourceId: config.routing.defaultResourceId };
+  const policy: RoutingPolicy =
+    config.routing.policy === 'resource-intelligence'
+      ? new ResourceIntelligencePolicy({
+          taskKinds: config.routing.taskKinds,
+          ...defaultResource,
+          settings: config.routing.resourceIntelligence,
+        })
+      : new DeterministicRoutingPolicy({ taskKinds: config.routing.taskKinds, ...defaultResource });
   const controller = new ResourceController({
     registry,
     policy,
+    logger,
     refreshBeforeRouting: true,
     ...(options.quotaSource === undefined ? {} : { quotaSource: options.quotaSource }),
     ...(options.historySource === undefined ? {} : { historySource: options.historySource }),
@@ -102,7 +113,7 @@ export function createNexar(config: NexarConfig, options: CreateNexarOptions): N
       ? {}
       : { workingDirectoryPolicy: options.workingDirectoryPolicy }),
   });
-  return { nexar, registry, adapters, controller, projects };
+  return { nexar, registry, adapters, controller, policy, projects };
 }
 
 /** `createNexar` with the project registry built from `config.projects` (canonicalizes roots). */

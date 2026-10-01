@@ -23,9 +23,13 @@ import { DeepSeekHarnessExecutionAdapter } from '@nexar/integration-deepseek-har
 import { DelegateSkillsExecutionAdapter } from '@nexar/integration-delegate-skills';
 import { EchoExecutionAdapter } from '@nexar/integration-echo';
 import { PiExecutionAdapter } from '@nexar/integration-pi';
-import { EngineeringRunner, PlanCatalog } from '@nexar/engineering';
+import { EngineeringRunner, PlanCatalog, laneHistoryProvider } from '@nexar/engineering';
 import { SandboxLauncher, type SandboxAvailability } from '@nexar/sandbox';
-import { JsonlFileTelemetrySink, TelemetryQuotaSource } from '@nexar/telemetry';
+import {
+  JsonlFileTelemetrySink,
+  TelemetryHistorySource,
+  TelemetryQuotaSource,
+} from '@nexar/telemetry';
 import { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
 import type { CliSeams, EngineeringRunnerPort } from './args.js';
 import type { CliIo } from './io.js';
@@ -35,6 +39,8 @@ export interface Composition {
   readonly runtime: NexarRuntime;
   /** Accounting over the configured telemetry file; absent when no telemetry file is configured. */
   readonly quotaSource?: TelemetryQuotaSource;
+  /** Execution history (telemetry file, when configured) and engineering lane history. */
+  readonly historySource: TelemetryHistorySource;
 }
 
 /** Where Nexar keeps local state: the config file's directory, or the cwd for the built-in default. */
@@ -108,9 +114,17 @@ export async function compose(
           path: telemetryPath,
           allowances: loaded.config.routing.resourceIntelligence.allowances,
         });
+  // Execution history from telemetry (when configured) plus engineering lane history (ADR-020 §7-8).
+  const { windowDays } = loaded.config.routing.resourceIntelligence.history;
+  const historySource = new TelemetryHistorySource({
+    ...(telemetryPath === undefined ? {} : { path: telemetryPath }),
+    windowDays,
+    lanes: laneHistoryProvider(nexarStateDir(loaded, io), windowDays),
+  });
   const runtime = await createNexarWithProjects(loaded.config, {
     adapters,
     ...(quotaSource === undefined ? {} : { quotaSource }),
+    historySource,
     logger,
     configDir,
     // The owner at their own terminal may run unscoped (`--cwd` without `--project`). External
@@ -121,7 +135,12 @@ export async function compose(
       ? { telemetry: new JsonlFileTelemetrySink(join(io.cwd, '.nexar', 'telemetry.jsonl')) }
       : {}),
   });
-  return { loaded, runtime, ...(quotaSource === undefined ? {} : { quotaSource }) };
+  return {
+    loaded,
+    runtime,
+    ...(quotaSource === undefined ? {} : { quotaSource }),
+    historySource,
+  };
 }
 
 /**

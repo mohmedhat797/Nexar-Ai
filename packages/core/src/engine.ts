@@ -301,6 +301,8 @@ export class Nexar {
         policy: decision.policy.name,
         policyVersion: decision.policy.version,
         reasonCodes: decision.selected.reasons.map((r) => r.code),
+        ...(decision.policy.configId === undefined ? {} : { configId: decision.policy.configId }),
+        ...(decision.policy.fallback === undefined ? {} : { fallback: decision.policy.fallback }),
       },
       startedAt: started.toISOString(),
       quotaImpact: unavailable('not tracked in v0.1'),
