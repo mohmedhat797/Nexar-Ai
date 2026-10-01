@@ -23,6 +23,8 @@ ADR (or amend status) when you change one.
 | [015](015-client-identity-and-audit.md)            | Client identity, scoped credentials, and request audit    | Accepted                       |
 | [016](016-human-approvals.md)                      | Human approval framework (fail-closed, action-bound)      | Accepted                       |
 | [017](017-data-driven-workflows.md)                | Data-driven workflows with an untrusted-input boundary    | Accepted                       |
+| [018](018-engineering-execution-plane.md)          | Engineering execution plane (Windows → WSL2 → bubblewrap) | Accepted                       |
+| [019](019-engineering-lanes-and-resources.md)      | Engineering lanes, resource selection, Nexar acceptance   | Accepted                       |
 
 Template: Status · Context · Decision · Rationale · Alternatives considered · Consequences · Risks ·
 Follow-up work.
