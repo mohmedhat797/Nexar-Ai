@@ -129,3 +129,8 @@ The mechanics were verified on Linux with bwrap 0.9, in the development containe
 The WSL-specific steps (`wsl.conf`, interop, AppArmor) come from Microsoft's documentation and **have
 not yet been run on the owner's machine**. Record the results of section 7 in an issue when you run
 them.
+
+**Release decision (2026-10-01):** the owner deferred checks A1–A6 and released v0.3 without them.
+Their state is **deferred, not passed**. Until they are recorded, treat every WSL-specific guarantee
+in ADR-018 (hardened `wsl.conf`, interop unreachable, AppArmor handling) as unverified on the
+owner's machine. The Linux sandbox mechanics are verified.
