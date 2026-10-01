@@ -6,7 +6,7 @@ pasted verbatim as a GitHub issue body ([ADR-010](../adr/010-github-source-of-tr
 
 Every item uses the same sections: Summary, Problem, Objective, Scope, Out of scope, Technical notes,
 Acceptance criteria, Testing expectations, Security considerations. Ids are stable: `NXR-00x` is v0.1
-follow-ups, `01x` v0.2 (`017` is an unscheduled follow-up), `02x` v0.3, `03x` v0.4, `04x` v0.5.
+follow-ups, `01x` v0.2 (`017` is an unscheduled follow-up), `02x` v0.3 (`025`–`029` are v0.3.x and later follow-ups), `03x` v0.4, `04x` v0.5.
 
 ## v0.1 — Foundation (follow-ups)
 
@@ -35,22 +35,30 @@ NXR-010 to NXR-016 were delivered in v0.2. NXR-017 is a follow-up and is not sch
 
 ## v0.3 — Engineering Machine
 
-| Id                                                    | Title                                | Milestone | Labels                        |
-| ----------------------------------------------------- | ------------------------------------ | --------- | ----------------------------- |
-| [NXR-020](020-deepseek-harness-acp-adapter.md)        | DeepSeek Harness ACP adapter         | v0.3      | integration, deepseek-harness |
-| [NXR-021](021-codex-native-agent-adapter.md)          | Codex native agent adapter           | v0.3      | integration, codex            |
-| [NXR-022](022-antigravity-agy-adapter.md)             | Google Antigravity (`agy`) adapter   | v0.3      | integration, antigravity      |
-| [NXR-023](023-delegate-skills-adapter.md)             | Product-time Delegate Skills adapter | v0.3      | integration, delegate-skills  |
-| [NXR-024](024-os-level-sandbox-for-agent-runtimes.md) | OS-level sandbox for agent runtimes  | v0.3      | security                      |
+NXR-020 to NXR-024 were delivered in v0.3. NXR-025 to NXR-029 are follow-ups (milestone v0.3.x unless noted).
+
+| Id                                                    | Title                                        | Milestone | Labels                        | Status                    |
+| ----------------------------------------------------- | -------------------------------------------- | --------- | ----------------------------- | ------------------------- |
+| [NXR-020](020-deepseek-harness-acp-adapter.md)        | DeepSeek Harness ACP adapter                 | v0.3      | integration, deepseek-harness | Done (v0.3)               |
+| [NXR-021](021-codex-native-agent-adapter.md)          | Codex native agent adapter                   | v0.3      | integration, codex            | Done (v0.3)               |
+| [NXR-022](022-antigravity-agy-adapter.md)             | Google Antigravity (`agy`) adapter           | v0.3      | integration, antigravity      | Done (v0.3), experimental |
+| [NXR-023](023-delegate-skills-adapter.md)             | Product-time Delegate Skills adapter         | v0.3      | integration, delegate-skills  | Done (v0.3)               |
+| [NXR-024](024-os-level-sandbox-for-agent-runtimes.md) | OS-level sandbox for agent runtimes          | v0.3      | security                      | Done (v0.3)               |
+| [NXR-025](025-seccomp-filter-for-sandbox.md)          | Seccomp filter for the sandbox               | v0.3.x    | security, sandbox             | Planned                   |
+| [NXR-026](026-launcher-env-via-args-fd.md)            | Pass launcher environment via `--args <fd>`  | v0.3.x    | security, sandbox             | Planned                   |
+| [NXR-027](027-parallel-engineering-lanes.md)          | Parallel engineering lanes with a merge step | v0.4      | engineering                   | Planned                   |
+| [NXR-028](028-mcp-engineering-scope.md)               | MCP engineering scope                        | v0.5      | mcp, security, engineering    | Planned                   |
+| [NXR-029](029-antigravity-live-validation.md)         | Antigravity live validation and ADR-020      | v0.3.x    | integration, antigravity      | Planned                   |
 
 ## v0.4 — Resource Intelligence
 
-| Id                                               | Title                                          | Milestone | Labels                         |
-| ------------------------------------------------ | ---------------------------------------------- | --------- | ------------------------------ |
-| [NXR-030](030-quota-and-allowance-tracking.md)   | Quota and subscription-allowance tracking      | v0.4      | resource-controller            |
-| [NXR-031](031-pre-execution-cost-estimation.md)  | Pre-execution cost estimation and `maxCostUsd` | v0.4      | resource-controller            |
-| [NXR-032](032-history-scoring-routing-policy.md) | Scoring routing policy using telemetry history | v0.4      | resource-controller, telemetry |
-| [NXR-033](033-dynamic-resource-discovery.md)     | Dynamic resource discovery                     | v0.4      | resource-registry              |
+| Id                                                  | Title                                          | Milestone | Labels                         |
+| --------------------------------------------------- | ---------------------------------------------- | --------- | ------------------------------ |
+| [NXR-030](030-quota-and-allowance-tracking.md)      | Quota and subscription-allowance tracking      | v0.4      | resource-controller            |
+| [NXR-031](031-pre-execution-cost-estimation.md)     | Pre-execution cost estimation and `maxCostUsd` | v0.4      | resource-controller            |
+| [NXR-032](032-history-scoring-routing-policy.md)    | Scoring routing policy using telemetry history | v0.4      | resource-controller, telemetry |
+| [NXR-033](033-dynamic-resource-discovery.md)        | Dynamic resource discovery                     | v0.4      | resource-registry              |
+| [NXR-034](034-engineering-telemetry-for-scoring.md) | Engineering lane outcomes as scoring input     | v0.4      | resource-controller, telemetry |
 
 ## v0.5 — Nexar Mobile
 

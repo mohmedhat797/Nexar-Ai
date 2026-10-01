@@ -320,3 +320,26 @@ as for workflows.
 
 Parallel lanes with merge, an MCP engineering scope, per-lane cost caps from quotas (v0.4),
 learning-based routing (v0.4) and mobile approvals (v0.5).
+
+## Amendments (implementation, 2026-10-01)
+
+The Decision above stands. The implementation refined it as follows:
+
+- **Patch policy:** it also denies `.gitattributes` and anything under `.github/workflows/`, besides
+  `.git/`, `..`, absolute paths, `.gitmodules`, gitlinks, symlinks (by default) and mode changes.
+- **Harvest:** git runs inside the harvest sandbox with Nexar's own pristine bare clone as
+  `GIT_DIR`. The agent's `.git` (config, hooks, fsmonitor, filters) is never consulted.
+- **ACP policy decisions:** allow-listed and denied tool calls are written as terminal approval
+  records with `decidedBy: policy`, using `recordPolicyDecision` in `@nexar/approvals`.
+- **Delegate Skills:** the adapter supports only the `codex` relay. The `claude` and `agy` relays are
+  refused with a pointer to the native adapters. The relay is sha256-pinned, and the sandbox runs a
+  private read-only copy of exactly the verified bytes.
+- **Antigravity:** it ships as an experimental adapter that the owner must opt into
+  (`acknowledgeExperimental`). A later ADR-020 decides whether it is promoted or dropped
+  ([NXR-029](../backlog/029-antigravity-live-validation.md)).
+- **Owner approval:** `nexar engineer run` waits on the file-backed approval gate. The owner
+  approves from another terminal with `nexar approvals approve <id>`. Engineering commands never
+  call `recoverAfterRestart`.
+- **Sandbox mounts:** a mount's sandbox path may be any absolute path outside the profile's
+  reserved locations (`/work`, `/run`, `/tmp`, system directories, and the tmpfs home itself). This
+  lets runtimes with fixed credential paths work.

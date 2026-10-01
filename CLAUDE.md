@@ -11,20 +11,23 @@ Change an architectural decision only via a new/amended ADR.
 
 ## Component responsibilities
 
-| Concept                   | Package                        | Owns                                                                         |
-| ------------------------- | ------------------------------ | ---------------------------------------------------------------------------- |
-| Contracts                 | `packages/contracts`           | Domain types, `NexarError`, `Measured<T>`. Zero deps.                        |
-| Resource Registry         | `packages/resource-registry`   | What resources exist + dynamic state + probes. **No routing.**               |
-| Resource Controller (NRC) | `packages/resource-controller` | "Who executes?" — policy + explainable `RouteDecision`.                      |
-| Telemetry                 | `packages/telemetry`           | Structured JSON logs (stderr, redacted), telemetry sinks.                    |
-| Core                      | `packages/core`                | Engine (task → route → execute → record), adapter registry, config.          |
-| Projects                  | `packages/projects`            | Projects, `resolveContainedPath` (realpath policy), defaults, document sets. |
-| Artifacts                 | `packages/artifacts`           | `LocalArtifactStore`: safe names, no overwrite, contained writes.            |
-| Approvals                 | `packages/approvals`           | Fail-closed, fingerprint-bound, single-use approvals; outward-action gate.   |
-| Access                    | `packages/access`              | Client tokens, scopes, allowlisted JSONL request audit.                      |
-| Workflows                 | `packages/workflows`           | Workflow catalog, template renderer, runner. Data in `workflows/`.           |
-| Adapters                  | `integrations/*`               | The **only** code that knows an upstream (incl. `mcp`, `openworker` bridge). |
-| CLI                       | `apps/cli`                     | Thin client: `doctor`, `resources`, `route`, `run`, plus the commands below. |
+| Concept                   | Package                        | Owns                                                                                                                    |
+| ------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Contracts                 | `packages/contracts`           | Domain types, `NexarError`, `Measured<T>`. Zero deps.                                                                   |
+| Resource Registry         | `packages/resource-registry`   | What resources exist + dynamic state + probes. **No routing.**                                                          |
+| Resource Controller (NRC) | `packages/resource-controller` | "Who executes?" — policy + explainable `RouteDecision`.                                                                 |
+| Telemetry                 | `packages/telemetry`           | Structured JSON logs (stderr, redacted), telemetry sinks.                                                               |
+| Core                      | `packages/core`                | Engine (task → route → execute → record), adapter registry, config.                                                     |
+| Projects                  | `packages/projects`            | Projects, `resolveContainedPath` (realpath policy), defaults, document sets.                                            |
+| Artifacts                 | `packages/artifacts`           | `LocalArtifactStore`: safe names, no overwrite, contained writes.                                                       |
+| Approvals                 | `packages/approvals`           | Fail-closed, fingerprint-bound, single-use approvals; outward-action gate.                                              |
+| Access                    | `packages/access`              | Client tokens, scopes, allowlisted JSONL request audit.                                                                 |
+| Workflows                 | `packages/workflows`           | Workflow catalog, template renderer, runner. Data in `workflows/`.                                                      |
+| Sandbox                   | `packages/sandbox`             | bwrap profile, `SandboxLauncher`, egress proxy; the only code that invokes bwrap.                                       |
+| Worktrees                 | `packages/worktrees`           | Private clone, sandboxed harvest, patch policy, verification clone, `commitPatch`.                                      |
+| Engineering               | `packages/engineering`         | Lane plans (`engineering/`), runner, gates, review verdict, task records.                                               |
+| Adapters                  | `integrations/*`               | The **only** code that knows an upstream (incl. `mcp`, `openworker` bridge, `codex`, `antigravity`, `delegate-skills`). |
+| CLI                       | `apps/cli`                     | Thin client: `doctor`, `resources`, `route`, `run`, plus the commands below.                                            |
 
 Three questions stay separate: **who executes** (NRC) · **how work is orchestrated** (DSH / native
 agent loop) · **how the provider is called** (pi-ai / runtime internals).
@@ -41,7 +44,8 @@ pnpm build && node apps/cli/dist/main.js doctor
 
 CLI: `doctor` · `resources` · `route` · `run` (`--project`, `--document-set`, `--workflow`, `--input`,
 `--input-file`, `--list-input`) · `projects list` · `artifacts list` · `approvals list|approve|deny` ·
-`clients add|list|revoke` · `mcp serve` · `workflows list`. Check flags with `--help`.
+`clients add|list|revoke` · `mcp serve` · `workflows list` · `engineer run|list|show|plans|cleanup` ·
+`sandbox selftest`. Check flags with `--help`.
 
 ## Rules
 
@@ -82,6 +86,21 @@ code. Every input is rendered inside an `<untrusted-input>` wrapper and never re
 prompt; documents are passed as references, not content; outputs are draft-only. `@nexar/workflows`
 must not import mail, HTTP or approval-execution code (a static test enforces this).
 
+**Engineering (ADR-018, ADR-019):**
+
+- Write-capable lanes run only through the sandbox launcher; adapters refuse (`POLICY_REJECTED`)
+  write mode when `launcher.isolation !== 'sandbox'`. No unsandboxed fallback.
+- Agents never commit or push: `.git` read-only, no remote, proxy denies git hosts.
+- The host never runs git inside an agent worktree: harvest runs in a sandbox with Nexar's pristine
+  `GIT_DIR`. Patches must pass the patch policy.
+- Commits only via `commitPatch`, after gates + review + owner approval (`engineering.commit`,
+  fingerprint-bound, single-use) or an explicit project `ownerApproval: "never"`. Never push.
+- Credential mounts are owner-declared and never read, parsed or copied. Egress is default-deny with
+  exact-host allowlists. Gates have no network.
+- Records and telemetry carry ids, counts and hashes only; no prompts, diffs, gate output or paths.
+- Never call `recoverAfterRestart` from engineering commands (it would cancel pending requests of a concurrently running MCP server).
+- `@nexar/engineering` imports no network, mail or push code (static test).
+
 **Tests:** every behavior change ships with tests. CI must never call paid APIs.
 
 **Git:** feature branch → one logical Conventional Commit per accepted unit (`feat:`, `fix:`,
@@ -92,8 +111,10 @@ history. `pnpm check` must pass before every commit.
 
 Next to the config file (or the cwd with the built-in config): `clients.json` (hashed tokens, 0600),
 `audit.jsonl` (request audit), `approvals/` (approval records), `runtimes/` (isolated runtime state),
-`telemetry.jsonl` (where configured). Artifacts live under each project root:
-`<root>/.nexar/artifacts/<task>/[drafts/]`.
+`engineering/<task>/record.json` (engineering task records), `telemetry.jsonl` (where configured).
+Artifacts live under each project root: `<root>/.nexar/artifacts/<task>/[drafts/]`. Engineering
+worktrees live outside the repo, on the plane's own filesystem:
+`$XDG_DATA_HOME/nexar/worktrees/<project>/<task>/` (default `~/.local/share/nexar/worktrees`).
 
 ## Development workflow (ADR-009)
 

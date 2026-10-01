@@ -14,7 +14,7 @@ subscription logins. Security is an architectural requirement, not a later featu
 
 ## Trust boundaries
 
-1. **Nexar process ↔ external runtimes** (dsh, claude, future codex/agy): separate processes,
+1. **Nexar process ↔ external runtimes** (dsh, claude, codex, agy; write-capable ones only inside the v0.3 sandbox): separate processes,
    launched with a scrubbed, explicit environment and an isolated state directory. Runtime output is
    untrusted input to Nexar.
 2. **Nexar ↔ model providers**: third-party data processors. Routing respects
@@ -77,12 +77,66 @@ Supporting controls: artifact names are sanitized with a forced extension and wr
 enter the trusted system prompt (`packages/workflows/src/runner.ts`, `runner.test.ts`); the DeepSeek
 Harness adapter kills its whole process group on stop (`integrations/deepseek-harness/src/process-tree.test.ts`).
 
+## v0.3 controls
+
+Engineering lanes (ADR-018, ADR-019). Each control is enforced in code and proven by offline tests
+(`pnpm test`); rows that need a real bubblewrap are `describe.skipIf` tests and skip where it is
+missing. The numbering continues the v0.2 table.
+
+| #   | Control                                                                                                                                                                                                          | Enforced in                                                                                                                                                           | Proven by                                                                                                                                                                                                                                                                                       |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 9   | Fail-closed sandbox: no bwrap or user namespaces means write lanes refuse, never run unsandboxed                                                                                                                 | `packages/sandbox/src/availability.ts`, `launcher.ts` (`SANDBOX_UNAVAILABLE`, non-retryable); `packages/engineering/src/execution.ts`                                 | `packages/sandbox/src/availability.test.ts`; `launcher.test.ts` (fails closed); `packages/engineering/src/runner.test.ts` (non-sandbox launcher rejected before any worktree); `apps/cli/src/sandbox.test.ts` (exit 7)                                                                          |
+| 10  | Explicit namespaces, read-only root, `.git` read-only bind (also against `mv`), `--cap-drop ALL`, nested user namespaces off                                                                                     | `packages/sandbox/src/profile.ts` (`buildBwrapArgs`); `launcher.ts`                                                                                                   | `packages/sandbox/src/profile.test.ts`; `launcher.test.ts` (`.git` protection); `launcher.integration.test.ts` (real bwrap; skips without it); `selftest.ts` via `apps/cli/src/sandbox.test.ts`                                                                                                 |
+| 11  | Egress proxy: unix socket only (0600), exact-host allowlist, IP literals and private/loopback addresses refused, connects to the vetted IP                                                                       | `packages/sandbox/src/proxy.ts`; the sandbox has `--unshare-net` and reaches the proxy through a bind-mounted socket                                                  | `packages/sandbox/src/proxy.test.ts`; `launcher.integration.test.ts` (proxy mode)                                                                                                                                                                                                               |
+| 12  | Credential mounts are owner-declared, validated (no home, ancestors, system paths or denied credential segments, also via symlink) and never read                                                                | `packages/sandbox/src/mounts.ts`; adapters pass declarations through unchanged                                                                                        | `packages/sandbox/src/mounts.test.ts`; `integrations/claude-code/src/engineering.test.ts` (mounts passed through); `integrations/delegate-skills/src/adapter.test.ts` (Codex home never read)                                                                                                   |
+| 13  | Write mode refused without the sandbox in every adapter (and by harvest)                                                                                                                                         | `integrations/{claude-code,codex,antigravity,delegate-skills}/src/adapter.ts`; `integrations/deepseek-harness/src/acp/launch.ts`; `packages/worktrees/src/harvest.ts` | `integrations/claude-code/src/engineering.test.ts`; `integrations/codex/src/adapter.test.ts`; `integrations/antigravity/src/adapter.test.ts`; `integrations/delegate-skills/src/adapter.test.ts`; `integrations/deepseek-harness/src/acp/acp.test.ts`; `packages/worktrees/src/harvest.test.ts` |
+| 14  | Private clones: `--no-local --single-branch --no-tags`, no remote, neutral hooks; no owner `.git` exposure and no secret objects from other branches                                                             | `packages/worktrees/src/create.ts`, `clone.ts`                                                                                                                        | `packages/worktrees/src/create.test.ts`; `sandbox.integration.test.ts`                                                                                                                                                                                                                          |
+| 15  | Harvest runs in a read-only, no-network sandbox with Nexar's pristine `GIT_DIR`; planted `fsmonitor`/`diff.external` never run on the host                                                                       | `packages/worktrees/src/harvest.ts`; `packages/engineering/src/static.test.ts` forbids host git in `@nexar/engineering`                                               | `packages/worktrees/src/harvest.test.ts` (planted config and attributes); `sandbox.integration.test.ts` (real bwrap); `packages/engineering/src/static.test.ts`                                                                                                                                 |
+| 16  | Patch policy: no `.git`, `..`, absolute or backslash paths, `.gitmodules`, `.gitattributes`, `.github/workflows/`, gitlinks; symlinks off by default; size and count caps; empty patch fails; project deny globs | `packages/worktrees/src/patch-policy.ts`, `patch-parse.ts`                                                                                                            | `packages/worktrees/src/patch-policy.test.ts`; `patch-parse.test.ts`; `packages/engineering/src/runner.test.ts` (violations, deny globs, empty patch)                                                                                                                                           |
+| 17  | Gates and setup run on a fresh clone with the patch applied and no network (setup only gets owner-listed hosts)                                                                                                  | `packages/worktrees/src/verify.ts`; `packages/engineering/src/execution.ts`                                                                                           | `packages/worktrees/src/verify.test.ts`; `packages/engineering/src/runner.test.ts` (no-network gates and setup, owner-listed hosts, gate timeout and cancel)                                                                                                                                    |
+| 18  | Review diversity: the review lane excludes the implementing resources (`required` fails the task; `preferred` records `review.same-resource`); an unparseable verdict is `request-changes`                       | `packages/engineering/src/execution.ts`, `verdict.ts`                                                                                                                 | `packages/engineering/src/runner.test.ts` (required, preferred, unparseable verdict); `verdict.test.ts`                                                                                                                                                                                         |
+| 19  | Owner approval of `engineering.commit`: fingerprint-bound to project, repository, base commit, patch hash and branch; single-use; deny and expiry mean `not-accepted`                                            | `packages/engineering/src/execution.ts`; `packages/approvals/src/{gate,fingerprint}.ts`                                                                               | `packages/engineering/src/runner.test.ts` (deny-all, denied, expired, exact consumed action, fingerprint mismatch); `packages/approvals/src/approvals.test.ts`                                                                                                                                  |
+| 20  | Plumbing commit never touches the owner's tree, index, HEAD or hooks; refuses an existing or non-`nexar/` branch; Nexar never pushes                                                                             | `packages/worktrees/src/commit.ts` (`commitPatch`); no push code in `@nexar/engineering`                                                                              | `packages/worktrees/src/commit.test.ts`; `packages/engineering/src/static.test.ts` (never invokes `git push`; no network or mail import)                                                                                                                                                        |
+| 21  | ACP permissions become approvals: deny by default, option chosen by kind, `*_always` never selected, policy decisions recorded with `recordPolicyDecision`, unsupported protocol versions rejected               | `integrations/deepseek-harness/src/acp/permissions.ts`; `packages/approvals/src/policy.ts`                                                                            | `integrations/deepseek-harness/src/acp/acp.test.ts`; `packages/approvals/src/approvals.test.ts` (`recordPolicyDecision`)                                                                                                                                                                        |
+| 22  | Records and telemetry carry ids, counts and hashes only (no prompts, diffs, gate output or absolute paths); progress output is scalar-only                                                                       | `packages/engineering/src/record.ts`, `runner.ts`; `apps/cli/src/commands/engineer.ts`                                                                                | `packages/engineering/src/runner.test.ts` (records and telemetry carry no sensitive data; failure record free of paths); `apps/cli/src/engineer.test.ts`                                                                                                                                        |
+
+Supporting controls: the launcher forces `--clearenv` plus an explicit environment; the Claude Code
+adapter denies `git commit|push|add|...` in its tool settings as defense in depth
+(`integrations/claude-code/src/adapter.ts`); the Delegate Skills adapter hashes the relay before every
+run and executes a private copy, so a swap of the original file has no effect
+(`integrations/delegate-skills/src/pin.ts`, `adapter.test.ts`); the sandbox kills background processes
+when bwrap is killed (`packages/sandbox/src/launcher.integration.test.ts`).
+
+Live evidence (not part of CI): two end-to-end runs and a debug egress log are in
+[`docs/devlog/evidence/v0.3/`](../devlog/evidence/v0.3/). The only denied hosts were `ab.chatgpt.com`,
+`registry.npmjs.org` and `*.oaiusercontent.com`.
+
 ## Known gaps (tracked in the backlog)
 
-- **No OS-level sandbox** around agent runtimes: they run as the owner's user and rely on each
-  runtime's own permission model ([#17](../backlog/024-os-level-sandbox-for-agent-runtimes.md)).
+- **v0.2 read-only runs are still unsandboxed.** The OS-level sandbox gap is closed for engineering
+  lanes (v0.3, NXR-024), but ordinary `nexar run` tasks and MCP work run as the owner's user and rely
+  on each runtime's own permission model (read-only modes, least-privilege tool surfaces).
 - **TOCTOU window:** a symlink swapped inside a project between the realpath check and the runtime's
-  use is not detected. Mitigated by passing the canonical path and per-level checks; closed only by #17.
+  use is not detected for v0.2 runs. Mitigated by passing the canonical path and per-level checks.
+  Inside the engineering sandbox the window is bounded by the mount namespace: the agent can only
+  reach its own private clone.
+- **No seccomp filter yet** in the sandbox. Nested user namespaces are disabled with
+  `--disable-userns` instead ([NXR-025](../backlog/025-seccomp-filter-for-sandbox.md)).
+- **Environment values appear in bwrap's argv on the host.** Values passed to the launcher (for example
+  a DeepSeek API key) are readable through `/proc` by the same OS user. Fix: pass them with `--args <fd>`
+  ([NXR-026](../backlog/026-launcher-env-via-args-fd.md)).
+- **The Antigravity prompt is in argv** (`agy --print=<prompt>`), so it is visible in the host process
+  list. The adapter is experimental and opt-in
+  ([NXR-029](../backlog/029-antigravity-live-validation.md)).
+- **Codex home is mounted read-write** (token refresh), so a lane can read its own Codex login inside
+  the sandbox. It can talk only to the allowlisted OpenAI hosts.
+- **No TLS inspection.** The proxy allows or denies by host name, so exfiltration to an allowlisted
+  vendor endpoint is possible.
+- **The review lane is advisory.** Models can miss problems or collude; gates and owner approval are
+  the hard controls.
+- **WSL-specific checks are unverified** until the owner runs the acceptance checks in
+  [`docs/integration/wsl2-engineering-plane.md`](../integration/wsl2-engineering-plane.md). The
+  mechanics were verified on Linux with bubblewrap 0.9.
 - **Approver identity is not authenticated:** `decide()` trusts its caller (the local CLI). The v0.5
   control plane must authenticate approvers.
 - **`clients.json` cross-process race:** writes are serialized within one process only, so the CLI and
