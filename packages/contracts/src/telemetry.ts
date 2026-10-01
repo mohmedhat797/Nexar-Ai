@@ -43,6 +43,17 @@ export interface ExecutionRecord {
   readonly artifacts: readonly ArtifactRef[];
 }
 
+/** Steps of an engineering task (ADR-019); each lane's own execution is a normal execution record. */
+export type EngineeringStep =
+  | 'task.started'
+  | 'lane.completed'
+  | 'patch.harvested'
+  | 'gate.completed'
+  | 'review.completed'
+  | 'acceptance.decided'
+  | 'commit.created'
+  | 'task.finished';
+
 /** Lifecycle events emitted for observability of routing and execution. */
 export type TelemetryEvent =
   | { readonly type: 'route.decided'; readonly at: string; readonly decision: RouteDecision }
@@ -59,6 +70,15 @@ export type TelemetryEvent =
       readonly taskId: TaskId;
       readonly projectId?: ProjectId;
       readonly artifacts: readonly ArtifactRef[];
+    }
+  | {
+      readonly type: 'engineering.step';
+      readonly at: string;
+      readonly engineeringTaskId: string;
+      readonly projectId: ProjectId;
+      readonly step: EngineeringStep;
+      /** Allowlisted scalars only (ids, counts, codes, hashes, durations): never prompts, diffs or paths. */
+      readonly detail: Readonly<Record<string, string | number | boolean>>;
     };
 
 /** Destination for telemetry events; implementations decide storage and delivery. */
