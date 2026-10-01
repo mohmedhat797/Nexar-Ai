@@ -1,6 +1,6 @@
 # NXR-040: Control-plane ADR and local daemon skeleton
 
-**Milestone:** v0.5 — Nexar Mobile · **Labels:** control-plane, security · **Depends on:** NXR-011, NXR-014
+**Milestone:** v0.6 — Nexar Mobile · **Labels:** control-plane, security · **Depends on:** NXR-011, NXR-014
 
 ## Summary
 

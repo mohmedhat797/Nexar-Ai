@@ -65,7 +65,24 @@ The NRC gained an explainable, quota-, cost- and history-aware policy, `resource
 Report: [`docs/devlog/v0.4-resource-intelligence-report.md`](../devlog/v0.4-resource-intelligence-report.md) ·
 next: [`v0.5-readiness.md`](v0.5-readiness.md).
 
-## v0.5 — Nexar Mobile
+## v0.5 — Nexar Desktop
+
+A desktop app on the owner's laptop, Windows first ([ADR-021](../adr/021-nexar-desktop.md)), that works
+on project folders like Claude Cowork or the Codex app, with Nexar's engine underneath. Owner-approved
+mockup: workspace with Cowork and Code modes, files and changes panels, approvals, AI resources,
+themes, AI behavior settings, providers and scheduled tasks.
+
+- Foundation: shared composition (`@nexar/host`), Electron shell, typed and validated bridge, projects,
+  Cowork chat, resources, approvals, workflows, themes (NXR-050).
+- Windows compatibility pass and a Windows CI job; installer (NXR-051).
+- Providers with subscription sign-in, API keys in an encrypted key store, local servers
+  ([ADR-022](../adr/022-provider-credentials.md), NXR-052).
+- AI behavior settings per mode wired to the runtimes (NXR-053).
+- Scheduled tasks with budgets and approvals ([ADR-023](../adr/023-scheduled-tasks.md), NXR-054).
+- Code mode through the WSL2 engineering plane with DSH as the default agent (NXR-055).
+- Cowork through OpenWorker via the ADR-004 automations seam (NXR-056).
+
+## v0.6 — Nexar Mobile
 
 Mobile-first PWA and remote control via a local Nexar Control Plane daemon.
 
@@ -73,15 +90,15 @@ Mobile-first PWA and remote control via a local Nexar Control Plane daemon.
 - Text + voice conversation, task status, approvals, notifications, artifact preview, project
   switching, remote task triggering.
 
-## v0.6 — Memory & Personal Context
+## v0.7 — Memory & Personal Context
 
 Persistent project and personal context: retrieval over documents and past work, preference memory,
 privacy-scoped storage.
 
-## v0.7 — Automation
+## v0.8 — Automation
 
-Scheduled and event-driven Nexar workflows (cron-like schedules, webhooks, file/email triggers) with
-approvals and budgets.
+Event-driven Nexar workflows (webhooks, file/email triggers) and an always-on scheduler, building on
+the in-app scheduled tasks of v0.5 (ADR-023), with approvals and budgets.
 
 ## v1.0 — Personal AI Operating Layer
 

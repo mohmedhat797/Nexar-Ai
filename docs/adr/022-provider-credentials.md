@@ -1,0 +1,98 @@
+# ADR-022: Providers and credentials in Nexar Desktop
+
+**Status:** Accepted (2026-10-01) · Builds on ADR-007 (resource abstraction), ADR-008 (upstream
+isolation), ADR-020 §9 (discovery), ADR-021 (Nexar Desktop) · Amends the "credentials are referenced by
+environment variable only" practice for the desktop app
+
+## Context
+
+The owner wants a **Providers** tab where any AI provider can be added, either by signing in with a
+subscription or with an API key, so DSH, pi-ai and the native agents can use it. Today a credential is a
+`CredentialRef`: `{ source: 'env', name }` for API keys, or `{ source: 'runtime-managed' }` for runtimes
+that log in themselves (Claude Code, Codex, Antigravity). A desktop user should not have to edit
+environment variables.
+
+Standing rules this must keep:
+
+- Never read, copy or extract a runtime's own credentials (Claude, Codex or Google logins), and no
+  reverse-engineered authentication.
+- Config holds references, never secret values. Secrets never reach logs, telemetry, audit records or
+  the renderer.
+
+## Decision
+
+### 1. Three ways to connect a provider
+
+| Method                     | Providers                                                     | How it works                                                                                                       | Used by                                 |
+| -------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| **Subscription sign-in**   | Anthropic (Claude Code), OpenAI (Codex), Google (Antigravity) | Nexar starts the vendor's own documented login command (e.g. `codex login`) in a visible terminal or browser flow. | Only that vendor's own agent            |
+| **API key**                | Any provider pi-ai or DSH supports, plus custom servers       | The owner pastes a key; Nexar stores it encrypted (§2) and passes it to the runtime at call time.                  | pi-ai, DSH, and OpenWorker when allowed |
+| **Local or custom server** | Ollama, LM Studio, any OpenAI-compatible address              | The owner enters the address; discovery lists its models (ADR-020 §9: owner-listed only, no scanning).             | pi-ai, DSH                              |
+
+- **A subscription never powers pi-ai or DSH.** Using a Claude or ChatGPT plan outside the vendor's own
+  app would mean taking login tokens out of that app, which the rules above forbid (and the vendors'
+  terms restrict). The Providers tab says so plainly; subscription status comes from the existing free
+  probes (`claude auth status`, `codex login status`).
+- Nexar never reads the vendors' credential stores. The login commands are started with an explicit
+  environment and run in the vendor's own window; Nexar only observes the exit code and then re-probes.
+  The exact login command per runtime is verified during implementation and recorded in the research
+  snapshot.
+
+### 2. Encrypted local key store
+
+- A new credential source, **`{ source: 'keystore', name }`**, is added to `CredentialRef`. Config and
+  resource descriptors carry only the name.
+- In the desktop app, keys are encrypted with Electron **`safeStorage`**: DPAPI on Windows, Keychain on
+  macOS, libsecret on Linux. The ciphertext lives in `<userData>/credentials.json` (mode 0600 where the
+  platform supports it). When `safeStorage` reports no real encryption backend (Linux `basic_text`),
+  Nexar **refuses to store the key** and asks for an environment variable instead.
+- **Resolution happens in the main process only, at call time.** The resolved value is passed to the
+  runtime the same way environment keys are today: as one explicitly named variable in the minimal
+  subprocess environment (DSH), or as a per-request option (pi-ai). It is never written to disk in
+  plain text, logged, put in telemetry or audit, or sent to the renderer.
+- The renderer sees only the provider name, a status (`valid`, `invalid`, `not set`, `unchecked`) and
+  the last four characters of the key.
+- The CLI keeps `env` references. A `keystore` reference used outside the desktop app is reported as
+  `AUTH_REQUIRED` with a clear message; it never falls back to reading anything else.
+
+### 3. Checking a key costs nothing
+
+"Check key" calls the provider's model-listing endpoint (no completion, so no charge), through the pi
+integration. A failed check stores no key unless the owner saves it anyway; its error is reported as a
+code, never as the provider's raw response.
+
+### 4. What the provider list shows
+
+One row per connection (a provider can have both a subscription and a key): provider, method, status,
+which runtimes may use it (pi-ai, DSH, OpenWorker; owner-chosen), number of models, and Manage or
+Remove. Removing a key deletes its ciphertext. Discovered resources from a provider follow ADR-020 §9:
+discovered never means authenticated.
+
+## Rationale
+
+- `safeStorage` uses the operating system's own protection (DPAPI on Windows) without a native module,
+  and ties the ciphertext to the owner's OS account.
+- Keeping resolution in the main process at call time preserves the existing invariant: only the
+  runtime that needs a key sees it, and only for that call.
+
+## Alternatives considered
+
+- **Keep environment variables only:** safe but unusable for a desktop owner.
+- **A native keychain module (e.g. keytar):** archived upstream and adds a native build step;
+  `safeStorage` covers the same platforms.
+- **Using subscription logins for pi-ai or DSH:** rejected; it requires extracting vendor tokens.
+- **Storing keys in `nexar.config.json`:** rejected; config must never hold secret values.
+
+## Consequences
+
+- `CredentialRef` gains `keystore`; adapters that resolve credentials take a resolver function injected
+  by the host, so integrations never touch the key store directly.
+- New tests: encryption round-trip with a fake `safeStorage`, refusal without a real backend, no key in
+  logs, telemetry, IPC responses or errors.
+
+## Risks
+
+- **Malware running as the owner** can ask DPAPI to decrypt, as it could read environment variables.
+  Out of scope for a local app; documented in the security model.
+- **Upstream login commands change.** Each login path is verified against the pinned runtime version and
+  covered by fake-runtime contract tests.
