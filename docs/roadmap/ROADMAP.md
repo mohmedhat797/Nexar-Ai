@@ -65,15 +65,16 @@ The NRC gained an explainable, quota-, cost- and history-aware policy, `resource
 Report: [`docs/devlog/v0.4-resource-intelligence-report.md`](../devlog/v0.4-resource-intelligence-report.md) ·
 next: [`v0.5-readiness.md`](v0.5-readiness.md).
 
-## v0.5 — Nexar Desktop
+## v0.5 — Nexar Desktop _(in progress: phase 1 done)_
 
 A desktop app on the owner's laptop, Windows first ([ADR-021](../adr/021-nexar-desktop.md)), that works
 on project folders like Claude Cowork or the Codex app, with Nexar's engine underneath. Owner-approved
 mockup: workspace with Cowork and Code modes, files and changes panels, approvals, AI resources,
 themes, AI behavior settings, providers and scheduled tasks.
 
-- Foundation: shared composition (`@nexar/host`), Electron shell, typed and validated bridge, projects,
-  Cowork chat, resources, approvals, workflows, themes (NXR-050).
+- **Done:** foundation: shared composition (`@nexar/host`), Electron shell, typed and validated bridge,
+  projects, Cowork chat, resources, approvals, workflows, themes (NXR-050;
+  [report](../devlog/v0.5-desktop-phase1-report.md), [guide](../guides/local-development.md)).
 - Windows compatibility pass and a Windows CI job; installer (NXR-051).
 - Providers with subscription sign-in, API keys in an encrypted key store, local servers
   ([ADR-022](../adr/022-provider-credentials.md), NXR-052).

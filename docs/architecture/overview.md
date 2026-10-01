@@ -340,7 +340,25 @@ controls and gaps: [`security.md`](security.md).
 - Errors are `NexarError` with a closed code set (`NO_ELIGIBLE_RESOURCE`, `AUTH_REQUIRED`,
   `PROVIDER_ERROR`, `EXECUTION_TIMEOUT`, `CONFIGURATION_ERROR`, …) and a `retryable` flag.
 
-## 10. Future: control plane and mobile
+## 10. Nexar Desktop (v0.5, ADR-021)
+
+```mermaid
+flowchart LR
+  R[Renderer: React UI<br/>sandboxed, CSP, no Node] -- window.nexar → ipcRenderer.invoke --> P[Preload<br/>fixed channels only]
+  P -- IPC --> B[Bridge in the main process<br/>strict zod schema per channel]
+  B --> H[EngineHost<br/>@nexar/host composition]
+  H --> CORE[Nexar Core + NRC + adapters]
+  B --> FS[Projects: native folder dialog,<br/>resolveContainedPath]
+```
+
+The desktop app is another client of the same engine: the main process composes it with
+`@nexar/host` (the same code as the CLI) under the `project-only` workspace policy, and the renderer
+only reaches it through one validated bridge. There is no network listener. Per-user state lives in
+`<appData>/Nexar`. Cowork and Code are modes (owner-preference defaults: OpenWorker and DSH), not
+separate engines. Providers (ADR-022) and scheduled tasks (ADR-023) are decided and come in later
+phases; see `docs/guides/local-development.md`.
+
+## 10b. Future: control plane and mobile
 
 ```mermaid
 flowchart LR
@@ -366,6 +384,8 @@ Nexar config holds credential _references_; runtime state lives in git-ignored `
 ```text
 apps/cli                       nexar CLI (doctor, resources, route, run, projects, artifacts,
                                approvals, clients, mcp serve, workflows, engineer, sandbox)
+apps/desktop                   Nexar Desktop: Electron main (engine host + bridge), preload, React renderer (v0.5)
+packages/host                  shared composition for CLI and desktop: the only place adapters are instantiated
 packages/contracts             domain types, errors, Measured values — zero deps
 packages/resource-registry     resource descriptors + dynamic state + discovery seam
 packages/resource-controller   NRC: deterministic policy + explainable decisions
@@ -394,5 +414,5 @@ config/                        example configuration
 docs/                          architecture, ADRs, integration, research, roadmap, backlog, devlog
 ```
 
-`apps/control-plane` and `apps/mobile` are deliberately **not** created yet (ADR-001): empty
+`apps/control-plane` and `apps/mobile` (v0.6) are deliberately **not** created yet (ADR-001): empty
 placeholder packages rot. They appear when their milestone starts.

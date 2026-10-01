@@ -175,6 +175,10 @@ six themes. Coming next: Windows packaging and fixes, providers and API keys, AI
 scheduled tasks, Code mode on the WSL2 engineering plane, and OpenWorker as the Cowork agent
 ([backlog NXR-051 to NXR-056](docs/backlog/README.md)). The app has not been run on Windows yet.
 
+**Continuing development locally:** [`docs/guides/local-development.md`](docs/guides/local-development.md)
+(setup on Windows, running, testing, how the app is built, what to build next). Phase report:
+[`docs/devlog/v0.5-desktop-phase1-report.md`](docs/devlog/v0.5-desktop-phase1-report.md).
+
 ## Resource intelligence (v0.4)
 
 `routing.policy: "resource-intelligence"` turns on `resource-intelligence@1` ([ADR-020](docs/adr/020-resource-intelligence-scheduler.md));

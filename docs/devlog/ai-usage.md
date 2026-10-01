@@ -133,7 +133,11 @@ v0.4 totals (observed values only):
 
 | Date       | Unit                                      | Model      | Work                                                             | Observed usage | Outcome                                                       |
 | ---------- | ----------------------------------------- | ---------- | ---------------------------------------------------------------- | -------------- | ------------------------------------------------------------- |
-| 2026-10-01 | Orchestrator session                      | Opus 5.5   | UX review, mockup, ADR-021 to ADR-023, briefs, reviews, E2E runs | Not exposed    | In progress                                                   |
+| 2026-10-01 | Orchestrator session                      | Opus 5.5   | UX review, mockup, ADR-021 to ADR-023, briefs, reviews, E2E runs | Not exposed    | Phase 1 done                                                  |
 | 2026-10-01 | desk-1 `@nexar/host` (relay)              | Sonnet 5.5 | Shared composition extracted from the CLI                        | $0.521         | Merged after review (`b627190`)                               |
 | 2026-10-01 | desk-2 desktop shell (relay, interrupted) | Sonnet 5.5 | Main process, bridge, unit tests                                 | not reported   | Container restart killed the relay; work in the tree survived |
 | 2026-10-01 | desk-2 desktop shell (relay, resumed)     | Sonnet 5.5 | Renderer, E2E spec, build fixes                                  | $3.215         | Merged after review and one hardening fix                     |
+
+v0.5 phase 1 totals (observed values only): relay spend **$3.74** (desk-1 $0.521 + desk-2 resumed
+$3.215; the interrupted desk-2 run reported no cost). Cumulative observed relay spend v0.1 to v0.5
+phase 1: **about $50.44**. Opus spend and the remaining balance are not exposed and are not estimated.

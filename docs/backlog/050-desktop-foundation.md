@@ -1,6 +1,6 @@
 # NXR-050: Desktop foundation — host package, Electron shell, bridge, Cowork chat
 
-**Milestone:** v0.5 — Nexar Desktop · **Labels:** desktop · **Depends on:** none
+**Status:** Done (2026-10-01, [report](../devlog/v0.5-desktop-phase1-report.md)) · **Milestone:** v0.5 — Nexar Desktop · **Labels:** desktop · **Depends on:** none
 
 ## Summary
 
@@ -34,10 +34,10 @@ An owner can open the app, add a project folder, run a Cowork task on a real res
 
 ## Acceptance criteria
 
-- [ ] The app starts, adds a folder as a project and runs a task end to end with the echo resource offline and with a real resource when available.
-- [ ] Every bridge channel rejects malformed input and paths outside the project.
-- [ ] Themes apply to the whole app and persist across restarts.
-- [ ] `pnpm check` passes; an Electron E2E job runs in CI under Xvfb.
+- [x] The app starts, adds a folder as a project and runs a task end to end with the echo resource offline. (A real-resource run through the app is the first owner check; Claude Code was discovered and scored.)
+- [x] Every bridge channel rejects malformed input and paths outside the project.
+- [x] Themes apply to the whole app and persist across restarts.
+- [x] `pnpm check` passes; an Electron E2E job runs in CI under Xvfb.
 
 ## Testing expectations
 

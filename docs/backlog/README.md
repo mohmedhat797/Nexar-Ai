@@ -68,7 +68,7 @@ Phases of [ADR-021](../adr/021-nexar-desktop.md); see also ADR-022 and ADR-023.
 
 | Id                                        | Title                                                   | Milestone | Labels               | Status  |
 | ----------------------------------------- | ------------------------------------------------------- | --------- | -------------------- | ------- |
-| [NXR-050](050-desktop-foundation.md)      | Desktop foundation: host package, shell, bridge, Cowork | v0.5      | desktop              | Planned |
+| [NXR-050](050-desktop-foundation.md)      | Desktop foundation: host package, shell, bridge, Cowork | v0.5      | desktop              | Done    |
 | [NXR-051](051-windows-compatibility.md)   | Windows compatibility pass, Windows CI, installer       | v0.5      | desktop, windows     | Planned |
 | [NXR-052](052-providers-and-key-store.md) | Providers: sign-in, encrypted key store, local servers  | v0.5      | desktop, security    | Planned |
 | [NXR-053](053-ai-behavior-settings.md)    | AI behavior settings per mode                           | v0.5      | desktop, integration | Planned |
