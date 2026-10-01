@@ -56,6 +56,9 @@ importers:
       '@nexar/integration-claude-code':
         specifier: workspace:*
         version: link:../../integrations/claude-code
+      '@nexar/integration-codex':
+        specifier: workspace:*
+        version: link:../../integrations/codex
       '@nexar/integration-deepseek-harness':
         specifier: workspace:*
         version: link:../../integrations/deepseek-harness
@@ -85,6 +88,12 @@ importers:
         version: link:../../packages/workflows
 
   integrations/claude-code:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+
+  integrations/codex:
     dependencies:
       '@nexar/contracts':
         specifier: workspace:*

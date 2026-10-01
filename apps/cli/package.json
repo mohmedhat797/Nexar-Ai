@@ -24,6 +24,7 @@
     "@nexar/contracts": "workspace:*",
     "@nexar/core": "workspace:*",
     "@nexar/integration-claude-code": "workspace:*",
+    "@nexar/integration-codex": "workspace:*",
     "@nexar/integration-deepseek-harness": "workspace:*",
     "@nexar/integration-echo": "workspace:*",
     "@nexar/integration-mcp": "workspace:*",

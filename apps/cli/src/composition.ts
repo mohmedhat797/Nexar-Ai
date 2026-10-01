@@ -9,6 +9,7 @@ import {
   type NexarRuntime,
 } from '@nexar/core';
 import { ClaudeCodeExecutionAdapter } from '@nexar/integration-claude-code';
+import { CodexExecutionAdapter } from '@nexar/integration-codex';
 import { DeepSeekHarnessExecutionAdapter } from '@nexar/integration-deepseek-harness';
 import { EchoExecutionAdapter } from '@nexar/integration-echo';
 import { PiExecutionAdapter } from '@nexar/integration-pi';
@@ -61,6 +62,7 @@ export async function compose(
   const adapters = [
     new EchoExecutionAdapter(),
     new ClaudeCodeExecutionAdapter({ env: io.env }),
+    new CodexExecutionAdapter({ env: io.env }),
     new DeepSeekHarnessExecutionAdapter({
       env: io.env,
       stateDir: join(configDir, '.nexar', 'runtimes', 'deepseek-harness'),

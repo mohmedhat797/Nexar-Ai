@@ -110,6 +110,7 @@ canonicalized. External clients such as the OpenWorker Work Bridge must always g
 | Resource           | Adapter            | Notes                                                     |
 | ------------------ | ------------------ | --------------------------------------------------------- |
 | `claude-code`      | `claude-code`      | Native agent via the `claude` CLI, `permissionMode: plan` |
+| `codex`            | `codex`            | Native agent via the `codex` CLI; declared, not preferred |
 | `deepseek-harness` | `deepseek-harness` | DeepSeek `deepseek-v4-flash`, needs `DEEPSEEK_API_KEY`    |
 | `anthropic-sonnet` | `pi`               | `claude-sonnet-4-5` by API, needs `ANTHROPIC_API_KEY`     |
 
@@ -117,6 +118,18 @@ Routing: `claude-code` is the default resource. Per task kind, preferences are `
 claude-code, deepseek-harness; `review` → claude-code; `documentation` → anthropic-sonnet,
 claude-code; `analysis` → anthropic-sonnet, deepseek-harness, claude-code. A `taskKinds` entry
 replaces the built-in rule for that kind, so each one repeats its `requiredCapabilities`.
+
+### Codex
+
+The `codex` resource runs the OpenAI Codex CLI (`codex exec`) with your ChatGPT subscription. Install
+Codex from its official source and sign in once with `codex login`; no OpenAI API key is used or
+passed (`OPENAI_API_KEY`, `CODEX_API_KEY` and `CODEX_ACCESS_TOKEN` are never forwarded to Codex). The
+example declares the resource but no routing rule prefers it, so it only runs when chosen explicitly
+(or by capability once engineering lanes use it). Nexar never reads, parses or copies `CODEX_HOME`
+(default `~/.codex`, where the login lives): it only passes the path on, or mounts it into the Nexar
+sandbox for write-mode lanes. Optional `runtime.options`: `binary`, `model`,
+`reasoningEffort` (`low`/`medium`/`high`), `timeoutMs`, `codexHome`, and `allowHosts` (sandbox egress
+allowlist, default `chatgpt.com`, `auth.openai.com`, `api.openai.com`). Unknown options are rejected.
 
 **The example deliberately contains no `local-echo` test double.** In a real configuration an
 always-eligible echo resource would silently "succeed" whenever the real resources are unavailable.

@@ -17,6 +17,7 @@
     { "path": "../../packages/telemetry" },
     { "path": "../../packages/workflows" },
     { "path": "../../integrations/claude-code" },
+    { "path": "../../integrations/codex" },
     { "path": "../../integrations/deepseek-harness" },
     { "path": "../../integrations/echo" },
     { "path": "../../integrations/mcp" },

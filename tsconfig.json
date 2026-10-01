@@ -38,6 +38,9 @@
       "path": "./integrations/claude-code"
     },
     {
+      "path": "./integrations/codex"
+    },
+    {
       "path": "./integrations/deepseek-harness"
     },
     {
