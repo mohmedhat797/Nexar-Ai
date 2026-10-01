@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import {
   NexarError,
   emptyUsage,
@@ -8,6 +8,7 @@ import {
   taskId,
   toNexarError,
   unavailable,
+  type EngineeringWorkspace,
   type ExecutionEvent,
   type ExecutionOutcome,
   type ExecutionRecord,
@@ -66,6 +67,12 @@ export interface RunOptions {
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly onEvent?: (e: ExecutionEvent) => void;
+  /**
+   * Engineering lanes only (ADR-019): a Nexar-created task worktree and its launcher. It is a
+   * code-level option, never derived from a request. The task must belong to a project and must not
+   * also name a working directory; the adapter receives the workspace in its execution context.
+   */
+  readonly workspace?: EngineeringWorkspace;
 }
 
 export interface RunOutcome {
@@ -176,8 +183,43 @@ export class Nexar {
     return { ...task, input: { ...task.input, workingDirectory: canonical } };
   }
 
+  /** Validates an engineering workspace and returns it with its canonical path. */
+  private async enforceEngineeringWorkspace(
+    task: NexarTask,
+    workspace: EngineeringWorkspace,
+  ): Promise<EngineeringWorkspace> {
+    if (task.projectId === undefined) {
+      throw new NexarError('POLICY_REJECTED', 'An engineering workspace requires a project', {
+        details: { reason: 'PROJECT_REQUIRED' },
+      });
+    }
+    this.projects.require(task.projectId);
+    if (task.input.workingDirectory !== undefined) {
+      throw new NexarError(
+        'VALIDATION_ERROR',
+        'A task with an engineering workspace must not also name a working directory',
+      );
+    }
+    let canonical: string;
+    try {
+      canonical = await realpath(workspace.path);
+      if (!(await stat(canonical)).isDirectory()) throw new Error('not a directory');
+    } catch {
+      // No `cause`: fs errors embed the path.
+      throw new NexarError(
+        'POLICY_REJECTED',
+        'Engineering workspace is not an accessible directory',
+      );
+    }
+    return { ...workspace, path: canonical };
+  }
+
   async run(submitted: NexarTask, options: RunOptions = {}): Promise<RunOutcome> {
-    const task = await this.enforceWorkspace(submitted);
+    const workspace =
+      options.workspace === undefined
+        ? undefined
+        : await this.enforceEngineeringWorkspace(submitted, options.workspace);
+    const task = workspace === undefined ? await this.enforceWorkspace(submitted) : submitted;
     // Never log the prompt: only ids and routing facts.
     const logger = this.deps.logger.child({ taskId: task.id });
     const decision = requireSelected(await this.route(task));
@@ -248,6 +290,7 @@ export class Nexar {
             signal,
             logger: logger.child({ adapter: adapter.id }),
             ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
+            ...(workspace === undefined ? {} : { workspace }),
           },
         ),
         signal,
