@@ -8,9 +8,11 @@ import {
   type LoadedConfig,
   type NexarRuntime,
 } from '@nexar/core';
+import { AntigravityExecutionAdapter } from '@nexar/integration-antigravity';
 import { ClaudeCodeExecutionAdapter } from '@nexar/integration-claude-code';
 import { CodexExecutionAdapter } from '@nexar/integration-codex';
 import { DeepSeekHarnessExecutionAdapter } from '@nexar/integration-deepseek-harness';
+import { DelegateSkillsExecutionAdapter } from '@nexar/integration-delegate-skills';
 import { EchoExecutionAdapter } from '@nexar/integration-echo';
 import { PiExecutionAdapter } from '@nexar/integration-pi';
 import { JsonlFileTelemetrySink } from '@nexar/telemetry';
@@ -63,11 +65,16 @@ export async function compose(
     new EchoExecutionAdapter(),
     new ClaudeCodeExecutionAdapter({ env: io.env }),
     new CodexExecutionAdapter({ env: io.env }),
+    new AntigravityExecutionAdapter({ env: io.env }),
     new DeepSeekHarnessExecutionAdapter({
       env: io.env,
       stateDir: join(configDir, '.nexar', 'runtimes', 'deepseek-harness'),
     }),
     new PiExecutionAdapter({ env: io.env }),
+    new DelegateSkillsExecutionAdapter({
+      env: io.env,
+      stateDir: join(configDir, '.nexar', 'runtimes', 'delegate-skills'),
+    }),
   ];
   const runtime = await createNexarWithProjects(loaded.config, {
     adapters,

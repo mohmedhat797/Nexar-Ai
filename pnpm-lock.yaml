@@ -53,6 +53,9 @@ importers:
       '@nexar/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@nexar/integration-antigravity':
+        specifier: workspace:*
+        version: link:../../integrations/antigravity
       '@nexar/integration-claude-code':
         specifier: workspace:*
         version: link:../../integrations/claude-code
@@ -62,6 +65,9 @@ importers:
       '@nexar/integration-deepseek-harness':
         specifier: workspace:*
         version: link:../../integrations/deepseek-harness
+      '@nexar/integration-delegate-skills':
+        specifier: workspace:*
+        version: link:../../integrations/delegate-skills
       '@nexar/integration-echo':
         specifier: workspace:*
         version: link:../../integrations/echo
@@ -87,6 +93,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/workflows
 
+  integrations/antigravity:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+
   integrations/claude-code:
     dependencies:
       '@nexar/contracts':
@@ -100,6 +112,19 @@ importers:
         version: link:../../packages/contracts
 
   integrations/deepseek-harness:
+    dependencies:
+      '@nexar/approvals':
+        specifier: workspace:*
+        version: link:../../packages/approvals
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+    devDependencies:
+      '@nexar/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/sandbox
+
+  integrations/delegate-skills:
     dependencies:
       '@nexar/contracts':
         specifier: workspace:*

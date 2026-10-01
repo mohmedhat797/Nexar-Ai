@@ -44,6 +44,12 @@
       "path": "./integrations/codex"
     },
     {
+      "path": "./integrations/antigravity"
+    },
+    {
+      "path": "./integrations/delegate-skills"
+    },
+    {
       "path": "./integrations/deepseek-harness"
     },
     {
