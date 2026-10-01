@@ -1,0 +1,9 @@
+[engineer] lane feature → codex (r1)
+[engineer] patch harvested: 2 file(s)
+[engineer] gates 1/1 passed (r1)
+[engineer] lane review → claude-code (r1)
+[engineer] review by claude-code: approve (r1)
+[engineer] awaiting owner approval: run 'nexar approvals list' then 'nexar approvals approve <id>' (expires in 30 min)
+[engineer]   branch: nexar/eng-aa4d2a96ce83
+[engineer]   files:  2
+[engineer]   patch:  e0c368ea9cc8066e4b7b2b785bcd08b7c01e1d42d9a382efd524576fa8d76877

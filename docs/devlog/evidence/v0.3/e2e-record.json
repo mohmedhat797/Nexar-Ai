@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "taskId": "eng-aa4d2a96ce83",
+  "projectId": "engineering-demo",
+  "planId": "implement-review",
+  "status": "committed",
+  "startedAt": "2026-10-01T09:04:08.459Z",
+  "endedAt": "2026-10-01T09:06:25.933Z",
+  "baseBranch": "main",
+  "baseCommit": "0496962e72d318ffe1ca4791eac1e5477d6ea813",
+  "branch": "nexar/eng-aa4d2a96ce83",
+  "round": 0,
+  "lanes": [
+    {
+      "laneId": "feature",
+      "role": "feature",
+      "round": 0,
+      "taskId": "task_5fc2b550-49ce-4c5f-bc0f-8a75171b82d7",
+      "resourceId": "codex",
+      "reasonCodes": [
+        "capability.match",
+        "preference.task",
+        "state.available",
+        "auth.ok"
+      ],
+      "outcome": "succeeded",
+      "usage": {
+        "inputTokens": {
+          "status": "measured",
+          "value": 60627
+        },
+        "outputTokens": {
+          "status": "measured",
+          "value": 957
+        },
+        "cacheReadTokens": {
+          "status": "measured",
+          "value": 53760
+        },
+        "cacheWriteTokens": {
+          "status": "measured",
+          "value": 0
+        },
+        "costUsd": {
+          "status": "unavailable",
+          "reason": "subscription; not reported by codex"
+        },
+        "turns": {
+          "status": "measured",
+          "value": 1
+        }
+      },
+      "latencyMs": 40013,
+      "outputSha256": "a3d4bfad23c224cf2aacc33ff51d10d94c82fb7baecbeb7ba97e79a2abf47433"
+    },
+    {
+      "laneId": "review",
+      "role": "review",
+      "round": 0,
+      "taskId": "task_54ea0ef2-7be1-4c0e-ac07-149ecf84632b",
+      "resourceId": "claude-code",
+      "reasonCodes": [
+        "capability.match",
+        "preference.task",
+        "state.available",
+        "auth.ok"
+      ],
+      "outcome": "succeeded",
+      "usage": {
+        "inputTokens": {
+          "status": "measured",
+          "value": 2
+        },
+        "outputTokens": {
+          "status": "measured",
+          "value": 863
+        },
+        "cacheReadTokens": {
+          "status": "measured",
+          "value": 0
+        },
+        "cacheWriteTokens": {
+          "status": "measured",
+          "value": 6855
+        },
+        "costUsd": {
+          "status": "estimated",
+          "value": 0.036054,
+          "basis": "claude CLI list-price estimate"
+        },
+        "turns": {
+          "status": "measured",
+          "value": 1
+        }
+      },
+      "latencyMs": 8156,
+      "outputSha256": "af3bd1e9d682747cb53d305cf869106b3a2d4ec0509242949b2cd899b5ae480d"
+    }
+  ],
+  "commands": [
+    {
+      "phase": "gate",
+      "name": "test",
+      "round": 0,
+      "exitCode": 0,
+      "timedOut": false,
+      "passed": true,
+      "durationMs": 229,
+      "outputSha256": "8521fdc12c17de6812940459cfe5644b20c7d94b4f9ed9db3b5d5f2f130d384c",
+      "outputBytes": 1064
+    }
+  ],
+  "patches": [
+    {
+      "round": 0,
+      "sha256": "e0c368ea9cc8066e4b7b2b785bcd08b7c01e1d42d9a382efd524576fa8d76877",
+      "bytes": 2444,
+      "files": 2,
+      "valid": true,
+      "violations": []
+    }
+  ],
+  "reviews": [
+    {
+      "round": 0,
+      "resourceId": "claude-code",
+      "verdict": "approve",
+      "valid": true,
+      "findings": {
+        "blocker": 0,
+        "major": 0,
+        "minor": 0,
+        "nit": 1
+      },
+      "reasonCodes": [],
+      "outputSha256": "86b34a18a762536a9070becf7595f4b3094920edf919db05b92807d7a7263009"
+    }
+  ],
+  "approval": {
+    "id": "apr_8f377d0d777c8b7507a3e1b3e9836a34",
+    "outcome": "approved"
+  },
+  "commit": "140011462f2980d5c3c33e6350c14288c5dc97d6"
+}

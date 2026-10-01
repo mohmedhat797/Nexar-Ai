@@ -1,5 +1,7 @@
 import { NexarError } from '@nexar/contracts';
 import type { ResourceDescriptor } from '@nexar/contracts';
+import { parseAcpOptions } from './acp/options.js';
+import type { AcpOptions } from './acp/options.js';
 import { validatePiAiProviders } from './overlay.js';
 import type { PiAiProviders } from './overlay.js';
 
@@ -14,6 +16,8 @@ export interface DshRuntimeOptions {
   readonly patches: readonly string[];
   readonly piAiProviders?: PiAiProviders;
   readonly timeoutMs?: number;
+  /** Engineering-lane (ACP) settings; validated strictly, defaults applied by the ACP path. */
+  readonly acp?: AcpOptions;
 }
 
 function bad(message: string): NexarError {
@@ -90,6 +94,7 @@ export function parseRuntimeOptions(resource: ResourceDescriptor): DshRuntimeOpt
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     ...(maxTokens === undefined ? {} : { maxTokens }),
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    ...(raw.acp === undefined ? {} : { acp: parseAcpOptions(raw.acp) }),
     ...(raw.piAiProviders === undefined
       ? {}
       : { piAiProviders: parsePiAiProviders(raw.piAiProviders) }),

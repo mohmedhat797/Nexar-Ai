@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "resources": [
+    {
+      "id": "claude-code",
+      "displayName": "Claude Code",
+      "kind": {
+        "type": "agent",
+        "agent": "claude-code",
+        "interface": "cli",
+        "underlying": {
+          "provider": "anthropic"
+        }
+      },
+      "capabilities": [
+        "text-generation",
+        "reasoning",
+        "coding",
+        "repo-editing",
+        "code-review",
+        "tool-use"
+      ],
+      "runtime": {
+        "adapter": "claude-code",
+        "locality": "local",
+        "options": {
+          "model": "claude-sonnet-5-5",
+          "sandbox": {
+            "mounts": [
+              {
+                "hostPath": "/home/claude/.claude/remote/.oauth_token",
+                "sandboxPath": "/home/claude/.claude/remote/.oauth_token",
+                "access": "read-only"
+              }
+            ]
+          }
+        }
+      },
+      "auth": {
+        "mode": "subscription",
+        "credential": {
+          "source": "runtime-managed",
+          "description": "Claude Code login (claude auth), made inside the engineering distro"
+        }
+      },
+      "cost": {
+        "model": "subscription"
+      },
+      "dataLocality": "third-party",
+      "tags": [
+        "native-agent"
+      ]
+    },
+    {
+      "id": "codex",
+      "displayName": "Codex",
+      "kind": {
+        "type": "agent",
+        "agent": "codex",
+        "interface": "cli",
+        "underlying": {
+          "provider": "openai"
+        }
+      },
+      "capabilities": [
+        "text-generation",
+        "reasoning",
+        "coding",
+        "repo-editing",
+        "code-review",
+        "tool-use",
+        "shell-execution"
+      ],
+      "runtime": {
+        "adapter": "codex",
+        "locality": "local",
+        "options": {
+          "binary": "<scratch>/v03-research/runtimes/codex-inst/node_modules/.bin/codex",
+          "codexHome": "/root/.codex"
+        }
+      },
+      "auth": {
+        "mode": "subscription",
+        "credential": {
+          "source": "runtime-managed",
+          "description": "Codex login (codex login, ChatGPT sign-in), made inside the engineering distro"
+        }
+      },
+      "cost": {
+        "model": "subscription"
+      },
+      "dataLocality": "third-party",
+      "tags": [
+        "native-agent"
+      ]
+    }
+  ],
+  "routing": {
+    "policy": "deterministic",
+    "defaultResourceId": "claude-code"
+  },
+  "telemetry": {
+    "jsonlPath": ".nexar/telemetry.jsonl"
+  },
+  "engineering": {
+    "toolchainPaths": [
+      "/opt/node22",
+      "/opt/claude-code",
+      "<scratch>/v03-research/runtimes/codex-inst/node_modules"
+    ],
+    "author": {
+      "name": "Nexar",
+      "email": "nexar@localhost"
+    },
+    "worktreesDir": "<scratch>/e2e-v03/worktrees"
+  },
+  "projects": [
+    {
+      "id": "engineering-demo",
+      "displayName": "Engineering demo",
+      "roots": [
+        "<scratch>/e2e-v03/repo"
+      ],
+      "engineering": {
+        "baseBranch": "main",
+        "gates": [
+          {
+            "name": "test",
+            "command": [
+              "node",
+              "--test"
+            ],
+            "timeoutMs": 120000
+          }
+        ],
+        "reviewDiversity": "required",
+        "ownerApproval": "always",
+        "maxReworkRounds": 1,
+        "lanePreferences": {
+          "feature": [
+            "codex"
+          ],
+          "review": [
+            "claude-code"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import {
   decide,
   fingerprintAction,
   performOutwardAction,
+  recordPolicyDecision,
   type ApprovalStore,
   type OutwardAction,
 } from './index.js';
@@ -431,5 +432,42 @@ describe('performOutwardAction', () => {
     await decide(store, id, 'deny', { by: 'mo' });
     await assertion;
     expect(calls).toBe(0);
+  });
+});
+
+describe('recordPolicyDecision', () => {
+  const agentAction: OutwardAction = {
+    type: 'agent.tool',
+    target: 'deepseek-harness:bash',
+    parameters: { args: { command: SECRET } },
+  };
+  const policyCtx = {
+    summary: 'tool allowed by policy',
+    risk: 'medium' as const,
+    taskId: 'task-1',
+    metadata: { tool: 'bash' },
+  };
+
+  it('records an allowed decision as consumed, decided by policy, without parameters', async () => {
+    const store = new InMemoryApprovalStore();
+    const record = await recordPolicyDecision(store, agentAction, policyCtx, 'allowed');
+    expect(record.status).toBe('consumed');
+    expect(record.decidedBy).toBe('policy');
+    expect(record.fingerprint).toBe(fingerprintAction(agentAction));
+    expect(JSON.stringify(await store.get(record.id))).not.toContain(SECRET);
+    expect(await store.list({ status: 'pending' })).toEqual([]);
+  });
+
+  it('records a denied decision as denied', async () => {
+    const store = new InMemoryApprovalStore();
+    const record = await recordPolicyDecision(store, agentAction, policyCtx, 'denied');
+    expect(record.status).toBe('denied');
+    expect(record.decidedBy).toBe('policy');
+  });
+
+  it('cannot be approved, consumed or reused afterwards', async () => {
+    const store = new InMemoryApprovalStore();
+    const record = await recordPolicyDecision(store, agentAction, policyCtx, 'allowed');
+    await expectDenied(decide(store, record.id, 'approve', { by: 'someone' }), 'invalid-state');
   });
 });

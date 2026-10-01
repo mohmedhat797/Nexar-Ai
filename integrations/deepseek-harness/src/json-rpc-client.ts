@@ -23,6 +23,22 @@ export interface JsonRpcStdioClientOptions {
   readonly maxLineChars?: number;
 }
 
+/** A server-to-client request (a message with both `method` and `id`). */
+export interface JsonRpcServerRequest {
+  readonly method: string;
+  readonly params?: unknown;
+}
+
+/** What a request handler answers: a result, or a JSON-RPC error. */
+export type JsonRpcReply =
+  | { readonly result: unknown }
+  | { readonly error: { readonly code: number; readonly message: string } };
+
+/** Returns `undefined` for methods it does not handle (the client then answers `-32601`). */
+export type JsonRpcRequestHandler = (
+  request: JsonRpcServerRequest,
+) => Promise<JsonRpcReply> | undefined;
+
 interface Pending {
   readonly method: string;
   readonly resolve: (value: unknown) => void;
@@ -41,6 +57,7 @@ export class JsonRpcStdioClient {
   private readonly pending = new Map<number, Pending>();
   private readonly notificationHandlers = new Set<(n: JsonRpcNotification) => void>();
   private readonly closeHandlers = new Set<(error: NexarError) => void>();
+  private requestHandler: JsonRpcRequestHandler | undefined;
   private nextId = 1;
   private buffer = '';
   private closedWith: NexarError | undefined;
@@ -119,6 +136,32 @@ export class JsonRpcStdioClient {
     });
   }
 
+  /** Sends a notification (no `id`, no response). Rejects with `closed` if the client is closed. */
+  notify(method: string, params?: unknown): Promise<void> {
+    if (this.closedWith !== undefined) return Promise.reject(this.closedWith);
+    const message =
+      params === undefined ? { jsonrpc: '2.0', method } : { jsonrpc: '2.0', method, params };
+    return new Promise((resolve, reject) => {
+      this.output.write(`${JSON.stringify(message)}\n`, (err) => {
+        if (err) {
+          reject(
+            new NexarError('PROVIDER_ERROR', `could not write '${method}' to dsh`, {
+              cause: err,
+              details: { reason: 'closed' },
+            }),
+          );
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  /** Installs the handler for server-to-client requests. Without one every request gets `-32601`. */
+  setRequestHandler(handler: JsonRpcRequestHandler | undefined): void {
+    this.requestHandler = handler;
+  }
+
   /** Registers a notification handler; returns an unsubscribe function. */
   onNotification(handler: (notification: JsonRpcNotification) => void): () => void {
     this.notificationHandlers.add(handler);
@@ -177,7 +220,7 @@ export class JsonRpcStdioClient {
 
     if (typeof msg.method === 'string') {
       if (hasId) {
-        this.rejectServerRequest(msg.id, msg.method);
+        this.handleServerRequest(msg.id, msg.method, msg.params);
       } else {
         this.dispatchNotification({ method: msg.method, params: msg.params });
       }
@@ -218,12 +261,29 @@ export class JsonRpcStdioClient {
   }
 
   private rejectServerRequest(id: unknown, method: string): void {
-    const reply = {
-      jsonrpc: '2.0',
-      id,
-      error: { code: -32601, message: `Method not found: ${method}` },
-    };
-    this.output.write(`${JSON.stringify(reply)}\n`, () => undefined);
+    this.reply(id, { error: { code: -32601, message: `Method not found: ${method}` } });
+  }
+
+  private handleServerRequest(id: unknown, method: string, params: unknown): void {
+    let pending: Promise<JsonRpcReply> | undefined;
+    try {
+      pending = this.requestHandler?.({ method, params });
+    } catch {
+      pending = Promise.resolve({ error: { code: -32603, message: 'Internal error' } });
+    }
+    if (pending === undefined) {
+      this.rejectServerRequest(id, method);
+      return;
+    }
+    // A handler that throws must fail closed: report an error, never an empty success.
+    void pending
+      .catch((): JsonRpcReply => ({ error: { code: -32603, message: 'Internal error' } }))
+      .then((reply) => this.reply(id, reply));
+  }
+
+  private reply(id: unknown, reply: JsonRpcReply): void {
+    if (this.closedWith !== undefined || this.output.destroyed || this.output.writableEnded) return;
+    this.output.write(`${JSON.stringify({ jsonrpc: '2.0', id, ...reply })}\n`, () => undefined);
   }
 
   /** A protocol violation poisons every in-flight request: fail closed. */

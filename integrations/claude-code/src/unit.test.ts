@@ -1,7 +1,12 @@
 import { isNexarError } from '@nexar/contracts';
 import type { ResourceDescriptor } from '@nexar/contracts';
 import { describe, expect, it } from 'vitest';
-import { buildChildEnv, claudeCodeResource, parseClaudeResult } from './index.js';
+import {
+  buildChildEnv,
+  claudeCodeResource,
+  parseClaudeResult,
+  parseToolCallNames,
+} from './index.js';
 import { readSettings } from './settings.js';
 
 describe('buildChildEnv', () => {
@@ -179,6 +184,15 @@ describe('readSettings', () => {
     ['maxTurns', 1.5],
     ['timeoutMs', -1],
     ['timeoutMs', '100'],
+    ['engineeringTimeoutMs', 0],
+    ['sandbox', 'yes'],
+    ['sandbox', ['x']],
+    ['sandbox', { allowHosts: 'api.anthropic.com' }],
+    ['sandbox', { allowHosts: [''] }],
+    ['sandbox', { mounts: {} }],
+    ['sandbox', { mounts: [{ hostPath: '/a', sandboxPath: '/b', access: 'rw' }] }],
+    ['sandbox', { mounts: [{ hostPath: '/a', sandboxPath: '', access: 'read-only' }] }],
+    ['sandbox', { mounts: ['/a'] }],
   ])('rejects %s = %j with CONFIGURATION_ERROR', (key, value) => {
     try {
       readSettings(withOptions({ [key]: value }));
@@ -189,9 +203,62 @@ describe('readSettings', () => {
   });
 });
 
+describe('readSettings: engineering options', () => {
+  const withOptions = (options: Record<string, unknown>): ResourceDescriptor => {
+    const base = claudeCodeResource();
+    return { ...base, runtime: { ...base.runtime, options } };
+  };
+
+  it('reads sandbox options and the engineering timeout', () => {
+    const mount = { hostPath: '/a', sandboxPath: '/b', access: 'read-only' };
+    expect(
+      readSettings(
+        withOptions({
+          engineeringTimeoutMs: 5000,
+          sandbox: { allowHosts: ['api.anthropic.com'], mounts: [{ ...mount, extra: 1 }] },
+        }),
+      ),
+    ).toMatchObject({
+      engineeringTimeoutMs: 5000,
+      sandbox: { allowHosts: ['api.anthropic.com'], mounts: [mount] },
+    });
+    expect(readSettings(withOptions({ sandbox: {} })).sandbox).toEqual({});
+  });
+});
+
+describe('parseToolCallNames', () => {
+  it('returns tool_use names only, never inputs', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'text', text: 'hi' },
+          { type: 'tool_use', name: 'Bash', input: { command: 'secret' } },
+        ],
+      },
+    });
+    expect(parseToolCallNames(line)).toEqual(['Bash']);
+  });
+
+  it('ignores other lines and garbage', () => {
+    expect(parseToolCallNames('nope')).toEqual([]);
+    expect(parseToolCallNames(JSON.stringify({ type: 'result' }))).toEqual([]);
+    expect(parseToolCallNames(JSON.stringify({ type: 'assistant', message: {} }))).toEqual([]);
+  });
+
+  it('counts permission denials without keeping them', () => {
+    const p = parseClaudeResult(
+      JSON.stringify({ type: 'result', permission_denials: [{ tool_name: 'Bash' }, {}] }),
+    );
+    expect(p?.permissionDenials).toBe(2);
+    expect(JSON.stringify(p)).not.toContain('tool_name');
+  });
+});
+
 describe('claudeCodeResource', () => {
   it('describes a native, subscription-backed agent and accepts overrides', () => {
     const r = claudeCodeResource({ displayName: 'Custom' });
+    expect(r.capabilities).toContain('shell-execution');
     expect(r).toMatchObject({
       id: 'claude-code',
       displayName: 'Custom',

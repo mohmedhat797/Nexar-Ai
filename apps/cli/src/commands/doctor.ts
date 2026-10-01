@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { NexarError } from '@nexar/contracts';
 import { DSH_PINNED_VERSION } from '@nexar/integration-deepseek-harness';
-import type { Command } from '../args.js';
+import { checkSandboxAvailability, type SandboxAvailability } from '@nexar/sandbox';
+import type { Command, CliSeams, VersionProbe } from '../args.js';
 import { compose, loadCliConfig } from '../composition.js';
 import { EXIT, type CliIo } from '../io.js';
 
@@ -24,10 +26,15 @@ interface Section {
 
 const MARKERS: Record<Status, string> = { ok: '✔', warn: '!', error: '✖', info: '-' };
 
-type CommandResult = { readonly found: true; readonly output: string } | { readonly found: false };
+type CommandResult = VersionProbe;
+type Probe = (command: string, args?: readonly string[]) => Promise<CommandResult>;
 
-/** Runs `<command> --version` with a minimal env and a hard timeout; never a model call. */
-function versionOf(command: string, io: CliIo): Promise<CommandResult> {
+/** Runs `<command> --version` (or `args`) with a minimal env and a hard timeout; never a model call. */
+function versionOf(
+  command: string,
+  io: CliIo,
+  args: readonly string[] = ['--version'],
+): Promise<CommandResult> {
   const env: NodeJS.ProcessEnv = {};
   for (const key of ['PATH', 'HOME', 'SystemRoot']) {
     const value = io.env[key];
@@ -36,11 +43,13 @@ function versionOf(command: string, io: CliIo): Promise<CommandResult> {
   return new Promise((resolve) => {
     execFile(
       command,
-      ['--version'],
+      [...args],
       { timeout: EXTERNAL_TIMEOUT_MS, env, cwd: io.cwd, windowsHide: true },
       (error, stdout, stderr) => {
         if (error !== null) return resolve({ found: false });
-        const output = `${stdout}${stderr}`.trim().split('\n')[0] ?? '';
+        // The first line that carries a version number (`socat -V` opens with a banner).
+        const lines = `${stdout}${stderr}`.trim().split('\n');
+        const output = lines.find((line) => /\d+\.\d+/.test(line)) ?? lines[0] ?? '';
         resolve({ found: true, output });
       },
     );
@@ -52,9 +61,9 @@ function nodeAtLeastMinimum(version: string): boolean {
   return major > MIN_NODE[0] || (major === MIN_NODE[0] && minor >= MIN_NODE[1]);
 }
 
-async function runtimeSection(io: CliIo): Promise<Section> {
+async function runtimeSection(probe: Probe): Promise<Section> {
   const node = process.versions.node;
-  const [git, pnpm] = await Promise.all([versionOf('git', io), versionOf('pnpm', io)]);
+  const [git, pnpm] = await Promise.all([probe('git'), probe('pnpm')]);
   const minimum = MIN_NODE.join('.');
   return {
     id: 'runtime',
@@ -73,22 +82,27 @@ async function runtimeSection(io: CliIo): Promise<Section> {
   };
 }
 
-async function externalSection(io: CliIo): Promise<Section> {
-  const claude = versionOf('claude', io);
-  const dsh = versionOf('dsh', io);
-  const others = (['codex', 'agy', 'openworker-server'] as const).map(
-    async (command): Promise<Check> => {
-      const result = await versionOf(command, io);
-      const found = result.found ? `found: ${result.output}` : 'not found';
-      return { status: 'info', name: command, detail: `not integrated in v0.1 (${found})` };
-    },
-  );
-  const claudeResult = await claude;
+/** Presence only (`--version`): never a sign-in, never a model call. */
+async function presence(probe: Probe, command: string): Promise<Check> {
+  const result = await probe(command);
+  return result.found
+    ? { status: 'ok', name: command, detail: result.output }
+    : { status: 'warn', name: command, detail: 'not found' };
+}
+
+async function externalSection(probe: Probe): Promise<Section> {
+  const claude = presence(probe, 'claude');
+  const codex = presence(probe, 'codex');
+  const agy = presence(probe, 'agy');
+  const dsh = probe('dsh');
+  const openworker = probe('openworker-server').then((result): Check => ({
+    status: 'info',
+    name: 'openworker-server',
+    detail: `not integrated in v0.1 (${result.found ? `found: ${result.output}` : 'not found'})`,
+  }));
   const dshResult = await dsh;
   const checks: Check[] = [
-    claudeResult.found
-      ? { status: 'ok', name: 'claude', detail: claudeResult.output }
-      : { status: 'warn', name: 'claude', detail: 'not found' },
+    await claude,
     !dshResult.found
       ? { status: 'warn', name: 'dsh', detail: `not found (pinned ${DSH_PINNED_VERSION})` }
       : dshResult.output.includes(DSH_PINNED_VERSION)
@@ -98,9 +112,144 @@ async function externalSection(io: CliIo): Promise<Section> {
             name: 'dsh',
             detail: `${dshResult.output} (pinned version is ${DSH_PINNED_VERSION})`,
           },
-    ...(await Promise.all(others)),
+    await codex,
+    await agy,
+    await openworker,
   ];
   return { id: 'external', title: 'External runtimes (informational)', checks };
+}
+
+const WSL_CONF = '/etc/wsl.conf';
+
+/** `[section] key=value` lines; later duplicates win, as in the WSL parser. Keys are lower-cased. */
+function parseIni(text: string): ReadonlyMap<string, string> {
+  const values = new Map<string, string>();
+  let section = '';
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === '' || line.startsWith('#') || line.startsWith(';')) continue;
+    const header = /^\[([^\]]+)\]$/.exec(line);
+    if (header !== null) {
+      section = (header[1] ?? '').trim().toLowerCase();
+      continue;
+    }
+    const at = line.indexOf('=');
+    if (at > 0) {
+      values.set(
+        `${section}.${line.slice(0, at).trim().toLowerCase()}`,
+        line
+          .slice(at + 1)
+          .trim()
+          .toLowerCase(),
+      );
+    }
+  }
+  return values;
+}
+
+/** The `/etc/wsl.conf` settings ADR-018 requires of the engineering distro. */
+const WSL_EXPECTATIONS: readonly (readonly [key: string, expected: string])[] = [
+  ['automount.enabled', 'false'],
+  ['interop.enabled', 'false'],
+  ['interop.appendwindowspath', 'false'],
+  ['boot.systemd', 'true'],
+];
+
+async function readText(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+async function wslChecks(read: (path: string) => Promise<string | undefined>): Promise<Check[]> {
+  const version = await read('/proc/version');
+  if (version === undefined || !version.toLowerCase().includes('microsoft')) return [];
+  const conf = await read(WSL_CONF);
+  if (conf === undefined) {
+    return [{ status: 'warn', name: 'wsl.conf', detail: `${WSL_CONF} not found (ADR-018)` }];
+  }
+  const values = parseIni(conf);
+  return WSL_EXPECTATIONS.map(([key, expected]): Check => {
+    const actual = values.get(key);
+    return actual === expected
+      ? { status: 'ok', name: `wsl.conf ${key}`, detail: expected }
+      : {
+          status: 'warn',
+          name: `wsl.conf ${key}`,
+          detail: `${actual ?? 'unset'} (ADR-018 requires ${expected})`,
+        };
+  });
+}
+
+const AVAILABILITY_TIMEOUT_MS = 1_500;
+
+/** The probe launches a real (tiny) bwrap; a stalled one must not stall `doctor` for its own 10 s. */
+async function availabilityWithin(
+  probe: () => Promise<SandboxAvailability>,
+): Promise<SandboxAvailability> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<SandboxAvailability>((resolve) => {
+    timer = setTimeout(
+      () => resolve({ available: false, detail: 'the sandbox availability probe timed out' }),
+      AVAILABILITY_TIMEOUT_MS,
+    );
+  });
+  try {
+    return await Promise.race([probe(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Availability probe only (no sandbox launch beyond it), AppArmor and, under WSL, `wsl.conf`. */
+async function engineeringSection(probe: Probe, seams: CliSeams['doctor']): Promise<Section> {
+  const read = seams?.readText ?? readText;
+  const [availability, apparmor, wsl] = await Promise.all([
+    availabilityWithin(seams?.availability ?? checkSandboxAvailability),
+    read('/proc/sys/kernel/apparmor_restrict_unprivileged_userns'),
+    wslChecks(read),
+  ]);
+  // After the availability probe, not beside it: concurrent child processes can stall a bwrap probe.
+  const socat = await probe('socat', ['-V']);
+  const checks: Check[] = [
+    availability.available
+      ? {
+          status: 'ok',
+          name: 'bwrap',
+          detail: `${availability.bwrapVersion ?? 'unknown version'} (functional probe passed)`,
+        }
+      : {
+          status: 'warn',
+          name: 'bwrap',
+          detail: `${availability.detail} (engineering lanes need it; see docs/integration/wsl2-engineering-plane.md)`,
+        },
+    socat.found
+      ? {
+          status: 'ok',
+          name: 'socat',
+          detail: /socat version \S+/i.exec(socat.output)?.[0] ?? 'found',
+        }
+      : availability.socatPath === undefined
+        ? { status: 'warn', name: 'socat', detail: 'not found (needed for lane network access)' }
+        : { status: 'ok', name: 'socat', detail: 'found' },
+  ];
+  if (apparmor !== undefined) {
+    const value = apparmor.trim();
+    checks.push(
+      value === '1'
+        ? {
+            status: 'warn',
+            name: 'kernel.apparmor_restrict_unprivileged_userns',
+            detail:
+              '1 (bwrap needs an AppArmor profile scoped to it; never set this to 0 globally)',
+          }
+        : { status: 'info', name: 'kernel.apparmor_restrict_unprivileged_userns', detail: value },
+    );
+  }
+  checks.push(...wsl);
+  return { id: 'engineering', title: 'Engineering plane', checks };
 }
 
 async function configAndResources(
@@ -180,12 +329,15 @@ export const doctorCommand: Command = {
   usage: 'nexar doctor [--json]',
   options: {},
   async run(ctx) {
-    const [runtime, [config, resources], external] = await Promise.all([
-      runtimeSection(ctx.io),
+    const probe: Probe =
+      ctx.seams.doctor?.versionOf ?? ((command, args) => versionOf(command, ctx.io, args));
+    const [runtime, [config, resources], external, engineering] = await Promise.all([
+      runtimeSection(probe),
       configAndResources(ctx),
-      externalSection(ctx.io),
+      externalSection(probe),
+      engineeringSection(probe, ctx.seams.doctor),
     ]);
-    const sections = [runtime, config, resources, external];
+    const sections = [runtime, config, resources, external, engineering];
     const ok = !sections.some((s) => s.checks.some((c) => c.status === 'error'));
     ctx.io.stdout(ctx.json ? JSON.stringify({ ok, sections }, null, 2) + '\n' : render(sections));
     return ok ? EXIT.ok : EXIT.failure;

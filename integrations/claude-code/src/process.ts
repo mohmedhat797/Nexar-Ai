@@ -14,6 +14,8 @@ export interface ProcessSpec {
   readonly signal: AbortSignal;
   readonly spawnImpl: typeof spawn;
   readonly onSpawn?: () => void;
+  /** Called for each complete stdout line as it arrives (stdout is still collected in full). */
+  readonly onStdoutLine?: (line: string) => void;
 }
 
 export type ProcessOutcome =
@@ -77,8 +79,18 @@ export function runProcess(spec: ProcessSpec): Promise<ProcessOutcome> {
     }
 
     child.stdout?.setEncoding('utf8');
+    let lineBuffer = '';
     child.stdout?.on('data', (chunk: string) => {
       stdout += chunk;
+      if (spec.onStdoutLine === undefined) return;
+      lineBuffer += chunk;
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop() ?? '';
+      for (const line of lines) spec.onStdoutLine(line);
+    });
+    child.stdout?.on('end', () => {
+      if (lineBuffer !== '') spec.onStdoutLine?.(lineBuffer);
+      lineBuffer = '';
     });
     child.stderr?.setEncoding('utf8');
     child.stderr?.on('data', (chunk: string) => {

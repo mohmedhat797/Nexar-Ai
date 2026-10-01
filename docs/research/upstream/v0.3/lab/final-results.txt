@@ -1,0 +1,67 @@
+######## tests-a.sh
+== (a) filesystem
+write /work: OK
+write /usr: touch: cannot touch '/usr/x': Read-only file system
+write /etc: touch: cannot touch '/etc/x': Read-only file system
+write / : touch: cannot touch '/x': Read-only file system
+write /tmp: OK
+write /run/nexar (ro): touch: cannot touch '/run/nexar/x': Read-only file system
+ls /home:
+agent
+ls /work/..: 
+bin dev etc home lib lib64 opt proc run sbin tmp usr work 
+read host /tmp/outside-tmp.txt: cat: /tmp/outside-tmp.txt: No such file or directory
+== (b) home / secrets
+cat /home/nxtest/.ssh/id_rsa: cat: /home/nxtest/.ssh/id_rsa: No such file or directory
+cat /home/nxtest/outside.txt: cat: /home/nxtest/outside.txt: No such file or directory
+cat /root/.ssh: cat: /root/.ssh: No such file or directory
+cat /root: cat: /root: No such file or directory
+cat /etc/shadow: cat: /etc/shadow: No such file or directory
+cat /etc/passwd: cat: /etc/passwd: No such file or directory
+cat /tmp/nxlab: cat: /tmp/nxlab: No such file or directory
+ls ~: 
+find / -name id_rsa: (end)
+######## tests-c.sh
+== (c) network
+/proc/net/dev interfaces:
+lo: 
+curl direct (no proxy) https://1.1.1.1: curl: (7) Failed to connect to 1.1.1.1 port 443 after 0 ms: Couldn't connect to server
+rc=0
+curl direct http://93.184.216.34: curl: (7) Failed to connect to 93.184.216.34 port 80 after 0 ms: Couldn't connect to server
+curl direct to HOST loopback 127.0.0.1:9443 (host target server): curl: (7) Failed to connect to 127.0.0.1 port 9443 after 0 ms: Couldn't connect to server
+node direct 1.1.1.1:443 error: ENETUNREACH
+== (d) via proxy bridge (socat TCP 127.0.0.1:3128 -> unix socket)
+curl -x allowed.example: hello from allowed upstream
+curl -x evil.example: curl: (56) CONNECT tunnel failed, response 403
+curl -x 1.1.1.1: curl: (56) CONNECT tunnel failed, response 403
+"hello from allowed upstream\n"
+ERR Request was cancelled.
+"hello from allowed upstream\n"
+DNS inside (getent hosts example.com): no resolution
+######## tests-e.sh
+== (e) git inside sandbox
+git version 2.43.0
+?? created-in-sandbox.txt
+-- status clean? rc=0
+commit OK
+f088767 agent commit
+d4dde72 init
+ feature.txt | 1 +
+ 1 file changed, 1 insertion(+)
+-- remote ops:
+fatal: unable to access 'https://example.com/x.git/': CONNECT tunnel failed, response 403
+== escape attempts
+pid1 comm: bwrap
+ls /proc/1/root: bin dev etc home lib lib64 opt proc run sbin tmp usr work 
+/proc/1/root/home: agent 
+ls /proc/1/root/../../home: agent 
+readlink /proc/1/cwd: /work
+visible pids: 6
+write /proc/sys/kernel/hostname: bash: line 14: /proc/sys/kernel/hostname: Permission denied
+mount tmpfs: mount: /mnt: mount point does not exist.
+caps: CapEff: 0000000000000000 CapBnd: 0000000000000000 NoNewPrivs: 1 Seccomp: 0 
+unshare -U (nested userns, plain): allowed
+== nested bwrap
+nested-bwrap-ran
+1001
+CapEff:	0000000000000000

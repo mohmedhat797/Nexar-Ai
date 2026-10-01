@@ -37,9 +37,11 @@ Original scope:
 
 Not planned before a security review: an HTTP (network) MCP transport, and DOCX/PDF/PPTX export.
 
-## v0.3 — Engineering Machine
+## v0.3 — Engineering Machine _(delivered)_
 
-DeepSeek Harness + native agents + Delegate Skills engineering fleet.
+Delivered: sandboxed, multi-agent engineering tasks (bubblewrap sandbox, private worktrees, lane plans, gates, review, owner-approved local commits), Codex, DSH ACP and Delegate Skills relay adapters, and an experimental Antigravity adapter ([ADR-018](../adr/018-engineering-execution-plane.md), [ADR-019](../adr/019-engineering-lanes-and-resources.md); NXR-020 to NXR-024; [v0.3 report](../devlog/v0.3-engineering-machine-report.md)). Verified live with two end-to-end runs; WSL2-specific checks and Antigravity remain owner-run follow-ups.
+
+Original scope:
 
 - DSH: live execution, ACP adapter (cancel + approvals), MCP servers for DSH sessions.
 - Native agents: Codex (`codex exec --json`), Antigravity, Pi coding agent (sandboxed).

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "plan-implement-review",
+  "displayName": "Plan, implement, gate, review",
+  "description": "A read-only architecture lane drafts a plan, the feature lane implements it, then gates and an independent review follow.",
+  "lanes": [
+    {
+      "id": "architecture",
+      "role": "architecture",
+      "access": "read-only",
+      "taskKind": "analysis",
+      "capabilities": ["reasoning"],
+      "system": "architecture.system.md",
+      "brief": "architecture.md"
+    },
+    {
+      "id": "feature",
+      "role": "feature",
+      "access": "read-write",
+      "taskKind": "coding",
+      "capabilities": ["coding", "repo-editing"],
+      "system": "feature.system.md",
+      "brief": "feature.md"
+    },
+    {
+      "id": "review",
+      "role": "review",
+      "access": "read-only",
+      "taskKind": "review",
+      "capabilities": ["code-review"],
+      "system": "review.system.md",
+      "brief": "review.md"
+    }
+  ]
+}

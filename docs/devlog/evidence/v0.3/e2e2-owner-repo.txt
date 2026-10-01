@@ -1,0 +1,17 @@
+ca0155e nexar: Add a function deslugify(slug) to src/slugify.js that turns a slug back
+1400114 nexar: Add an optional second parameter to slugify: slugify(text, { maxLength }
+0496962 chore: initial demo library
+--- HEAD: main
+nexar: Add a function deslugify(slug) to src/slugify.js that turns a slug back
+
+Nexar-Task: eng-17f7dfa51b66
+Nexar-Plan: implement-review
+Nexar-Lane-1: feature=claude-code
+Nexar-Lane-2: review=codex
+Nexar-Reviewer: codex
+Nexar-Patch-Sha256: c592ebab6e2877ab2662a0302bb63950181a55ecb0e21bc414fa72cbe0208864
+Nexar-Approval: none
+
+ src/slugify.js       | 13 +++++++++++++
+ test/slugify.test.js | 11 ++++++++++-
+ 2 files changed, 23 insertions(+), 1 deletion(-)

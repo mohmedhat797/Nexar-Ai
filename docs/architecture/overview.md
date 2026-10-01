@@ -1,6 +1,6 @@
 # Nexar architecture overview
 
-Status: v0.2 (2026-09-30); v0.1 baseline plus personal-work capabilities. Decisions are recorded in [`docs/adr/`](../adr/). Evidence for
+Status: v0.3 (2026-10-01); v0.1 baseline, v0.2 personal-work capabilities, and the v0.3 engineering plane (section 8). Decisions are recorded in [`docs/adr/`](../adr/). Evidence for
 every upstream claim is in [`docs/research/upstream/`](../research/upstream/).
 
 ## 1. What Nexar is
@@ -212,7 +212,7 @@ flowchart LR
   CLI --> NX
   NX -->|documentation, analysis| M[Model resources<br/>pi-ai / DSH]
   NX -->|coding, review| AG[Agent resources<br/>DSH · Claude Code · Codex · Antigravity]
-  AG -.->|v0.3| DS[Delegate Skills lanes]
+  AG -->|v0.3: sandboxed lanes, section 8| DS[Engineering plane<br/>lanes · gates · review]
   NX --> TEL[(Telemetry)]
 ```
 
@@ -231,13 +231,16 @@ flowchart TB
     EA["ExecutionAdapter<br/>supports() · probe() · execute()"]
   end
   subgraph ACL["Integration packages — the only code that knows upstream"]
-    DSHA["@nexar/integration-deepseek-harness<br/>spawns `dsh --profile sdk`<br/>Nexar-owned JSON-RPC client"]
+    DSHA["@nexar/integration-deepseek-harness<br/>spawns `dsh --profile sdk` (or `acp` for engineering)<br/>Nexar-owned JSON-RPC client"]
     PIA["@nexar/integration-pi<br/>exact-pinned pi-ai"]
     CCA["@nexar/integration-claude-code<br/>`claude -p --output-format json`"]
+    CXA["@nexar/integration-codex<br/>`codex exec --json`"]
+    AGA["@nexar/integration-antigravity<br/>experimental `agy`"]
+    DSK["@nexar/integration-delegate-skills<br/>pinned relay (codex only)"]
     OWB["@nexar/integration-openworker<br/>Work Bridge v2"]
     MCPA["@nexar/integration-mcp<br/>stdio MCP server"]
   end
-  EA --> DSHA & PIA & CCA
+  EA --> DSHA & PIA & CCA & CXA & AGA & DSK
   OWB --> EA
   MCPA --> OWB
 ```
@@ -253,7 +256,78 @@ Rules (ADR-008):
 4. Probes are side-effect free and never make paid calls.
 5. Each adapter has contract tests against a fake runtime so CI never needs credentials.
 
-## 8. Telemetry and errors
+## 8. The v0.3 engineering plane
+
+v0.3 runs **write-capable** coding agents. The decisions are ADR-018 (execution plane: WSL2, bubblewrap,
+private clones, harvest) and ADR-019 (lanes, resource selection, acceptance). The invariants:
+
+- A write-capable lane runs only through the `SandboxLauncher` from `@nexar/sandbox`; adapters refuse
+  write mode otherwise, and there is no unsandboxed fallback.
+- The agent edits a **private clone** of the owner's repository. It cannot commit or push: `.git` is
+  read-only, the clone has no remote, and the egress proxy allows only exact vendor hosts.
+- Nexar, not the agent, produces the patch (harvest in a second sandbox), validates it, verifies it on a
+  fresh clone with gates that have no network, has a different resource review it, asks the owner, and
+  only then creates the commit on `nexar/<task>` with git plumbing. It never pushes.
+
+Lane plans are data in `engineering/plans/` (`implement-review`, `implement-test-review`,
+`plan-implement-review`). Each lane becomes a normal `NexarTask`, so **who executes** is still decided by
+the NRC and recorded as a `RouteDecision` per lane.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor Owner
+  participant CLI as nexar engineer run
+  participant Run as Engineering runner
+  participant WT as Worktrees
+  participant NRC as Resource Controller
+  participant AD as Adapter (e.g. codex)
+  participant SB as Sandbox + egress proxy
+  participant HS as Harvest sandbox
+  participant G as Verification clone + gates
+  participant RV as Review lane
+  participant AP as Approvals
+
+  Owner->>CLI: goal (untrusted input), project
+  CLI->>Run: task, plan
+  Run->>WT: create private clone at baseCommit
+  Run->>NRC: route feature lane (rw, repo-editing)
+  NRC-->>Run: RouteDecision (resource A)
+  Run->>AD: execute with sandboxed workspace
+  AD->>SB: prepare launch (read-write, host allowlist)
+  SB-->>AD: bwrap command, proxy on unix socket
+  AD->>AD: agent edits the clone (no commit, no push)
+  Run->>HS: harvest (read-only, no network, pristine GIT_DIR)
+  HS-->>Run: patch file
+  Run->>Run: patch policy (paths, symlinks, size)
+  Run->>G: fresh clone + patch, run gates (no network)
+  G-->>Run: exit codes, durations, output artifacts
+  Run->>NRC: route review lane (exclude resource A)
+  NRC-->>Run: RouteDecision (resource B)
+  Run->>RV: review the patch (read-only workspace)
+  RV-->>Run: schema-validated verdict
+  Run->>AP: engineering.commit (fingerprint of patch + branch)
+  AP-->>Owner: nexar approvals list / approve
+  Owner->>AP: approve
+  Run->>AP: consume grant (single use)
+  Run->>WT: commitPatch: temp index, write-tree, commit-tree
+  WT-->>Owner: branch nexar/<task> (owner tree untouched, nothing pushed)
+```
+
+A failed gate or a `request-changes` review starts a bounded rework round; when rounds run out the
+task fails. A denied or expired approval ends the task as `not-accepted`. With project policy
+`ownerApproval: "never"` the approval step is skipped explicitly (the second live E2E used this).
+`nexar engineer run` waits on the same file-backed approval store that `nexar approvals` decides on.
+
+Other v0.3 pieces: the DeepSeek Harness adapter also speaks ACP (`dsh --profile acp`) and maps each
+permission request to an approval (deny by default, never `*_always`); the Delegate Skills adapter is an
+executor for a Codex resource that runs a private copy of a sha256-pinned relay inside the sandbox;
+Antigravity is an experimental opt-in adapter. Task records live at
+`.nexar/engineering/<task>/record.json` with allowlisted fields only. v0.3 records lane outcomes but does
+not use them for routing (v0.4). Runbook for the plane: [`docs/integration/wsl2-engineering-plane.md`](../integration/wsl2-engineering-plane.md);
+controls and gaps: [`security.md`](security.md).
+
+## 9. Telemetry and errors
 
 - `ExecutionRecord` (schema v1) records task, resource, adapter, resolved provider/model, routing
   policy + reason codes, timestamps, latency, usage (`Measured<number>`: measured / estimated /
@@ -266,7 +340,7 @@ Rules (ADR-008):
 - Errors are `NexarError` with a closed code set (`NO_ELIGIBLE_RESOURCE`, `AUTH_REQUIRED`,
   `PROVIDER_ERROR`, `EXECUTION_TIMEOUT`, `CONFIGURATION_ERROR`, …) and a `retryable` flag.
 
-## 9. Future: control plane and mobile
+## 10. Future: control plane and mobile
 
 ```mermaid
 flowchart LR
@@ -281,17 +355,17 @@ Not built in v0.1. The seams that make it cheap later: the engine is a library (
 client of it), tasks carry an `origin` (`cli`, `openworker`, `control-plane`, `mobile`), telemetry is
 an event stream, and approvals will attach to tasks rather than to a UI.
 
-## 10. Local-first and security posture
+## 11. Local-first and security posture
 
 See ADR-006 and [`docs/architecture/security.md`](security.md). In short: everything runs on the
 owner's machine; secrets live only in the environment or in each runtime's own credential store;
 Nexar config holds credential _references_; runtime state lives in git-ignored `.nexar/`.
 
-## 11. Repository map
+## 12. Repository map
 
 ```text
 apps/cli                       nexar CLI (doctor, resources, route, run, projects, artifacts,
-                               approvals, clients, mcp serve, workflows)
+                               approvals, clients, mcp serve, workflows, engineer, sandbox)
 packages/contracts             domain types, errors, Measured values — zero deps
 packages/resource-registry     resource descriptors + dynamic state + discovery seam
 packages/resource-controller   NRC: deterministic policy + explainable decisions
@@ -302,10 +376,17 @@ packages/artifacts             LocalArtifactStore, filename sanitization
 packages/approvals             fail-closed approvals, outward-action gate (no executors registered)
 packages/access                client tokens, scopes, JSONL request audit
 packages/workflows             workflow catalog, template renderer, runner
+packages/sandbox               bwrap profile, SandboxLauncher, egress proxy, self-test (v0.3)
+packages/worktrees             private clone, sandboxed harvest, patch policy, verification, commitPatch (v0.3)
+packages/engineering           lane plans, runner, gates, review verdict, task records (v0.3)
 workflows/                     shipped workflow definitions (workflow.json + Markdown templates)
+engineering/                   lane plans (plan.json + Markdown briefs) for the engineering runner
 integrations/echo              offline deterministic adapter (tests + zero-credential proof)
 integrations/claude-code       native Claude Code agent adapter
-integrations/deepseek-harness  DSH runtime adapter (subprocess JSON-RPC)
+integrations/deepseek-harness  DSH runtime adapter (subprocess JSON-RPC; ACP for engineering lanes)
+integrations/codex             native Codex agent adapter (v0.3)
+integrations/antigravity       experimental, opt-in agy adapter (v0.3)
+integrations/delegate-skills   pinned relay executor for a Codex resource (v0.3)
 integrations/pi                pi-ai direct model adapter
 integrations/openworker        Work Bridge v2 (request/response contract + job handling)
 integrations/mcp               stdio MCP server (the only importer of @modelcontextprotocol/*)
@@ -313,5 +394,5 @@ config/                        example configuration
 docs/                          architecture, ADRs, integration, research, roadmap, backlog, devlog
 ```
 
-`apps/control-plane`, `apps/mobile`, and `integrations/delegate-skills` are deliberately **not**
-created yet (ADR-001): empty placeholder packages rot. They appear when their milestone starts.
+`apps/control-plane` and `apps/mobile` are deliberately **not** created yet (ADR-001): empty
+placeholder packages rot. They appear when their milestone starts.

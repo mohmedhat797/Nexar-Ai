@@ -43,6 +43,43 @@
       "tags": ["native-agent"]
     },
     {
+      "id": "codex",
+      "displayName": "Codex",
+      "kind": {
+        "type": "agent",
+        "agent": "codex",
+        "interface": "cli",
+        "underlying": {
+          "provider": "openai"
+        }
+      },
+      "capabilities": [
+        "text-generation",
+        "reasoning",
+        "coding",
+        "repo-editing",
+        "code-review",
+        "tool-use",
+        "shell-execution"
+      ],
+      "runtime": {
+        "adapter": "codex",
+        "locality": "local"
+      },
+      "auth": {
+        "mode": "subscription",
+        "credential": {
+          "source": "runtime-managed",
+          "description": "Codex login (codex login, ChatGPT sign-in)"
+        }
+      },
+      "cost": {
+        "model": "subscription"
+      },
+      "dataLocality": "third-party",
+      "tags": ["native-agent"]
+    },
+    {
       "id": "deepseek-harness",
       "displayName": "DeepSeek Harness (deepseek-v4-flash)",
       "kind": {

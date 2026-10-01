@@ -5,12 +5,46 @@ import {
   type ArtifactRef,
   type Logger,
   type NexarTask,
+  type ProcessLauncher,
   type ResourceId,
 } from '@nexar/contracts';
 import type { Nexar } from '@nexar/core';
+import type { EngineeringRunner } from '@nexar/engineering';
+import type { SandboxAvailability, SelfTestOptions, SelfTestResult } from '@nexar/sandbox';
 import { UsageError, type CliIo } from './io.js';
 
 type OptionValue = string | boolean | (string | boolean)[] | undefined;
+
+/** What the engineering commands need from the runner; tests substitute a fake. */
+export type EngineeringRunnerPort = Pick<EngineeringRunner, 'run' | 'cleanup'>;
+
+/** Result of a `<command> --version` probe. */
+export type VersionProbe =
+  { readonly found: true; readonly output: string } | { readonly found: false };
+
+/**
+ * Test seams: pieces of the outside world a command may be handed instead of the real ones.
+ * `runCli` passes `{}` in production.
+ */
+export interface CliSeams {
+  readonly engineering?: {
+    readonly runner?: EngineeringRunnerPort;
+    readonly launcher?: ProcessLauncher;
+  };
+  readonly sandbox?: {
+    readonly availability?: () => Promise<SandboxAvailability>;
+    readonly runSelfTest?: (
+      launcher: ProcessLauncher,
+      options: SelfTestOptions,
+    ) => Promise<SelfTestResult[]>;
+  };
+  readonly doctor?: {
+    readonly availability?: () => Promise<SandboxAvailability>;
+    /** Reads a host file; `undefined` when it does not exist. */
+    readonly readText?: (path: string) => Promise<string | undefined>;
+    readonly versionOf?: (command: string, args?: readonly string[]) => Promise<VersionProbe>;
+  };
+}
 
 /** What a command receives: global options already resolved, plus its own raw option values. */
 export interface CommandContext {
@@ -20,6 +54,7 @@ export interface CommandContext {
   readonly json: boolean;
   readonly values: Readonly<Record<string, OptionValue>>;
   readonly positionals: readonly string[];
+  readonly seams: CliSeams;
 }
 
 export interface Command {

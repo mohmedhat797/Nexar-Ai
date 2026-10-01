@@ -1,19 +1,21 @@
 import { parseArgs } from 'node:util';
 import type { NexarError } from '@nexar/contracts';
-import { toNexarError, type LogLevel, type NexarErrorCode } from '@nexar/contracts';
+import { toNexarError, type LogLevel } from '@nexar/contracts';
 import { createJsonLogger } from '@nexar/telemetry';
-import { GLOBAL_OPTIONS, type Command } from './args.js';
+import { GLOBAL_OPTIONS, type CliSeams, type Command } from './args.js';
 import { approvalsCommand } from './commands/approvals.js';
 import { artifactsCommand } from './commands/artifacts.js';
 import { clientsCommand } from './commands/clients.js';
 import { doctorCommand } from './commands/doctor.js';
+import { engineerCommand } from './commands/engineer.js';
 import { mcpCommand } from './commands/mcp.js';
 import { projectsCommand } from './commands/projects.js';
 import { resourcesCommand } from './commands/resources.js';
 import { routeCommand } from './commands/route.js';
 import { runCommand } from './commands/run.js';
+import { sandboxCommand } from './commands/sandbox.js';
 import { workflowsCommand } from './commands/workflows.js';
-import { EXIT, UsageError, type CliIo } from './io.js';
+import { EXIT, UsageError, exitCodeFor, type CliIo } from './io.js';
 
 import { CLI_VERSION } from './version.js';
 
@@ -28,6 +30,8 @@ const COMMANDS: readonly Command[] = [
   clientsCommand,
   mcpCommand,
   workflowsCommand,
+  engineerCommand,
+  sandboxCommand,
   routeCommand,
   runCommand,
 ];
@@ -74,13 +78,6 @@ function logLevel(raw: string | undefined, env: NodeJS.ProcessEnv): LogLevel {
   return value as LogLevel;
 }
 
-const EXIT_BY_CODE: Partial<Record<NexarErrorCode, number>> = {
-  NO_ELIGIBLE_RESOURCE: EXIT.noEligibleResource,
-  AUTH_REQUIRED: EXIT.authRequired,
-  EXECUTION_TIMEOUT: EXIT.timeoutOrCancelled,
-  EXECUTION_CANCELLED: EXIT.timeoutOrCancelled,
-};
-
 function reportError(error: NexarError, io: CliIo): number {
   io.stderr(`error [${error.code}]: ${error.message}\n`);
   const rejected = (error.details as { rejected?: unknown } | undefined)?.rejected;
@@ -89,10 +86,10 @@ function reportError(error: NexarError, io: CliIo): number {
       io.stderr(`  - ${entry.resourceId}: ${entry.reasonCodes.join(', ')}\n`);
     }
   }
-  return EXIT_BY_CODE[error.code] ?? EXIT.failure;
+  return exitCodeFor(error.code);
 }
 
-async function dispatch(argv: readonly string[], io: CliIo): Promise<number> {
+async function dispatch(argv: readonly string[], io: CliIo, seams: CliSeams): Promise<number> {
   const commandIndex = findCommandIndex(argv);
   const name = commandIndex === -1 ? undefined : argv[commandIndex];
   const command = name === undefined ? undefined : COMMANDS.find((c) => c.name === name);
@@ -129,13 +126,17 @@ async function dispatch(argv: readonly string[], io: CliIo): Promise<number> {
     json: values.json === true,
     values: values,
     positionals,
+    seams,
   });
 }
 
-/** Runs the CLI and returns the process exit code. Fully in-process: all I/O goes through `io`. */
-export async function runCli(argv: string[], io: CliIo): Promise<number> {
+/**
+ * Runs the CLI and returns the process exit code. Fully in-process: all I/O goes through `io`.
+ * `seams` replace outside-world pieces (sandbox probes, the engineering runner) in tests.
+ */
+export async function runCli(argv: string[], io: CliIo, seams: CliSeams = {}): Promise<number> {
   try {
-    return await dispatch(argv, io);
+    return await dispatch(argv, io, seams);
   } catch (error) {
     const code = (error as { code?: unknown } | null)?.code;
     const isParseError =

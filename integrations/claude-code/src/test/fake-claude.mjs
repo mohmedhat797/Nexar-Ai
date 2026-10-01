@@ -6,6 +6,11 @@
 //   FAKE_CLAUDE_MODE        success | error | garbage | hang | auth   (for print-mode runs)
 //   FAKE_CLAUDE_LOGGED_OUT  "1" makes `auth status` report loggedIn:false
 //   FAKE_CLAUDE_OMIT_USAGE  "1" drops usage/cost/turns from the success result
+//   With `--output-format stream-json` in argv the fake emits stream events (an init line, an
+//   assistant line with tool_use blocks whose input is TOOL-INPUT-SENTINEL, then the result line):
+//   FAKE_CLAUDE_TOOLS       comma-separated tool names to emit as tool_use (default "Read,Bash")
+//   FAKE_CLAUDE_DENIALS     number of permission_denials entries to put in the result
+//   FAKE_CLAUDE_NO_RESULT   "1" omits the final result line
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const argv = process.argv.slice(2);
@@ -39,6 +44,42 @@ function record(stdin) {
     env: Object.fromEntries(keys.map((k) => [k, process.env[k]])),
   });
   writeFileSync(file, JSON.stringify(entries));
+}
+
+const streaming = argv.includes('stream-json');
+
+function emit(result) {
+  if (!streaming) {
+    process.stdout.write(JSON.stringify(result) + '\n');
+    return;
+  }
+  const tools = (process.env.FAKE_CLAUDE_TOOLS ?? 'Read,Bash').split(',').filter(Boolean);
+  process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init' }) + '\n');
+  process.stdout.write(
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'text', text: 'working' },
+          ...tools.map((name, i) => ({
+            type: 'tool_use',
+            id: `tu-${i}`,
+            name,
+            input: { command: 'TOOL-INPUT-SENTINEL' },
+          })),
+        ],
+      },
+    }) + '\n',
+  );
+  const denials = Number(process.env.FAKE_CLAUDE_DENIALS ?? 0);
+  if (denials > 0) {
+    result.permission_denials = Array.from({ length: denials }, () => ({
+      tool_name: 'Bash',
+      tool_input: { command: 'DENIED-SENTINEL' },
+    }));
+  }
+  if (process.env.FAKE_CLAUDE_NO_RESULT !== '1')
+    process.stdout.write(JSON.stringify(result) + '\n');
 }
 
 function modelFromArgs() {
@@ -78,19 +119,17 @@ if (argv[0] === '--version') {
         };
       }
       result.modelUsage = { [modelFromArgs()]: { inputTokens: 10, outputTokens: 5 } };
-      process.stdout.write(JSON.stringify(result) + '\n');
+      emit(result);
       break;
     }
     case 'error':
-      process.stdout.write(
-        JSON.stringify({
-          type: 'result',
-          subtype: 'error_during_execution',
-          is_error: true,
-          api_error_status: 529,
-          result: 'overloaded',
-        }) + '\n',
-      );
+      emit({
+        type: 'result',
+        subtype: 'error_during_execution',
+        is_error: true,
+        api_error_status: 529,
+        result: 'overloaded',
+      });
       process.stderr.write('upstream exploded\n');
       process.exitCode = 1;
       break;

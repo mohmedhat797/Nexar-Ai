@@ -13,9 +13,10 @@ const examplePath = fileURLToPath(
 describe('config/nexar.config.example.json', () => {
   const config = parseConfig(JSON.parse(readFileSync(examplePath, 'utf8')), examplePath);
 
-  it('parses with core and declares the three documented resources', () => {
+  it('parses with core and declares the documented resources', () => {
     expect(config.resources.map((r) => r.id)).toEqual([
       'claude-code',
+      'codex',
       'deepseek-harness',
       'anthropic-sonnet',
     ]);
@@ -29,6 +30,7 @@ describe('config/nexar.config.example.json', () => {
     );
     expect(preferred).not.toContain('local-echo');
     expect(config.resources.some((r) => r.runtime.adapter === 'echo')).toBe(false);
+    expect(preferred).not.toContain('codex');
     expect(config.routing.taskKinds['analysis']?.preferredResourceIds).toEqual([
       'anthropic-sonnet',
       'deepseek-harness',
@@ -40,7 +42,12 @@ describe('config/nexar.config.example.json', () => {
     const credentials = config.resources.flatMap((r) =>
       'credential' in r.auth ? [r.auth.credential] : [],
     );
-    expect(credentials.map((c) => c.source)).toEqual(['runtime-managed', 'env', 'env']);
+    expect(credentials.map((c) => c.source)).toEqual([
+      'runtime-managed',
+      'runtime-managed',
+      'env',
+      'env',
+    ]);
   });
 
   it('declares a demo project that canonicalizes inside the repo and resolves its document set', async () => {

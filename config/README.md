@@ -110,6 +110,7 @@ canonicalized. External clients such as the OpenWorker Work Bridge must always g
 | Resource           | Adapter            | Notes                                                     |
 | ------------------ | ------------------ | --------------------------------------------------------- |
 | `claude-code`      | `claude-code`      | Native agent via the `claude` CLI, `permissionMode: plan` |
+| `codex`            | `codex`            | Native agent via the `codex` CLI; declared, not preferred |
 | `deepseek-harness` | `deepseek-harness` | DeepSeek `deepseek-v4-flash`, needs `DEEPSEEK_API_KEY`    |
 | `anthropic-sonnet` | `pi`               | `claude-sonnet-4-5` by API, needs `ANTHROPIC_API_KEY`     |
 
@@ -117,6 +118,88 @@ Routing: `claude-code` is the default resource. Per task kind, preferences are `
 claude-code, deepseek-harness; `review` → claude-code; `documentation` → anthropic-sonnet,
 claude-code; `analysis` → anthropic-sonnet, deepseek-harness, claude-code. A `taskKinds` entry
 replaces the built-in rule for that kind, so each one repeats its `requiredCapabilities`.
+
+### Codex
+
+The `codex` resource runs the OpenAI Codex CLI (`codex exec`) with your ChatGPT subscription. Install
+Codex from its official source and sign in once with `codex login`; no OpenAI API key is used or
+passed (`OPENAI_API_KEY`, `CODEX_API_KEY` and `CODEX_ACCESS_TOKEN` are never forwarded to Codex). The
+example declares the resource but no routing rule prefers it, so it only runs when chosen explicitly
+(or by capability once engineering lanes use it). Nexar never reads, parses or copies `CODEX_HOME`
+(default `~/.codex`, where the login lives): it only passes the path on, or mounts it into the Nexar
+sandbox for write-mode lanes. Optional `runtime.options`: `binary`, `model`,
+`reasoningEffort` (`low`/`medium`/`high`), `timeoutMs`, `codexHome`, and `allowHosts` (sandbox egress
+allowlist, default `chatgpt.com`, `auth.openai.com`, `api.openai.com`). Unknown options are rejected.
+
+### Codex through a Delegate Skills relay (`delegate-skills`)
+
+The `delegate-skills` adapter runs the Delegate Skills `codex` relay inside the Nexar sandbox, as an
+alternative mechanism for a Codex resource. **Nexar still routes**: the Resource Controller picks the
+resource; the relay is only how that resource executes (it never chooses a resource and never bypasses
+the sandbox). It runs only in engineering workspaces, and only through the sandbox launcher.
+
+You install Delegate Skills yourself and pin the exact relay file. Declare a resource such as
+`delegateSkillsCodexResource()` (id `codex-relay`) with these `runtime.options`:
+
+```json
+"options": {
+  "relay": "codex",
+  "relayPath": "/home/you/.claude/skills/codex-delegate/scripts/relay.mjs",
+  "relaySha256": "<sha256sum of that relay.mjs>"
+}
+```
+
+`relaySha256` is required: Nexar hashes the file before every run and in the probe, and refuses on a
+mismatch (`relay pin mismatch`). Re-pin after you deliberately update Delegate Skills (Nexar was
+written against upstream `6826b363`). Only `relay: "codex"` is supported in v0.3; for Claude use the
+native `claude-code` adapter, for Antigravity the experimental `antigravity` adapter. Optional:
+`nodePath`, `model`, `effort` (`low`/`medium`/`high`), `timeout` (relay duration such as `30m`, the
+default), `codexHome` and `allowHosts` (same meaning and defaults as for the native `codex` resource).
+The brief goes to the relay on stdin, no parent environment is passed, and Nexar never reads
+`CODEX_HOME`. The example config does not route to this resource.
+
+### Antigravity (experimental, opt-in)
+
+`antigravity` runs Google's official `agy` CLI headless for engineering lanes. It is **experimental and
+not routed by default**: the example config does not declare it, and the adapter refuses to execute
+until `runtime.options.acknowledgeExperimental` is `true`. Authenticated behaviour, sandbox nesting and
+WSL2 are unverified (see `docs/research/upstream/v0.3/antigravity.md`). Terms note: Antigravity's
+Additional Terms (§6) forbid third-party access to the service with Antigravity OAuth tokens; Nexar only
+drives the unmodified official binary and never reads, parses or copies Google credentials. Sign in with
+`agy` yourself first; an unauthenticated run fails with `AUTH_REQUIRED` and is never allowed to start an
+interactive sign-in. It runs only in a sandboxed engineering workspace (otherwise `POLICY_REJECTED`),
+one run at a time. The prompt is passed as a command-line argument, so it is visible in the host's
+process list (capped at 100 000 bytes). Optional `runtime.options`: `binary`, `model`, `effort`
+(`low`/`medium`/`high`/`max`), `timeoutMs` (default 30 min), `allowHosts` (default
+`cloudcode-pa.googleapis.com`, `oauth2.googleapis.com`, `www.googleapis.com`), and
+`sandbox.mounts` (narrow state/credential mounts you declare; Nexar never opens them). Unknown options
+are rejected.
+
+### Claude Code in engineering lanes (`runtime.options.sandbox`)
+
+When a task runs in an engineering workspace, `claude` is launched through Nexar's sandbox with an
+empty environment (no `ANTHROPIC_*`, no tokens). Two optional keys on the `claude-code` resource:
+
+```json
+"options": {
+  "engineeringTimeoutMs": 1800000,
+  "sandbox": {
+    "allowHosts": ["api.anthropic.com", "claude.ai", "platform.claude.com"],
+    "mounts": [
+      {
+        "hostPath": "/home/you/.claude/.credentials.json",
+        "sandboxPath": "/home/agent/.claude/.credentials.json",
+        "access": "read-write"
+      }
+    ]
+  }
+}
+```
+
+`allowHosts` is the egress allowlist (the values above are the default). `mounts` is how the login
+reaches the sandbox: mount only the single credentials file, not the home or `~/.claude` directory.
+Nexar never opens or reads a mount; it hands the declaration to the launcher, which validates it.
+Write mode is refused unless the launcher is the Nexar sandbox.
 
 **The example deliberately contains no `local-echo` test double.** In a real configuration an
 always-eligible echo resource would silently "succeed" whenever the real resources are unavailable.

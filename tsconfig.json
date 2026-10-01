@@ -14,13 +14,22 @@
       "path": "./packages/telemetry"
     },
     {
+      "path": "./packages/sandbox"
+    },
+    {
       "path": "./packages/projects"
+    },
+    {
+      "path": "./packages/worktrees"
     },
     {
       "path": "./integrations/echo"
     },
     {
       "path": "./packages/core"
+    },
+    {
+      "path": "./packages/engineering"
     },
     {
       "path": "./integrations/openworker"
@@ -30,6 +39,15 @@
     },
     {
       "path": "./integrations/claude-code"
+    },
+    {
+      "path": "./integrations/codex"
+    },
+    {
+      "path": "./integrations/antigravity"
+    },
+    {
+      "path": "./integrations/delegate-skills"
     },
     {
       "path": "./integrations/deepseek-harness"

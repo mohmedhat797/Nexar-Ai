@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "implement-test-review",
+  "displayName": "Implement, test, gate, review",
+  "description": "One lane implements, a second lane writes tests, Nexar runs the gates, and an independent resource reviews.",
+  "lanes": [
+    {
+      "id": "feature",
+      "role": "feature",
+      "access": "read-write",
+      "taskKind": "coding",
+      "capabilities": ["coding", "repo-editing"],
+      "system": "feature.system.md",
+      "brief": "feature.md"
+    },
+    {
+      "id": "tests",
+      "role": "tests",
+      "access": "read-write",
+      "taskKind": "coding",
+      "capabilities": ["coding", "repo-editing"],
+      "system": "tests.system.md",
+      "brief": "tests.md"
+    },
+    {
+      "id": "review",
+      "role": "review",
+      "access": "read-only",
+      "taskKind": "review",
+      "capabilities": ["code-review"],
+      "system": "review.system.md",
+      "brief": "review.md"
+    }
+  ]
+}
