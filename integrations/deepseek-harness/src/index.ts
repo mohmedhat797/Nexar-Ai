@@ -20,3 +20,5 @@ export {
   deepseekHarnessResource,
 } from './resource.js';
 export type { BinarySpec, ServerInfo } from './runtime-process.js';
+export type { AcpOptions, PermissionMode, PermissionPolicy } from './acp/options.js';
+export { parseAcpOptions } from './acp/options.js';

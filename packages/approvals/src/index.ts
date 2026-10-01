@@ -22,3 +22,4 @@ export {
   type OutwardActionExecutor,
   type PerformOutwardActionOptions,
 } from './outward.js';
+export { POLICY_DECIDER, recordPolicyDecision } from './policy.js';

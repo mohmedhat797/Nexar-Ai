@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { NexarError, isNexarError, toNexarError } from '@nexar/contracts';
+import { NexarError } from '@nexar/contracts';
 import type {
   AuthState,
   ExecutionAdapter,
@@ -10,11 +10,14 @@ import type {
   ResourceDescriptor,
   ResourceState,
 } from '@nexar/contracts';
+import type { ApprovalGate, ApprovalStore } from '@nexar/approvals';
+import { executeAcp } from './acp/run.js';
 import { buildBaseEnv, buildDshEnv, credentialEnvName } from './env.js';
 import { RunGuard } from './guard.js';
 import { parseRuntimeOptions } from './options.js';
 import { DEEPSEEK_HARNESS_ADAPTER_ID, DSH_PINNED_VERSION } from './resource.js';
-import { RunCollector, interpretRun, isAuthFailureText } from './run-collector.js';
+import { mapFailure } from './failure.js';
+import { RunCollector, interpretRun } from './run-collector.js';
 import {
   initializeRuntime,
   normalizeBinary,
@@ -27,7 +30,6 @@ const DEFAULT_INITIALIZE_TIMEOUT_MS = 15_000;
 const DEFAULT_RUN_TIMEOUT_MS = 15 * 60_000;
 const PROBE_TIMEOUT_MS = 5_000;
 const SHUTDOWN_TIMEOUT_MS = 2_000;
-const STDERR_IN_ERROR_CHARS = 500;
 const DEFAULT_STATE_SUBDIR = join('.nexar', 'runtimes', 'deepseek-harness');
 
 export interface DeepSeekHarnessAdapterOptions {
@@ -40,9 +42,18 @@ export interface DeepSeekHarnessAdapterOptions {
   readonly initializeTimeoutMs?: number;
   readonly defaultTimeoutMs?: number;
   readonly now?: () => Date;
+  /**
+   * Approvals for engineering lanes (ACP). Without a gate every `session/request_permission` is
+   * rejected (deny by default). `store` additionally lets allow-listed tool decisions be recorded.
+   */
+  readonly approvals?: { readonly gate: ApprovalGate; readonly store?: ApprovalStore };
 }
 
-/** Runs tasks on DeepSeek Harness by driving an external `dsh --profile sdk` process. */
+/**
+ * Runs tasks on DeepSeek Harness. Ordinary tasks drive an external `dsh --profile sdk` process;
+ * engineering lanes (a context carrying a workspace) run `dsh --profile acp` through the
+ * workspace's launcher, with every permission request answered via Nexar approvals.
+ */
 export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
   readonly id = DEEPSEEK_HARNESS_ADAPTER_ID;
   readonly displayName = 'DeepSeek Harness';
@@ -53,6 +64,7 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
   private readonly initializeTimeoutMs: number;
   private readonly defaultTimeoutMs: number;
   private readonly now: () => Date;
+  private readonly approvals: DeepSeekHarnessAdapterOptions['approvals'];
 
   constructor(options: DeepSeekHarnessAdapterOptions = {}) {
     this.binary = normalizeBinary(options.binary);
@@ -61,6 +73,7 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
     this.initializeTimeoutMs = options.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS;
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
     this.now = options.now ?? (() => new Date());
+    this.approvals = options.approvals;
   }
 
   supports(resource: ResourceDescriptor): boolean {
@@ -93,6 +106,16 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
 
   async execute(request: ExecutionRequest, context: ExecutionContext): Promise<ExecutionResult> {
     const { task, resource } = request;
+    if (context.workspace !== undefined) {
+      return executeAcp(request, context, context.workspace, {
+        binary: this.binary,
+        stateDir: this.stateDir ?? join(process.cwd(), DEFAULT_STATE_SUBDIR),
+        env: this.env,
+        approvals: this.approvals,
+        initializeTimeoutMs: this.initializeTimeoutMs,
+        defaultTimeoutMs: this.defaultTimeoutMs,
+      });
+    }
     const runtime = parseRuntimeOptions(resource);
     const cwd = task.input.workingDirectory ?? process.cwd();
     const stateDir = this.stateDir ?? join(cwd, DEFAULT_STATE_SUBDIR);
@@ -234,42 +257,6 @@ function secretValues(
     const value = name === undefined ? undefined : env[name];
     return value === undefined ? [] : [value];
   });
-}
-
-/** Turns anything thrown during a run into the `NexarError` Nexar callers expect. */
-async function mapFailure(
-  error: unknown,
-  proc: RuntimeProcess | undefined,
-  secrets: readonly string[],
-): Promise<NexarError> {
-  const closed = isNexarError(error) && error.details?.reason === 'closed';
-  if (proc === undefined || !closed) return toNexarError(error, 'INTERNAL_ERROR');
-
-  // The connection dropped: let the exit (or a spawn failure) land so we can explain why.
-  await proc.waitForExit(SHUTDOWN_TIMEOUT_MS);
-  if (proc.spawnError !== undefined) {
-    const { code, path, syscall } = proc.spawnError;
-    return new NexarError(
-      'INTEGRATION_UNAVAILABLE',
-      code === 'ENOENT'
-        ? `could not launch dsh: '${path ?? 'binary'}' or the working directory was not found`
-        : `could not launch dsh (${code ?? 'unknown error'})`,
-      { cause: proc.spawnError, details: { code, syscall } },
-    );
-  }
-  const exit = proc.exitInfo;
-  const tail = proc.stderrTail(STDERR_IN_ERROR_CHARS, secrets);
-  const how =
-    exit === undefined
-      ? 'closed its connection'
-      : exit.signal !== null
-        ? `was killed by ${exit.signal}`
-        : `exited with code ${String(exit.code)}`;
-  return new NexarError(
-    isAuthFailureText(tail) ? 'AUTH_REQUIRED' : 'PROVIDER_ERROR',
-    `dsh ${how} before finishing${tail.length > 0 ? `: ${tail}` : ''}`,
-    { details: { exitCode: exit?.code ?? null, signal: exit?.signal ?? null } },
-  );
 }
 
 type VersionOutcome =

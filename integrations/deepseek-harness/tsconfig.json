@@ -8,6 +8,9 @@
   "exclude": ["**/*.test.ts", "src/test", "dist"],
   "references": [
     {
+      "path": "../../packages/approvals"
+    },
+    {
       "path": "../../packages/contracts"
     }
   ]
