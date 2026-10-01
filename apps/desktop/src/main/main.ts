@@ -15,11 +15,16 @@ import {
   isTrustedFrameUrl,
 } from './window.js';
 
-// Tests point the app at a throwaway directory; this must happen before `ready`.
+// Per-user state lives in `<appData>/Nexar` (%APPDATA%\Nexar on Windows, ADR-021 §4). Tests point
+// the app at a throwaway directory instead. Both must happen before `ready`.
+app.setName('Nexar');
 const userDataOverride = process.env['NEXAR_DESKTOP_USER_DATA'];
-if (userDataOverride !== undefined && userDataOverride !== '') {
-  app.setPath('userData', resolve(userDataOverride));
-}
+app.setPath(
+  'userData',
+  userDataOverride !== undefined && userDataOverride !== ''
+    ? resolve(userDataOverride)
+    : join(app.getPath('appData'), 'Nexar'),
+);
 
 function decider(): string {
   try {

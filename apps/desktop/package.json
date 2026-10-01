@@ -1,12 +1,13 @@
 {
   "name": "@nexar/desktop",
+  "productName": "Nexar",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/main/main.js",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "start": "electron .",
+    "start": "node scripts/start.mjs",
     "e2e": "node scripts/e2e.mjs"
   },
   "dependencies": {
