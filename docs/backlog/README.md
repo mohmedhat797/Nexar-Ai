@@ -37,18 +37,18 @@ NXR-010 to NXR-016 were delivered in v0.2. NXR-017 is a follow-up and is not sch
 
 NXR-020 to NXR-024 were delivered in v0.3. NXR-025 to NXR-029 are follow-ups (milestone v0.3.x unless noted).
 
-| Id                                                    | Title                                        | Milestone | Labels                        | Status                    |
-| ----------------------------------------------------- | -------------------------------------------- | --------- | ----------------------------- | ------------------------- |
-| [NXR-020](020-deepseek-harness-acp-adapter.md)        | DeepSeek Harness ACP adapter                 | v0.3      | integration, deepseek-harness | Done (v0.3)               |
-| [NXR-021](021-codex-native-agent-adapter.md)          | Codex native agent adapter                   | v0.3      | integration, codex            | Done (v0.3)               |
-| [NXR-022](022-antigravity-agy-adapter.md)             | Google Antigravity (`agy`) adapter           | v0.3      | integration, antigravity      | Done (v0.3), experimental |
-| [NXR-023](023-delegate-skills-adapter.md)             | Product-time Delegate Skills adapter         | v0.3      | integration, delegate-skills  | Done (v0.3)               |
-| [NXR-024](024-os-level-sandbox-for-agent-runtimes.md) | OS-level sandbox for agent runtimes          | v0.3      | security                      | Done (v0.3)               |
-| [NXR-025](025-seccomp-filter-for-sandbox.md)          | Seccomp filter for the sandbox               | v0.3.x    | security, sandbox             | Planned                   |
-| [NXR-026](026-launcher-env-via-args-fd.md)            | Pass launcher environment via `--args <fd>`  | v0.3.x    | security, sandbox             | Planned                   |
-| [NXR-027](027-parallel-engineering-lanes.md)          | Parallel engineering lanes with a merge step | v0.4      | engineering                   | Planned                   |
-| [NXR-028](028-mcp-engineering-scope.md)               | MCP engineering scope                        | v0.5      | mcp, security, engineering    | Planned                   |
-| [NXR-029](029-antigravity-live-validation.md)         | Antigravity live validation and ADR-020      | v0.3.x    | integration, antigravity      | Planned                   |
+| Id                                                    | Title                                         | Milestone | Labels                        | Status                    |
+| ----------------------------------------------------- | --------------------------------------------- | --------- | ----------------------------- | ------------------------- |
+| [NXR-020](020-deepseek-harness-acp-adapter.md)        | DeepSeek Harness ACP adapter                  | v0.3      | integration, deepseek-harness | Done (v0.3)               |
+| [NXR-021](021-codex-native-agent-adapter.md)          | Codex native agent adapter                    | v0.3      | integration, codex            | Done (v0.3)               |
+| [NXR-022](022-antigravity-agy-adapter.md)             | Google Antigravity (`agy`) adapter            | v0.3      | integration, antigravity      | Done (v0.3), experimental |
+| [NXR-023](023-delegate-skills-adapter.md)             | Product-time Delegate Skills adapter          | v0.3      | integration, delegate-skills  | Done (v0.3)               |
+| [NXR-024](024-os-level-sandbox-for-agent-runtimes.md) | OS-level sandbox for agent runtimes           | v0.3      | security                      | Done (v0.3)               |
+| [NXR-025](025-seccomp-filter-for-sandbox.md)          | Seccomp filter for the sandbox                | v0.3.x    | security, sandbox             | Planned                   |
+| [NXR-026](026-launcher-env-via-args-fd.md)            | Pass launcher environment via `--args <fd>`   | v0.3.x    | security, sandbox             | Planned                   |
+| [NXR-027](027-parallel-engineering-lanes.md)          | Parallel engineering lanes with a merge step  | v0.4      | engineering                   | Planned                   |
+| [NXR-028](028-mcp-engineering-scope.md)               | MCP engineering scope                         | v0.5      | mcp, security, engineering    | Planned                   |
+| [NXR-029](029-antigravity-live-validation.md)         | Antigravity live validation and promotion ADR | v0.3.x    | integration, antigravity      | Planned                   |
 
 ## v0.4 — Resource Intelligence
 

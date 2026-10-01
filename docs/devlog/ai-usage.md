@@ -90,3 +90,23 @@ usage data is available; keep ~$10 reserve.
 - Efficiency: four delegates ran in parallel git worktrees on disjoint packages, briefs were split
   finer than in v0.2 (one package each), and the orchestrator ran the real-sandbox and live checks the
   delegates' nested sandbox could not run; those checks found the two real sandbox bugs.
+
+## v0.4 — Resource Intelligence
+
+Milestone start: 2026-10-01 (after the v0.3 merge, `ebc1516`).
+
+Usage review at milestone start (observed values only):
+
+- Cumulative observed delegated (Sonnet relay) spend v0.1–v0.3: **$41.62** (sum of `totalCostUsd`).
+- Opus orchestrator spend: **unknown** (not exposed to the session).
+- Native research subagent spend: **unknown** (only token counts are exposed; this milestone's upstream
+  refresh used ~202k subagent tokens).
+- Remaining development credit balance: **unknown** (no interface in this environment reports it; it
+  is not estimated).
+- Owner subscriptions used for live checks (Claude Code, Codex via ChatGPT): plan allowance is
+  **unknown** to Nexar (no supported quota interface; see `docs/research/upstream/v0.4/`).
+
+| Date       | Unit                               | Model    | Work                                                                     | Observed usage                       | Outcome                                           |
+| ---------- | ---------------------------------- | -------- | ------------------------------------------------------------------------ | ------------------------------------ | ------------------------------------------------- |
+| 2026-10-01 | Orchestrator session (v0.4)        | Opus 5.5 | v0.3 close, ADR-020, contracts, briefs, reviews                          | Not exposed to the session           | In progress                                       |
+| 2026-10-01 | Upstream refresh (native subagent) | Sonnet   | Quota/probe/cost surfaces of Claude Code, Codex, agy, dsh, pi-ai, Ollama | Tokens only: ~202k; cost not exposed | `docs/research/upstream/v0.4/upstream-refresh.md` |

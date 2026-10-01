@@ -269,7 +269,7 @@ score.
 | `packages/worktrees`                           | private clone, hardening, sandboxed harvest, patch validation, plumbing commit           |
 | `packages/engineering`                         | task model, lane plans, brief rendering, gates, review parsing, acceptance, records      |
 | `integrations/codex`                           | native Codex adapter (`codex exec --json`)                                               |
-| `integrations/antigravity`                     | experimental `agy` adapter (spike-gated, ADR-020 if promoted)                            |
+| `integrations/antigravity`                     | experimental `agy` adapter (spike-gated, own ADR if promoted)                            |
 | `integrations/delegate-skills`                 | relay executor (mechanism only)                                                          |
 | `integrations/claude-code`, `deepseek-harness` | gain sandboxed write mode / ACP client                                                   |
 
@@ -335,7 +335,7 @@ The Decision above stands. The implementation refined it as follows:
   refused with a pointer to the native adapters. The relay is sha256-pinned, and the sandbox runs a
   private read-only copy of exactly the verified bytes.
 - **Antigravity:** it ships as an experimental adapter that the owner must opt into
-  (`acknowledgeExperimental`). A later ADR-020 decides whether it is promoted or dropped
+  (`acknowledgeExperimental`). A later ADR decides whether it is promoted or dropped
   ([NXR-029](../backlog/029-antigravity-live-validation.md)).
 - **Owner approval:** `nexar engineer run` waits on the file-backed approval gate. The owner
   approves from another terminal with `nexar approvals approve <id>`. Engineering commands never

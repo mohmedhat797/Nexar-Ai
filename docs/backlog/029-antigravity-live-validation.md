@@ -1,11 +1,11 @@
-# NXR-029: Antigravity live validation and ADR-020
+# NXR-029: Antigravity live validation and promotion ADR
 
 **Milestone:** v0.3.x · **Labels:** integration, antigravity · **Depends on:** [NXR-022](022-antigravity-agy-adapter.md)
 
 ## Summary
 
 Validate the experimental `agy` adapter end to end on the owner's machine, obtain the terms sign-off,
-and then decide in ADR-020 whether to promote it or drop it.
+and then decide in a dedicated ADR whether to promote it or drop it.
 
 ## Problem
 
@@ -20,14 +20,14 @@ The prompt is also passed in argv, visible in the host process list.
 ## Objective
 
 Owner-run evidence that an Antigravity lane can implement a task in the sandbox, plus a recorded terms
-decision, ending in ADR-020.
+decision, ending in a promotion ADR.
 
 ## Scope
 
 - Owner signs in with `agy` inside the engineering plane and runs the `engineering-demo` with an Antigravity implement lane (and, separately, as reviewer).
 - Record: sandbox nesting result, credential-mount needs, egress hosts actually used (debug egress log), token-refresh behaviour, exit codes and `AUTH_REQUIRED` handling.
 - Owner reviews the terms and records a sign-off or a decision not to use it.
-- ADR-020 promotes the adapter (drops the acknowledgement, adds it to the example config) or removes it.
+- The promotion ADR promotes the adapter (drops the acknowledgement, adds it to the example config) or removes it.
 - Add evidence under `docs/devlog/evidence/`.
 
 ## Out of scope
@@ -45,7 +45,7 @@ decision, ending in ADR-020.
 - [ ] A live Antigravity lane produces a patch that passes the gates in the sandbox, or the failure is documented.
 - [ ] Egress hosts used are recorded; the allowlist matches them.
 - [ ] A written terms decision exists.
-- [ ] ADR-020 is accepted (promote or drop) and docs are updated accordingly.
+- [ ] The promotion ADR is accepted (promote or drop) and docs are updated accordingly.
 
 ## Testing expectations
 
