@@ -20,6 +20,9 @@
       "path": "./packages/projects"
     },
     {
+      "path": "./packages/worktrees"
+    },
+    {
       "path": "./integrations/echo"
     },
     {

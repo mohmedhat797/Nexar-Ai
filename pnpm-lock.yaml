@@ -282,6 +282,16 @@ importers:
         specifier: workspace:*
         version: link:../../integrations/echo
 
+  packages/worktrees:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@nexar/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
+
 packages:
 
   '@anthropic-ai/sdk@0.124.0':
