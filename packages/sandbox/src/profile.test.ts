@@ -87,6 +87,17 @@ describe('buildBwrapArgs', () => {
     ).toBeGreaterThan(-1);
   });
 
+  it('binds toolchains after the /tmp and home tmpfs mounts, so they are not hidden', () => {
+    const args = buildBwrapArgs({ ...base, toolchainPaths: ['/tmp/tools/node'] });
+    const tmpfsTmp = args.findIndex((a, i) => a === '--tmpfs' && args[i + 1] === '/tmp');
+    const toolchain = args.findIndex(
+      (a, i) => a === '--ro-bind' && args[i + 1] === '/tmp/tools/node',
+    );
+    expect(tmpfsTmp).toBeGreaterThan(-1);
+    expect(toolchain).toBeGreaterThan(tmpfsTmp);
+    expect(toolchain).toBeLessThan(args.indexOf('--remount-ro'));
+  });
+
   it('binds the workspace and protects .git after it', () => {
     const ws = indexOfSeq(args, '--bind', '/data/ws', '/work');
     const git = indexOfSeq(args, '--ro-bind', '/data/ws/.git', '/work/.git');

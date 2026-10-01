@@ -73,15 +73,16 @@ export function buildBwrapArgs(input: BwrapProfileInput): string[] {
   for (const file of OPTIONAL_SYSTEM_FILES) {
     a.push('--ro-bind-try', file, file);
   }
-  for (const path of input.toolchainPaths) {
-    a.push('--ro-bind', path, path);
-  }
   if (input.runDir !== undefined) {
     a.push('--ro-bind', `${input.runDir}/passwd`, '/etc/passwd');
     a.push('--ro-bind', `${input.runDir}/group`, '/etc/group');
   }
 
   a.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', SANDBOX_HOME);
+  // After the tmpfs mounts, so a toolchain under /tmp (or the home path) is not hidden by them.
+  for (const path of input.toolchainPaths) {
+    a.push('--ro-bind', path, path);
+  }
 
   a.push(
     input.workspaceAccess === 'read-write' ? '--bind' : '--ro-bind',
