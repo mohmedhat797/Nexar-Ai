@@ -37,7 +37,9 @@ the current user, SYSTEM and local Administrators. It rejects reparse paths, har
 foreign-owned entries and unrelated nonempty directories, and never changes AppData or Temp parent ACLs. Existing state
 is recognized by its Nexar config or Desktop marker. Overrides must name a dedicated local state
 directory; UNC and redirected roots are refused. External config state-directory overrides require
-their own audit. Trees over 10,000 entries fail closed. Trusted SYSTEM/Admin-owned entries are
+their own audit. Trees over 10,000 entries fail closed. Chromium's runtime data (disk caches,
+storage, crash dumps) lives outside that tree in `%LOCALAPPDATA%\Nexar\Runtime`, so the per-entry
+guard stays small and fast. Trusted SYSTEM/Admin-owned entries are
 normalized only with rights the caller already has; the final owner is the current user. These
 startup checks do not provide handle-based protection against concurrent path replacement. A
 startup failure while securing state requires fixing ownership or the path first.
