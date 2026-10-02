@@ -415,6 +415,15 @@ importers:
         specifier: workspace:*
         version: link:../workflows
 
+  packages/operating:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@nexar/sessions':
+        specifier: workspace:*
+        version: link:../sessions
+
   packages/process:
     dependencies:
       '@nexar/contracts':

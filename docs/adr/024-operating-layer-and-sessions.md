@@ -119,9 +119,10 @@ is no queue in v1. Lanes may parallelize internally under their own model (ADR-0
   rules over the owner's text. It records the kind and matched **rule ids**, never text.
 - **Lanes:** `cowork` (OpenWorker orchestrates), `code` (DSH orchestrates through the engineering
   plane), `direct` (Nexar's engine runs one routed task; no external orchestrator).
-- **Router** (`lanes@1`, a pure function of mode, intent and lane availability): `coding` has `code`
-  affinity; `documentation` and `meeting-preparation` have `cowork` affinity; every other intent uses
-  the mode's lane. The router selects a lane, never a resource. The NRC then routes each task the lane
+- **Router** (`lanes@1`, a pure function of mode, intent and lane availability): `coding` and
+  `review` (including checking a repository against a proposal) have `code` affinity;
+  `documentation` and `meeting-preparation` have `cowork` affinity; every other intent uses the
+  mode's lane. Only `coding` is an engineering write; `review` is read-only and may fall back. The router selects a lane, never a resource. The NRC then routes each task the lane
   creates, with every hard filter, exactly as today.
 - **Mode mismatch:** when the intent's affinity lane differs from the mode's lane, the turn enters
   `pending-confirmation` with `{ from, to }`. The owner confirms (run in the other lane for this turn

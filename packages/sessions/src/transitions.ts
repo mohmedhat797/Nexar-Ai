@@ -208,7 +208,12 @@ export function beginTurn(session: OperatingSession, input: BeginTurnInput): Beg
 }
 
 export type ConfirmationDecision =
-  | { readonly decision: 'confirm'; readonly effectiveLane?: OperatingLane }
+  | {
+      readonly decision: 'confirm';
+      readonly effectiveLane?: OperatingLane;
+      /** The re-evaluated fallback reason; `null` clears a stale one, absent keeps it. */
+      readonly fallbackReason?: string | null;
+    }
   | { readonly decision: 'decline' };
 
 export function resolveConfirmation(
@@ -226,10 +231,16 @@ export function resolveConfirmation(
     });
   }
   if (resolution.decision !== 'confirm' || turn.lane === undefined) throw invalid('confirmation');
+  const fallbackReason =
+    resolution.fallbackReason === undefined ? turn.lane.fallbackReason : resolution.fallbackReason;
   const lane: LaneDecision = {
-    ...turn.lane,
+    policy: turn.lane.policy,
+    mode: turn.lane.mode,
+    requestedLane: turn.lane.requestedLane,
     effectiveLane: resolution.effectiveLane ?? turn.lane.effectiveLane,
+    ...(turn.lane.mismatch === undefined ? {} : { mismatch: turn.lane.mismatch }),
     confirmed: true,
+    ...(fallbackReason === null || fallbackReason === undefined ? {} : { fallbackReason }),
   };
   return replaceTurn(session, index, { ...turn, state: 'running', lane }, now);
 }

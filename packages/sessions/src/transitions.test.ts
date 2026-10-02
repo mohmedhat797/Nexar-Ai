@@ -225,6 +225,33 @@ describe('resolveConfirmation', () => {
     expect(turn.lane?.effectiveLane).toBe('code');
   });
 
+  it('confirm sets, clears or keeps the fallback reason', () => {
+    const set = resolveConfirmation(
+      pending(),
+      T1,
+      { decision: 'confirm', effectiveLane: 'direct', fallbackReason: 'orchestrator-unavailable' },
+      T_2,
+    );
+    expect(set.turn.lane?.fallbackReason).toBe('orchestrator-unavailable');
+    const stale = beginTurn(fresh(), {
+      turnId: T1,
+      submissionKey: K1,
+      text: 'x',
+      now: T_1,
+      state: 'pending-confirmation',
+      lane: { ...lane, fallbackReason: 'orchestrator-unavailable' },
+    }).session;
+    const cleared = resolveConfirmation(
+      stale,
+      T1,
+      { decision: 'confirm', fallbackReason: null },
+      T_2,
+    );
+    expect(cleared.turn.lane).not.toHaveProperty('fallbackReason');
+    const kept = resolveConfirmation(stale, T1, { decision: 'confirm' }, T_2);
+    expect(kept.turn.lane?.fallbackReason).toBe('orchestrator-unavailable');
+  });
+
   it('decline ends the turn as declined and frees the session', () => {
     const { session, turn } = resolveConfirmation(pending(), T1, { decision: 'decline' }, T_2);
     expect(turn.state).toBe('declined');

@@ -23,7 +23,7 @@ non-authorizing confirmation; resource choice stays with the NRC.
 
 - `intent-rules@1`: explicit UI kind wins; otherwise fixed keyword rules → existing `TaskKind`, with
   matched rule ids.
-- `lanes@1`: pure router over mode, intent and lane availability; affinity `coding → code`,
+- `lanes@1`: pure router over mode, intent and lane availability; affinity `coding|review → code`,
   `documentation|meeting-preparation → cowork`, otherwise the mode's lane.
 - Mismatch → `pending-confirmation`; confirm/decline operations; `declined` terminal state.
 - Visible fallback to `direct` for read/draft work when an orchestrator is unavailable; recorded
