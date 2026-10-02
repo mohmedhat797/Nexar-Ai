@@ -29,6 +29,7 @@ ADR (or amend status) when you change one.
 | [021](021-nexar-desktop.md)                        | Nexar Desktop: Electron app with Cowork and Code modes             | Accepted                       |
 | [022](022-provider-credentials.md)                 | Providers and credentials in Nexar Desktop (encrypted key store)   | Accepted                       |
 | [023](023-scheduled-tasks.md)                      | Scheduled tasks                                                    | Accepted                       |
+| [024](024-operating-layer-and-sessions.md)         | Nexar Operating Layer and Operating Sessions                       | Accepted                       |
 
 Template: Status · Context · Decision · Rationale · Alternatives considered · Consequences · Risks ·
 Follow-up work.

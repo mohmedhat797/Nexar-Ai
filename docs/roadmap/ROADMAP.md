@@ -82,14 +82,11 @@ themes, AI behavior settings, providers and scheduled tasks.
 - Scheduled tasks with budgets and approvals ([ADR-023](../adr/023-scheduled-tasks.md), NXR-054).
 - Code mode through the WSL2 engineering plane with DSH as the default agent (NXR-055).
 - Cowork through OpenWorker via the ADR-004 automations seam (NXR-056).
-
-## v0.6 — Nexar Mobile
-
-Mobile-first PWA and remote control via a local Nexar Control Plane daemon.
-
-- Control-plane ADR (daemon API, device pairing, remote access model).
-- Text + voice conversation, task status, approvals, notifications, artifact preview, project
-  switching, remote task triggering.
+- **Operating Layer** ([ADR-024](../adr/024-operating-layer-and-sessions.md)): persistent multi-turn
+  Operating Sessions (NXR-057) and intent/lane orchestration (NXR-058). One conversation per project;
+  the Operating Router picks the lane (Cowork/OpenWorker, Code/DSH or direct), the NRC picks the
+  resource. Order: Windows gate → sessions → providers → Code → Cowork → AI behavior → integrated E2E;
+  scheduled tasks (NXR-054) follow.
 
 ## v0.7 — Memory & Personal Context
 
@@ -100,6 +97,17 @@ privacy-scoped storage.
 
 Event-driven Nexar workflows (webhooks, file/email triggers) and an always-on scheduler, building on
 the in-app scheduled tasks of v0.5 (ADR-023), with approvals and budgets.
+
+## Nexar Mobile _(deferred)_
+
+Deferred by the owner (2026-10-02) until after the Operating Layer, Memory and Automation
+milestones; no mobile, control-plane daemon or remote access work before then.
+
+Mobile-first PWA and remote control via a local Nexar Control Plane daemon.
+
+- Control-plane ADR (daemon API, device pairing, remote access model).
+- Text + voice conversation, task status, approvals, notifications, artifact preview, project
+  switching, remote task triggering.
 
 ## v1.0 — Personal AI Operating Layer
 
