@@ -141,3 +141,13 @@ v0.4 totals (observed values only):
 v0.5 phase 1 totals (observed values only): relay spend **$3.74** (desk-1 $0.521 + desk-2 resumed
 $3.215; the interrupted desk-2 run reported no cost). Cumulative observed relay spend v0.1 to v0.5
 phase 1: **about $50.44**. Opus spend and the remaining balance are not exposed and are not estimated.
+
+### Operating Layer continuation (2026-10-02)
+
+| Date       | Unit                                    | Model      | Work                                                       | Observed usage                         | Outcome                                                                                    |
+| ---------- | --------------------------------------- | ---------- | ---------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 2026-10-02 | Orchestrator session                    | Opus 5.5   | Windows CI diagnosis and fix, ADR-024, NXR-057/058, review | Not exposed                            | `9a07693` pushed; architecture on `wip/sessions-impl`                                      |
+| 2026-10-02 | sessions-1 relay attempt                | Sonnet 5.5 | `@nexar/sessions`                                          | none (the `claude` CLI not logged in)  | Relay exited before work; replaced by an in-session subagent                               |
+| 2026-10-02 | sessions-1 `@nexar/sessions` (subagent) | Sonnet 5.5 | Package, contracts additions, 67 tests                     | 175,088 tokens, 37 tool uses, 12.3 min | Accepted after review with one amendment (interrupted task state); `9206a47` on wip branch |
+
+The in-session subagent reports tokens, not cost; no dollar figure is estimated.
