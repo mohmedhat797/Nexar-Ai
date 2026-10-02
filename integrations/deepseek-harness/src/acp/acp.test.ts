@@ -401,7 +401,7 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     expect(t.launcher.disposed).toBe(1);
   }, 20_000);
 
-  it('kills the process group when the agent ignores session/cancel', async () => {
+  it('kills the runtime when the agent ignores session/cancel', async () => {
     const t = setup({ flags: { scenario: 'hang', 'ignore-cancel': '1' } });
     const settled = t.run().then(
       () => undefined,

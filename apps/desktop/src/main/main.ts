@@ -6,6 +6,7 @@ import { createBridge } from './bridge.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost } from './engine-host.js';
 import { createStderrLogger } from './logger.js';
+import { ensurePrivateStateDirectory } from './private-state.js';
 import { SettingsStore } from './settings-store.js';
 import {
   bundlePaths,
@@ -35,16 +36,32 @@ function decider(): string {
 }
 
 async function start(): Promise<void> {
+  const userData = app.getPath('userData');
+  await ensurePrivateStateDirectory(userData, { forbiddenPaths: [app.getPath('appData')] });
   await app.whenReady();
   hardenSession();
   installWebContentsLockdown();
 
-  const userData = app.getPath('userData');
   const logger = createStderrLogger();
   const config = new ConfigStore(join(userData, 'nexar.config.json'));
   await config.ensure();
   const settings = new SettingsStore(join(userData, 'desktop-settings.json'));
-  const engine = await createEngineHost({ configPath: config.path, env: process.env, logger });
+  // The installed app's catalogs are shipped beside app.asar, outside the workspace layout.
+  // Keep owner-declared catalog overrides; only supply packaged defaults for missing values.
+  const engineEnv = { ...process.env };
+  if (app.isPackaged) {
+    if (!engineEnv['NEXAR_WORKFLOWS_DIR']) {
+      engineEnv['NEXAR_WORKFLOWS_DIR'] = join(process.resourcesPath, 'workflows');
+    }
+    if (!engineEnv['NEXAR_ENGINEERING_PLANS_DIR']) {
+      engineEnv['NEXAR_ENGINEERING_PLANS_DIR'] = join(
+        process.resourcesPath,
+        'engineering',
+        'plans',
+      );
+    }
+  }
+  const engine = await createEngineHost({ configPath: config.path, env: engineEnv, logger });
   const bridge = createBridge({
     engine,
     config,

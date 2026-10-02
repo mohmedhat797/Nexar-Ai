@@ -95,15 +95,14 @@ function isErrno(e: unknown, code: string): boolean {
 
 const LOCK_STALE_MS = 10_000;
 const LOCK_WAIT_MS = 3_000;
-const RENAME_WAIT_MS = 1_000;
+const SHARING_WAIT_MS = 1_000;
 
-/** Windows readers/virus scanners may briefly deny replacement; never remove the destination. */
-async function replaceAtomic(source: string, target: string): Promise<void> {
-  const deadline = Date.now() + RENAME_WAIT_MS;
+/** Bound Windows sharing retries at the file operation, without retrying approval decisions. */
+async function retrySharing<T>(operation: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + SHARING_WAIT_MS;
   for (;;) {
     try {
-      await rename(source, target);
-      return;
+      return await operation();
     } catch (error) {
       if (
         process.platform !== 'win32' ||
@@ -115,6 +114,11 @@ async function replaceAtomic(source: string, target: string): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
+}
+
+/** Windows readers/virus scanners may briefly deny replacement; never remove the destination. */
+async function replaceAtomic(source: string, target: string): Promise<void> {
+  await retrySharing(() => rename(source, target));
 }
 
 /** One JSON file per request. Directory 0700, files 0600, atomic writes, O_EXCL single-use marker. */
@@ -155,7 +159,7 @@ export class FileApprovalStore implements ApprovalStore {
     const deadline = Date.now() + LOCK_WAIT_MS;
     for (;;) {
       try {
-        const handle = await open(lockPath, 'wx', 0o600);
+        const handle = await retrySharing(() => open(lockPath, 'wx', 0o600));
         await handle.close();
         break;
       } catch (e) {
@@ -175,7 +179,8 @@ export class FileApprovalStore implements ApprovalStore {
     try {
       return await fn();
     } finally {
-      await unlink(lockPath).catch(() => undefined);
+      // A one-off deletion denial must not leave a fresh orphan until the stale-lock cutoff.
+      await retrySharing(() => unlink(lockPath)).catch(() => undefined);
     }
   }
 
@@ -201,7 +206,7 @@ export class FileApprovalStore implements ApprovalStore {
     const target = this.path(id, 'json');
     let text: string;
     try {
-      text = await readFile(target, 'utf8');
+      text = await retrySharing(() => readFile(target, 'utf8'));
     } catch (e) {
       if (isErrno(e, 'ENOENT')) return undefined;
       throw e;

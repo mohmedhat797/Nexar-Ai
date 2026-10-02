@@ -21,7 +21,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
@@ -80,6 +80,26 @@ jobs:
       - name: Desktop E2E (native Windows, offline echo)
         if: runner.os == 'Windows'
         run: pnpm desktop:e2e
+
+      - name: Package Windows desktop (unsigned per-user installer)
+        if: runner.os == 'Windows'
+        run: pnpm desktop:package:win
+
+      - name: Packaged desktop E2E (native Windows, offline echo)
+        if: runner.os == 'Windows'
+        env:
+          NEXAR_DESKTOP_EXECUTABLE: ${{ github.workspace }}\release\desktop\win-unpacked\Nexar.exe
+        run: pnpm desktop:e2e
+
+      - name: Upload Windows installer and SHA256
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nexar-Windows-x64-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            release/desktop/*.exe
+            release/desktop/*.sha256
 
   secrets:
     name: secret scan

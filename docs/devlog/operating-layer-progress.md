@@ -22,7 +22,21 @@ conversion; `.gitattributes` now preserves LF (`33031d2`). Linux CI passed at bo
 Windows CI then exposed dangling-link publication and record-reading gaps: the follow-up uses
 exclusive hard-link artifact publication, file identity checks, and Node-injected public environment
 assertions. The follow-up full local gate passed: 1,774 tests / 116 skips and build; its privileged
-Windows file-link CI cases remain pending until the follow-up is pushed and CI completes.
+Windows file-link cases passed on CI at `6e060db`. That CI run found unrelated fixture races: the
+ACP test record writer now publishes atomic snapshots and the 520-file Desktop cap fixture uses
+bounded parallel setup with a Windows allowance. The next checkpoint secures dedicated Windows
+Desktop state ACLs before configuration reads; native tests cover protected grants and redirected
+path refusal. Windows enforcement finishes synchronously before Electron readiness; the original
+asynchronous startup was rejected by the rebuilt E2E and corrected. Bounded approval-store sharing
+retries cover transient lock/read/release failures without retrying approval decisions.
+
+The unsigned per-user x64 NSIS build succeeded (118,105,049 bytes) and emits a SHA256 sidecar in
+`release/desktop`. Source and packaged Electron offline E2E both passed with the native sandbox,
+a project path containing spaces, shipped workflow catalogs, drafts and relaunch persistence.
+The installer is configured without elevation and preserves data on uninstall; actual installer
+execution and owner acceptance remain pending. The final full gate passed: format, lint, boundaries,
+typecheck, 1,800 tests passed / 118 skipped, and build. This delivery checkpoint is ready to push;
+CI acceptance at its exact commit remains pending until both matrix jobs finish.
 
 ## CURRENT STATE
 
@@ -32,11 +46,18 @@ and Linux/WSL engineering controls remain authoritative. No paid AI calls were m
 
 ## NEXT EXACT TASK
 
-Finish NXR-051: verify the link-hardening checkpoint in both CI jobs on draft PR #36, deliver and test the per-user x64 NSIS installer, audit default
-state-directory ACLs and packaged resource/catalog paths, then perform the owner checklist in
+Verify the Windows delivery checkpoint in both CI jobs on draft PR #36 and perform the owner checklist in
 [`windows-validation.md`](../guides/windows-validation.md). After that, define ADR-024 (if still free)
 for Operating Sessions and intent/lane selection; allocate the next unused backlog ids (currently
 057/058), defer Mobile, and implement sessions before provider/Code/Cowork settings integration.
+
+ADR-024 and NXR-057/058 were checked against repository indexes and all-state GitHub issues and are
+unused. Write those specifications and issue mirrors first. The session implementation should be
+headless: immutable project, distinct session/turn/task ids, durable lineage and per-turn policy,
+private atomic storage with revision checks and exclusive writer ownership, one foreground run,
+and durable idempotency. Restart marks interruption without replay or approval; cancellation keeps
+history. Context is bounded and inspectable. The Operating Router chooses the lane, NRC the
+resource; a mode mismatch requires explicit confirmation without changing permission policy.
 
 ## BLOCKERS
 
@@ -45,9 +66,9 @@ for Operating Sessions and intent/lane selection; allocate the next unused backl
   tested. Write-capable engineering still requires WSL2/bubblewrap, with no native fallback.
 - Arbitrary batch launchers are refused; supported Node npm shims resolve their script and Node
   directly. Unsupported shim formats need a supported launcher, never shell interpolation.
-- POSIX modes do not implement Windows ACL protection. Default `%APPDATA%\Nexar` inherits the
-  owner's profile ACL; overrides/shared paths require an explicit ACL audit before secure-state claims.
-- WSL A1–A6, provider keys, OpenWorker reverse supervision, and the installer are not yet validated.
+- POSIX modes do not implement Windows ACL protection. Desktop's dedicated data tree now has an
+  explicit startup guard; configured external state directories still require a separate ACL audit.
+- WSL A1–A6, provider keys, OpenWorker reverse supervision, and installer execution are not yet validated.
 - The first checkpoint was pushed before the five-hour usage limit. The owner resumed after the
   natural reset; no reset credits were consumed. Windows CI exposed link-handling gaps addressed
   before installer work. Windows artifact storage requires hard-link support (for example NTFS).

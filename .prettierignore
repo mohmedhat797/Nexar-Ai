@@ -1,4 +1,5 @@
 dist
+release
 coverage
 pnpm-lock.yaml
 docs/research/**

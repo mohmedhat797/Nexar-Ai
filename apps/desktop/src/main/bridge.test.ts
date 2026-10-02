@@ -270,17 +270,28 @@ describe('project files', () => {
     });
   });
 
-  it('caps a listing at 500 entries', async () => {
-    const many = join(h.projectDir, 'many');
-    await mkdir(many);
-    for (let i = 0; i < 520; i++) await writeFile(join(many, `f${String(i).padStart(4, '0')}`), '');
-    const result = await h.call<FileListing>(CHANNELS.projectsFiles, {
-      projectId: id,
-      dir: 'many',
-    });
-    expect(result.ok && result.value.entries).toHaveLength(500);
-    expect(result.ok && result.value.truncated).toBe(true);
-  });
+  it(
+    'caps a listing at 500 entries',
+    async () => {
+      const many = join(h.projectDir, 'many');
+      await mkdir(many);
+      for (let i = 0; i < 520; i += 8) {
+        await Promise.all(
+          Array.from({ length: 8 }, (_, offset) =>
+            writeFile(join(many, `f${String(i + offset).padStart(4, '0')}`), ''),
+          ),
+        );
+      }
+      const result = await h.call<FileListing>(CHANNELS.projectsFiles, {
+        projectId: id,
+        dir: 'many',
+      });
+      expect(result.ok && result.value.entries).toHaveLength(500);
+      expect(result.ok && result.value.truncated).toBe(true);
+    },
+    // The 520 real fixture files and containment reads encounter Windows antivirus scanning.
+    process.platform === 'win32' ? 15_000 : undefined,
+  );
 
   it('previews UTF-8 text files', async () => {
     const result = await h.call<FilePreview>(CHANNELS.projectsReadFile, {

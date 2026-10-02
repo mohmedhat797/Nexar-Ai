@@ -11,6 +11,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const MAIN = fileURLToPath(new URL('../dist/main/main.js', import.meta.url));
+const EXECUTABLE = process.env['NEXAR_DESKTOP_EXECUTABLE'];
 
 let base: string;
 let userData: string;
@@ -27,10 +28,22 @@ const isVisible = (locator: Locator): Promise<void> =>
 
 /** Chromium flags are for the root-in-container test environment only; production keeps its sandbox. */
 async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
+  env['NEXAR_DESKTOP_USER_DATA'] = userData;
+  if (EXECUTABLE) {
+    // Prove the installed layout finds its own catalogs, with no repository-path override.
+    delete env['NEXAR_WORKFLOWS_DIR'];
+    delete env['NEXAR_ENGINEERING_PLANS_DIR'];
+  }
   const app = await electron.launch({
+    ...(EXECUTABLE ? { executablePath: EXECUTABLE } : {}),
     args: [
-      MAIN,
-      '--no-sandbox',
+      ...(EXECUTABLE ? [] : [MAIN]),
+      ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
       '--disable-gpu',
       '--disable-dev-shm-usage',
       // No X server (and no `xvfb-run`): fall back to Chromium's display-less platform.
@@ -38,7 +51,7 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
         ? ['--ozone-platform=headless']
         : []),
     ],
-    env: { ...process.env, NEXAR_DESKTOP_USER_DATA: userData },
+    env,
   });
   apps.push(app);
   const page = await app.firstWindow();
@@ -54,7 +67,7 @@ async function close(app: ElectronApplication): Promise<void> {
 beforeAll(async () => {
   base = await realpath(await mkdtemp(join(tmpdir(), 'nexar-e2e-')));
   userData = join(base, 'userData');
-  projectDir = join(base, 'my-project');
+  projectDir = join(base, 'my-project with spaces');
   await mkdir(join(projectDir, 'notes'), { recursive: true });
   await writeFile(join(projectDir, 'readme-seed.txt'), 'seeded file content\n');
 });
@@ -67,6 +80,17 @@ afterAll(async () => {
 describe('Nexar Desktop', () => {
   it('runs the first-run scenario and persists state across a relaunch', async () => {
     let { app, page } = await launch();
+    expect(await app.evaluate(({ app: running }) => running.isPackaged)).toBe(Boolean(EXECUTABLE));
+
+    // Loading through the public bridge proves the workflow catalog is included and resolved.
+    const catalog = await page.evaluate(async () => {
+      const api = (globalThis as unknown as { nexar: { listWorkflows: () => Promise<unknown> } })
+        .nexar;
+      return api.listWorkflows();
+    });
+    expect(catalog).toMatchObject({ ok: true });
+    expect(Array.isArray((catalog as { value: unknown }).value)).toBe(true);
+    expect((catalog as { value: unknown[] }).value.length).toBeGreaterThan(0);
 
     // --- window hardening, asserted from the main process and from inside the page ---
     const prefs = await app.evaluate(({ BrowserWindow }) => {

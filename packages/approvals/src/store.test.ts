@@ -7,7 +7,13 @@ import type { ApprovalRequest } from './types.js';
 
 vi.mock('node:fs/promises', async (importOriginal: () => Promise<typeof fs>) => {
   const actual = await importOriginal();
-  return { ...actual, rename: vi.fn(actual.rename), unlink: vi.fn(actual.unlink) };
+  return {
+    ...actual,
+    rename: vi.fn(actual.rename),
+    unlink: vi.fn(actual.unlink),
+    open: vi.fn(actual.open),
+    readFile: vi.fn(actual.readFile),
+  };
 });
 
 describe('FileApprovalStore atomic replacement on Windows', () => {
@@ -35,6 +41,8 @@ describe('FileApprovalStore atomic replacement on Windows', () => {
     await store.create(record);
     vi.mocked(fs.rename).mockClear();
     vi.mocked(fs.unlink).mockClear();
+    vi.mocked(fs.open).mockClear();
+    vi.mocked(fs.readFile).mockClear();
   });
 
   afterEach(async () => {
@@ -47,6 +55,14 @@ describe('FileApprovalStore atomic replacement on Windows', () => {
     vi.mocked(fs.unlink).mockReset();
     vi.mocked(fs.unlink).mockImplementation(
       (await vi.importActual<typeof fs>('node:fs/promises')).unlink,
+    );
+    vi.mocked(fs.open).mockReset();
+    vi.mocked(fs.open).mockImplementation(
+      (await vi.importActual<typeof fs>('node:fs/promises')).open,
+    );
+    vi.mocked(fs.readFile).mockReset();
+    vi.mocked(fs.readFile).mockImplementation(
+      (await vi.importActual<typeof fs>('node:fs/promises')).readFile,
     );
     await fs.rm(dir, { recursive: true, force: true });
   });
@@ -99,6 +115,86 @@ describe('FileApprovalStore atomic replacement on Windows', () => {
     }
     await transition;
     await expect(read).resolves.toMatchObject({ status: 'consumed' });
+  });
+
+  it('retries a transient lock-release denial so the next reader can acquire the lock', async () => {
+    vi.mocked(fs.unlink).mockRejectedValueOnce(
+      Object.assign(new Error('sharing violation'), { code: 'EPERM' }),
+    );
+    await expect(store.get(record.id)).resolves.toEqual(record);
+    expect(fs.unlink).toHaveBeenCalledTimes(2);
+    await expect(fs.stat(join(dir, `${record.id}.lock`))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(store.get(record.id)).resolves.toEqual(record);
+    expect(fs.rename).not.toHaveBeenCalled();
+  });
+
+  it.each(['EPERM', 'EACCES', 'EBUSY'])(
+    'retries a transient %s lock-open error before reading',
+    async (code) => {
+      vi.mocked(fs.open).mockRejectedValueOnce(
+        Object.assign(new Error('sharing violation'), { code }),
+      );
+      await expect(store.get(record.id)).resolves.toEqual(record);
+      expect(fs.open).toHaveBeenCalledTimes(2);
+      expect(fs.rename).not.toHaveBeenCalled();
+      await expect(fs.stat(join(dir, `${record.id}.lock`))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    },
+  );
+
+  it.each(['EPERM', 'EACCES', 'EBUSY'])(
+    'retries a transient %s record-read error without authorizing or changing it',
+    async (code) => {
+      vi.mocked(fs.readFile).mockRejectedValueOnce(
+        Object.assign(new Error('sharing violation'), { code }),
+      );
+      await expect(store.get(record.id)).resolves.toEqual(record);
+      expect(fs.readFile).toHaveBeenCalledTimes(2);
+      expect(fs.rename).not.toHaveBeenCalled();
+      await expect(fs.stat(join(dir, `${record.id}.consumed`))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    },
+  );
+
+  it.each(['open', 'readFile'] as const)(
+    'bounds permanent %s permission denial and preserves the record',
+    async (operation) => {
+      const error = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      let now = 0;
+      let attempts = 0;
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      const fail = (): Promise<never> => {
+        if (++attempts === 2) now = 1_000;
+        return Promise.reject(error);
+      };
+      if (operation === 'open') vi.mocked(fs.open).mockImplementation(fail);
+      else vi.mocked(fs.readFile).mockImplementation(fail);
+      await expect(store.get(record.id)).rejects.toBe(error);
+      expect(attempts).toBe(2);
+      expect(fs.rename).not.toHaveBeenCalled();
+      const actual = await vi.importActual<typeof fs>('node:fs/promises');
+      expect(JSON.parse(await actual.readFile(join(dir, `${record.id}.json`), 'utf8'))).toEqual(
+        record,
+      );
+      await expect(fs.stat(join(dir, `${record.id}.consumed`))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+      await expect(fs.stat(join(dir, `${record.id}.lock`))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    },
+  );
+
+  it('does not retry a sharing-like read denial on POSIX', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    const error = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    vi.mocked(fs.readFile).mockRejectedValueOnce(error);
+    await expect(store.get(record.id)).rejects.toBe(error);
+    expect(fs.readFile).toHaveBeenCalledTimes(1);
+    expect(fs.open).not.toHaveBeenCalled();
+    expect(fs.rename).not.toHaveBeenCalled();
   });
 
   it('bounds retries and preserves the consumed marker when persistence fails', async () => {

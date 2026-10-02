@@ -4,9 +4,14 @@ Windows compatibility evidence and remaining gaps: native launchers resolve supp
 shims to a script and Node executable, without evaluating batch argument expansion. Arbitrary batch
 launchers are refused. Live process trees are killed on abort/timeout with the host's system
 `taskkill.exe`; orphan descendants after prior leader exit still require Job Object containment.
-Windows file modes are not ACL evidence: the default Desktop state location inherits the user profile's
-ACL, and shared/overridden locations need an explicit audit. Linux security controls stay enforced on
-the WSL engineering plane. See the [Windows checklist](../guides/windows-validation.md) and
+Windows file modes are not ACL evidence: Desktop startup secures its dedicated state tree with a
+protected DACL granting this user, SYSTEM and local Administrators access. Foreign-owned entries,
+redirected paths, hard-linked files and unrelated existing folders fail closed; parent ACLs stay
+unchanged. SYSTEM/Admin-owned entries can be normalized only with the caller's existing ACL and
+owner rights; the final owner must be the current user. Startup path checks do not prevent concurrent
+replacement by a compromised OS account. Explicit config state-directory overrides outside
+Desktop's data tree still need an audit. Linux controls stay enforced on the WSL engineering plane.
+See the [Windows checklist](../guides/windows-validation.md) and
 [continuation state](../devlog/operating-layer-progress.md); NXR-051 remains open.
 
 Windows artifact publication uses an exclusive hard link from a random staging file; it never opens
