@@ -360,13 +360,22 @@ describe('readLaneHistory', () => {
     expect(result.lanes['r']?.feature).toMatchObject({ samples: 1 });
   });
 
-  it('skips a symlinked record and never follows it', async () => {
+  it('skips a symlinked record and never follows it', async (context) => {
     const dir = state();
     const outside = state();
     const target = join(outside, 'real.json');
     writeFileSync(target, JSON.stringify(rec({ lanes: [implLane('leak')] })));
     mkdirSync(join(dir, 'engineering', 'link'), { recursive: true });
-    symlinkSync(target, join(dir, 'engineering', 'link', 'record.json'));
+    try {
+      symlinkSync(target, join(dir, 'engineering', 'link', 'record.json'), 'file');
+    } catch (error) {
+      if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') {
+        context.skip(
+          'Windows file symlinks require Developer Mode or SeCreateSymbolicLinkPrivilege',
+        );
+      }
+      throw error;
+    }
     const result = await readLaneHistory(dir, window);
     expect(result).toEqual({ lanes: {}, skipped: 1 });
   });
@@ -376,7 +385,11 @@ describe('readLaneHistory', () => {
     const outside = state();
     writeRecord(outside, 'real', rec({ lanes: [implLane('leak')] }));
     mkdirSync(join(dir, 'engineering'), { recursive: true });
-    symlinkSync(join(outside, 'engineering', 'real'), join(dir, 'engineering', 'link'));
+    symlinkSync(
+      join(outside, 'engineering', 'real'),
+      join(dir, 'engineering', 'link'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     const result = await readLaneHistory(dir, window);
     expect(result).toEqual({ lanes: {}, skipped: 1 });
   });

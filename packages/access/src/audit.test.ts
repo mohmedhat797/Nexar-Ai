@@ -67,8 +67,12 @@ describe('startAudit', () => {
   it('creates dir 0700 and file 0600', async () => {
     const file = join(dir, 'logs', 'audit.jsonl');
     await startAudit(new JsonlAuditLog(file), base).finish('completed');
-    expect((await stat(join(dir, 'logs'))).mode & 0o777).toBe(0o700);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows permissions are ACL-based; Node's mode bits do not represent them.
+    if (process.platform !== 'win32') {
+      expect((await stat(join(dir, 'logs'))).mode & 0o777).toBe(0o700);
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+    }
+    expect(await readFile(file, 'utf8')).toContain('completed');
   });
 
   it('defaults to failed auth and unevaluated policy, with a null client', async () => {

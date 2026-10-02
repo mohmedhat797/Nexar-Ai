@@ -64,7 +64,7 @@ describe('engine: engineering workspace', () => {
   const ws = (path: string): EngineeringWorkspace => ({ path, access: 'read-write', launcher });
 
   it('passes the canonical workspace and its launcher to the adapter', async () => {
-    await symlink(worktree, join(base, 'alias'));
+    await symlink(worktree, join(base, 'alias'), process.platform === 'win32' ? 'junction' : 'dir');
     const { nexar, adapter } = await setup();
     await nexar.run(nexar.createTask({ kind: 'coding', prompt: 'p', projectId: 'demo' }), {
       workspace: ws(join(base, 'alias')),

@@ -13,6 +13,10 @@ import {
 import { harvestPatch } from './harvest.js';
 import type { TaskWorktree } from './types.js';
 
+// ADR-018: harvest executes /bin/sh with Linux mounts and POSIX executable permissions.
+// Keep the prelaunch policy/validation guards below active on every platform.
+const planeIt = it.skipIf(process.platform === 'win32');
+
 describe('harvestPatch', () => {
   let root: string;
   let home: string;
@@ -33,45 +37,51 @@ describe('harvestPatch', () => {
   });
   afterEach(() => cleanup(root, home));
 
-  it('harvests modified, added, deleted, binary and executable files, including agent commits', async () => {
-    simulateAgent(task.workPath);
-    const result = await harvestPatch(task, { launcher });
-    expect(result.validation.ok).toBe(true);
-    const byPath = new Map(result.entries.map((e) => [e.path, e]));
-    expect(byPath.get('a.txt')).toMatchObject({ status: 'modified', binary: false });
-    expect(byPath.get('new.txt')).toMatchObject({ status: 'added', newMode: '100644' });
-    expect(byPath.get('sub dir/run.sh')).toMatchObject({ status: 'added', newMode: '100755' });
-    expect(byPath.get('del.txt')).toMatchObject({ status: 'deleted' });
-    expect(byPath.get('bin.dat')).toMatchObject({ status: 'modified', binary: true });
-    expect(byPath.get('blob.bin')).toMatchObject({ status: 'added', binary: true });
-    expect([...byPath.keys()].some((p) => p.includes('.git/') || p === '.git')).toBe(false);
-    expect(byPath.size).toBe(6);
-    expect(statSync(result.patchPath).mode & 0o777).toBe(0o600);
-    expect(result.bytes).toBe(statSync(result.patchPath).size);
-    expect(result.patchPath.startsWith(join(task.taskDir, 'out'))).toBe(true);
-    expect(launcher.disposed).toBe(1);
-  });
+  planeIt(
+    'harvests modified, added, deleted, binary and executable files, including agent commits',
+    async () => {
+      simulateAgent(task.workPath);
+      const result = await harvestPatch(task, { launcher });
+      expect(result.validation.ok).toBe(true);
+      const byPath = new Map(result.entries.map((e) => [e.path, e]));
+      expect(byPath.get('a.txt')).toMatchObject({ status: 'modified', binary: false });
+      expect(byPath.get('new.txt')).toMatchObject({ status: 'added', newMode: '100644' });
+      expect(byPath.get('sub dir/run.sh')).toMatchObject({ status: 'added', newMode: '100755' });
+      expect(byPath.get('del.txt')).toMatchObject({ status: 'deleted' });
+      expect(byPath.get('bin.dat')).toMatchObject({ status: 'modified', binary: true });
+      expect(byPath.get('blob.bin')).toMatchObject({ status: 'added', binary: true });
+      expect([...byPath.keys()].some((p) => p.includes('.git/') || p === '.git')).toBe(false);
+      expect(byPath.size).toBe(6);
+      expect(statSync(result.patchPath).mode & 0o777).toBe(0o600);
+      expect(result.bytes).toBe(statSync(result.patchPath).size);
+      expect(result.patchPath.startsWith(join(task.taskDir, 'out'))).toBe(true);
+      expect(launcher.disposed).toBe(1);
+    },
+  );
 
-  it('describes the launch as a no-network, read-only sandbox with the pristine repo mounted', async () => {
-    simulateAgent(task.workPath);
-    await harvestPatch(task, { launcher });
-    const spec = launcher.specs[0];
-    expect(spec).toMatchObject({
-      command: '/bin/sh',
-      workspace: task.workPath,
-      workspaceAccess: 'read-only',
-      network: { mode: 'none' },
-      mounts: [
-        { hostPath: task.baseGitPath, sandboxPath: '/opt/nexar/base.git', access: 'read-only' },
-      ],
-    });
-    expect(spec?.env['NEXAR_BASE']).toBe(task.baseCommit);
-    expect(spec?.env['NEXAR_GIT_DIR']).toBe('/opt/nexar/base.git');
-    expect(spec?.args.join(' ')).not.toContain(task.workPath);
-    expect(spec?.args.join(' ')).not.toContain(task.baseCommit);
-  });
+  planeIt(
+    'describes the launch as a no-network, read-only sandbox with the pristine repo mounted',
+    async () => {
+      simulateAgent(task.workPath);
+      await harvestPatch(task, { launcher });
+      const spec = launcher.specs[0];
+      expect(spec).toMatchObject({
+        command: '/bin/sh',
+        workspace: task.workPath,
+        workspaceAccess: 'read-only',
+        network: { mode: 'none' },
+        mounts: [
+          { hostPath: task.baseGitPath, sandboxPath: '/opt/nexar/base.git', access: 'read-only' },
+        ],
+      });
+      expect(spec?.env['NEXAR_BASE']).toBe(task.baseCommit);
+      expect(spec?.env['NEXAR_GIT_DIR']).toBe('/opt/nexar/base.git');
+      expect(spec?.args.join(' ')).not.toContain(task.workPath);
+      expect(spec?.args.join(' ')).not.toContain(task.baseCommit);
+    },
+  );
 
-  it('never runs code planted in the agent clone config or attributes', async () => {
+  planeIt('never runs code planted in the agent clone config or attributes', async () => {
     simulateAgent(task.workPath);
     const canary = join(root, 'PWNED');
     appendFileSync(
@@ -97,13 +107,13 @@ describe('harvestPatch', () => {
     expect(result.entries.some((e) => e.path === '.gitattributes')).toBe(true);
   });
 
-  it('reports an empty patch when nothing changed', async () => {
+  planeIt('reports an empty patch when nothing changed', async () => {
     const result = await harvestPatch(task, { launcher });
     expect(result.entries).toEqual([]);
     expect(result.validation).toEqual({ ok: false, violations: [{ rule: 'empty', index: -1 }] });
   });
 
-  it('aborts and removes the patch when it exceeds the size cap', async () => {
+  planeIt('aborts and removes the patch when it exceeds the size cap', async () => {
     writeFileSync(join(task.workPath, 'big.txt'), 'x'.repeat(50_000));
     await expect(harvestPatch(task, { launcher, maxBytes: 1000 })).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
@@ -134,7 +144,7 @@ describe('harvestPatch', () => {
     expect(launcher.specs).toHaveLength(0);
   });
 
-  it('numbers successive patches without overwriting', async () => {
+  planeIt('numbers successive patches without overwriting', async () => {
     writeFileSync(join(task.workPath, 'one.txt'), '1\n');
     const first = await harvestPatch(task, { launcher });
     const second = await harvestPatch(task, { launcher });

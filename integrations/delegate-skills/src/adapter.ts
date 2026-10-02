@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import type { spawn } from 'node:child_process';
+import { spawnRuntime } from '@nexar/process';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -75,7 +76,7 @@ export class DelegateSkillsExecutionAdapter implements ExecutionAdapter {
   constructor(options: DelegateSkillsAdapterOptions) {
     this.parentEnv = options.env ?? process.env;
     this.stateDir = options.stateDir;
-    this.spawnImpl = options.spawnImpl ?? spawn;
+    this.spawnImpl = options.spawnImpl ?? spawnRuntime;
     this.clock = options.clock ?? (() => new Date());
     this.killGraceMs = options.killGraceMs;
     this.watchdogGraceMs = options.watchdogGraceMs ?? WATCHDOG_GRACE_MS;

@@ -210,7 +210,7 @@ describe('WorkflowCatalog', () => {
     add('a template symlinked outside the workflow directory', async () => {
       await writeFile(join(base, 'outside.md'), 'secret');
       const dir = await writeWorkflow(builtin, 'one', {}, {});
-      await symlink(join(base, 'outside.md'), join(dir, 'prompt.md'));
+      await symlink(join(base, 'outside.md'), join(dir, 'prompt.md'), 'file');
     });
     add('an unknown field', async () => {
       await writeWorkflow(builtin, 'one', { surprise: true });
@@ -236,12 +236,26 @@ describe('WorkflowCatalog', () => {
       await writeFile(join(dir, 'workflow.json'), '{ nope');
     });
 
-    it.each(cases)('rejects %s', async (_name, arrange) => {
-      await arrange();
-      await expect(WorkflowCatalog.load({ builtinDir: builtin })).rejects.toMatchObject({
-        code: 'CONFIGURATION_ERROR',
+    for (const [name, arrange] of cases)
+      it(`rejects ${name}`, async (context) => {
+        try {
+          await arrange();
+        } catch (error) {
+          if (
+            name === 'a template symlinked outside the workflow directory' &&
+            process.platform === 'win32' &&
+            (error as NodeJS.ErrnoException).code === 'EPERM'
+          ) {
+            context.skip(
+              'Windows file symlinks require Developer Mode or SeCreateSymbolicLinkPrivilege',
+            );
+          }
+          throw error;
+        }
+        await expect(WorkflowCatalog.load({ builtinDir: builtin })).rejects.toMatchObject({
+          code: 'CONFIGURATION_ERROR',
+        });
       });
-    });
 
     it('does not put filesystem paths in the error for an escaping template', async () => {
       await writeFile(join(base, 'outside.md'), 'secret');
@@ -286,7 +300,11 @@ describe('WorkflowCatalog', () => {
     it('rejects a project workflow that is a symlink out of the project', async () => {
       await writeWorkflow(join(base, 'elsewhere'), 'sow');
       await mkdir(join(base, 'work', 'flows'), { recursive: true });
-      await symlink(join(base, 'elsewhere', 'sow'), join(base, 'work', 'flows', 'sow'));
+      await symlink(
+        join(base, 'elsewhere', 'sow'),
+        join(base, 'work', 'flows', 'sow'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
       const registry = await projects({ directories: ['flows'] });
       await expect(
         WorkflowCatalog.load({ builtinDir: builtin, projects: registry }),

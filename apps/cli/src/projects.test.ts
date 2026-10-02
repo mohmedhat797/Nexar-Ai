@@ -42,7 +42,7 @@ describe('nexar projects (in-process, offline)', () => {
     await mkdir(outside);
     await writeFile(join(work, 'README.md'), 'hello');
     await writeFile(join(work, 'docs', 'a.md'), 'a');
-    await symlink(outside, join(work, 'link'));
+    await symlink(outside, join(work, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });

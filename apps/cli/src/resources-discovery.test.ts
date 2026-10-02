@@ -24,8 +24,14 @@ describe('discovery in the CLI', () => {
     bin = join(dir, 'bin');
     await mkdir(bin);
     // A fake `codex` that leaves a marker if anything runs it: discovery must only stat it.
-    await writeFile(join(bin, 'codex'), `#!/bin/sh\ntouch "${join(dir, 'RAN')}"\nexit 1\n`);
-    await chmod(join(bin, 'codex'), 0o755);
+    const binary = join(bin, process.platform === 'win32' ? 'codex.CMD' : 'codex');
+    await writeFile(
+      binary,
+      process.platform === 'win32'
+        ? `@echo off\r\necho ran > "${join(dir, 'RAN')}"\r\nexit /b 1\r\n`
+        : `#!/bin/sh\ntouch "${join(dir, 'RAN')}"\nexit 1\n`,
+    );
+    await chmod(binary, 0o755);
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });

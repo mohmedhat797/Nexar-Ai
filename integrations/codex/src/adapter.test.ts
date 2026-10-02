@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { adapterId, isNexarError } from '@nexar/contracts';
 import type { NexarError, ResourceDescriptor } from '@nexar/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,6 +8,29 @@ import { fakeLauncher, harness, isAlive, silentLogger, task, waitFor } from './t
 import type { Harness } from './test/harness.js';
 
 const BYPASS = '--dangerously-bypass-approvals-and-sandbox';
+
+// Windows supplies these public runtime variables even to explicitly scoped child envs.
+const WINDOWS_RUNTIME_KEYS = new Set(
+  process.platform === 'win32'
+    ? [
+        'HOMEDRIVE',
+        'HOMEPATH',
+        'SYSTEMDRIVE',
+        'SYSTEMROOT',
+        'TEMP',
+        'USERDOMAIN',
+        'USERNAME',
+        'USERPROFILE',
+        'WINDIR',
+      ]
+    : [],
+);
+
+function applicationEnvKeys(env: Readonly<Record<string, string | undefined>>): string[] {
+  return Object.keys(env)
+    .filter((name) => !WINDOWS_RUNTIME_KEYS.has(name.toUpperCase()))
+    .sort();
+}
 
 let h: Harness | undefined;
 afterEach(() => {
@@ -99,9 +123,9 @@ describe('execute: unscoped (no workspace)', () => {
     );
     await h.adapter.execute({ task: task(), resource: codexResource() }, h.context());
     const env = h.invocations()[0]?.env ?? {};
-    expect(Object.keys(env).sort()).toEqual(['CODEX_HOME', 'HOME', 'LANG', 'PATH', 'TERM']);
+    expect(applicationEnvKeys(env)).toEqual(['CODEX_HOME', 'HOME', 'LANG', 'PATH', 'TERM']);
     expect(env['TERM']).toBe('dumb');
-    expect(env['CODEX_HOME']).toBe(`${h.dir}/.codex`);
+    expect(env['CODEX_HOME']).toBe(join(h.dir, '.codex'));
   });
 
   it('uses the codexHome setting as CODEX_HOME', async () => {
@@ -110,7 +134,7 @@ describe('execute: unscoped (no workspace)', () => {
       { task: task(), resource: withOptions({ codexHome: '/srv/ch' }) },
       h.context(),
     );
-    expect(h.invocations()[0]?.env['CODEX_HOME']).toBe('/srv/ch');
+    expect(h.invocations()[0]?.env['CODEX_HOME']).toBe(resolve('/srv/ch'));
   });
 
   it('maps usage, turns and unknown cost', async () => {
@@ -423,8 +447,8 @@ describe('probe', () => {
     expect(state).toMatchObject({ availability: 'available', auth: 'authenticated' });
     expect(state.detail).toBe('codex-cli 0.159.3');
     expect(h.invocations().map((i) => i.argv)).toEqual([['--version'], ['login', 'status']]);
-    expect(h.invocations()[1]?.env['CODEX_HOME']).toBe(`${h.dir}/.codex`);
-    expect(Object.keys(h.invocations()[1]?.env ?? {}).sort()).toEqual([
+    expect(h.invocations()[1]?.env['CODEX_HOME']).toBe(join(h.dir, '.codex'));
+    expect(applicationEnvKeys(h.invocations()[1]?.env ?? {})).toEqual([
       'CODEX_HOME',
       'HOME',
       'PATH',

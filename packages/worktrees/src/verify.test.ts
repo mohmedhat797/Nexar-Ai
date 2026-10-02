@@ -8,7 +8,8 @@ import { harvestPatch } from './harvest.js';
 import type { TaskWorktree } from './types.js';
 import { createVerificationWorkspace } from './verify.js';
 
-describe('createVerificationWorkspace', () => {
+// ADR-018: these verification fixtures require a patch harvested by the Linux /bin/sh launcher.
+describe.skipIf(process.platform === 'win32')('createVerificationWorkspace', () => {
   let root: string;
   let home: string;
   let task: TaskWorktree;

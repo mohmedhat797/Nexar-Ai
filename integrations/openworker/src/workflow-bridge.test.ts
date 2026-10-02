@@ -218,7 +218,7 @@ describe('Work Bridge: workflow requests (real engine, echo adapter)', () => {
       request({ id: 'sow', inputs: { ...sow.inputs, references: 'refs' } }),
     );
     expect(res.status).toBe('completed');
-    expect(res.output?.text).toContain('refs/a.md');
+    expect(res.output?.text).toContain(join('refs', 'a.md'));
     expect(res.output?.text).not.toContain('FILE-CONTENT-SENTINEL');
   });
 

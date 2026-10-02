@@ -95,6 +95,27 @@ function isErrno(e: unknown, code: string): boolean {
 
 const LOCK_STALE_MS = 10_000;
 const LOCK_WAIT_MS = 3_000;
+const RENAME_WAIT_MS = 1_000;
+
+/** Windows readers/virus scanners may briefly deny replacement; never remove the destination. */
+async function replaceAtomic(source: string, target: string): Promise<void> {
+  const deadline = Date.now() + RENAME_WAIT_MS;
+  for (;;) {
+    try {
+      await rename(source, target);
+      return;
+    } catch (error) {
+      if (
+        process.platform !== 'win32' ||
+        !['EPERM', 'EACCES', 'EBUSY'].some((code) => isErrno(error, code)) ||
+        Date.now() >= deadline
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+}
 
 /** One JSON file per request. Directory 0700, files 0600, atomic writes, O_EXCL single-use marker. */
 export class FileApprovalStore implements ApprovalStore {
@@ -120,7 +141,7 @@ export class FileApprovalStore implements ApprovalStore {
       } finally {
         await handle.close();
       }
-      await rename(tmp, target);
+      await replaceAtomic(tmp, target);
       await chmod(target, 0o600);
     } catch (e) {
       await unlink(tmp).catch(() => undefined);
@@ -139,17 +160,16 @@ export class FileApprovalStore implements ApprovalStore {
         break;
       } catch (e) {
         if (!isErrno(e, 'EEXIST')) throw e;
+        if (Date.now() >= deadline) throw approvalDenied('locked', id);
         const age = await stat(lockPath).then(
           (s) => Date.now() - s.mtimeMs,
           () => 0,
         );
         if (age > LOCK_STALE_MS) {
           await unlink(lockPath).catch(() => undefined);
-        } else if (Date.now() > deadline) {
-          throw approvalDenied('locked', id);
-        } else {
-          await new Promise((r) => setTimeout(r, 5));
         }
+        // An undeletable stale lock must back off and respect the same acquisition deadline.
+        await new Promise((r) => setTimeout(r, 5));
       }
     }
     try {
@@ -162,10 +182,22 @@ export class FileApprovalStore implements ApprovalStore {
   async create(request: ApprovalRequest): Promise<void> {
     const target = this.path(request.id, 'json');
     await this.ensureDir();
-    await this.writeAtomic(target, JSON.stringify(request));
+    await this.withLock(request.id, () => this.writeAtomic(target, JSON.stringify(request)));
   }
 
   async get(id: string): Promise<ApprovalRequest | undefined> {
+    assertApprovalId(id);
+    // Windows replacement can be denied while a reader holds the destination open.
+    if (process.platform !== 'win32') return this.readRecord(id);
+    try {
+      return await this.withLock(id, () => this.readRecord(id));
+    } catch (error) {
+      if (isErrno(error, 'ENOENT')) return undefined;
+      throw error;
+    }
+  }
+
+  private async readRecord(id: string): Promise<ApprovalRequest | undefined> {
     const target = this.path(id, 'json');
     let text: string;
     try {
@@ -213,7 +245,7 @@ export class FileApprovalStore implements ApprovalStore {
     const target = this.path(id, 'json');
     const marker = this.path(id, 'consumed');
     return this.withLock(id, async () => {
-      const current = await this.get(id);
+      const current = await this.readRecord(id);
       if (current === undefined) throw approvalDenied('unknown-state', id);
       const next = applyTransition(current, from, to, patch);
       if (to === 'consumed') {

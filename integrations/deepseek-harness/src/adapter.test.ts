@@ -105,7 +105,7 @@ describe('DeepSeekHarnessExecutionAdapter.execute', () => {
     expect(args).toEqual(['--profile', 'sdk', '--patch', overlayPath, '--patch', '/extra/one.yml']);
     expect(record.overlay).toContain('- id: session-log-deepseek\n  disabled: true');
     expect(record.overlay).toContain('"anthropic":');
-    expect(statSync(overlayPath).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(overlayPath).mode & 0o777).toBe(0o600);
 
     expect(record.envKeys).not.toContain('GH_TOKEN');
     expect(record.envKeys).toContain('DEEPSEEK_API_KEY');

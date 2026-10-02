@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import type { spawn } from 'node:child_process';
+import { spawnRuntime } from '@nexar/process';
 import { NexarError } from '@nexar/contracts';
 import type {
   AuthState,
@@ -105,7 +106,7 @@ export class AntigravityExecutionAdapter implements ExecutionAdapter {
     this.prefixArgs = typeof binary === 'string' ? [] : binary.args;
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.parentEnv = options.env ?? process.env;
-    this.spawnImpl = options.spawnImpl ?? spawn;
+    this.spawnImpl = options.spawnImpl ?? spawnRuntime;
     this.clock = options.clock ?? (() => new Date());
     this.killGraceMs = options.killGraceMs;
   }

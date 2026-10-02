@@ -16,7 +16,11 @@ concurrency:
 jobs:
   check:
     name: format · lint · typecheck · test · build
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +38,7 @@ jobs:
       # The sandbox integration tests need bubblewrap + socat. Ubuntu 24.04 restricts unprivileged
       # user namespaces; allow them for bwrap only (ADR-018), never via the global sysctl.
       - name: Sandbox prerequisites (bubblewrap, socat, bwrap-scoped AppArmor profile)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq bubblewrap socat
@@ -69,7 +74,12 @@ jobs:
       # Nexar Desktop (ADR-021): drives the real Electron app with Playwright on a virtual display.
       # Offline: only the echo resource is used. --no-sandbox is passed by the test, not the app.
       - name: Desktop E2E (Electron under Xvfb)
+        if: runner.os == 'Linux'
         run: xvfb-run -a pnpm desktop:e2e
+
+      - name: Desktop E2E (native Windows, offline echo)
+        if: runner.os == 'Windows'
+        run: pnpm desktop:e2e
 
   secrets:
     name: secret scan

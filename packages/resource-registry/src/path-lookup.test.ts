@@ -1,6 +1,6 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { adapterId, resourceId, type ResourceDescriptor } from '@nexar/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cliDiscoverySource, isBinaryOnPath, type FileStatLike } from './path-lookup.js';
@@ -21,8 +21,10 @@ const descriptor: ResourceDescriptor = {
 
 describe('isBinaryOnPath (POSIX)', () => {
   let dir: string;
+  let modes: Map<string, number>;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'nexar-path-'));
+    modes = new Map();
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -33,19 +35,29 @@ describe('isBinaryOnPath (POSIX)', () => {
     const path = join(dir, name);
     await writeFile(path, `#!/bin/sh\ntouch "${join(dir, 'RAN')}"\n`);
     await chmod(path, mode);
+    modes.set(name, mode);
     return path;
   }
 
+  // Exercise POSIX PATH semantics on either host; Windows chmod has no executable bit.
+  const posixStat = async (path: string): Promise<FileStatLike> => {
+    if (posix.dirname(path) !== '/tools') throw new Error('ENOENT');
+    const name = posix.basename(path);
+    const info = await stat(join(dir, name));
+    return { isFile: () => info.isFile(), mode: modes.get(name) ?? info.mode };
+  };
+
   it('finds an executable regular file and never runs it', async () => {
     await script('codex', 0o755);
-    const env = { PATH: `/nonexistent:${dir}` };
-    expect(await isBinaryOnPath('codex', { env, platform: 'linux' })).toBe(true);
+    const env = { PATH: '/nonexistent:/tools' };
+    expect(await isBinaryOnPath('codex', { env, platform: 'linux', stat: posixStat })).toBe(true);
     const found = await cliDiscoverySource({
       id: 'cli:codex',
       binary: 'codex',
       build: () => descriptor,
       env,
       platform: 'linux',
+      stat: posixStat,
     }).discover({ now: new Date(), signal: AbortSignal.timeout(1000) });
     expect(found).toEqual([descriptor]);
     // The descriptor carries nothing about where the binary was found.
@@ -56,10 +68,12 @@ describe('isBinaryOnPath (POSIX)', () => {
   it('ignores a missing binary, a non-executable file and a directory of the same name', async () => {
     await script('plain', 0o644);
     await mkdir(join(dir, 'folder'));
-    const env = { PATH: dir };
-    expect(await isBinaryOnPath('missing', { env, platform: 'linux' })).toBe(false);
-    expect(await isBinaryOnPath('plain', { env, platform: 'linux' })).toBe(false);
-    expect(await isBinaryOnPath('folder', { env, platform: 'linux' })).toBe(false);
+    const env = { PATH: '/tools' };
+    expect(await isBinaryOnPath('missing', { env, platform: 'linux', stat: posixStat })).toBe(
+      false,
+    );
+    expect(await isBinaryOnPath('plain', { env, platform: 'linux', stat: posixStat })).toBe(false);
+    expect(await isBinaryOnPath('folder', { env, platform: 'linux', stat: posixStat })).toBe(false);
   });
 
   it('returns false without PATH', async () => {

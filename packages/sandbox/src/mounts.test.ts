@@ -31,7 +31,8 @@ async function expectRejected(promise: Promise<unknown>, secret: string): Promis
   expect((error as Error).message).not.toContain(secret);
 }
 
-describe('validateHostPath', () => {
+// These are Linux-plane credential mount paths (ADR-018), not native Windows mounts.
+describe.skipIf(process.platform === 'win32')('validateHostPath', () => {
   it('returns the canonical path', async () => {
     await mkdir(join(data, 'real'));
     await symlink(join(data, 'real'), join(data, 'link'));

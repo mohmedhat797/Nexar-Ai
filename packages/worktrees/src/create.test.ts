@@ -40,7 +40,8 @@ describe('createTaskWorktree', () => {
 
   it('makes the task directory private and refuses to reuse it', async () => {
     const task = await create();
-    expect(statSync(task.taskDir).mode & 0o777).toBe(0o700);
+    // Windows chmod cannot express owner-only POSIX permission bits; ACL audit is separate.
+    if (process.platform !== 'win32') expect(statSync(task.taskDir).mode & 0o777).toBe(0o700);
     await expect(create()).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
     expect(existsSync(task.workPath)).toBe(true);
   });

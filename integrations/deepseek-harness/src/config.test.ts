@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { join } from 'node:path';
 import { buildDshEnv } from './env.js';
 import { parseRuntimeOptions } from './options.js';
 import { renderPatchOverlay } from './overlay.js';
@@ -38,7 +39,7 @@ describe('buildDshEnv', () => {
         'USER',
       ].sort(),
     );
-    expect(env.DSH_HOME).toBe('/state/home');
+    expect(env.DSH_HOME).toBe(join('/state', 'home'));
     expect(env.DEEPSEEK_API_KEY).toBe('sk-deepseek');
   });
 

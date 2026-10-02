@@ -45,6 +45,7 @@ export function runProcess(spec: ProcessSpec): Promise<ProcessOutcome> {
       child = spec.spawnImpl(spec.command, [...spec.args], {
         cwd: spec.cwd,
         env: spec.env,
+        windowsHide: true,
         stdio: [spec.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       });
     } catch (e) {

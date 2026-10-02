@@ -27,6 +27,8 @@ function workspaceAliases(): Record<string, string> {
 export default defineConfig({
   resolve: { alias: workspaceAliases() },
   test: {
+    // Bound concurrent fake subprocesses and filesystem contention on Windows; run every suite.
+    ...(process.platform === 'win32' ? { maxWorkers: 4 } : {}),
     include: ['{apps,packages,integrations}/*/src/**/*.test.ts', 'tests/**/*.test.ts'],
   },
 });

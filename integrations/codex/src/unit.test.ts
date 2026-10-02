@@ -1,6 +1,7 @@
 import { isNexarError, valueOf } from '@nexar/contracts';
 import type { ResourceDescriptor } from '@nexar/contracts';
 import { describe, expect, it } from 'vitest';
+import { join, resolve } from 'node:path';
 import {
   buildCodexArgs,
   buildCodexEnv,
@@ -62,7 +63,7 @@ describe('readSettings', () => {
       model: 'gpt-x',
       reasoningEffort: 'high',
       timeoutMs: 1000,
-      codexHome: '/srv/codex-home',
+      codexHome: resolve('/srv/codex-home'),
       allowHosts: ['chatgpt.com'],
     });
   });
@@ -91,9 +92,9 @@ describe('readSettings', () => {
     expect(resolveCodexHome({ allowHosts: [], codexHome: '/a' }, { CODEX_HOME: '/b' }, '/h')).toBe(
       '/a',
     );
-    expect(resolveCodexHome({ allowHosts: [] }, { CODEX_HOME: '/b' }, '/h')).toBe('/b');
-    expect(resolveCodexHome({ allowHosts: [] }, { HOME: '/u' }, '/h')).toBe('/u/.codex');
-    expect(resolveCodexHome({ allowHosts: [] }, {}, '/h')).toBe('/h/.codex');
+    expect(resolveCodexHome({ allowHosts: [] }, { CODEX_HOME: '/b' }, '/h')).toBe(resolve('/b'));
+    expect(resolveCodexHome({ allowHosts: [] }, { HOME: '/u' }, '/h')).toBe(join('/u', '.codex'));
+    expect(resolveCodexHome({ allowHosts: [] }, {}, '/h')).toBe(join('/h', '.codex'));
   });
 });
 
@@ -133,6 +134,39 @@ describe('buildCodexEnv', () => {
       HOME: '/home/o',
       CODEX_HOME: '/c',
     });
+  });
+
+  it('preserves Windows runtime variables case-insensitively without credentials', () => {
+    const windows = {
+      Path: 'C:\\Tools',
+      systemroot: 'C:\\Windows',
+      COMSPEC: 'C:\\Windows\\System32\\cmd.exe',
+      pathext: '.EXE;.CMD',
+      userprofile: 'C:\\Users\\owner',
+      APPDATA: 'C:\\Users\\owner\\AppData\\Roaming',
+      TEMP: 'C:\\Temp',
+      openai_api_key: 'secret',
+      CODEX_ACCESS_TOKEN: 'secret',
+      Unrelated: 'not inherited',
+    };
+    for (const env of [
+      buildCodexEnv(windows, 'C:\\Codex', 'win32'),
+      buildProbeEnv(windows, 'C:\\Codex', 'win32'),
+    ]) {
+      expect(env).toMatchObject({
+        PATH: windows.Path,
+        SystemRoot: windows.systemroot,
+        ComSpec: windows.COMSPEC,
+        PATHEXT: windows.pathext,
+        USERPROFILE: windows.userprofile,
+        APPDATA: windows.APPDATA,
+        TEMP: windows.TEMP,
+        CODEX_HOME: 'C:\\Codex',
+      });
+      expect(Object.keys(env).filter((name) => /KEY|TOKEN|Unrelated/i.test(name))).toEqual([]);
+      expect(env['Path']).toBeUndefined();
+    }
+    expect(buildProbeEnv(windows, '/c', 'linux')).toEqual({ CODEX_HOME: '/c' });
   });
 });
 

@@ -242,7 +242,7 @@ describe('PlanCatalog (validation)', () => {
     expect(await failure()).toMatch(/unknown variable "secrets"/);
   });
 
-  it('rejects a template symlinked outside the plan directory', async () => {
+  it('rejects a template symlinked outside the plan directory', async (context) => {
     await writePlan([
       lane('feature', 'feature', 'read-write'),
       lane('review', 'review', 'read-only'),
@@ -250,7 +250,16 @@ describe('PlanCatalog (validation)', () => {
     const outside = join(dir, 'outside.md');
     await writeFile(outside, 'x');
     await rm(join(dir, 'implement-review', 'feature.md'));
-    await symlink(outside, join(dir, 'implement-review', 'feature.md'));
+    try {
+      await symlink(outside, join(dir, 'implement-review', 'feature.md'), 'file');
+    } catch (error) {
+      if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') {
+        context.skip(
+          'Windows file symlinks require Developer Mode or SeCreateSymbolicLinkPrivilege',
+        );
+      }
+      throw error;
+    }
     expect(await failure()).toMatch(/outside the plan directory/);
   });
 

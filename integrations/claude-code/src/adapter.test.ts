@@ -1,6 +1,7 @@
 import { adapterId, isNexarError, valueOf } from '@nexar/contracts';
 import type { NexarError, ResourceDescriptor } from '@nexar/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
+import { parse } from 'node:path';
 import { ClaudeCodeExecutionAdapter, claudeCodeResource } from './index.js';
 import { harness, isAlive, silentLogger, task, waitFor } from './test/harness.js';
 import type { Harness } from './test/harness.js';
@@ -154,10 +155,13 @@ describe('execute: invocation', () => {
   it('runs in the task working directory', async () => {
     h = harness();
     await h.adapter.execute(
-      { task: task({ workingDirectory: '/' }), resource: claudeCodeResource() },
+      {
+        task: task({ workingDirectory: parse(process.cwd()).root }),
+        resource: claudeCodeResource(),
+      },
       h.context(),
     );
-    expect(h.invocations()[0]?.cwd).toBe('/');
+    expect(h.invocations()[0]?.cwd).toBe(parse(process.cwd()).root);
   });
 
   it('scrubs foreign credentials but keeps Claude/Anthropic variables', async () => {

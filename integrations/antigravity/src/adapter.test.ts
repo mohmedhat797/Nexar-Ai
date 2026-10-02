@@ -11,6 +11,29 @@ import {
 import { fakeLauncher, harness, isAlive, optedIn, task, waitFor } from './test/harness.js';
 import type { Harness } from './test/harness.js';
 
+// Windows supplies these public runtime variables even to explicitly scoped child envs.
+const WINDOWS_RUNTIME_KEYS = new Set(
+  process.platform === 'win32'
+    ? [
+        'HOMEDRIVE',
+        'HOMEPATH',
+        'SYSTEMDRIVE',
+        'SYSTEMROOT',
+        'TEMP',
+        'USERDOMAIN',
+        'USERNAME',
+        'USERPROFILE',
+        'WINDIR',
+      ]
+    : [],
+);
+
+function applicationEnvKeys(env: Readonly<Record<string, string | undefined>>): string[] {
+  return Object.keys(env)
+    .filter((name) => !WINDOWS_RUNTIME_KEYS.has(name.toUpperCase()))
+    .sort();
+}
+
 let h: Harness | undefined;
 afterEach(() => {
   h?.cleanup();
@@ -144,13 +167,21 @@ describe('execute: opt-in and policy gates', () => {
       ),
     );
     expect(wide.code).toBe('VALIDATION_ERROR');
-
-    const ok = await h.adapter.execute(
-      { task: task({ prompt: 'x'.repeat(MAX_PROMPT_BYTES) }), resource: optedIn() },
-      ctx,
-    );
-    expect(ok.text.length).toBeGreaterThan(MAX_PROMPT_BYTES);
   });
+
+  // The POSIX execution plane supports a 100 kB argv; native Windows CreateProcess does not.
+  it.skipIf(process.platform === 'win32')(
+    'accepts a prompt at the POSIX argv byte limit',
+    async () => {
+      h = harness();
+      const { ctx } = sandboxed(h);
+      const ok = await h.adapter.execute(
+        { task: task({ prompt: 'x'.repeat(MAX_PROMPT_BYTES) }), resource: optedIn() },
+        ctx,
+      );
+      expect(ok.text.length).toBeGreaterThan(MAX_PROMPT_BYTES);
+    },
+  );
 
   it('an already-aborted signal cancels before preparing', async () => {
     h = harness();
@@ -245,7 +276,7 @@ describe('execute: sandboxed run', () => {
     await h.adapter.execute({ task: task(), resource: optedIn() }, ctx);
     const env = h.invocations()[0]?.env ?? {};
     // PATH comes from the (fake) launcher; the adapter itself contributes LANG only.
-    expect(Object.keys(env).sort()).toEqual(['LANG', 'PATH']);
+    expect(applicationEnvKeys(env)).toEqual(['LANG', 'PATH']);
     expect(env['LANG']).toBe('C.UTF-8');
   });
 
@@ -474,7 +505,7 @@ describe('probe', () => {
       expect(call.argv.some((a) => a === '-p' || a.startsWith('--print') || a === '--prompt')).toBe(
         false,
       );
-      expect(Object.keys(call.env).sort()).toEqual(['HOME', 'PATH']);
+      expect(applicationEnvKeys(call.env)).toEqual(['HOME', 'PATH']);
     }
   });
 

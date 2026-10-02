@@ -1,5 +1,14 @@
 # Nexar security model and threat assumptions
 
+Windows compatibility evidence and remaining gaps: native launchers resolve supported Node npm
+shims to a script and Node executable, without evaluating batch argument expansion. Arbitrary batch
+launchers are refused. Live process trees are killed on abort/timeout with the host's system
+`taskkill.exe`; orphan descendants after prior leader exit still require Job Object containment.
+Windows file modes are not ACL evidence: the default Desktop state location inherits the user profile's
+ACL, and shared/overridden locations need an explicit audit. Linux security controls stay enforced on
+the WSL engineering plane. See the [Windows checklist](../guides/windows-validation.md) and
+[continuation state](../devlog/operating-layer-progress.md); NXR-051 remains open.
+
 Nexar will handle source code, client documents, email, calendars, OAuth sessions, API keys, and
 subscription logins. Security is an architectural requirement, not a later feature.
 

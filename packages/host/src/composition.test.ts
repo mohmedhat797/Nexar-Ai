@@ -103,7 +103,7 @@ describe('builtin directories', () => {
   it('honours the environment overrides, resolved against the cwd', () => {
     const env = { NEXAR_WORKFLOWS_DIR: 'wf', NEXAR_ENGINEERING_PLANS_DIR: '/abs/plans' };
     expect(builtinWorkflowsDir({ env, cwd })).toBe(resolve(cwd, 'wf'));
-    expect(builtinEngineeringPlansDir({ env, cwd })).toBe('/abs/plans');
+    expect(builtinEngineeringPlansDir({ env, cwd })).toBe(resolve(cwd, '/abs/plans'));
   });
 
   it('ignores empty overrides', () => {

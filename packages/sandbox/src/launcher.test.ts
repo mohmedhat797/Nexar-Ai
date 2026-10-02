@@ -75,7 +75,8 @@ function envOf(args: readonly string[]): Record<string, string> {
   return env;
 }
 
-describe('SandboxLauncher', () => {
+// ADR-018: preparing bubblewrap launches, mounts and Unix sockets belongs to Linux/WSL.
+describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
   it('fails closed with a non-retryable SANDBOX_UNAVAILABLE', async () => {
     const l = launcher({ availability: async () => ({ available: false, detail: 'no bwrap' }) });
     const error = await rejection(l.prepare(spec(), signal()));
@@ -309,7 +310,8 @@ describe('SandboxLauncher', () => {
   });
 });
 
-describe('createRunDir', () => {
+// passwd/group, POSIX modes and Unix socket path limits apply only to the Linux plane.
+describe.skipIf(process.platform === 'win32')('createRunDir', () => {
   it('creates a 0700 dir with passwd/group and rejects over-long socket paths', async () => {
     const dir = await createRunDir({ base: runBase, uid: 1234, gid: 5678 });
     const { readFile, stat } = await import('node:fs/promises');

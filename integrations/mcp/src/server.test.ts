@@ -875,7 +875,8 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
     it('creates the audit file with mode 0600', async () => {
       const { client } = await asClient();
       await call(client, 'nexar.resources');
-      expect((await stat(auditPath())).mode & 0o777).toBe(0o600);
+      // POSIX file modes do not represent Windows ACL permissions.
+      if (process.platform !== 'win32') expect((await stat(auditPath())).mode & 0o777).toBe(0o600);
     });
   });
 

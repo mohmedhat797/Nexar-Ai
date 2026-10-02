@@ -327,9 +327,14 @@ describe('ApprovalGate', () => {
     for (const name of names) {
       const bytes = await readFile(join(approvalsDir, name), 'utf8');
       expect(bytes).not.toContain(SECRET);
-      expect((await stat(join(approvalsDir, name))).mode & 0o777).toBe(0o600);
+      // Windows permissions are ACL-based; Node's mode bits do not represent them.
+      if (process.platform !== 'win32') {
+        expect((await stat(join(approvalsDir, name))).mode & 0o777).toBe(0o600);
+      }
     }
-    expect((await stat(approvalsDir)).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') {
+      expect((await stat(approvalsDir)).mode & 0o777).toBe(0o700);
+    }
     const record = JSON.parse(await readFile(join(approvalsDir, `${id}.json`), 'utf8')) as Record<
       string,
       unknown

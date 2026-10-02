@@ -70,7 +70,7 @@ describe('resolveContainedPath', () => {
   });
 
   it('rejects the symlink attack: allowed/link -> outside', async () => {
-    await symlink(outside, join(root, 'link'));
+    await symlink(outside, join(root, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
     await rejection(join(root, 'link'));
     await rejection(join(root, 'link', 'secret.txt'));
   });
@@ -93,19 +93,35 @@ describe('resolveContainedPath', () => {
   });
 
   it('rejects a dangling symlink', async () => {
-    await symlink(join(base, 'does-not-exist'), join(root, 'dangling'));
+    await symlink(
+      join(base, 'does-not-exist'),
+      join(root, 'dangling'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     await rejection(join(root, 'dangling'));
   });
 
   it('rejects a symlink loop', async () => {
-    await symlink(join(root, 'b'), join(root, 'a'));
-    await symlink(join(root, 'a'), join(root, 'b'));
+    await symlink(
+      join(root, 'b'),
+      join(root, 'a'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    await symlink(
+      join(root, 'a'),
+      join(root, 'b'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     const error = await rejection(join(root, 'a'));
     expect((error as { details?: { reason?: string } }).details?.reason).toBe('ELOOP');
   });
 
   it('allows a symlink inside the root that points inside the root', async () => {
-    await symlink(join(root, 'sub'), join(root, 'inner'));
+    await symlink(
+      join(root, 'sub'),
+      join(root, 'inner'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     expect(await resolveContainedPath(join(root, 'inner'), [root])).toBe(join(root, 'sub'));
   });
 
@@ -130,7 +146,7 @@ describe('canonicalRoots', () => {
   it('follows a symlinked root and returns its real path', async () => {
     const real = join(base, 'real');
     await mkdir(real);
-    await symlink(real, join(base, 'link'));
+    await symlink(real, join(base, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
     expect(await canonicalRoots([join(base, 'link')])).toEqual([real]);
   });
 

@@ -43,7 +43,9 @@ const record = async (x: Harness): Promise<EngineeringRecord> => {
 const branches = (x: Harness): string => git(x.repo, 'branch', '--list', 'nexar/*');
 const never = { ownerApproval: 'never' };
 
-describe('EngineeringRunner: accepted work', () => {
+// These pipeline fixtures execute harvest's /bin/sh and pristine Linux GIT_DIR mount (ADR-018).
+// Native Windows preflight and fail-closed guards below remain enabled.
+describe.skipIf(process.platform === 'win32')('EngineeringRunner: accepted work', () => {
   it('commits on nexar/<task> with trailers, a different reviewer, and leaves the owner untouched', async () => {
     const x = await harness();
     const progress: EngineeringProgress[] = [];
@@ -143,8 +145,11 @@ describe('EngineeringRunner: accepted work', () => {
       'lane-review-r0.md',
       'review-r0.json',
     ]);
-    expect(statSync(outcome.recordPath).mode & 0o777).toBe(0o600);
-    expect(statSync(join(x.stateDir, 'engineering', TASK)).mode & 0o777).toBe(0o700);
+    // POSIX file modes apply on the Linux/WSL engineering plane.
+    if (process.platform !== 'win32') {
+      expect(statSync(outcome.recordPath).mode & 0o777).toBe(0o600);
+      expect(statSync(join(x.stateDir, 'engineering', TASK)).mode & 0o777).toBe(0o700);
+    }
     expect((await listEngineeringRecords(x.stateDir)).map((r) => r.taskId)).toEqual([TASK]);
   });
 
@@ -246,7 +251,7 @@ describe('EngineeringRunner: accepted work', () => {
   });
 });
 
-describe('EngineeringRunner: review diversity', () => {
+describe.skipIf(process.platform === 'win32')('EngineeringRunner: review diversity', () => {
   const solo = [{ id: 'solo', capabilities: ['coding', 'repo-editing', 'code-review'] }];
 
   it('required: fails when no independent resource exists', async () => {
@@ -275,7 +280,7 @@ describe('EngineeringRunner: review diversity', () => {
   });
 });
 
-describe('EngineeringRunner: gates, review and rework', () => {
+describe.skipIf(process.platform === 'win32')('EngineeringRunner: gates, review and rework', () => {
   it('reworks after a gate failure, then passes', async () => {
     const x = await harness({ engineering: never });
     // The first attempt does not satisfy the gate; the debugging lane fixes it.
@@ -404,7 +409,7 @@ describe('EngineeringRunner: gates, review and rework', () => {
   });
 });
 
-describe('EngineeringRunner: patch policy', () => {
+describe.skipIf(process.platform === 'win32')('EngineeringRunner: patch policy', () => {
   it.each([
     ['.gitmodules', 'path-gitmodules'],
     ['.gitattributes', 'path-gitattributes'],
@@ -454,7 +459,7 @@ describe('EngineeringRunner: patch policy', () => {
   });
 });
 
-describe('EngineeringRunner: owner approval', () => {
+describe.skipIf(process.platform === 'win32')('EngineeringRunner: owner approval', () => {
   it('deny-all approvals make acceptance impossible: not-accepted, no branch', async () => {
     const x = await harness({ approvalMode: 'deny-all' });
     const outcome = await x.run();
@@ -620,108 +625,121 @@ describe('EngineeringRunner: preconditions and lifecycle', () => {
     expect(branches(x)).toBe('');
   });
 
-  it('cancels a running gate by killing its process group', async () => {
-    const x = await harness({
-      engineering: {
-        ...never,
-        gates: [{ name: 'slow', command: [process.execPath, '-e', 'setTimeout(()=>{},60000)'] }],
-      },
-    });
-    const controller = new AbortController();
-    const started = Date.now();
-    const outcome = await x.run(
-      {},
-      {
-        signal: controller.signal,
-        onProgress: (e) => {
-          if (e.type === 'step' && e.step === 'patch.harvested') {
-            setTimeout(() => controller.abort(), 100);
-          }
+  // Reaching gates requires the Linux harvest; cancellation of native resources is tested separately.
+  it.skipIf(process.platform === 'win32')(
+    'cancels a running gate by killing its process group',
+    async () => {
+      const x = await harness({
+        engineering: {
+          ...never,
+          gates: [{ name: 'slow', command: [process.execPath, '-e', 'setTimeout(()=>{},60000)'] }],
         },
-      },
-    );
-    expect(outcome.status).toBe('cancelled');
-    expect(Date.now() - started).toBeLessThan(20_000);
-  });
-
-  it('times out a gate and reports it as a failure', async () => {
-    const x = await harness({
-      engineering: {
-        ...never,
-        maxReworkRounds: 0,
-        gates: [
-          {
-            name: 'slow',
-            command: [process.execPath, '-e', 'setTimeout(()=>{},60000)'],
-            timeoutMs: 200,
+      });
+      const controller = new AbortController();
+      const started = Date.now();
+      const outcome = await x.run(
+        {},
+        {
+          signal: controller.signal,
+          onProgress: (e) => {
+            if (e.type === 'step' && e.step === 'patch.harvested') {
+              setTimeout(() => controller.abort(), 100);
+            }
           },
+        },
+      );
+      expect(outcome.status).toBe('cancelled');
+      expect(Date.now() - started).toBeLessThan(20_000);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'times out a gate and reports it as a failure',
+    async () => {
+      const x = await harness({
+        engineering: {
+          ...never,
+          maxReworkRounds: 0,
+          gates: [
+            {
+              name: 'slow',
+              command: [process.execPath, '-e', 'setTimeout(()=>{},60000)'],
+              timeoutMs: 200,
+            },
+          ],
+        },
+      });
+      expect(await x.run()).toMatchObject({ status: 'failed', reason: 'gates.failed' });
+      expect((await record(x)).commands[0]).toMatchObject({
+        timedOut: true,
+        passed: false,
+        exitCode: null,
+      });
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'keeps only the last 4 KB of a failing gate in the rework findings',
+    async () => {
+      const noisy = {
+        name: 'noisy',
+        command: [
+          process.execPath,
+          '-e',
+          "console.log('HEAD-MARKER'+'x'.repeat(20000)); console.log('TAIL-MARKER'); process.exit(1)",
         ],
-      },
-    });
-    expect(await x.run()).toMatchObject({ status: 'failed', reason: 'gates.failed' });
-    expect((await record(x)).commands[0]).toMatchObject({
-      timedOut: true,
-      passed: false,
-      exitCode: null,
-    });
-  });
-
-  it('keeps only the last 4 KB of a failing gate in the rework findings', async () => {
-    const noisy = {
-      name: 'noisy',
-      command: [
-        process.execPath,
-        '-e',
-        "console.log('HEAD-MARKER'+'x'.repeat(20000)); console.log('TAIL-MARKER'); process.exit(1)",
-      ],
-    };
-    const x = await harness({ engineering: { ...never, gates: [noisy] } });
-    x.adapter.queue('debugging', () => 'no change');
-    await x.run();
-    const findings = x.adapter.calls.find((c) => c.lane === 'debugging')?.prompt ?? '';
-    expect(findings).toContain('TAIL-MARKER');
-    expect(findings).not.toContain('HEAD-MARKER');
-    expect(findings.length).toBeLessThan(8000);
-  });
+      };
+      const x = await harness({ engineering: { ...never, gates: [noisy] } });
+      x.adapter.queue('debugging', () => 'no change');
+      await x.run();
+      const findings = x.adapter.calls.find((c) => c.lane === 'debugging')?.prompt ?? '';
+      expect(findings).toContain('TAIL-MARKER');
+      expect(findings).not.toContain('HEAD-MARKER');
+      expect(findings.length).toBeLessThan(8000);
+    },
+  );
 });
 
-describe('EngineeringRunner: records and telemetry carry no sensitive data', () => {
-  it('never contains the goal, diff text, gate output or absolute paths', async () => {
-    const x = await harness();
-    const approved = x.decideNext('approve');
-    const outcome = await x.run();
-    await approved;
-    expect(outcome.status).toBe('committed');
-    const text = [
-      readFileSync(outcome.recordPath, 'utf8'),
-      JSON.stringify(x.events),
-      JSON.stringify(silentLogger.warnings),
-    ].join('\n');
-    expect(text).not.toContain(GOAL_MARKER);
-    expect(text).not.toContain('Add the feature');
-    expect(text).not.toContain(DIFF_MARKER);
-    expect(text).not.toContain('gate-output-line');
-    expect(text).not.toContain('PLAN-TEXT');
-    expect(text).not.toContain(x.base);
-    expect(text).not.toContain('/tmp/');
-    expect(text).not.toContain('nexar-eng-test-');
-    expect(text.length).toBeGreaterThan(500);
-    // The engineering events do carry the scalars they should.
-    const steps = x.events.filter((e) => e.type === 'engineering.step');
-    expect(steps.every((e) => 'projectId' in e && e.projectId === 'demo')).toBe(true);
-  });
-
-  it('keeps the failure record free of paths and violation paths too', async () => {
-    const x = await harness({ engineering: { ...never, maxReworkRounds: 0 } });
-    x.adapter.queue('feature', (call) => {
-      editFile(call, '.gitmodules', `[submodule "${GOAL_MARKER}"]\n`);
-      return 'x';
+describe.skipIf(process.platform === 'win32')(
+  'EngineeringRunner: records and telemetry carry no sensitive data',
+  () => {
+    it('never contains the goal, diff text, gate output or absolute paths', async () => {
+      const x = await harness();
+      const approved = x.decideNext('approve');
+      const outcome = await x.run();
+      await approved;
+      expect(outcome.status).toBe('committed');
+      const text = [
+        readFileSync(outcome.recordPath, 'utf8'),
+        JSON.stringify(x.events),
+        JSON.stringify(silentLogger.warnings),
+      ].join('\n');
+      expect(text).not.toContain(GOAL_MARKER);
+      expect(text).not.toContain('Add the feature');
+      expect(text).not.toContain(DIFF_MARKER);
+      expect(text).not.toContain('gate-output-line');
+      expect(text).not.toContain('PLAN-TEXT');
+      expect(text).not.toContain(x.base);
+      expect(text).not.toContain('/tmp/');
+      expect(text).not.toContain('nexar-eng-test-');
+      expect(text.length).toBeGreaterThan(500);
+      // The engineering events do carry the scalars they should.
+      const steps = x.events.filter((e) => e.type === 'engineering.step');
+      expect(steps.every((e) => 'projectId' in e && e.projectId === 'demo')).toBe(true);
     });
-    const outcome = await x.run();
-    expect(outcome.status).toBe('failed');
-    const text = readFileSync(outcome.recordPath, 'utf8') + JSON.stringify(x.events);
-    expect(text).not.toContain(x.base);
-    expect(text).not.toContain('.gitmodules');
-    expect(text).not.toContain(GOAL_MARKER);
-  });
-});
+
+    it('keeps the failure record free of paths and violation paths too', async () => {
+      const x = await harness({ engineering: { ...never, maxReworkRounds: 0 } });
+      x.adapter.queue('feature', (call) => {
+        editFile(call, '.gitmodules', `[submodule "${GOAL_MARKER}"]\n`);
+        return 'x';
+      });
+      const outcome = await x.run();
+      expect(outcome.status).toBe('failed');
+      const text = readFileSync(outcome.recordPath, 'utf8') + JSON.stringify(x.events);
+      expect(text).not.toContain(x.base);
+      expect(text).not.toContain('.gitmodules');
+      expect(text).not.toContain(GOAL_MARKER);
+    });
+  },
+);

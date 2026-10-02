@@ -449,7 +449,7 @@ describe('Work Bridge v2 with a stub engine', () => {
       const res = await bridge(stub).submit(valid({ documentSets: ['notes', 'one', 'notes'] }));
       expect(res.status).toBe('completed');
       const attachments = stub.created[0]?.attachments ?? [];
-      expect(attachments.map((a) => a.label)).toEqual(['docs/a.md', 'docs/b.md']);
+      expect(attachments.map((a) => a.label)).toEqual([join('docs', 'a.md'), join('docs', 'b.md')]);
       expect(attachments.every((a) => fileURLToPath(a.uri).startsWith(base))).toBe(true);
     });
 
@@ -809,7 +809,11 @@ describe('with the real engine and a real project', () => {
     await mkdir(join(base, 'allowed', 'docs'));
     await writeFile(join(base, 'allowed', 'docs', 'brief.md'), 'the brief');
     await mkdir(outside);
-    await symlink(outside, join(base, 'allowed', 'link'));
+    await symlink(
+      outside,
+      join(base, 'allowed', 'link'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     executed = 0;
   });
   afterEach(async () => {

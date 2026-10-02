@@ -475,7 +475,8 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     expect(spec.mounts).toHaveLength(1);
     expect(mount).toMatchObject({ sandboxPath: '/home/agent/.dsh', access: 'read-write' });
     expect(mount?.hostPath.startsWith(t.stateDir)).toBe(true);
-    expect(statSync(mount?.hostPath as string).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32')
+      expect(statSync(mount?.hostPath as string).mode & 0o777).toBe(0o700);
   });
 
   it('omits the credential when it is not set and honors allowHosts', async () => {

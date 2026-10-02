@@ -46,7 +46,7 @@ describe('offline execution: config → createNexar → run → JSONL telemetry'
     expect(result.text).toBe('[echo:local-echo] offline please');
 
     const file = join(dir, '.nexar', 'telemetry.jsonl');
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600);
     const events = (await readFile(file, 'utf8'))
       .trimEnd()
       .split('\n')

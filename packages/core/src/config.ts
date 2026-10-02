@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import {
   KNOWN_CAPABILITIES,
@@ -395,7 +395,14 @@ function configError(message: string, origin: string): NexarError {
 function assertArtifactsDirectory(id: string, directory: string, origin: string): void {
   const escapes = isAbsolute(directory) || /^[A-Za-z]:/.test(directory);
   const rel = relative('/root', resolve('/root', directory));
-  if (escapes || rel === '' || rel === '..' || rel.startsWith('../') || directory.includes('\0')) {
+  if (
+    escapes ||
+    rel === '' ||
+    rel === '..' ||
+    rel.startsWith(`..${sep}`) ||
+    isAbsolute(rel) ||
+    directory.includes('\0')
+  ) {
     throw configError(
       `projects.${id}.artifactsDirectory must be a relative path inside the project root`,
       origin,

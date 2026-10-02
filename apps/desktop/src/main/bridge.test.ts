@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { TestContext } from 'vitest';
 import { parseConfig } from '@nexar/core';
 import type { ApprovalRequest } from '@nexar/approvals';
 import type {
@@ -17,6 +18,17 @@ import type {
 import { CHANNELS } from '../shared/channels.js';
 import { ALL_CHANNELS } from './bridge.js';
 import { createHarness, addProject, seed, type Harness } from './test-harness.js';
+
+async function fileSymlink(target: string, path: string, context: TestContext): Promise<void> {
+  try {
+    await symlink(target, path, 'file');
+  } catch (error) {
+    if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') {
+      context.skip('Windows file symlinks require Developer Mode or symlink privileges');
+    }
+    throw error;
+  }
+}
 
 let h: Harness;
 beforeEach(async () => {
@@ -141,7 +153,7 @@ describe('first run, app and settings', () => {
 describe('projects', () => {
   it('adds a project by dialog with the canonical root, persists and lists it', async () => {
     const link = join(h.userData, 'link-to-project');
-    await symlink(h.projectDir, link);
+    await symlink(h.projectDir, link, process.platform === 'win32' ? 'junction' : 'dir');
     h.pick = link;
     const added = await h.call<ProjectDto | null>(CHANNELS.projectsAdd);
     expect(added).toEqual({
@@ -229,9 +241,11 @@ describe('project files', () => {
       'binary.bin': '',
     });
     await writeFile(join(h.projectDir, 'binary.bin'), Buffer.from([0xff, 0xfe, 0x00, 0x61]));
-    await symlink(outside, join(h.projectDir, 'escape-dir'));
-    await symlink(join(outside, 'secret.txt'), join(h.projectDir, 'escape-file'));
-    await symlink(join(h.projectDir, 'readme.md'), join(h.projectDir, 'inside-link'));
+    await symlink(
+      outside,
+      join(h.projectDir, 'escape-dir'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     id = await addProject(h);
   });
 
@@ -244,7 +258,6 @@ describe('project files', () => {
     expect(result.value.entries.map((e) => `${e.kind}:${e.name}`)).toEqual([
       'dir:src',
       'file:binary.bin',
-      'file:inside-link',
       'file:readme.md',
       'file:zeta.txt',
     ]);
@@ -312,7 +325,18 @@ describe('project files', () => {
     }
   });
 
-  it('refuses a symlinked file that leaves the project', async () => {
+  it('lists contained file symlinks and hides escaping file symlinks', async (context) => {
+    await fileSymlink(join(h.projectDir, 'readme.md'), join(h.projectDir, 'inside-link'), context);
+    await fileSymlink(join(outside, 'secret.txt'), join(h.projectDir, 'escape-file'), context);
+    const result = await h.call<FileListing>(CHANNELS.projectsFiles, { projectId: id });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.entries.map((entry) => entry.name)).toContain('inside-link');
+    expect(result.value.entries.map((entry) => entry.name)).not.toContain('escape-file');
+  });
+
+  it('refuses a symlinked file that leaves the project', async (context) => {
+    await fileSymlink(join(outside, 'secret.txt'), join(h.projectDir, 'escape-file'), context);
     const result = await h.call(CHANNELS.projectsReadFile, { projectId: id, path: 'escape-file' });
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).not.toContain('top secret');
