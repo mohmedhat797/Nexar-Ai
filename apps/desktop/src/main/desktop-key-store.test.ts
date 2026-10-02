@@ -309,23 +309,29 @@ describe('file identity and private parent', () => {
       const script = String.raw`
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$PSModuleAutoLoadingPreference = 'None'
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$acl = Get-Acl -LiteralPath $env:NEXAR_KEYSTORE_ACL_TEST
-$rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) |
-  ForEach-Object {
-    $role = switch ($_.IdentityReference.Value) {
+$path = $env:NEXAR_KEYSTORE_ACL_TEST
+if ([System.IO.Directory]::Exists($path)) { $item = [System.IO.DirectoryInfo]::new($path) }
+else { $item = [System.IO.FileInfo]::new($path) }
+$acl = $item.GetAccessControl()
+$rules = [System.Collections.Generic.List[string]]::new()
+foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+    $role = switch ($rule.IdentityReference.Value) {
       $user { 'user' }
       'S-1-5-18' { 'SYSTEM' }
       'S-1-5-32-544' { 'Administrators' }
       default { 'other' }
     }
-    @{ role = $role; inherited = $_.IsInherited; rights = $_.FileSystemRights.ToString()
-      type = $_.AccessControlType.ToString() }
-  })
+    $rules.Add(('{{"role":"{0}","inherited":{1},"rights":"{2}","type":"{3}"}}' -f
+      $role, $rule.IsInherited.ToString().ToLowerInvariant(), $rule.FileSystemRights.ToString(),
+      $rule.AccessControlType.ToString()))
+}
 $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-@{ protected = $acl.AreAccessRulesProtected; rules = $rules
-  ownerAllowed = $owner -in @($user, 'S-1-5-18', 'S-1-5-32-544') } |
-  ConvertTo-Json -Depth 4 -Compress
+$ownerAllowed = $owner -in @($user, 'S-1-5-18', 'S-1-5-32-544')
+[Console]::WriteLine(('{{"protected":{0},"rules":[{1}],"ownerAllowed":{2}}}' -f
+  $acl.AreAccessRulesProtected.ToString().ToLowerInvariant(), [string]::Join(',', $rules),
+  $ownerAllowed.ToString().ToLowerInvariant()))
 `;
       const acl = (
         file: string,

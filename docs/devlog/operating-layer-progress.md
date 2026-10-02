@@ -14,6 +14,10 @@ CI `37026524275` exposed an ineffective targeted global Gitleaks exception when 
 default rules in pinned 8.28.0. Follow-up uses a rule-level AND exception for only the exact
 test path and idempotency sentinel, retaining default detection and full history scanning.
 Latest Windows local full gate passed 2,333 tests / 121 skips; Provider Electron E2E passed.
+CI `37027117681` confirms the rule-level secret-scan correction. CI `37026524275` passed Linux
+but Windows still timed out in the new keystore ACL test. Its helper is corrected to use .NET
+ACL reads and output with module auto-loading disabled, matching the existing private-state
+fixture. No ACL assertions are removed. Recheck subsequent Windows CI before new feature work.
 Verify the subsequent CI checkpoint before implementing NXR-052d. The following foundation
 delivery notes are historical.
 
