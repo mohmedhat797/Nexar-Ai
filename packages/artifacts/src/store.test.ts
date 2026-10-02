@@ -183,8 +183,10 @@ describe('LocalArtifactStore', () => {
       context.skip('Windows file symlink privilege is unavailable');
       return;
     }
-    await store.store(input());
+    const ref = await store.store(input());
     await expect(lstat(target)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(fileURLToPath(ref.uri)).toBe(join(root, taskDir, 'sow-2.md'));
+    expect((await lstat(join(root, taskDir, 'sow.md'))).isSymbolicLink()).toBe(true);
   });
 
   it('rejects a symlinked .nexar pointing outside and writes nothing there', async () => {

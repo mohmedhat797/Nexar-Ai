@@ -9,12 +9,13 @@ import type { Harness } from './test/harness.js';
 
 const BYPASS = '--dangerously-bypass-approvals-and-sandbox';
 
-// Windows supplies these public runtime variables even to explicitly scoped child envs.
+// Node/libuv restores these public Windows variables during spawn, independently of the adapter.
 const WINDOWS_RUNTIME_KEYS = new Set(
   process.platform === 'win32'
     ? [
         'HOMEDRIVE',
         'HOMEPATH',
+        'LOGONSERVER',
         'SYSTEMDRIVE',
         'SYSTEMROOT',
         'TEMP',

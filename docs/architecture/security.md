@@ -9,6 +9,11 @@ ACL, and shared/overridden locations need an explicit audit. Linux security cont
 the WSL engineering plane. See the [Windows checklist](../guides/windows-validation.md) and
 [continuation state](../devlog/operating-layer-progress.md); NXR-051 remains open.
 
+Windows artifact publication uses an exclusive hard link from a random staging file; it never opens
+the predictable destination, because Windows `wx` can follow a dangling file link. Filesystems that
+do not support hard links fail closed. Artifact, engineering-history and relay-result readers verify
+regular-file identities before reading; Windows does not implement POSIX `O_NOFOLLOW`.
+
 Nexar will handle source code, client documents, email, calendars, OAuth sessions, API keys, and
 subscription logins. Security is an architectural requirement, not a later feature.
 

@@ -1,13 +1,22 @@
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { lstat, open } from 'node:fs/promises';
+import type * as FsPromises from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, tempDir } from './fixtures.testkit.js';
 import { aggregateLaneHistory, laneHistoryProvider, readLaneHistory } from './lane-history.js';
 import type { CommandRecord, EngineeringRecord, LaneRecord, ReviewRecord } from './record.js';
 
+vi.mock('node:fs/promises', async (importOriginal: () => Promise<typeof FsPromises>) => {
+  const actual = await importOriginal();
+  return { ...actual, lstat: vi.fn(actual.lstat), open: vi.fn(actual.open) };
+});
+
 const NOW = new Date('2026-06-15T12:00:00.000Z');
 const dirs: string[] = [];
 afterEach(() => {
+  vi.mocked(lstat).mockClear();
+  vi.mocked(open).mockClear();
   cleanup(...dirs.splice(0));
 });
 
@@ -393,6 +402,50 @@ describe('readLaneHistory', () => {
     const result = await readLaneHistory(dir, window);
     expect(result).toEqual({ lanes: {}, skipped: 1 });
   });
+
+  it('rejects a different file opened after the record was checked, without reading it', async () => {
+    const actual = await vi.importActual<typeof FsPromises>('node:fs/promises');
+    const dir = state();
+    writeRecord(dir, 'safe', rec({ lanes: [implLane('safe')] }));
+    const foreign = writeRecord(state(), 'foreign', rec({ lanes: [implLane('leak')] }));
+    const handle = await actual.open(foreign, 'r');
+    const read = vi.spyOn(handle, 'readFile');
+    const close = vi.spyOn(handle, 'close');
+    vi.mocked(open).mockResolvedValueOnce(handle);
+    expect(await readLaneHistory(dir, window)).toEqual({ lanes: {}, skipped: 1 });
+    expect(read).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it.each(['record', 'task directory'])(
+    'rejects a %s path replaced after opening, without reading the handle',
+    async (replaced) => {
+      const actual = await vi.importActual<typeof FsPromises>('node:fs/promises');
+      const dir = state();
+      const record = writeRecord(dir, 'safe', rec({ lanes: [implLane('safe')] }));
+      const taskDir = join(dir, 'engineering', 'safe');
+      const foreign = writeRecord(state(), 'foreign', rec({ lanes: [implLane('leak')] }));
+      const foreignDir = state();
+      const handle = await actual.open(record, 'r');
+      const read = vi.spyOn(handle, 'readFile');
+      const close = vi.spyOn(handle, 'close');
+      vi.mocked(open).mockResolvedValueOnce(handle);
+      vi.mocked(lstat)
+        .mockResolvedValueOnce(await actual.lstat(taskDir, { bigint: true }))
+        .mockResolvedValueOnce(await actual.lstat(record, { bigint: true }))
+        .mockResolvedValueOnce(
+          await actual.lstat(replaced === 'record' ? foreign : record, { bigint: true }),
+        )
+        .mockResolvedValueOnce(
+          await actual.lstat(replaced === 'task directory' ? foreignDir : taskDir, {
+            bigint: true,
+          }),
+        );
+      expect(await readLaneHistory(dir, window)).toEqual({ lanes: {}, skipped: 1 });
+      expect(read).not.toHaveBeenCalled();
+      expect(close).toHaveBeenCalledOnce();
+    },
+  );
 
   it('skips an oversize record', async () => {
     const dir = state();
