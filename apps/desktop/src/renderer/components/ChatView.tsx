@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react';
-import type { ProjectDto, ResourceRow } from '../../shared/api.js';
-import type { Turn } from '../state.js';
+import type { ProjectDto, ResourceRow, SessionDto } from '../../shared/api.js';
+import type { SendArgs } from '../useSessions.js';
 import { Icon } from './Icon.js';
-import { TurnView } from './TurnView.js';
+import { SessionTurnView } from './SessionTurnView.js';
 
 const TASK_KINDS = [
   'general',
@@ -14,13 +14,6 @@ const TASK_KINDS = [
   'automation',
   'coding',
 ] as const;
-
-export interface SendArgs {
-  readonly kind: string;
-  readonly prompt: string;
-  readonly preferredResourceIds?: readonly string[];
-  readonly maxCostUsd?: number;
-}
 
 /** Resources worth offering in the "AI" picker: not known to be down or signed out. */
 export function selectableResources(resources: readonly ResourceRow[]): readonly ResourceRow[] {
@@ -34,7 +27,7 @@ function Composer({
 }: {
   resources: readonly ResourceRow[];
   busy: boolean;
-  onSend: (args: SendArgs) => void;
+  onSend: (args: SendArgs) => Promise<void>;
 }): ReactElement {
   const [prompt, setPrompt] = useState('');
   const [kind, setKind] = useState<string>('general');
@@ -46,13 +39,16 @@ function Composer({
     const text = prompt.trim();
     if (text === '') return;
     const max = budget.trim() === '' ? Number.NaN : Number(budget);
+    // The text stays in the box until the turn is stored, so a failed send can be retried.
     onSend({
       kind,
       prompt: text,
       ...(resource === '' ? {} : { preferredResourceIds: [resource] }),
       ...(Number.isFinite(max) && max >= 0 ? { maxCostUsd: max } : {}),
-    });
-    setPrompt('');
+    }).then(
+      () => setPrompt(''),
+      () => undefined,
+    );
   };
 
   return (
@@ -116,7 +112,10 @@ function Composer({
 export function ChatView({
   project,
   resources,
-  turns,
+  session,
+  progress,
+  busy,
+  error,
   filesOpen,
   onToggleFiles,
   onSend,
@@ -124,17 +123,20 @@ export function ChatView({
 }: {
   project: ProjectDto;
   resources: readonly ResourceRow[];
-  turns: readonly Turn[];
+  session: SessionDto | null;
+  progress: Readonly<Record<string, readonly string[]>>;
+  busy: boolean;
+  error: string | null;
   filesOpen: boolean;
   onToggleFiles: () => void;
-  onSend: (args: SendArgs) => void;
-  onCancel: (requestId: string) => void;
+  onSend: (args: SendArgs) => Promise<void>;
+  onCancel: (turnId: string) => void;
 }): ReactElement {
   const endRef = useRef<HTMLDivElement>(null);
-  const busy = turns.some((t) => t.status === 'running');
+  const turns = session?.turns ?? [];
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: 'end' });
-  }, [turns]);
+  }, [session, progress]);
 
   return (
     <section className="chat" aria-label="Chat">
@@ -150,17 +152,28 @@ export function ChatView({
         </button>
       </header>
       <div className="messages">
+        {error !== null && (
+          <div className="notice notice-bad" role="alert" data-testid="chat-error">
+            {error}
+          </div>
+        )}
         {turns.length === 0 && (
           <div className="empty-inline">
             <h2>What should Nexar do in {project.name}?</h2>
             <p className="muted">
               Nexar picks the AI for each task and shows you why. Results are saved as drafts in the
-              project.
+              project, and this conversation is kept so you can come back to it.
             </p>
           </div>
         )}
         {turns.map((t) => (
-          <TurnView key={t.requestId} turn={t} onCancel={onCancel} />
+          <SessionTurnView
+            key={t.id}
+            projectId={project.id}
+            turn={t}
+            lines={progress[t.id] ?? []}
+            onCancel={onCancel}
+          />
         ))}
         <div ref={endRef} />
       </div>

@@ -17,6 +17,7 @@
     { "path": "../../packages/host" },
     { "path": "../../packages/projects" },
     { "path": "../../packages/resource-controller" },
+    { "path": "../../packages/sessions" },
     { "path": "../../packages/workflows" }
   ]
 }

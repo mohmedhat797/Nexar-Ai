@@ -110,6 +110,9 @@ importers:
       '@nexar/resource-controller':
         specifier: workspace:*
         version: link:../../packages/resource-controller
+      '@nexar/sessions':
+        specifier: workspace:*
+        version: link:../../packages/sessions
       '@nexar/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows

@@ -3,6 +3,7 @@ import { LocalArtifactStore } from '@nexar/artifacts';
 import {
   isNexarError,
   resourceId,
+  type ArtifactRef,
   type ExecutionEvent,
   type Measured,
   type NexarTask,
@@ -27,7 +28,7 @@ import {
 const MAX_PROMPT_CHARS = 100_000;
 const MAX_EVENT_CHARS = 300;
 
-const PromptSchema = z
+export const PromptSchema = z
   .string()
   .min(1)
   .max(MAX_PROMPT_CHARS)
@@ -46,21 +47,26 @@ const RunArgsSchema = z.strictObject({
   maxCostUsd: z.number().finite().nonnegative().max(10_000).optional(),
 });
 
-function oneLine(text: string): string {
+export function oneLine(text: string): string {
   return text.replace(/[\p{Cc}\p{Cf}]/gu, ' ').slice(0, MAX_EVENT_CHARS);
 }
 
 /** Status and tool-name progress only: text deltas and tool details never leave the engine. */
+export function progressLine(
+  event: ExecutionEvent,
+): { readonly type: 'status' | 'progress'; readonly message: string } | undefined {
+  if (event.type === 'status') return { type: 'status', message: oneLine(event.message) };
+  if (event.type === 'tool-call') return { type: 'progress', message: oneLine(event.name) };
+  return undefined;
+}
+
 export function progressEmitter(
   ctx: CallContext,
   requestId: string,
 ): (event: ExecutionEvent) => void {
   return (event) => {
-    if (event.type === 'status') {
-      ctx.emit({ requestId, type: 'status', message: oneLine(event.message) });
-    } else if (event.type === 'tool-call') {
-      ctx.emit({ requestId, type: 'progress', message: oneLine(event.name) });
-    }
+    const line = progressLine(event);
+    if (line !== undefined) ctx.emit({ requestId, ...line });
   };
 }
 
@@ -70,7 +76,7 @@ export function toMeasuredNumber(value: Measured<number>): MeasuredNumber {
     : { status: value.status, value: value.value };
 }
 
-interface TaskArgs {
+export interface TaskArgs {
   readonly projectId: string;
   readonly kind: string;
   readonly prompt: string;
@@ -78,8 +84,19 @@ interface TaskArgs {
   readonly maxCostUsd?: number | undefined;
 }
 
+/** Operating Session lineage (ADR-024 section 2); set by Nexar, never taken from a request. */
+export interface TaskLineage {
+  readonly sessionId: string;
+  readonly turnId: string;
+}
+
 /** The task for a desktop request. The working directory is the project's (enforced by the engine). */
-function createTask(ctx: CallContext, args: TaskArgs, requestId: string | undefined): NexarTask {
+export function createTask(
+  ctx: CallContext,
+  args: TaskArgs,
+  requestId: string | undefined,
+  lineage?: TaskLineage,
+): NexarTask {
   const { nexar } = ctx.deps.engine.composition().runtime;
   const preferred = args.preferredResourceIds ?? [];
   return nexar.createTask({
@@ -90,6 +107,7 @@ function createTask(ctx: CallContext, args: TaskArgs, requestId: string | undefi
       source: 'desktop',
       project: args.projectId,
       ...(requestId === undefined ? {} : { correlationId: requestId }),
+      ...(lineage === undefined ? {} : { sessionId: lineage.sessionId, turnId: lineage.turnId }),
     },
     requirements: {
       capabilities: [],
@@ -123,11 +141,11 @@ export function toTaskResult(
 }
 
 /** Stores the result as a draft, like the Work Bridge; a storage failure never loses the text. */
-async function storeDraft(
+export async function storeDraftRef(
   ctx: CallContext,
   project: Project,
   outcome: RunOutcome,
-): Promise<ArtifactDto[]> {
+): Promise<ArtifactRef | undefined> {
   const { runtime } = ctx.deps.engine.composition();
   try {
     const store = new LocalArtifactStore({ projects: runtime.projects });
@@ -140,13 +158,22 @@ async function storeDraft(
       draft: true,
     });
     await runtime.nexar.recordArtifacts(outcome.task.id, project.id, [ref]);
-    return [toArtifactDto(project, ref, outcome.task.id)];
+    return ref;
   } catch (error) {
     ctx.deps.logger.warn('storing the result artifact failed', {
       code: isNexarError(error) ? error.code : 'UNKNOWN',
     });
-    return [];
+    return undefined;
   }
+}
+
+async function storeDraft(
+  ctx: CallContext,
+  project: Project,
+  outcome: RunOutcome,
+): Promise<ArtifactDto[]> {
+  const ref = await storeDraftRef(ctx, project, outcome);
+  return ref === undefined ? [] : [toArtifactDto(project, ref, outcome.task.id)];
 }
 
 async function runTask(

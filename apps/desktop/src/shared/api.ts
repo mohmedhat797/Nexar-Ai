@@ -157,6 +157,81 @@ export interface RunWorkflowArgs {
   readonly inputs: Readonly<Record<string, string | readonly string[]>>;
 }
 
+export const TURN_STATES = [
+  'pending-confirmation',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+  'interrupted',
+  'declined',
+] as const;
+export type TurnStateDto = (typeof TURN_STATES)[number];
+
+export interface SessionSummaryDto {
+  readonly id: string;
+  readonly projectId: string;
+  readonly mode: Mode;
+  readonly title: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly revision: number;
+  readonly turnCount: number;
+  /** True while a turn is running or waiting for confirmation. */
+  readonly active: boolean;
+  readonly lastTurnState?: TurnStateDto;
+}
+
+export interface TurnDto {
+  readonly id: string;
+  readonly index: number;
+  /** The owner's message. */
+  readonly text: string;
+  readonly state: TurnStateDto;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly kind?: string;
+  readonly tasks: readonly {
+    readonly taskId: string;
+    readonly state: string;
+    readonly resourceId?: string;
+  }[];
+  readonly artifacts: readonly ArtifactDto[];
+  readonly outcome?: {
+    readonly text?: string;
+    readonly textTruncated?: boolean;
+    readonly error?: { readonly code: string; readonly message: string };
+  };
+}
+
+export interface SessionDto extends SessionSummaryDto {
+  readonly turns: readonly TurnDto[];
+}
+
+export interface SubmitTurnArgs {
+  readonly sessionId: string;
+  /** Client-generated idempotency key, `^[A-Za-z0-9_-]{16,64}$`; reuse it when retrying. */
+  readonly submissionKey: string;
+  readonly text: string;
+  readonly kind: string;
+  readonly preferredResourceIds?: readonly string[];
+  readonly maxCostUsd?: number;
+}
+
+export interface SubmitTurnResult {
+  readonly turn: TurnDto;
+  /** False when the submission key already existed and nothing was started. */
+  readonly created: boolean;
+}
+
+/** A change notification: `turn` means "re-fetch the session"; it carries no content. */
+export interface SessionEvent {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly type: 'status' | 'progress' | 'turn';
+  readonly message?: string;
+}
+
 /** `window.nexar`: the only thing the preload exposes. */
 export interface NexarApi {
   appInfo(): Promise<BridgeResult<AppInfo>>;
@@ -180,6 +255,30 @@ export interface NexarApi {
   deny(args: { id: string; reason?: string }): Promise<BridgeResult<ApprovalDto>>;
   listWorkflows(args?: { projectId?: string }): Promise<BridgeResult<readonly WorkflowDto[]>>;
   runWorkflow(args: RunWorkflowArgs): Promise<BridgeResult<TaskResult>>;
+  listSessions(projectId: string): Promise<BridgeResult<readonly SessionSummaryDto[]>>;
+  createSession(args: {
+    projectId: string;
+    mode: Mode;
+    title?: string;
+  }): Promise<BridgeResult<SessionDto>>;
+  getSession(sessionId: string): Promise<BridgeResult<SessionDto>>;
+  submitTurn(args: SubmitTurnArgs): Promise<BridgeResult<SubmitTurnResult>>;
+  cancelTurn(args: {
+    sessionId: string;
+    turnId: string;
+  }): Promise<BridgeResult<{ readonly cancelled: boolean }>>;
+  setSessionMode(args: {
+    sessionId: string;
+    mode: Mode;
+    expectedRevision?: number;
+  }): Promise<BridgeResult<SessionDto>>;
+  renameSession(args: {
+    sessionId: string;
+    title: string;
+    expectedRevision?: number;
+  }): Promise<BridgeResult<SessionDto>>;
   /** Subscribes to task progress; returns the unsubscribe function. */
   onTaskEvent(callback: (event: TaskEvent) => void): () => void;
+  /** Subscribes to Operating Session changes; returns the unsubscribe function. */
+  onSessionEvent(callback: (event: SessionEvent) => void): () => void;
 }

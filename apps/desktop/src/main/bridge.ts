@@ -8,12 +8,14 @@ import {
   JobRegistry,
   NoArgs,
   defineChannel,
+  safeError,
   type BridgeDeps,
   type CallContext,
   type ChannelDefinition,
 } from './channel.js';
 import { projectChannels } from './projects.js';
 import { resourceChannels } from './resources.js';
+import { sessionChannels } from './sessions.js';
 import { SettingsPatchSchema } from './settings-store.js';
 import { taskChannels } from './tasks.js';
 import { workflowChannels } from './workflows.js';
@@ -25,7 +27,12 @@ export interface Bridge {
   readonly table: ChannelTable;
   readonly jobs: JobRegistry;
   /** Validates, runs and maps errors; never throws. */
-  invoke(channel: string, raw: unknown, emit: CallContext['emit']): Promise<BridgeResult<unknown>>;
+  invoke(
+    channel: string,
+    raw: unknown,
+    emit: CallContext['emit'],
+    emitSession?: CallContext['emitSession'],
+  ): Promise<BridgeResult<unknown>>;
 }
 
 const MAX_MESSAGE_CHARS = 300;
@@ -49,6 +56,7 @@ export function createBridge(deps: BridgeDeps): Bridge {
     ...artifactChannels,
     ...approvalChannels,
     ...workflowChannels,
+    ...sessionChannels,
   };
   const jobs = new JobRegistry();
 
@@ -56,6 +64,7 @@ export function createBridge(deps: BridgeDeps): Bridge {
     channel: string,
     raw: unknown,
     emit: CallContext['emit'],
+    emitSession: CallContext['emitSession'] = () => undefined,
   ): Promise<BridgeResult<unknown>> {
     const definition = Object.hasOwn(table, channel) ? table[channel] : undefined;
     if (definition === undefined) {
@@ -69,12 +78,17 @@ export function createBridge(deps: BridgeDeps): Bridge {
       };
     }
     try {
-      const value = await definition.handler(parsed.data as never, { deps, jobs, emit });
+      const value = await definition.handler(parsed.data as never, {
+        deps,
+        jobs,
+        emit,
+        emitSession,
+      });
       return { ok: true, value };
     } catch (error) {
       if (isNexarError(error)) {
         deps.logger.info('bridge call failed', { channel, code: error.code });
-        return { ok: false, error: { code: error.code, message: error.message } };
+        return { ok: false, error: safeError(error) };
       }
       // Anything else may carry paths or internals: log the class only, answer generically.
       deps.logger.error('bridge call crashed', {

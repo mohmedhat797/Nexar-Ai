@@ -20,9 +20,19 @@ export const CHANNELS = {
   approvalsDeny: 'approvals:deny',
   workflowsList: 'workflows:list',
   workflowsRun: 'workflows:run',
+  sessionsList: 'sessions:list',
+  sessionsCreate: 'sessions:create',
+  sessionsGet: 'sessions:get',
+  sessionsSubmitTurn: 'sessions:submitTurn',
+  sessionsCancel: 'sessions:cancel',
+  sessionsSetMode: 'sessions:setMode',
+  sessionsRename: 'sessions:rename',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
 
 /** Main → renderer push channel for task progress. */
 export const TASK_EVENT_CHANNEL = 'task:event';
+
+/** Main -> renderer push channel for Operating Session changes (ids and short status lines only). */
+export const SESSION_EVENT_CHANNEL = 'session:event';

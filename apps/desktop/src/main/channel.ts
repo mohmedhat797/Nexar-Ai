@@ -1,8 +1,9 @@
 import { isAbsolute, relative, sep } from 'node:path';
 import { z } from 'zod';
-import { NexarError, projectId, type Logger, type ProjectId } from '@nexar/contracts';
+import { NexarError, isNexarError, projectId, type Logger, type ProjectId } from '@nexar/contracts';
 import { resolveContainedPath, type Project } from '@nexar/projects';
-import type { AppInfo, TaskEvent } from '../shared/api.js';
+import type { FileSessionStore } from '@nexar/sessions';
+import type { AppInfo, SessionEvent, TaskEvent } from '../shared/api.js';
 import type { ConfigStore } from './config-store.js';
 import type { EngineHost } from './engine-host.js';
 import type { SettingsStore } from './settings-store.js';
@@ -21,6 +22,24 @@ export interface ShellPort {
   showItemInFolder(path: string): void;
 }
 
+/**
+ * What the session channels need from the session store; tests inject a store on a temp directory.
+ * Only the lease holder can mutate (ADR-024 section 6).
+ */
+export type SessionService = Pick<
+  FileSessionStore,
+  | 'list'
+  | 'get'
+  | 'create'
+  | 'beginTurn'
+  | 'linkTask'
+  | 'updateTask'
+  | 'linkArtifacts'
+  | 'completeTurn'
+  | 'setMode'
+  | 'rename'
+>;
+
 export interface BridgeDeps {
   readonly engine: EngineHost;
   readonly config: ConfigStore;
@@ -31,6 +50,8 @@ export interface BridgeDeps {
   readonly appInfo: AppInfo;
   /** Names the decider on approvals, e.g. `desktop:alice`. */
   readonly decider: string;
+  /** `undefined` when another Nexar process holds the sessions lease: every session channel fails. */
+  readonly sessions: SessionService | undefined;
 }
 
 /** Running tasks by renderer-chosen request id, so they can be cancelled. */
@@ -71,6 +92,8 @@ export interface CallContext {
   readonly jobs: JobRegistry;
   /** Sends a progress event to the window that made the call. */
   readonly emit: (event: TaskEvent) => void;
+  /** Sends a session change notification to the window that made the call; safe after the call ends. */
+  readonly emitSession: (event: SessionEvent) => void;
 }
 
 export interface ChannelDefinition {
@@ -84,6 +107,12 @@ export function defineChannel<S extends z.ZodType>(
   handler: (args: z.output<S>, ctx: CallContext) => Promise<unknown>,
 ): ChannelDefinition {
   return { schema, handler };
+}
+
+/** The only shape an error may take on its way to the renderer, a log or a stored turn. */
+export function safeError(error: unknown): { readonly code: string; readonly message: string } {
+  if (isNexarError(error)) return { code: error.code, message: error.message };
+  return { code: 'INTERNAL_ERROR', message: 'Internal error' };
 }
 
 // --- shared argument schemas (all strict; length-bounded) -------------------------------------

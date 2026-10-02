@@ -1,7 +1,9 @@
 import { userInfo } from 'node:os';
 import { join, resolve } from 'node:path';
 import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron';
-import { TASK_EVENT_CHANNEL } from '../shared/channels.js';
+import { isNexarError } from '@nexar/contracts';
+import { FileSessionStore } from '@nexar/sessions';
+import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost } from './engine-host.js';
@@ -62,6 +64,31 @@ async function start(): Promise<void> {
     }
   }
   const engine = await createEngineHost({ configPath: config.path, env: engineEnv, logger });
+
+  // Operating Sessions (ADR-024): this process is the single writer. If another Nexar process holds
+  // the lease, sessions stay unavailable (every session channel answers CONFLICT) instead of racing it.
+  const sessionStore = new FileSessionStore(join(userData, '.nexar', 'sessions'));
+  let sessions: FileSessionStore | undefined;
+  try {
+    const { interruptedTurns } = await sessionStore.acquireLease();
+    sessions = sessionStore;
+    if (interruptedTurns > 0) logger.info('marked running turns interrupted', { interruptedTurns });
+  } catch (error) {
+    if (!isNexarError(error) || error.code !== 'CONFLICT') throw error;
+    logger.warn('sessions are open in another Nexar process', { code: error.code });
+  }
+  let leaseReleased = false;
+  app.on('will-quit', (event) => {
+    if (sessions === undefined || leaseReleased) return;
+    // Best effort: give the lease back before exiting so the next launch needs no stale recovery.
+    event.preventDefault();
+    leaseReleased = true;
+    void sessionStore
+      .releaseLease()
+      .catch(() => undefined)
+      .finally(() => app.quit());
+  });
+
   const bridge = createBridge({
     engine,
     config,
@@ -72,6 +99,7 @@ async function start(): Promise<void> {
     shell,
     appInfo: { version: app.getVersion(), platform: process.platform },
     decider: decider(),
+    sessions,
   });
 
   const paths = bundlePaths(import.meta.url);
@@ -90,9 +118,17 @@ async function start(): Promise<void> {
           error: { code: 'POLICY_REJECTED', message: 'Request not accepted from this sender' },
         };
       }
-      return bridge.invoke(channel, args, (taskEvent) => {
-        if (!event.sender.isDestroyed()) event.sender.send(TASK_EVENT_CHANNEL, taskEvent);
-      });
+      return bridge.invoke(
+        channel,
+        args,
+        (taskEvent) => {
+          if (!event.sender.isDestroyed()) event.sender.send(TASK_EVENT_CHANNEL, taskEvent);
+        },
+        (sessionEvent) => {
+          // A turn keeps running after its call returned; the window may be gone by then.
+          if (!event.sender.isDestroyed()) event.sender.send(SESSION_EVENT_CHANNEL, sessionEvent);
+        },
+      );
     });
   }
 

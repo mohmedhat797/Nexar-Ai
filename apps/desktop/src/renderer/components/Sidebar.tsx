@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import type { Mode, ProjectDto } from '../../shared/api.js';
+import type { Mode, ProjectDto, SessionSummaryDto } from '../../shared/api.js';
 import { formatUsd, type SessionStats, type View } from '../state.js';
 import { Icon, type IconName } from './Icon.js';
 
@@ -22,12 +22,15 @@ export function Sidebar({
   selectedProjectId,
   pendingApprovals,
   stats,
+  conversations,
+  selectedConversationId,
   onMode,
   onView,
   onSelectProject,
   onAddProject,
   onRemoveProject,
-  onNewTask,
+  onNewConversation,
+  onSelectConversation,
 }: {
   mode: Mode;
   view: View;
@@ -35,12 +38,15 @@ export function Sidebar({
   selectedProjectId: string | null;
   pendingApprovals: number;
   stats: SessionStats;
+  conversations: readonly SessionSummaryDto[];
+  selectedConversationId: string | null;
   onMode: (mode: Mode) => void;
   onView: (view: View) => void;
   onSelectProject: (id: string) => void;
   onAddProject: () => void;
   onRemoveProject: (id: string) => void;
-  onNewTask: () => void;
+  onNewConversation: () => void;
+  onSelectConversation: (id: string) => void;
 }): ReactElement {
   return (
     <nav className="sidebar" aria-label="Main">
@@ -60,8 +66,14 @@ export function Sidebar({
           </button>
         ))}
       </div>
-      <button type="button" className="btn btn-primary wide" onClick={onNewTask}>
-        <Icon name="plus" size={16} /> New task
+      <button
+        type="button"
+        className="btn btn-primary wide"
+        data-testid="new-conversation"
+        disabled={selectedProjectId === null}
+        onClick={onNewConversation}
+      >
+        <Icon name="plus" size={16} /> New conversation
       </button>
 
       <div className="side-heading">Projects</div>
@@ -93,6 +105,32 @@ export function Sidebar({
       <button type="button" className="link side-link" onClick={onAddProject}>
         Open folder as project…
       </button>
+
+      {selectedProjectId !== null && (
+        <>
+          <div className="side-heading">Conversations</div>
+          <ul className="project-list" data-testid="conversation-list">
+            {conversations.map((c) => (
+              <li key={c.id} className={c.id === selectedConversationId ? 'active' : ''}>
+                <button
+                  type="button"
+                  className="project-item"
+                  data-testid="conversation-item"
+                  aria-current={c.id === selectedConversationId ? 'true' : undefined}
+                  onClick={() => onSelectConversation(c.id)}
+                >
+                  <Icon name="chat" size={16} />
+                  <span className="ellipsis">{c.title}</span>
+                  {c.active && <span className="spinner" role="img" aria-label="Working" />}
+                </button>
+              </li>
+            ))}
+            {conversations.length === 0 && (
+              <li className="muted small side-empty">No conversations yet</li>
+            )}
+          </ul>
+        </>
+      )}
 
       <div className="side-heading">Workspace</div>
       <ul className="nav-list">

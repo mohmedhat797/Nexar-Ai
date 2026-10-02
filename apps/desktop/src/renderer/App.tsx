@@ -8,7 +8,7 @@ import type {
 } from '../shared/api.js';
 import { call, errorText, nexar } from './bridge.js';
 import { ApprovalsView } from './components/ApprovalsView.js';
-import { ChatView, type SendArgs } from './components/ChatView.js';
+import { ChatView } from './components/ChatView.js';
 import { FilesPanel } from './components/FilesPanel.js';
 import { ResourcesView } from './components/ResourcesView.js';
 import { SettingsView } from './components/SettingsView.js';
@@ -16,6 +16,7 @@ import { Sidebar } from './components/Sidebar.js';
 import { WorkflowsView } from './components/WorkflowsView.js';
 import { sessionStats, type View } from './state.js';
 import { applyDensity, applyTheme } from './theme.js';
+import { useSessions } from './useSessions.js';
 import { useTurns } from './useTurns.js';
 
 const DEFAULT_SETTINGS: DesktopSettings = {
@@ -67,8 +68,18 @@ export function App(): ReactElement {
   const { turns, start, cancel } = useTurns();
 
   const project = projects.find((p) => p.id === projectId) ?? null;
-  const stats = useMemo(() => sessionStats(turns), [turns]);
-  const filesRefresh = turns.filter((t) => t.status === 'done').length;
+  const sessions = useSessions(projectId, settings.mode);
+  const sessionDone = sessions.session?.turns.filter((t) => t.state === 'succeeded').length ?? 0;
+  const stats = useMemo(() => {
+    const base = sessionStats(turns);
+    // Conversation turns count as tasks; their cost is not part of the conversation view.
+    return {
+      ...base,
+      tasks: base.tasks + sessionDone,
+      partial: base.partial || (base.costUsd !== null && sessionDone > 0),
+    };
+  }, [turns, sessionDone]);
+  const filesRefresh = turns.filter((t) => t.status === 'done').length + sessionDone;
 
   // First load: settings and projects.
   useEffect(() => {
@@ -147,13 +158,6 @@ export function App(): ReactElement {
     );
   };
 
-  const send = (args: SendArgs): void => {
-    if (project === null) return;
-    start(project.id, 'chat', args.prompt, (requestId) =>
-      call(nexar.runTask({ requestId, projectId: project.id, ...args })),
-    );
-  };
-
   const runWorkflow = (
     workflow: WorkflowDto,
     inputs: Record<string, string | readonly string[]>,
@@ -205,11 +209,14 @@ export function App(): ReactElement {
           <ChatView
             project={project}
             resources={resources}
-            turns={turns.filter((t) => t.source === 'chat' && t.projectId === project.id)}
+            session={sessions.session}
+            progress={sessions.progress}
+            busy={sessions.busy}
+            error={sessions.error}
             filesOpen={filesOpen}
             onToggleFiles={() => setFilesOpen(!filesOpen)}
-            onSend={send}
-            onCancel={cancel}
+            onSend={sessions.send}
+            onCancel={sessions.cancel}
           />
         );
     }
@@ -226,6 +233,8 @@ export function App(): ReactElement {
         selectedProjectId={projectId}
         pendingApprovals={pending}
         stats={stats}
+        conversations={sessions.list}
+        selectedConversationId={sessions.selectedId}
         onMode={(mode) => changeSettings({ mode })}
         onView={goView}
         onSelectProject={(id) => {
@@ -234,9 +243,13 @@ export function App(): ReactElement {
         }}
         onAddProject={addProject}
         onRemoveProject={removeProject}
-        onNewTask={() => {
+        onNewConversation={() => {
           setView('chat');
-          document.getElementById('prompt')?.focus();
+          void sessions.create().then(() => document.getElementById('prompt')?.focus());
+        }}
+        onSelectConversation={(id) => {
+          setView('chat');
+          sessions.select(id);
         }}
       />
       <main className="main">

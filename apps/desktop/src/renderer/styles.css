@@ -751,3 +751,7 @@ textarea {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.side-empty {
+  padding: 4px 8px;
+}

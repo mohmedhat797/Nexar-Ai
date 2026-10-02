@@ -179,4 +179,68 @@ describe('Nexar Desktop', () => {
 
     await close(app);
   });
+
+  it('keeps a conversation across turns and a relaunch', async () => {
+    let { app, page } = await launch();
+    // The first scenario left the app in Code mode; conversations live in Cowork.
+    await page.getByTestId('mode-cowork').click();
+    await page.getByTestId('nav-chat').click();
+    await hasText(page.getByTestId('project-list'), 'my-project');
+
+    const turns = page.getByTestId('turn');
+    const results = page.getByTestId('result-text');
+    const send = async (prompt: string, expected: number): Promise<void> => {
+      await page.getByLabel('Message').fill(prompt);
+      await page.getByRole('button', { name: 'Send' }).click();
+      await expect.poll(() => results.count(), POLL).toBe(expected);
+      await hasText(results.nth(expected - 1), prompt);
+    };
+
+    // The earlier scenario's conversation is listed; a new one starts empty.
+    const conversations = page.getByTestId('conversation-item');
+    await expect.poll(() => conversations.count(), POLL).toBe(1);
+    await page.getByTestId('new-conversation').click();
+    await expect.poll(() => conversations.count(), POLL).toBe(2);
+    await expect.poll(() => turns.count(), POLL).toBe(0);
+
+    await send('Plan the first milestone', 1);
+    await send('Now plan the second milestone', 2);
+    await expect.poll(() => turns.count(), POLL).toBe(2);
+    await hasText(turns.nth(0), 'Plan the first milestone');
+    await hasText(turns.nth(1), 'Now plan the second milestone');
+    await expect.poll(() => page.getByTestId('artifact-card').count(), POLL).toBe(2);
+    await hasText(page.getByTestId('conversation-list'), 'Plan the first milestone');
+
+    // Sessions are private owner state under the app's state tree, never in the project.
+    const sessionsDir = join(userData, '.nexar', 'sessions');
+    const files = (await readdir(sessionsDir)).filter((name) => name.endsWith('.json'));
+    expect(files).toHaveLength(2);
+    const stored = await Promise.all(files.map((f) => readFile(join(sessionsDir, f), 'utf8')));
+    expect(stored.some((json) => json.includes('Now plan the second milestone'))).toBe(true);
+    expect(await readdir(projectDir)).not.toContain('sessions');
+
+    // --- relaunch: the conversation is listed and both turns are still there ---
+    await close(app);
+    ({ app, page } = await launch());
+    await page.getByTestId('mode-cowork').click();
+    await page.getByTestId('nav-chat').click();
+    await expect.poll(() => page.getByTestId('conversation-item').count(), POLL).toBe(2);
+    await page
+      .getByTestId('conversation-item')
+      .filter({ hasText: 'Plan the first milestone' })
+      .click();
+    await expect.poll(() => page.getByTestId('turn').count(), POLL).toBe(2);
+    await hasText(page.getByTestId('turn').nth(0), 'Plan the first milestone');
+    await hasText(page.getByTestId('turn').nth(1), 'Now plan the second milestone');
+    await expect.poll(() => page.getByTestId('turn-state').count(), POLL).toBe(0);
+
+    // --- a third turn continues the same conversation ---
+    await page.getByLabel('Message').fill('Plan the third milestone');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect.poll(() => page.getByTestId('result-text').count(), POLL).toBe(3);
+    await expect.poll(() => page.getByTestId('turn').count(), POLL).toBe(3);
+    await hasText(page.getByTestId('result-text').nth(2), 'Plan the third milestone');
+
+    await close(app);
+  });
 });
