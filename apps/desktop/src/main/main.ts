@@ -1,6 +1,6 @@
 import { userInfo } from 'node:os';
 import { join, resolve } from 'node:path';
-import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { isNexarError } from '@nexar/contracts';
 import { FileSessionStore } from '@nexar/sessions';
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
@@ -100,6 +100,14 @@ async function start(): Promise<void> {
     appInfo: { version: app.getVersion(), platform: process.platform },
     decider: decider(),
     sessions,
+    // A turn outlives the call that started it; every live window hears about it.
+    broadcastSession: (event) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+          window.webContents.send(SESSION_EVENT_CHANNEL, event);
+        }
+      }
+    },
   });
 
   const paths = bundlePaths(import.meta.url);
@@ -118,17 +126,9 @@ async function start(): Promise<void> {
           error: { code: 'POLICY_REJECTED', message: 'Request not accepted from this sender' },
         };
       }
-      return bridge.invoke(
-        channel,
-        args,
-        (taskEvent) => {
-          if (!event.sender.isDestroyed()) event.sender.send(TASK_EVENT_CHANNEL, taskEvent);
-        },
-        (sessionEvent) => {
-          // A turn keeps running after its call returned; the window may be gone by then.
-          if (!event.sender.isDestroyed()) event.sender.send(SESSION_EVENT_CHANNEL, sessionEvent);
-        },
-      );
+      return bridge.invoke(channel, args, (taskEvent) => {
+        if (!event.sender.isDestroyed()) event.sender.send(TASK_EVENT_CHANNEL, taskEvent);
+      });
     });
   }
 

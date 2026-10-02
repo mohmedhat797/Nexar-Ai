@@ -13,6 +13,7 @@ import {
   type CallContext,
   type ChannelDefinition,
 } from './channel.js';
+import { createOperating } from './operating.js';
 import { projectChannels } from './projects.js';
 import { resourceChannels } from './resources.js';
 import { sessionChannels } from './sessions.js';
@@ -27,12 +28,7 @@ export interface Bridge {
   readonly table: ChannelTable;
   readonly jobs: JobRegistry;
   /** Validates, runs and maps errors; never throws. */
-  invoke(
-    channel: string,
-    raw: unknown,
-    emit: CallContext['emit'],
-    emitSession?: CallContext['emitSession'],
-  ): Promise<BridgeResult<unknown>>;
+  invoke(channel: string, raw: unknown, emit: CallContext['emit']): Promise<BridgeResult<unknown>>;
 }
 
 const MAX_MESSAGE_CHARS = 300;
@@ -59,12 +55,12 @@ export function createBridge(deps: BridgeDeps): Bridge {
     ...sessionChannels,
   };
   const jobs = new JobRegistry();
+  const operating = createOperating(deps, jobs);
 
   async function invoke(
     channel: string,
     raw: unknown,
     emit: CallContext['emit'],
-    emitSession: CallContext['emitSession'] = () => undefined,
   ): Promise<BridgeResult<unknown>> {
     const definition = Object.hasOwn(table, channel) ? table[channel] : undefined;
     if (definition === undefined) {
@@ -82,7 +78,7 @@ export function createBridge(deps: BridgeDeps): Bridge {
         deps,
         jobs,
         emit,
-        emitSession,
+        operating,
       });
       return { ok: true, value };
     } catch (error) {

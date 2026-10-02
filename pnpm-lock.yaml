@@ -104,6 +104,9 @@ importers:
       '@nexar/host':
         specifier: workspace:*
         version: link:../../packages/host
+      '@nexar/operating':
+        specifier: workspace:*
+        version: link:../../packages/operating
       '@nexar/projects':
         specifier: workspace:*
         version: link:../../packages/projects

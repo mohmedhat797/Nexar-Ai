@@ -217,6 +217,8 @@ export function App(): ReactElement {
             onToggleFiles={() => setFilesOpen(!filesOpen)}
             onSend={sessions.send}
             onCancel={sessions.cancel}
+            onConfirm={sessions.confirmLane}
+            onSetMode={sessions.setMode}
           />
         );
     }

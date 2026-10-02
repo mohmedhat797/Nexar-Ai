@@ -79,6 +79,9 @@ export async function createHarness(overrides: Partial<BridgeDeps> = {}): Promis
     appInfo: { version: '0.0.0-test', platform: 'test' },
     decider: 'desktop:test',
     sessions: sessionStore,
+    broadcastSession: (event) => {
+      sessionEvents.push(event);
+    },
     ...overrides,
   };
   const bridge = createBridge(deps);
@@ -102,12 +105,7 @@ export async function createHarness(overrides: Partial<BridgeDeps> = {}): Promis
       state.pick = value;
     },
     call: (channel, args = {}) =>
-      bridge.invoke(
-        channel,
-        args,
-        (event) => events.push(event),
-        (event) => sessionEvents.push(event),
-      ) as Promise<BridgeResult<never>>,
+      bridge.invoke(channel, args, (event) => events.push(event)) as Promise<BridgeResult<never>>,
     cleanup: () => rm(base, { recursive: true, force: true }),
   };
 }

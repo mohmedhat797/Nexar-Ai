@@ -243,4 +243,66 @@ describe('Nexar Desktop', () => {
 
     await close(app);
   });
+
+  it('asks before switching lane, shows the fallback and refuses engineering writes', async () => {
+    const { app, page } = await launch();
+    await page.getByTestId('mode-cowork').click();
+    await page.getByTestId('nav-chat').click();
+    await hasText(page.getByTestId('project-list'), 'my-project');
+    await page.getByTestId('new-conversation').click();
+
+    const turns = page.getByTestId('turn');
+    const results = page.getByTestId('result-text');
+    await expect.poll(() => turns.count(), POLL).toBe(0);
+    await isVisible(page.getByTestId('session-mode-cowork'));
+    const send = async (prompt: string): Promise<void> => {
+      await page.getByLabel('Message').fill(prompt);
+      await page.getByRole('button', { name: 'Send' }).click();
+    };
+
+    // A repository check looks like Code work in a Cowork conversation: Nexar asks first.
+    await send('Now verify whether the repository implementation supports this proposal.');
+    const card = page.getByTestId('lane-confirm');
+    await isVisible(card);
+    await hasText(
+      card,
+      'This request looks like code work, but this conversation is in cowork mode.',
+    );
+    await hasText(
+      card,
+      'It grants no extra permissions; sandbox, review and approvals still apply.',
+    );
+    await expect.poll(() => results.count(), POLL).toBe(0);
+    await expect
+      .poll(() => page.getByRole('button', { name: 'Send' }).isDisabled(), POLL)
+      .toBe(true);
+    await page.getByRole('button', { name: 'Run in code lane' }).click();
+
+    await expect.poll(() => results.count(), POLL).toBe(1);
+    await expect.poll(() => card.count(), POLL).toBe(0);
+    await hasText(page.getByTestId('lane-line'), 'Lane: direct');
+    await hasText(
+      page.getByTestId('lane-fallback'),
+      'Code lane (DeepSeek Harness) unavailable. Using Nexar direct execution.',
+    );
+    // Confirming does not change the conversation's mode.
+    await expect
+      .poll(() => page.getByTestId('session-mode-cowork').getAttribute('aria-checked'), POLL)
+      .toBe('true');
+
+    // An engineering write cannot run without the Code lane: a notice, no model output, no task.
+    await send('Implement the missing part.');
+    await hasText(page.getByTestId('turn-refusal'), 'Code lane');
+    await expect.poll(() => turns.count(), POLL).toBe(2);
+    await expect.poll(() => results.count(), POLL).toBe(1);
+    await expect.poll(() => page.getByTestId('routing-resource').count(), POLL).toBe(1);
+
+    // The conversation stays usable.
+    await send('Plan the next step');
+    await expect.poll(() => results.count(), POLL).toBe(2);
+    await expect.poll(() => turns.count(), POLL).toBe(3);
+    await hasText(results.nth(1), 'Plan the next step');
+
+    await close(app);
+  });
 });

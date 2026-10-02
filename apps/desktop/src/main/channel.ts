@@ -2,6 +2,7 @@ import { isAbsolute, relative, sep } from 'node:path';
 import { z } from 'zod';
 import { NexarError, isNexarError, projectId, type Logger, type ProjectId } from '@nexar/contracts';
 import { resolveContainedPath, type Project } from '@nexar/projects';
+import type { OperatingService } from '@nexar/operating';
 import type { FileSessionStore } from '@nexar/sessions';
 import type { AppInfo, SessionEvent, TaskEvent } from '../shared/api.js';
 import type { ConfigStore } from './config-store.js';
@@ -36,6 +37,8 @@ export type SessionService = Pick<
   | 'updateTask'
   | 'linkArtifacts'
   | 'completeTurn'
+  | 'resolveConfirmation'
+  | 'setContext'
   | 'setMode'
   | 'rename'
 >;
@@ -52,6 +55,8 @@ export interface BridgeDeps {
   readonly decider: string;
   /** `undefined` when another Nexar process holds the sessions lease: every session channel fails. */
   readonly sessions: SessionService | undefined;
+  /** Pushes a session change to every live window (ids and short status lines only). */
+  readonly broadcastSession: (event: SessionEvent) => void;
 }
 
 /** Running tasks by renderer-chosen request id, so they can be cancelled. */
@@ -92,8 +97,8 @@ export interface CallContext {
   readonly jobs: JobRegistry;
   /** Sends a progress event to the window that made the call. */
   readonly emit: (event: TaskEvent) => void;
-  /** Sends a session change notification to the window that made the call; safe after the call ends. */
-  readonly emitSession: (event: SessionEvent) => void;
+  /** The turn pipeline over `deps.sessions`; `undefined` when another process holds the lease. */
+  readonly operating: OperatingService | undefined;
 }
 
 export interface ChannelDefinition {

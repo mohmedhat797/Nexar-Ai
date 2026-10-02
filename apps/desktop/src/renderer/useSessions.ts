@@ -31,6 +31,10 @@ export interface Sessions {
   /** Resolves once the turn is stored; rejects (and keeps the idempotency key) on failure. */
   readonly send: (args: SendArgs) => Promise<void>;
   readonly cancel: (turnId: string) => void;
+  /** Runs (`confirm`) or drops (`decline`) a turn that waits for a lane confirmation. */
+  readonly confirmLane: (turnId: string, decision: 'confirm' | 'decline') => Promise<void>;
+  /** Changes the open conversation's mode; it takes effect on the next turn. */
+  readonly setMode: (mode: Mode) => Promise<void>;
 }
 
 function titleFrom(text: string): string {
@@ -187,7 +191,8 @@ export function useSessions(projectId: string | null, mode: Mode): Sessions {
             sessionId,
             submissionKey: key,
             text: args.prompt,
-            kind: args.kind,
+            // `general` means "let Nexar decide": the main process classifies the message.
+            ...(args.kind === 'general' ? {} : { kind: args.kind }),
             ...(args.preferredResourceIds === undefined
               ? {}
               : { preferredResourceIds: args.preferredResourceIds }),
@@ -217,6 +222,42 @@ export function useSessions(projectId: string | null, mode: Mode): Sessions {
     call(nexar.cancelTurn({ sessionId, turnId })).catch((e: unknown) => setError(errorText(e)));
   }, []);
 
+  const confirmLane = useCallback(
+    async (turnId: string, decision: 'confirm' | 'decline'): Promise<void> => {
+      const sessionId = selectedRef.current;
+      if (sessionId === null) return;
+      try {
+        await call(nexar.confirmLane({ sessionId, turnId, decision }));
+        setError(null);
+      } catch (e) {
+        setError(errorText(e));
+      }
+      await Promise.all([loadSession(sessionId), refreshList()]);
+    },
+    [loadSession, refreshList],
+  );
+
+  const setMode = useCallback(
+    async (next: Mode): Promise<void> => {
+      const sessionId = selectedRef.current;
+      if (sessionId === null || session === null || session.mode === next) return;
+      try {
+        const updated = await call(
+          nexar.setSessionMode({ sessionId, mode: next, expectedRevision: session.revision }),
+        );
+        if (selectedRef.current === sessionId) {
+          setSession(updated);
+          setError(null);
+        }
+      } catch (e) {
+        setError(errorText(e));
+        await loadSession(sessionId);
+      }
+      await refreshList();
+    },
+    [session, loadSession, refreshList],
+  );
+
   return {
     list,
     selectedId,
@@ -228,5 +269,7 @@ export function useSessions(projectId: string | null, mode: Mode): Sessions {
     create,
     send,
     cancel,
+    confirmLane,
+    setMode,
   };
 }

@@ -4,7 +4,13 @@ import { FileSessionStore } from '@nexar/sessions';
 import { NexarError, type NexarTask } from '@nexar/contracts';
 import type { RunOptions } from '@nexar/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ProjectDto, SessionDto, SessionSummaryDto, SubmitTurnResult } from '../shared/api.js';
+import type {
+  ProjectDto,
+  SessionDto,
+  SessionSummaryDto,
+  SubmitTurnResult,
+  TurnDto,
+} from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
 import type { EngineHost } from './engine-host.js';
@@ -54,18 +60,14 @@ function gatedEngine(base: Harness): {
     },
   };
   const bridge = createBridge({ ...base.deps, engine: gated });
+  // `base.deps.broadcastSession` already feeds `base.sessionEvents`.
   return {
     tasks,
     release: () => release(),
     harness: {
       ...base,
       call: (channel, args = {}) =>
-        bridge.invoke(
-          channel,
-          args,
-          (event) => base.events.push(event),
-          (event) => base.sessionEvents.push(event),
-        ) as Promise<never>,
+        bridge.invoke(channel, args, (event) => base.events.push(event)) as Promise<never>,
     },
   };
 }
@@ -99,13 +101,23 @@ async function submit(
   sessionId: string,
   text: string,
   submissionKey: string = KEY1,
+  kind?: string,
 ) {
   return harness.call<SubmitTurnResult>(CHANNELS.sessionsSubmitTurn, {
     sessionId,
     submissionKey,
     text,
-    kind: 'general',
+    ...(kind === undefined ? {} : { kind }),
   });
+}
+
+async function confirmLane(
+  harness: Harness,
+  sessionId: string,
+  turnId: string,
+  decision: 'confirm' | 'decline',
+) {
+  return harness.call<TurnDto>(CHANNELS.sessionsConfirmLane, { sessionId, turnId, decision });
 }
 
 async function fetchSession(harness: Harness, sessionId: string): Promise<SessionDto> {
@@ -135,6 +147,7 @@ describe('session schemas', () => {
       text: 'hello',
       kind: 'general',
     },
+    [CHANNELS.sessionsConfirmLane]: { sessionId: sid, turnId: tid, decision: 'confirm' },
     [CHANNELS.sessionsCancel]: { sessionId: sid, turnId: tid },
     [CHANNELS.sessionsSetMode]: { sessionId: sid, mode: 'code' },
     [CHANNELS.sessionsRename]: { sessionId: sid, title: 'Renamed' },
@@ -169,6 +182,15 @@ describe('session schemas', () => {
         CHANNELS.sessionsSubmitTurn,
         { ...valid[CHANNELS.sessionsSubmitTurn], text: 'x'.repeat(100_001) },
       ],
+      [CHANNELS.sessionsSubmitTurn, { ...valid[CHANNELS.sessionsSubmitTurn], kind: 'a b' }],
+      [CHANNELS.sessionsConfirmLane, { sessionId: 'ses_short', turnId: tid, decision: 'confirm' }],
+      [CHANNELS.sessionsConfirmLane, { sessionId: secret, turnId: tid, decision: 'confirm' }],
+      [CHANNELS.sessionsConfirmLane, { sessionId: sid, turnId: sid, decision: 'confirm' }],
+      [CHANNELS.sessionsConfirmLane, { sessionId: sid, turnId: 'turn_short', decision: 'decline' }],
+      [CHANNELS.sessionsConfirmLane, { sessionId: sid, turnId: tid, decision: 'approve' }],
+      [CHANNELS.sessionsConfirmLane, { sessionId: sid, turnId: tid, decision: 'CONFIRM' }],
+      [CHANNELS.sessionsConfirmLane, { sessionId: sid, turnId: tid }],
+      [CHANNELS.sessionsConfirmLane, { sessionId: sid, decision: 'confirm' }],
       [CHANNELS.sessionsCancel, { sessionId: sid, turnId: sid }],
       [CHANNELS.sessionsCancel, { sessionId: sid }],
       [CHANNELS.sessionsSetMode, { sessionId: sid, mode: 'other' }],
@@ -211,6 +233,11 @@ describe('session schemas', () => {
       ok: false,
       error: { code: 'VALIDATION_ERROR', message: 'Unknown turn' },
     });
+    expect(await confirmLane(h, session.id, UNKNOWN_TURN, 'confirm')).toEqual({
+      ok: false,
+      error: { code: 'VALIDATION_ERROR', message: 'Unknown turn' },
+    });
+    expect((await confirmLane(h, UNKNOWN_SESSION, UNKNOWN_TURN, 'decline')).ok).toBe(false);
     expect(await h.call(CHANNELS.sessionsList, { projectId: 'ghost' })).toEqual({
       ok: false,
       error: { code: 'POLICY_REJECTED', message: 'Unknown project' },
@@ -301,7 +328,18 @@ describe('sessions: turns', () => {
       expect(submitted.ok).toBe(true);
       if (!submitted.ok) return;
       expect(submitted.value.created).toBe(true);
-      expect(submitted.value.turn).toMatchObject({ index: 0, state: 'running', kind: 'general' });
+      expect(submitted.value.action).toBe('run');
+      expect(submitted.value.turn).toMatchObject({
+        index: 0,
+        state: 'running',
+        kind: 'general',
+        intent: { kind: 'general', source: 'rules', ruleIds: ['default'] },
+        lane: {
+          requestedLane: 'cowork',
+          effectiveLane: 'direct',
+          fallbackReason: 'orchestrator-unavailable',
+        },
+      });
 
       const done = await settled(harness, session.id);
       const turn = done.turns[0];
@@ -335,7 +373,10 @@ describe('sessions: turns', () => {
         sessionId: session.id,
         turnId: turn?.id,
       });
-      expect(gated.tasks[0]?.input.prompt).toBe('say hello in a session');
+      // The prompt is the context@1 rendering: the request sits inside the untrusted wrapper.
+      const firstPrompt = gated.tasks[0]?.input.prompt ?? '';
+      expect(firstPrompt).toContain('<untrusted-input name="request">\nsay hello in a session\n');
+      expect(firstPrompt).not.toContain('name="conversation"');
 
       // Events carry ids and short status lines only.
       const kinds = new Set(harness.sessionEvents.map((e) => e.type));
@@ -357,6 +398,17 @@ describe('sessions: turns', () => {
       const both = await settled(harness, session.id);
       expect(both.turns.map((t) => t.text)).toEqual(['say hello in a session', 'and again']);
       expect(both.turns.every((t) => t.state === 'succeeded')).toBe(true);
+
+      // The stored context manifest of turn 2 explains that turn 1 was included.
+      const stored = await harness.deps.sessions!.get(session.id);
+      expect(stored?.turns[0]?.context?.turnIds).toEqual([]);
+      expect(stored?.turns[1]?.context?.turnIds).toEqual([stored?.turns[0]?.id]);
+      expect(stored?.turns[1]?.context?.policy).toBe('context@1');
+      const secondPrompt = gated.tasks[1]?.input.prompt ?? '';
+      expect(secondPrompt).toContain('Owner: say hello in a session');
+      expect(secondPrompt).toContain('name="conversation"');
+      expect(secondPrompt).toContain('result.md');
+      expect(secondPrompt).not.toContain(harness.projectDir);
     } finally {
       gated.release();
     }
@@ -500,6 +552,192 @@ describe('sessions: turns', () => {
   });
 });
 
+describe('sessions: intent, lanes and confirmation', () => {
+  const VERIFY = 'Now verify whether the repository implementation supports this proposal.';
+  const IMPLEMENT = 'Implement the missing part.';
+
+  it('refuses engineering writes in Cowork up front: failed SANDBOX_UNAVAILABLE and no task', async () => {
+    const gated = gatedEngine(h);
+    gated.release();
+    const session = await create(gated.harness);
+    const result = await submit(gated.harness, session.id, IMPLEMENT);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.action).toBe('refuse');
+    expect(result.value.created).toBe(true);
+    expect(result.value.turn).toMatchObject({
+      state: 'failed',
+      kind: 'coding',
+      intent: { kind: 'coding', source: 'rules', ruleIds: ['coding.implement'] },
+      lane: { requestedLane: 'code', mismatch: { from: 'cowork', to: 'code' } },
+      tasks: [],
+      artifacts: [],
+      outcome: { error: { code: 'SANDBOX_UNAVAILABLE' } },
+    });
+    expect(result.value.turn.outcome?.text).toBeUndefined();
+    const done = await settled(gated.harness, session.id);
+    expect(done).toMatchObject({ active: false, lastTurnState: 'failed' });
+    expect(gated.tasks).toEqual([]);
+    expect(await readdir(gated.harness.projectDir)).not.toContain('.nexar');
+
+    // Replaying the same submission reports the same outcome and starts nothing.
+    const replay = await submit(gated.harness, session.id, IMPLEMENT);
+    expect(replay.ok && replay.value).toMatchObject({ created: false, action: 'refuse' });
+    // The conversation stays usable.
+    const next = await submit(gated.harness, session.id, 'Plan the next step', KEY2);
+    expect(next.ok && next.value.action).toBe('run');
+    await settled(gated.harness, session.id);
+    expect(gated.tasks).toHaveLength(1);
+  });
+
+  it('lets an explicit task kind win over the keyword rules', async () => {
+    const session = await create(h);
+    const result = await submit(h, session.id, 'Say hello', KEY1, 'coding');
+    expect(result.ok && result.value.action).toBe('refuse');
+    expect(result.ok && result.value.turn.intent).toEqual({
+      kind: 'coding',
+      source: 'explicit',
+      ruleIds: ['explicit'],
+    });
+    const plain = await submit(h, session.id, 'Say hello', KEY2, 'analysis');
+    expect(plain.ok && plain.value.action).toBe('run');
+    await settled(h, session.id);
+  });
+
+  it('pauses a mode mismatch for confirmation, then runs direct with a recorded fallback', async () => {
+    const gated = gatedEngine(h);
+    gated.release();
+    const harness = gated.harness;
+    const session = await create(harness);
+    const submitted = await submit(harness, session.id, VERIFY);
+    expect(submitted.ok).toBe(true);
+    if (!submitted.ok) return;
+    expect(submitted.value.action).toBe('confirm');
+    const turnId = submitted.value.turn.id;
+    expect(submitted.value.turn).toMatchObject({
+      state: 'pending-confirmation',
+      kind: 'review',
+      intent: {
+        kind: 'review',
+        source: 'rules',
+        ruleIds: expect.arrayContaining(['review.repository']) as string[],
+      },
+      lane: { requestedLane: 'code', mismatch: { from: 'cowork', to: 'code' } },
+      tasks: [],
+    });
+    // Nothing is running, yet the session is occupied and its mode is untouched.
+    const pending = await fetchSession(harness, session.id);
+    expect(pending).toMatchObject({
+      active: true,
+      mode: 'cowork',
+      lastTurnState: 'pending-confirmation',
+    });
+    expect(gated.tasks).toEqual([]);
+    const blocked = await submit(harness, session.id, 'Another message', KEY2);
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.error.code).toBe('CONFLICT');
+    // Cancel has nothing to abort while a turn only waits for confirmation.
+    expect(await harness.call(CHANNELS.sessionsCancel, { sessionId: session.id, turnId })).toEqual({
+      ok: true,
+      value: { cancelled: false },
+    });
+
+    const confirmed = await confirmLane(harness, session.id, turnId, 'confirm');
+    expect(confirmed.ok).toBe(true);
+    const done = await settled(harness, session.id);
+    const turn = done.turns[0];
+    expect(turn).toMatchObject({
+      state: 'succeeded',
+      lane: {
+        requestedLane: 'code',
+        effectiveLane: 'direct',
+        mismatch: { from: 'cowork', to: 'code' },
+        confirmed: true,
+        fallbackReason: 'orchestrator-unavailable',
+      },
+      tasks: [{ state: 'succeeded', resourceId: 'local-echo' }],
+    });
+    expect(done.mode).toBe('cowork');
+    expect(gated.tasks).toHaveLength(1);
+    expect(gated.tasks[0]?.origin).toMatchObject({ sessionId: session.id, turnId });
+
+    // A second confirmation of the same turn is rejected, not replayed.
+    const again = await confirmLane(harness, session.id, turnId, 'confirm');
+    expect(again.ok).toBe(false);
+    if (!again.ok) expect(again.error.code).toBe('CONFLICT');
+    expect(gated.tasks).toHaveLength(1);
+  });
+
+  it('declines a pending turn without executing anything', async () => {
+    const gated = gatedEngine(h);
+    gated.release();
+    const harness = gated.harness;
+    const session = await create(harness);
+    const submitted = await submit(harness, session.id, VERIFY);
+    const turnId = submitted.ok ? submitted.value.turn.id : '';
+    const declined = await confirmLane(harness, session.id, turnId, 'decline');
+    expect(declined.ok && declined.value).toMatchObject({ state: 'declined', tasks: [] });
+    const done = await fetchSession(harness, session.id);
+    expect(done).toMatchObject({ active: false, mode: 'cowork', lastTurnState: 'declined' });
+    expect(gated.tasks).toEqual([]);
+    expect(await readdir(harness.projectDir)).not.toContain('.nexar');
+    // Declined turns are terminal.
+    expect((await confirmLane(harness, session.id, turnId, 'confirm')).ok).toBe(false);
+    // And the session accepts the next message.
+    expect((await submit(harness, session.id, 'Plan the next step', KEY2)).ok).toBe(true);
+    await settled(harness, session.id);
+  });
+
+  it('expires a pending confirmation after a restart: confirm fails closed, decline works', async () => {
+    const session = await create(h);
+    const submitted = await submit(h, session.id, VERIFY);
+    const turnId = submitted.ok ? submitted.value.turn.id : '';
+    // A new bridge over the same store has no in-memory options (cost ceiling, preferred AI).
+    const restarted = createBridge({ ...h.deps });
+    const confirm = await restarted.invoke(
+      CHANNELS.sessionsConfirmLane,
+      { sessionId: session.id, turnId, decision: 'confirm' },
+      () => undefined,
+    );
+    expect(confirm.ok).toBe(false);
+    if (!confirm.ok) {
+      expect(confirm.error.code).toBe('CONFLICT');
+      expect(confirm.error.message).toContain('confirmation-expired');
+    }
+    expect((await h.sessionStore.get(session.id))?.turns[0]?.state).toBe('pending-confirmation');
+    const decline = await restarted.invoke(
+      CHANNELS.sessionsConfirmLane,
+      { sessionId: session.id, turnId, decision: 'decline' },
+      () => undefined,
+    );
+    expect(decline.ok && (decline.value as TurnDto).state).toBe('declined');
+  });
+
+  it('keeps intent, lane and context data free of paths, URIs and stacks', async () => {
+    const session = await create(h);
+    const first = await submit(h, session.id, VERIFY);
+    await confirmLane(h, session.id, first.ok ? first.value.turn.id : '', 'confirm');
+    await settled(h, session.id);
+    await submit(h, session.id, IMPLEMENT, KEY2);
+    await submit(h, session.id, 'Plan the next step', KEY1.replace('a', 'c'));
+    const done = await settled(h, session.id);
+    const wire = JSON.stringify([done, h.sessionEvents]);
+    expect(wire).not.toContain(h.projectDir);
+    expect(wire).not.toContain(h.userData);
+    expect(wire).not.toContain('file:');
+    expect(wire).not.toMatch(/\n\s+at /);
+    expect(wire).not.toMatch(/[A-Za-z]:\\\\/);
+    for (const turn of done.turns) {
+      expect(Object.keys(turn.intent ?? {}).sort()).toEqual(['kind', 'ruleIds', 'source']);
+      expect(
+        Object.keys(turn.lane ?? {}).every((k) =>
+          ['requestedLane', 'effectiveLane', 'mismatch', 'confirmed', 'fallbackReason'].includes(k),
+        ),
+      ).toBe(true);
+    }
+  });
+});
+
 describe('sessions: restart and availability', () => {
   it('marks a running turn interrupted when a new process takes the lease, and frees the session', async () => {
     const session = await create(h);
@@ -565,6 +803,10 @@ describe('sessions: restart and availability', () => {
         [
           CHANNELS.sessionsSubmitTurn,
           { sessionId: sid, submissionKey: KEY1, text: 'x', kind: 'general' },
+        ],
+        [
+          CHANNELS.sessionsConfirmLane,
+          { sessionId: sid, turnId: UNKNOWN_TURN, decision: 'confirm' },
         ],
         [CHANNELS.sessionsCancel, { sessionId: sid, turnId: UNKNOWN_TURN }],
         [CHANNELS.sessionsSetMode, { sessionId: sid, mode: 'code' }],

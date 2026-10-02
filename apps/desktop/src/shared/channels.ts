@@ -24,6 +24,7 @@ export const CHANNELS = {
   sessionsCreate: 'sessions:create',
   sessionsGet: 'sessions:get',
   sessionsSubmitTurn: 'sessions:submitTurn',
+  sessionsConfirmLane: 'sessions:confirmLane',
   sessionsCancel: 'sessions:cancel',
   sessionsSetMode: 'sessions:setMode',
   sessionsRename: 'sessions:rename',

@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react';
-import type { SelectedDecision, TurnDto } from '../../shared/api.js';
+import type { SelectedDecision, TurnDto, TurnLaneDto } from '../../shared/api.js';
 import { call, errorText, nexar } from '../bridge.js';
 import { ArtifactCard } from './ArtifactCard.js';
 import { CandidateList } from './RoutingCard.js';
@@ -69,25 +69,111 @@ function Routing({ projectId, turn }: { projectId: string; turn: TurnDto }): Rea
   );
 }
 
+/** The visible fallback line for an unavailable orchestrator; null when there is nothing to say. */
+export function fallbackNotice(lane: TurnLaneDto): string | null {
+  if (lane.fallbackReason !== 'orchestrator-unavailable') return null;
+  if (lane.requestedLane === 'cowork')
+    return 'OpenWorker unavailable. Using Nexar direct execution.';
+  if (lane.requestedLane === 'code') {
+    return 'Code lane (DeepSeek Harness) unavailable. Using Nexar direct execution.';
+  }
+  return null;
+}
+
+/** A turn Nexar refused before running anything (an engineering write without the Code lane). */
+export function isRefused(turn: TurnDto): boolean {
+  return turn.state === 'failed' && turn.outcome?.error?.code === 'SANDBOX_UNAVAILABLE';
+}
+
+function LaneLine({ turn }: { turn: TurnDto }): ReactElement | null {
+  const { lane } = turn;
+  // Nothing ran while a turn waits for confirmation or after it was declined.
+  if (lane === undefined || turn.state === 'pending-confirmation' || turn.state === 'declined') {
+    return null;
+  }
+  const notice = fallbackNotice(lane);
+  return (
+    <div className="lane-line small muted" data-testid="lane-line">
+      <span data-testid="lane-effective">Lane: {lane.effectiveLane}</span>
+      {notice !== null && <span data-testid="lane-fallback"> � {notice}</span>}
+    </div>
+  );
+}
+
+/** Choosing a lane is for this turn only; the fixed note says what it does not do. */
+function LaneConfirmation({
+  turn,
+  onConfirm,
+}: {
+  turn: TurnDto;
+  onConfirm: (turnId: string, decision: 'confirm' | 'decline') => Promise<void>;
+}): ReactElement | null {
+  const [working, setWorking] = useState(false);
+  const lane = turn.lane;
+  if (turn.state !== 'pending-confirmation' || lane === undefined) return null;
+  const from = lane.mismatch?.from ?? lane.requestedLane;
+  const to = lane.mismatch?.to ?? lane.requestedLane;
+  const decide = (decision: 'confirm' | 'decline'): void => {
+    setWorking(true);
+    void onConfirm(turn.id, decision).finally(() => setWorking(false));
+  };
+  return (
+    <section className="card lane-confirm" data-testid="lane-confirm" aria-label="Confirm lane">
+      <p data-testid="lane-confirm-text">
+        This request looks like {to} work, but this conversation is in {from} mode.
+      </p>
+      <div className="lane-confirm-actions">
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={working}
+          data-testid="lane-confirm-run"
+          onClick={() => decide('confirm')}
+        >
+          Run in {to} lane
+        </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={working}
+          data-testid="lane-confirm-decline"
+          onClick={() => decide('decline')}
+        >
+          Don&apos;t run
+        </button>
+      </div>
+      <p className="small muted">
+        Confirming only chooses the orchestration lane. It grants no extra permissions; sandbox,
+        review and approvals still apply.
+      </p>
+    </section>
+  );
+}
+
 /** One conversation turn: the owner's message and what came back, always as plain text. */
 export function SessionTurnView({
   projectId,
   turn,
   lines,
   onCancel,
+  onConfirm,
 }: {
   projectId: string;
   turn: TurnDto;
   lines: readonly string[];
   onCancel: (turnId: string) => void;
+  onConfirm: (turnId: string, decision: 'confirm' | 'decline') => Promise<void>;
 }): ReactElement {
   const label = STATE_LABEL[turn.state];
   const error = turn.outcome?.error;
+  const refused = isRefused(turn);
   return (
     <article className="turn" data-testid="turn" data-state={turn.state}>
       <div className="bubble-user" data-testid="user-message">
         {turn.text}
       </div>
+      <LaneConfirmation turn={turn} onConfirm={onConfirm} />
+      <LaneLine turn={turn} />
       <Routing projectId={projectId} turn={turn} />
       {turn.state === 'running' && (
         <div className="progress" aria-live="polite">
@@ -111,7 +197,12 @@ export function SessionTurnView({
           </span>
         </div>
       )}
-      {error !== undefined && (
+      {refused && error !== undefined && (
+        <div className="notice" role="status" data-testid="turn-refusal">
+          {error.message}
+        </div>
+      )}
+      {!refused && error !== undefined && (
         <div className="notice notice-bad" role="alert" data-testid="turn-error">
           {error.message} ({error.code})
         </div>

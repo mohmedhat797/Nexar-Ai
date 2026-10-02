@@ -51,7 +51,12 @@ export function Sidebar({
   return (
     <nav className="sidebar" aria-label="Main">
       <div className="wordmark">Nexar</div>
-      <div className="segmented mode-switch" role="radiogroup" aria-label="Mode">
+      <div
+        className="segmented mode-switch"
+        role="radiogroup"
+        aria-label="Mode"
+        title="Mode for new conversations"
+      >
         {(['cowork', 'code'] as const).map((m) => (
           <button
             key={m}

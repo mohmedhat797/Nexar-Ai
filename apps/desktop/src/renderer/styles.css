@@ -384,6 +384,26 @@ textarea {
   background: var(--bar);
   border-bottom: 1px solid var(--line);
 }
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.session-mode button {
+  flex: none;
+}
+.lane-line {
+  align-self: flex-start;
+}
+.lane-confirm p {
+  margin: 0 0 8px;
+}
+.lane-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 .chat-title {
   font-weight: 600;
   font-size: 15px;

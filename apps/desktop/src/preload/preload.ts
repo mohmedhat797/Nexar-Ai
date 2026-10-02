@@ -31,6 +31,7 @@ const api: NexarApi = {
   createSession: (args) => invoke(CHANNELS.sessionsCreate, args),
   getSession: (sessionId) => invoke(CHANNELS.sessionsGet, { sessionId }),
   submitTurn: (args) => invoke(CHANNELS.sessionsSubmitTurn, args),
+  confirmLane: (args) => invoke(CHANNELS.sessionsConfirmLane, args),
   cancelTurn: (args) => invoke(CHANNELS.sessionsCancel, args),
   setSessionMode: (args) => invoke(CHANNELS.sessionsSetMode, args),
   renameSession: (args) => invoke(CHANNELS.sessionsRename, args),

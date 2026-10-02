@@ -1,12 +1,14 @@
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
-import { NexarError, isNexarError, projectId, type ArtifactRef } from '@nexar/contracts';
+import { NexarError, projectId, type ArtifactRef } from '@nexar/contracts';
+import type { OperatingService } from '@nexar/operating';
 import type { Project } from '@nexar/projects';
 import {
   MAX_TITLE_CHARS,
   SESSION_ID_PATTERN,
   SUBMISSION_KEY_PATTERN,
   TURN_ID_PATTERN,
+  type LaneDecision,
   type OperatingSession,
   type SessionSummary,
   type Turn,
@@ -14,10 +16,10 @@ import {
 } from '@nexar/sessions';
 import type {
   SessionDto,
-  SessionEvent,
   SessionSummaryDto,
   SubmitTurnResult,
   TurnDto,
+  TurnLaneDto,
 } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
 import { toArtifactDto } from './artifacts.js';
@@ -27,16 +29,15 @@ import {
   TaskKindSchema,
   defineChannel,
   requireProject,
-  safeError,
   type CallContext,
   type ChannelDefinition,
   type SessionService,
 } from './channel.js';
-import { PromptSchema, createTask, progressLine, storeDraftRef } from './tasks.js';
+import { PromptSchema } from './tasks.js';
 
 const DEFAULT_TITLE = 'New conversation';
-/** Names the policy that picked the intent; there is no rule-based classifier or lane router yet. */
-const INTENT_POLICY = 'desktop-explicit@1';
+/** Stored identifiers (rule ids, fallback reasons) are constants; anything else never leaves main. */
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const SessionIdSchema = z.string().regex(SESSION_ID_PATTERN);
 const TurnIdSchema = z.string().regex(TURN_ID_PATTERN);
@@ -53,7 +54,7 @@ const SubmitSchema = z.strictObject({
   sessionId: SessionIdSchema,
   submissionKey: SubmissionKeySchema,
   text: PromptSchema,
-  kind: TaskKindSchema,
+  kind: TaskKindSchema.optional(),
   preferredResourceIds: ResourceIdListSchema.optional(),
   maxCostUsd: z.number().finite().nonnegative().max(10_000).optional(),
 });
@@ -119,6 +120,20 @@ function mapArtifact(project: Project, ref: ArtifactRef, forTask: string) {
   }
 }
 
+function toLaneDto(lane: LaneDecision): TurnLaneDto {
+  return {
+    requestedLane: lane.requestedLane,
+    effectiveLane: lane.effectiveLane,
+    ...(lane.mismatch === undefined
+      ? {}
+      : { mismatch: { from: lane.mismatch.from, to: lane.mismatch.to } }),
+    ...(lane.confirmed === undefined ? {} : { confirmed: lane.confirmed }),
+    ...(lane.fallbackReason === undefined || !IDENTIFIER.test(lane.fallbackReason)
+      ? {}
+      : { fallbackReason: lane.fallbackReason }),
+  };
+}
+
 function toTurnDto(project: Project, turn: Turn): TurnDto {
   const owner = turn.tasks[0]?.taskId ?? turn.id;
   const artifacts = turn.artifacts.flatMap((ref) => mapArtifact(project, ref, owner) ?? []);
@@ -129,7 +144,17 @@ function toTurnDto(project: Project, turn: Turn): TurnDto {
     state: turn.state,
     createdAt: turn.createdAt,
     updatedAt: turn.updatedAt,
-    ...(turn.intent === undefined ? {} : { kind: turn.intent.kind }),
+    ...(turn.intent === undefined
+      ? {}
+      : {
+          kind: turn.intent.kind,
+          intent: {
+            kind: turn.intent.kind,
+            source: turn.intent.source,
+            ruleIds: turn.intent.ruleIds.filter((id) => IDENTIFIER.test(id)),
+          },
+        }),
+    ...(turn.lane === undefined ? {} : { lane: toLaneDto(turn.lane) }),
     tasks: turn.tasks.map((t) => ({
       taskId: t.taskId,
       state: t.state,
@@ -171,162 +196,33 @@ function toSessionDto(project: Project, session: OperatingSession): SessionDto {
   };
 }
 
-// --- turn execution ---------------------------------------------------------------------------
+// --- turn pipeline ----------------------------------------------------------------------------
 
-interface TurnRun {
-  readonly project: Project;
-  readonly sessionId: string;
-  readonly turn: Turn;
-  readonly controller: AbortController;
-  readonly kind: string;
-  readonly preferredResourceIds: readonly string[] | undefined;
-  readonly maxCostUsd: number | undefined;
-}
-
-/** Logs the code only; a store failure must never take the app down or leak a path. */
-async function attempt(
-  ctx: CallContext,
-  what: string,
-  work: () => Promise<unknown>,
-): Promise<void> {
-  try {
-    await work();
-  } catch (error) {
-    ctx.deps.logger.warn(`session update failed: ${what}`, {
-      code: isNexarError(error) ? error.code : 'UNKNOWN',
-    });
+function operatingOf(ctx: CallContext): OperatingService {
+  if (ctx.operating === undefined) {
+    throw new NexarError('CONFLICT', 'Sessions are open in another Nexar process');
   }
-}
-
-/**
- * Runs one turn in the background: task -> route -> execute -> draft -> durable outcome. The turn
- * is already stored as `running`; whatever happens here ends in a terminal state (or, if even the
- * store is failing, stays `running` until the next restart marks it `interrupted`).
- *
- * The prompt is this turn's text only. Bounded multi-turn context is assembled by the Operating
- * Layer in a later unit (ADR-024 section 10, context@1); until then turns do not see each other.
- */
-async function executeTurn(ctx: CallContext, run: TurnRun): Promise<void> {
-  const store = sessionStore(ctx);
-  const { sessionId, turn, controller } = run;
-  const emit = (type: SessionEvent['type'], message?: string): void =>
-    ctx.emitSession({
-      sessionId,
-      turnId: turn.id,
-      type,
-      ...(message === undefined ? {} : { message }),
-    });
-  let linkedTaskId: string | undefined;
-  try {
-    emit('status', 'Routing the task');
-    const { nexar } = ctx.deps.engine.composition().runtime;
-    const task = createTask(
-      ctx,
-      {
-        projectId: run.project.id,
-        kind: run.kind,
-        prompt: turn.text,
-        preferredResourceIds: run.preferredResourceIds,
-        maxCostUsd: run.maxCostUsd,
-      },
-      turn.id,
-      { sessionId, turnId: turn.id },
-    );
-    await store.linkTask(sessionId, turn.id, { taskId: task.id, state: 'running' });
-    linkedTaskId = task.id;
-    emit('turn');
-
-    const outcome = await nexar.run(task, {
-      signal: controller.signal,
-      onEvent: (event) => {
-        const line = progressLine(event);
-        if (line !== undefined) emit(line.type, line.message);
-      },
-    });
-
-    const ref = await storeDraftRef(ctx, run.project, outcome);
-    if (ref !== undefined) await store.linkArtifacts(sessionId, turn.id, [ref]);
-    const { decision } = outcome;
-    await store.updateTask(sessionId, turn.id, task.id, {
-      state: 'succeeded',
-      resourceId: outcome.record.resourceId,
-      policyId: `${decision.policy.name}@${decision.policy.version}`,
-      fallback: decision.policy.fallback !== undefined,
-    });
-    await store.completeTurn(sessionId, turn.id, {
-      state: 'succeeded',
-      outcome: { text: outcome.result.text },
-    });
-  } catch (error) {
-    const cancelled = controller.signal.aborted;
-    if (linkedTaskId !== undefined) {
-      const taskId = linkedTaskId;
-      await attempt(ctx, 'task', () =>
-        store.updateTask(sessionId, turn.id, taskId, {
-          state: cancelled ? 'cancelled' : 'failed',
-        }),
-      );
-    }
-    await attempt(ctx, 'turn', () =>
-      store.completeTurn(
-        sessionId,
-        turn.id,
-        cancelled
-          ? { state: 'cancelled' }
-          : { state: 'failed', outcome: { error: safeError(error) } },
-      ),
-    );
-  } finally {
-    ctx.jobs.end(turn.id);
-    emit('turn');
-  }
+  return ctx.operating;
 }
 
 async function submitTurn(
   ctx: CallContext,
   args: z.output<typeof SubmitSchema>,
 ): Promise<SubmitTurnResult> {
-  const store = sessionStore(ctx);
-  const session = await loadSession(store, args.sessionId);
+  const operating = operatingOf(ctx);
+  const session = await loadSession(sessionStore(ctx), args.sessionId);
   const project = sessionProject(ctx, session);
-  const { turn, created } = await store.beginTurn(args.sessionId, {
+  const result = await operating.submit({
+    sessionId: args.sessionId,
     submissionKey: args.submissionKey,
     text: args.text,
-    state: 'running',
-    intent: { kind: args.kind, source: 'explicit', ruleIds: [], policy: INTENT_POLICY },
+    ...(args.kind === undefined ? {} : { explicitKind: args.kind }),
+    ...(args.preferredResourceIds === undefined
+      ? {}
+      : { preferredResourceIds: args.preferredResourceIds }),
+    ...(args.maxCostUsd === undefined ? {} : { maxCostUsd: args.maxCostUsd }),
   });
-  if (!created) return { turn: toTurnDto(project, turn), created: false };
-
-  ctx.emitSession({ sessionId: args.sessionId, turnId: turn.id, type: 'turn' });
-  let controller: AbortController;
-  try {
-    controller = ctx.jobs.begin(turn.id);
-  } catch (error) {
-    // No capacity to run it: the stored turn must not stay "running" and block the session.
-    await attempt(ctx, 'turn', () =>
-      store.completeTurn(args.sessionId, turn.id, {
-        state: 'failed',
-        outcome: { error: safeError(error) },
-      }),
-    );
-    ctx.emitSession({ sessionId: args.sessionId, turnId: turn.id, type: 'turn' });
-    throw error;
-  }
-  // Fire and forget: `executeTurn` never rejects (every failure ends in the turn's state).
-  void executeTurn(ctx, {
-    project,
-    sessionId: args.sessionId,
-    turn,
-    controller,
-    kind: args.kind,
-    preferredResourceIds: args.preferredResourceIds,
-    maxCostUsd: args.maxCostUsd,
-  }).catch((error: unknown) => {
-    ctx.deps.logger.error('session turn crashed', {
-      errorName: error instanceof Error ? error.name : 'unknown',
-    });
-  });
-  return { turn: toTurnDto(project, turn), created: true };
+  return { turn: toTurnDto(project, result.turn), created: result.created, action: result.action };
 }
 
 // --- channels ---------------------------------------------------------------------------------
@@ -368,13 +264,32 @@ export const sessionChannels: Readonly<Record<string, ChannelDefinition>> = {
     },
   ),
   [CHANNELS.sessionsSubmitTurn]: defineChannel(SubmitSchema, (args, ctx) => submitTurn(ctx, args)),
+  [CHANNELS.sessionsConfirmLane]: defineChannel(
+    z.strictObject({
+      sessionId: SessionIdSchema,
+      turnId: TurnIdSchema,
+      decision: z.enum(['confirm', 'decline']),
+    }),
+    async (args, ctx) => {
+      const operating = operatingOf(ctx);
+      const session = await loadSession(sessionStore(ctx), args.sessionId);
+      const project = sessionProject(ctx, session);
+      if (!session.turns.some((t) => t.id === args.turnId)) {
+        throw new NexarError('VALIDATION_ERROR', 'Unknown turn');
+      }
+      // Choosing a lane for this turn only: no scope, mode or sandbox requirement changes.
+      return toTurnDto(project, await operating.confirm(args));
+    },
+  ),
   [CHANNELS.sessionsCancel]: defineChannel(
     z.strictObject({ sessionId: SessionIdSchema, turnId: TurnIdSchema }),
     async (args, ctx) => {
+      const operating = operatingOf(ctx);
       const session = await loadSession(sessionStore(ctx), args.sessionId);
-      const turn = session.turns.find((t) => t.id === args.turnId);
-      if (turn === undefined) throw new NexarError('VALIDATION_ERROR', 'Unknown turn');
-      return { cancelled: turn.state === 'running' && ctx.jobs.abort(turn.id) };
+      if (!session.turns.some((t) => t.id === args.turnId)) {
+        throw new NexarError('VALIDATION_ERROR', 'Unknown turn');
+      }
+      return { cancelled: operating.cancel(args.sessionId, args.turnId) };
     },
   ),
   [CHANNELS.sessionsSetMode]: defineChannel(

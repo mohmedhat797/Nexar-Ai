@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react';
-import type { ProjectDto, ResourceRow, SessionDto } from '../../shared/api.js';
+import type { Mode, ProjectDto, ResourceRow, SessionDto } from '../../shared/api.js';
 import type { SendArgs } from '../useSessions.js';
 import { Icon } from './Icon.js';
 import { SessionTurnView } from './SessionTurnView.js';
 
+/** `general` is the default: Nexar decides from the message. Anything else is an explicit choice. */
+const KIND_LABEL: Readonly<Record<string, string>> = { general: 'Auto (Nexar decides)' };
 const TASK_KINDS = [
   'general',
   'documentation',
@@ -73,7 +75,7 @@ function Composer({
           <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Task kind">
             {TASK_KINDS.map((k) => (
               <option key={k} value={k}>
-                {k}
+                {KIND_LABEL[k] ?? k}
               </option>
             ))}
           </select>
@@ -120,6 +122,8 @@ export function ChatView({
   onToggleFiles,
   onSend,
   onCancel,
+  onConfirm,
+  onSetMode,
 }: {
   project: ProjectDto;
   resources: readonly ResourceRow[];
@@ -131,6 +135,8 @@ export function ChatView({
   onToggleFiles: () => void;
   onSend: (args: SendArgs) => Promise<void>;
   onCancel: (turnId: string) => void;
+  onConfirm: (turnId: string, decision: 'confirm' | 'decline') => Promise<void>;
+  onSetMode: (mode: Mode) => Promise<void>;
 }): ReactElement {
   const endRef = useRef<HTMLDivElement>(null);
   const turns = session?.turns ?? [];
@@ -147,9 +153,33 @@ export function ChatView({
           </div>
           <div className="muted small mono">{project.root}</div>
         </div>
-        <button type="button" className="btn" onClick={onToggleFiles} aria-pressed={filesOpen}>
-          <Icon name="panel" size={16} /> {filesOpen ? 'Hide files' : 'Show files'}
-        </button>
+        <div className="chat-header-actions">
+          {session !== null && (
+            <div
+              className="segmented session-mode"
+              role="radiogroup"
+              aria-label="Conversation mode"
+              title="Mode of this conversation; a change applies from the next message"
+            >
+              {(['cowork', 'code'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={session.mode === m}
+                  className={session.mode === m ? 'active' : ''}
+                  data-testid={`session-mode-${m}`}
+                  onClick={() => void onSetMode(m)}
+                >
+                  {m === 'cowork' ? 'Cowork' : 'Code'}
+                </button>
+              ))}
+            </div>
+          )}
+          <button type="button" className="btn" onClick={onToggleFiles} aria-pressed={filesOpen}>
+            <Icon name="panel" size={16} /> {filesOpen ? 'Hide files' : 'Show files'}
+          </button>
+        </div>
       </header>
       <div className="messages">
         {error !== null && (
@@ -173,6 +203,7 @@ export function ChatView({
             turn={t}
             lines={progress[t.id] ?? []}
             onCancel={onCancel}
+            onConfirm={onConfirm}
           />
         ))}
         <div ref={endRef} />

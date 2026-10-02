@@ -54,7 +54,8 @@ export interface OperatingPorts {
   >;
   readonly lanes: { available(lane: 'cowork' | 'code'): boolean };
   readonly executeDirect: (request: DirectRequest, signal: AbortSignal) => Promise<DirectResult>;
-  readonly describeArtifact?: (ref: ArtifactRef) => string | undefined;
+  /** A safe display name for an artifact of the session's own project, or undefined to drop it. */
+  readonly describeArtifact?: (ref: ArtifactRef, projectId: string) => string | undefined;
   readonly onTurnChanged?: (sessionId: string, turnId: string) => void;
   readonly onProgress?: (
     sessionId: string,
@@ -322,10 +323,12 @@ export class OperatingService {
       const session = await this.load(sessionId);
       const turn = session.turns.find((t) => t.id === turnId);
       if (turn === undefined) throw reject('VALIDATION_ERROR', 'unknown-turn');
+      const describe = this.ports.describeArtifact;
       const { prompt, manifest } = buildContext({
         session,
         turnId,
-        describeArtifact: this.ports.describeArtifact,
+        describeArtifact:
+          describe === undefined ? undefined : (ref) => describe(ref, session.projectId),
       });
       await store.setContext(sessionId, turnId, manifest);
       this.changed(sessionId, turnId);

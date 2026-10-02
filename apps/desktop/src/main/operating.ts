@@ -1,0 +1,102 @@
+import { OperatingService, type DirectRequest, type DirectResult } from '@nexar/operating';
+import { NexarError, projectId, type ArtifactRef } from '@nexar/contracts';
+import type { Project } from '@nexar/projects';
+import { toArtifactDto } from './artifacts.js';
+import type { BridgeDeps, CallContext, JobRegistry } from './channel.js';
+import { createTask, progressLine, storeDraftRef } from './tasks.js';
+
+/**
+ * Which orchestrated lanes can run. Both are unavailable until the OpenWorker (NXR-056) and
+ * DeepSeek Harness (NXR-055) lanes exist; a later unit swaps this one function. Nexar never reports
+ * a lane as available when it cannot run it.
+ */
+export function laneAvailable(lane: 'cowork' | 'code'): boolean {
+  void lane;
+  return false;
+}
+
+/** A path inside a project (relative, never `..`); anything else is dropped. */
+function displayPath(project: Project, ref: ArtifactRef): string | undefined {
+  try {
+    const path = toArtifactDto(project, ref, '').path;
+    const escapes =
+      path === '' ||
+      path.startsWith('/') ||
+      /^[A-Za-z]:/.test(path) ||
+      path.split(/[\\/]/).includes('..');
+    return escapes ? undefined : path;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * One `OperatingService` over the session store (ADR-024). Direct execution is the only lane that
+ * can run today: the session's own project is authoritative, the task carries Nexar-set lineage,
+ * and the NRC still routes it with every hard filter.
+ */
+export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingService | undefined {
+  const store = deps.sessions;
+  if (store === undefined) return undefined;
+  // The direct pipeline only needs `deps`; it never emits task events for session turns.
+  const ctx: CallContext = { deps, jobs, emit: () => undefined, operating: undefined };
+
+  async function executeDirect(request: DirectRequest, signal: AbortSignal): Promise<DirectResult> {
+    const { nexar } = deps.engine.composition().runtime;
+    const project = deps.engine.composition().runtime.projects.get(projectId(request.projectId));
+    if (project === undefined) {
+      throw new NexarError('VALIDATION_ERROR', 'The conversation project is no longer available');
+    }
+    request.onProgress('status', 'Routing the task');
+    const task = createTask(
+      ctx,
+      {
+        projectId: project.id,
+        kind: request.kind,
+        prompt: request.prompt,
+        preferredResourceIds: request.preferredResourceIds,
+        maxCostUsd: request.maxCostUsd,
+      },
+      request.turnId,
+      { sessionId: request.sessionId, turnId: request.turnId },
+    );
+    await request.onTask(task.id);
+
+    const outcome = await nexar.run(task, {
+      signal,
+      onEvent: (event) => {
+        const line = progressLine(event);
+        if (line !== undefined) request.onProgress(line.type, line.message);
+      },
+    });
+
+    const ref = await storeDraftRef(ctx, project, outcome);
+    const { decision } = outcome;
+    return {
+      taskId: task.id,
+      text: outcome.result.text,
+      artifacts: ref === undefined ? [] : [ref],
+      resourceId: outcome.record.resourceId,
+      policyId: `${decision.policy.name}@${decision.policy.version}`,
+      fallback: decision.policy.fallback !== undefined,
+    };
+  }
+
+  /** Only the session's own project can describe its artifacts; nothing else is consulted. */
+  function describeArtifact(ref: ArtifactRef, id: string): string | undefined {
+    const project = deps.engine.composition().runtime.projects.get(projectId(id));
+    return project === undefined ? undefined : displayPath(project, ref);
+  }
+
+  return new OperatingService({
+    store,
+    lanes: { available: laneAvailable },
+    executeDirect,
+    describeArtifact,
+    onTurnChanged: (sessionId, turnId) =>
+      deps.broadcastSession({ sessionId, turnId, type: 'turn' }),
+    onProgress: (sessionId, turnId, type, message) =>
+      deps.broadcastSession({ sessionId, turnId, type, message }),
+    logger: deps.logger,
+  });
+}

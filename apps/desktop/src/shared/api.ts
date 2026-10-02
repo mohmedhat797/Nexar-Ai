@@ -182,6 +182,25 @@ export interface SessionSummaryDto {
   readonly lastTurnState?: TurnStateDto;
 }
 
+export type LaneDto = 'cowork' | 'code' | 'direct';
+
+/** Which rules classified the turn; constant identifiers only, never text. */
+export interface TurnIntentDto {
+  readonly kind: string;
+  readonly source: 'explicit' | 'rules';
+  readonly ruleIds: readonly string[];
+}
+
+/** The lane decision (ADR-024 section 9); constant identifiers only. */
+export interface TurnLaneDto {
+  readonly requestedLane: LaneDto;
+  readonly effectiveLane: LaneDto;
+  readonly mismatch?: { readonly from: LaneDto; readonly to: LaneDto };
+  readonly confirmed?: boolean;
+  /** For example `orchestrator-unavailable`. */
+  readonly fallbackReason?: string;
+}
+
 export interface TurnDto {
   readonly id: string;
   readonly index: number;
@@ -191,6 +210,8 @@ export interface TurnDto {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly kind?: string;
+  readonly intent?: TurnIntentDto;
+  readonly lane?: TurnLaneDto;
   readonly tasks: readonly {
     readonly taskId: string;
     readonly state: string;
@@ -213,7 +234,8 @@ export interface SubmitTurnArgs {
   /** Client-generated idempotency key, `^[A-Za-z0-9_-]{16,64}$`; reuse it when retrying. */
   readonly submissionKey: string;
   readonly text: string;
-  readonly kind: string;
+  /** An explicit task kind; omit (or `general`) to let Nexar decide from the message. */
+  readonly kind?: string;
   readonly preferredResourceIds?: readonly string[];
   readonly maxCostUsd?: number;
 }
@@ -222,6 +244,8 @@ export interface SubmitTurnResult {
   readonly turn: TurnDto;
   /** False when the submission key already existed and nothing was started. */
   readonly created: boolean;
+  /** `confirm`: the turn waits for the owner (mode mismatch). `refuse`: it failed up front. */
+  readonly action: 'run' | 'confirm' | 'refuse';
 }
 
 /** A change notification: `turn` means "re-fetch the session"; it carries no content. */
@@ -267,6 +291,11 @@ export interface NexarApi {
     sessionId: string;
     turnId: string;
   }): Promise<BridgeResult<{ readonly cancelled: boolean }>>;
+  confirmLane(args: {
+    sessionId: string;
+    turnId: string;
+    decision: 'confirm' | 'decline';
+  }): Promise<BridgeResult<TurnDto>>;
   setSessionMode(args: {
     sessionId: string;
     mode: Mode;
