@@ -3,9 +3,11 @@ title = "Nexar secret scanning"
 [extend]
 useDefault = true
 
-[[allowlists]]
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
 description = "Conversation idempotency sentinel in the provider preservation test"
-targetRules = ["generic-api-key"]
 condition = "AND"
 paths = ['''^apps/desktop/src/main/providers\.test\.ts$''']
 regexTarget = "secret"

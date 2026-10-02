@@ -8,6 +8,15 @@ exactly. Git history was recovered without changing source files; the feature br
 
 ## LAST COMPLETED
 
+Current delivery: NXR-052b `d0705d3` and NXR-052c `1c27904` are committed and pushed.
+Local HEAD, origin and draft PR #36 matched `1c27904b0e88348a0bb6a0b2bb9f7f47d181ebeb`.
+CI `37026524275` exposed an ineffective targeted global Gitleaks exception when extending
+default rules in pinned 8.28.0. Follow-up uses a rule-level AND exception for only the exact
+test path and idempotency sentinel, retaining default detection and full history scanning.
+Latest Windows local full gate passed 2,333 tests / 121 skips; Provider Electron E2E passed.
+Verify the subsequent CI checkpoint before implementing NXR-052d. The following foundation
+delivery notes are historical.
+
 Windows foundation implementation: shell-free executable/Node npm-shim launches (`@nexar/process`),
 Windows Codex environment allowlist, native abort/timeout tree cleanup, atomic approval-store
 replacement/read locking, nonregular telemetry-file rejection, and a separator-safe artifact config
@@ -111,8 +120,8 @@ auto-loading in ACL test helpers (now .NET-only; production guard disables auto-
 
 ## NEXT EXACT TASK
 
-Usage limit reached on 2026-10-02 after `8fd6efb` (approvals expiry test race fixed; CI on it not yet
-confirmed). NXR-052a is merged (`979db5a`: keystore `CredentialRef`, resolver injection into pi and
+Historical Claude usage checkpoint was `8fd6efb`; its CI uncertainty was superseded by green
+handoff CI `37012870983`. NXR-052a is merged (`979db5a`: keystore `CredentialRef`, resolver injection into pi and
 DSH, ADR-022 amendment: keystore names = credential variable, clipboard-only key entry in main,
 header-only non-generating key checks).
 
