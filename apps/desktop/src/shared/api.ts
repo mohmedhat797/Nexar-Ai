@@ -266,6 +266,7 @@ export interface NexarApi {
   listProviders(): Promise<BridgeResult<readonly ProviderRow[]>>;
   saveProviderKeyFromClipboard(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   removeProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
+  checkProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   listProjects(): Promise<BridgeResult<readonly ProjectDto[]>>;
   /** Opens the native folder dialog in the main process; null when cancelled. */
   addProject(): Promise<BridgeResult<ProjectDto | null>>;

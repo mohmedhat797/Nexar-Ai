@@ -160,3 +160,10 @@ independent config/secret-boundary review. The primary session owns integration,
 commits. Codex account status after the natural reset reported 49% of the five-hour window used and
 72% of the weekly window used; two reset credits remain unused. Dollar cost and per-agent token
 usage are unavailable and are not estimated. No paid provider generation was used for these checks.
+
+NXR-052c continuation used bounded official-endpoint research, fake-HTTP coverage, a UI/E2E subtask,
+and the primary agent for contracts, host/main integration and review. Account status during final
+validation reported 79% of the five-hour allowance and 77% of the weekly allowance used; two reset
+credits remain unused. No dollar or per-agent token figures are exposed. The next major subsystem
+is deferred to continuation while the completed unit is checked, pushed and handed off.
+Final local validation reported 89% of the five-hour allowance and 78% of the weekly allowance used.

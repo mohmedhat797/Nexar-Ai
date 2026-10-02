@@ -19,6 +19,13 @@ const STATUS_LABELS: Readonly<Record<ProviderRow['status'], string>> = {
   unavailable: 'Unavailable',
 };
 
+const CHECK_LABELS: Readonly<Record<ProviderRow['keyCheckStatus'], string>> = {
+  unchecked: 'Not checked',
+  valid: 'Metadata access verified',
+  invalid: 'Authentication rejected',
+  unavailable: 'Check unavailable',
+};
+
 /** Only safe provider metadata reaches this view; clipboard access belongs to main. */
 export function ProvidersView(): ReactElement {
   const [rows, setRows] = useState<readonly ProviderRow[]>([]);
@@ -64,21 +71,31 @@ export function ProvidersView(): ReactElement {
     }
   }
 
-  async function change(provider: ApiProviderId, action: 'save' | 'remove'): Promise<void> {
+  async function change(
+    provider: ApiProviderId,
+    action: 'save' | 'remove' | 'check',
+  ): Promise<void> {
     const name = PROVIDER_LABELS[provider];
     let completed = false;
     setBusy(true);
     setError(null);
-    setStatus(`${action === 'save' ? 'Saving' : 'Removing'} ${name} API key…`);
+    const progress = { save: 'Saving', remove: 'Removing', check: 'Checking' }[action];
+    setStatus(`${progress} ${name} API key…`);
     try {
       const updated = await call(
         action === 'save'
           ? nexar.saveProviderKeyFromClipboard(provider)
-          : nexar.removeProviderKey(provider),
+          : action === 'remove'
+            ? nexar.removeProviderKey(provider)
+            : nexar.checkProviderKey(provider),
       );
       completed = true;
       setRows((current) => current.map((row) => (row.provider === provider ? updated : row)));
-      setStatus(`${name} API key ${action === 'save' ? 'saved' : 'removed'}.`);
+      setStatus(
+        action === 'check'
+          ? `${name}: ${CHECK_LABELS[updated.keyCheckStatus]}.`
+          : `${name} API key ${action === 'save' ? 'saved' : 'removed'}.`,
+      );
       setRows(await call(nexar.listProviders()));
     } catch (failure) {
       setError(errorText(failure));
@@ -102,7 +119,8 @@ export function ProvidersView(): ReactElement {
         encrypted and clears the clipboard if it still contains that key.
       </p>
       <p className="muted">
-        Saved means the key is stored. Network authentication has not been checked. Model counts
+        Saved means the key is stored. Check key verifies access to a provider metadata endpoint. It
+        performs no generation and does not verify credits or generation permissions. Model counts
         come from the available catalog.
       </p>
       <p className="muted small">
@@ -135,7 +153,7 @@ export function ProvidersView(): ReactElement {
               </div>
               <div>
                 <p>API key{row.lastFour === undefined ? '' : ` · ending in ${row.lastFour}`}</p>
-                <p className="muted small">Network: Not checked</p>
+                <p className="muted small">Network: {CHECK_LABELS[row.keyCheckStatus]}</p>
                 <p className="muted small">Catalog models: {row.modelCount}</p>
                 <p className="muted small">
                   Can be used by:{' '}
@@ -155,6 +173,15 @@ export function ProvidersView(): ReactElement {
                   onClick={() => void change(row.provider, 'save')}
                 >
                   Save from clipboard
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  aria-label={`Check ${name} API key`}
+                  disabled={busy || row.status !== 'saved'}
+                  onClick={() => void change(row.provider, 'check')}
+                >
+                  Check key
                 </button>
                 <button
                   type="button"

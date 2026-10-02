@@ -1,0 +1,12 @@
+title = "Nexar secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Conversation idempotency sentinel in the provider preservation test"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/desktop/src/main/providers\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^preserved_submission_1$''']

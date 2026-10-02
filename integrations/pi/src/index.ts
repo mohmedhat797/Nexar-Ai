@@ -27,3 +27,4 @@ export type {
 } from './local-endpoint-discovery.js';
 export { toExecutionResult } from './result.js';
 export type { ToExecutionResultOptions } from './result.js';
+export { checkProviderApiKey } from './key-check.js';

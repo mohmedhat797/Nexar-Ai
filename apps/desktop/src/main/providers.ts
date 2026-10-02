@@ -1,4 +1,4 @@
-import { NexarError, isNexarError } from '@nexar/contracts';
+import { NexarError, isNexarError, type ProviderKeyCheck } from '@nexar/contracts';
 import { providerCredentialNames } from '@nexar/host';
 import {
   API_PROVIDER_IDS,
@@ -23,6 +23,7 @@ export interface ClipboardPort {
 /** All secret handling stays here in trusted main; the bridge only accepts provider ids. */
 export class ProviderService {
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly checks = new Map<ApiProviderId, ProviderRow['keyCheckStatus']>();
 
   constructor(
     private readonly deps: {
@@ -30,6 +31,7 @@ export class ProviderService {
       readonly clipboard: ClipboardPort;
       readonly config: ConfigStore;
       readonly engine: EngineHost;
+      readonly checkKey?: (provider: ApiProviderId) => Promise<ProviderKeyCheck>;
     },
   ) {}
 
@@ -50,6 +52,7 @@ export class ProviderService {
         );
       }
       await this.deps.keys.save(this.name(provider), key);
+      this.checks.delete(provider);
       try {
         await this.configure(provider);
       } finally {
@@ -63,9 +66,28 @@ export class ProviderService {
   remove(provider: ApiProviderId): Promise<ProviderRow> {
     return this.serialized(async () => {
       await this.deps.keys.remove(this.name(provider));
+      this.checks.delete(provider);
       // Keep explicit keystore references: a removed key must never fall back to the environment.
       await this.configure(provider, false);
       return ProviderRowSchema.parse(this.row(provider));
+    });
+  }
+
+  check(provider: ApiProviderId): Promise<ProviderRow> {
+    return this.serialized(async () => {
+      const row = this.row(provider);
+      let status: ProviderRow['keyCheckStatus'] = 'unchecked';
+      if (row.status === 'saved' && this.deps.checkKey !== undefined) {
+        try {
+          status = ProviderRowSchema.shape.keyCheckStatus.parse(
+            (await this.deps.checkKey(provider)).status,
+          );
+        } catch {
+          status = 'unavailable';
+        }
+      }
+      this.checks.set(provider, status);
+      return this.row(provider);
     });
   }
 
@@ -102,6 +124,7 @@ export class ProviderService {
       provider,
       method: 'api-key',
       status,
+      keyCheckStatus: status === 'saved' ? (this.checks.get(provider) ?? 'unchecked') : 'unchecked',
       ...(lastFour === undefined ? {} : { lastFour }),
       usableBy: provider === 'deepseek' ? ['pi', 'deepseek-harness'] : ['pi'],
       modelCount: models.length,
@@ -181,6 +204,9 @@ function requireProviders(service: ProviderService | undefined): ProviderService
 }
 
 export const providerChannels: Readonly<Record<string, ChannelDefinition>> = {
+  [CHANNELS.providersCheckKey]: defineChannel(ProviderArgsSchema, async (args, ctx) =>
+    ProviderRowSchema.parse(await requireProviders(ctx.deps.providers).check(args.provider)),
+  ),
   [CHANNELS.providersList]: defineChannel(NoArgs, async (_args, ctx) =>
     ProviderListSchema.parse(await requireProviders(ctx.deps.providers).list()),
   ),

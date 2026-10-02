@@ -6,6 +6,7 @@ export const CHANNELS = {
   providersList: 'providers:list',
   providersSaveKeyFromClipboard: 'providers:saveKeyFromClipboard',
   providersRemoveKey: 'providers:removeKey',
+  providersCheckKey: 'providers:checkKey',
   projectsList: 'projects:list',
   projectsAdd: 'projects:add',
   projectsRemove: 'projects:remove',

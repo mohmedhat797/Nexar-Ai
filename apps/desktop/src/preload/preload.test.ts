@@ -18,6 +18,7 @@ const row = {
   provider: 'deepseek',
   method: 'api-key',
   status: 'saved',
+  keyCheckStatus: 'unchecked',
   lastFour: '7391',
   usableBy: ['pi', 'deepseek-harness'],
   modelCount: 2,
@@ -42,6 +43,10 @@ describe('provider preload boundary', () => {
       provider: 'deepseek',
     });
     expect(Object.keys(api)).not.toContain('getKey');
+    await api.checkProviderKey('deepseek');
+    expect(electron.invoke).toHaveBeenLastCalledWith(CHANNELS.providersCheckKey, {
+      provider: 'deepseek',
+    });
     expect(Object.keys(api)).not.toContain('saveKey');
   });
 
@@ -50,6 +55,7 @@ describe('provider preload boundary', () => {
       for (const method of [
         (provider: never) => api.saveProviderKeyFromClipboard(provider),
         (provider: never) => api.removeProviderKey(provider),
+        (provider: never) => api.checkProviderKey(provider),
       ]) {
         const result = await method(value as never);
         expect(result.ok).toBe(false);

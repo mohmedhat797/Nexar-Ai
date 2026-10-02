@@ -66,6 +66,8 @@ const api: NexarApi = {
     invokeProvider(CHANNELS.providersSaveKeyFromClipboard, { provider }, ProviderRowSchema),
   removeProviderKey: (provider) =>
     invokeProvider(CHANNELS.providersRemoveKey, { provider }, ProviderRowSchema),
+  checkProviderKey: (provider) =>
+    invokeProvider(CHANNELS.providersCheckKey, { provider }, ProviderRowSchema),
   listProjects: () => invoke(CHANNELS.projectsList, {}),
   addProject: () => invoke(CHANNELS.projectsAdd, {}),
   removeProject: (id) => invoke(CHANNELS.projectsRemove, { id }),

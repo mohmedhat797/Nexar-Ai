@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { isNexarError } from '@nexar/contracts';
 import { FileSessionStore } from '@nexar/sessions';
+import { checkProviderCredential } from '@nexar/host';
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
 import { ConfigStore } from './config-store.js';
@@ -72,7 +73,14 @@ async function start(): Promise<void> {
     logger,
     resolveSecret: keys.resolveSecret,
   });
-  const providers = new ProviderService({ keys, clipboard, config, engine });
+  const providers = new ProviderService({
+    keys,
+    clipboard,
+    config,
+    engine,
+    checkKey: (provider) =>
+      checkProviderCredential(provider, { resolveSecret: keys.resolveSecret }),
+  });
 
   // Operating Sessions (ADR-024): this process is the single writer. If another Nexar process holds
   // the lease, sessions stay unavailable (every session channel answers CONFLICT) instead of racing it.

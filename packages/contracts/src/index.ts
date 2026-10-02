@@ -8,6 +8,7 @@ export * from './intelligence.js';
 export * from './launcher.js';
 export * from './logging.js';
 export * from './measured.js';
+export * from './provider.js';
 export * from './resource.js';
 export * from './routing.js';
 export * from './task.js';

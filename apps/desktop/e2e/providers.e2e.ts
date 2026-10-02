@@ -166,11 +166,27 @@ beforeAll(async () => {
 import { ipcMain } from 'electron';
 import { appendFileSync } from 'node:fs';
 const handlers = new Map();
+const checked = new Set();
 globalThis.nexarTestHandlers = handlers;
 const register = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) => {
   const recording = async (event, ...args) => {
-    const value = await handler(event, ...args);
+    let value;
+    if (channel === 'providers:checkKey') {
+      // UI binding only: the real provider service has separate fake-HTTP tests.
+      const provider = args[0]?.provider;
+      const listed = await handlers.get(${JSON.stringify(CHANNELS.providersList)})(event, {});
+      const row = listed.ok && listed.value.find((candidate) => candidate.provider === provider);
+      if (!row || row.status !== 'saved') throw new Error('Fixture requires a saved provider');
+      await new Promise((resolve) => { globalThis.nexarTestCheckRelease = resolve; });
+      delete globalThis.nexarTestCheckRelease;
+      checked.add(provider);
+      value = { ok: true, value: { ...row, keyCheckStatus: 'valid' } };
+    } else {
+      value = await handler(event, ...args);
+      if (value.ok && (channel === ${JSON.stringify(CHANNELS.providersSaveKeyFromClipboard)} || channel === ${JSON.stringify(CHANNELS.providersRemoveKey)})) checked.delete(args[0]?.provider);
+      if (value.ok && channel === ${JSON.stringify(CHANNELS.providersList)}) value = { ...value, value: value.value.map((row) => checked.has(row.provider) && row.status === 'saved' ? { ...row, keyCheckStatus: 'valid' } : row) };
+    }
     appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ channel, args, value }) + '\\n', { mode: 0o600 });
     return value;
   };
@@ -211,6 +227,9 @@ describe('Desktop Providers', () => {
       backend.available &&
       ['os', 'gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(backend.backend);
     const row = page.getByTestId('provider-deepseek');
+    expect(await row.getByRole('button', { name: 'Check DeepSeek API key' }).isDisabled()).toBe(
+      true,
+    );
     if (!secure) {
       expect(await row.innerText()).toContain('Unavailable');
       expect(
@@ -250,6 +269,36 @@ describe('Desktop Providers', () => {
     expect(await row.innerText()).toContain('Catalog models:');
     expect(await row.innerText()).toContain('pi-ai');
     expect(await row.innerText()).toContain('DeepSeek Harness');
+    expect(await row.innerText()).toContain('Network: Not checked');
+    if (!EXECUTABLE) {
+      await row.getByRole('button', { name: 'Check DeepSeek API key' }).click();
+      await expect
+        .poll(
+          () =>
+            app.evaluate(
+              () =>
+                typeof (globalThis as unknown as { nexarTestCheckRelease?: unknown })
+                  .nexarTestCheckRelease === 'function',
+            ),
+          POLL,
+        )
+        .toBe(true);
+      const controls = page
+        .getByRole('region', { name: 'Providers', exact: true })
+        .getByRole('button');
+      expect(await controls.count()).toBeGreaterThan(0);
+      for (const button of await controls.all()) expect(await button.isDisabled()).toBe(true);
+      await app.evaluate(() => {
+        (globalThis as unknown as { nexarTestCheckRelease: () => void }).nexarTestCheckRelease();
+      });
+      await expect.poll(() => row.innerText(), POLL).toContain('Network: Metadata access verified');
+      await expect
+        .poll(() => page.getByRole('button', { name: 'Refresh providers' }).isEnabled(), POLL)
+        .toBe(true);
+      expect(
+        await page.getByRole('region', { name: 'Providers', exact: true }).innerText(),
+      ).toContain('It performs no generation');
+    }
     expect(await app.evaluate(async ({ clipboard }) => clipboard.readText())).toBe('');
     const ciphertext = await readFile(join(userData, 'credentials.json'), 'utf8');
     expect(ciphertext).not.toContain(SENTINEL);
@@ -273,6 +322,10 @@ describe('Desktop Providers', () => {
       .poll(() => page.getByRole('button', { name: 'Refresh providers' }).isEnabled(), POLL)
       .toBe(true);
     expect(await reopened.innerText()).not.toContain('Q7x9');
+    expect(await reopened.innerText()).toContain('Network: Not checked');
+    expect(
+      await reopened.getByRole('button', { name: 'Check DeepSeek API key' }).isDisabled(),
+    ).toBe(true);
     expect(
       await reopened.getByRole('button', { name: 'Remove DeepSeek API key' }).isDisabled(),
     ).toBe(true);
@@ -330,6 +383,13 @@ describe('Desktop Providers', () => {
         ),
       ).toBe(true);
       expect(frames.some((frame) => frame.channel === CHANNELS.providersRemoveKey)).toBe(true);
+      expect(
+        frames.some(
+          (frame) =>
+            frame.channel === 'providers:checkKey' &&
+            JSON.stringify(frame.args) === JSON.stringify([{ provider: 'deepseek' }]),
+        ),
+      ).toBe(true);
     }
     await assertNoStoredSecret(userData);
     expect(output.join('\n')).not.toContain(SENTINEL);

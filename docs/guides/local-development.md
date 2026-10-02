@@ -2,7 +2,7 @@
 
 Current continuation (2026-10-02): work is on `feat/nexar-operating-layer`, draft PR #36. Windows
 automated acceptance, Operating Sessions and routing, and Desktop encrypted API-key setup are
-implemented. Owner Windows acceptance remains pending; provider key checks and vendor sign-in,
+implemented, including explicit provider metadata checks. Owner Windows acceptance remains pending; vendor sign-in,
 WSL Code, OpenWorker Cowork and behavior settings follow. Schedules and Mobile are deferred.
 Use the [continuation state](../devlog/operating-layer-progress.md) for the exact next unit and
 the [Providers guide](providers.md) for key setup. The phase-1 snapshot below is historical.

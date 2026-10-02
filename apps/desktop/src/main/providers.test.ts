@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NexarError } from '@nexar/contracts';
+import { NexarError, type ProviderKeyCheck } from '@nexar/contracts';
 import { CHANNELS } from '../shared/channels.js';
 import type { BridgeResult } from '../shared/api.js';
 import { ProviderListSchema, type ProviderRow } from '../shared/providers.js';
@@ -19,6 +19,7 @@ let clipboard: string;
 let cleared: number;
 let call: Harness['call'];
 let connectedEngine: EngineHost;
+let checkKey: ReturnType<typeof vi.fn<(provider: string) => Promise<ProviderKeyCheck>>>;
 
 beforeEach(async () => {
   h = await createHarness();
@@ -40,10 +41,12 @@ beforeEach(async () => {
     resolveSecret: keys.resolveSecret,
   });
   connectedEngine = engine;
+  checkKey = vi.fn(() => Promise.resolve({ status: 'valid' as const }));
   service = new ProviderService({
     keys,
     config: h.config,
     engine,
+    checkKey,
     clipboard: {
       readText: () => Promise.resolve(clipboard),
       clear: () => {
@@ -62,6 +65,56 @@ afterEach(async () => {
 });
 
 describe('provider clipboard bridge', () => {
+  it('checks only saved keys and resets results after save or remove', async () => {
+    expect(await service.check('openai')).toMatchObject({ keyCheckStatus: 'unchecked' });
+    expect(checkKey).not.toHaveBeenCalled();
+    await service.saveFromClipboard('openai');
+    expect(await call(CHANNELS.providersCheckKey, { provider: 'openai' })).toMatchObject({
+      ok: true,
+      value: { keyCheckStatus: 'valid' },
+    });
+    expect(checkKey).toHaveBeenCalledExactlyOnceWith('openai');
+    expect((await service.list()).find((row) => row.provider === 'openai')?.keyCheckStatus).toBe(
+      'valid',
+    );
+    checkKey.mockResolvedValue({ status: 'invalid' });
+    expect(await service.check('openai')).toMatchObject({ keyCheckStatus: 'invalid' });
+    checkKey.mockRejectedValue(new Error(SECRET));
+    expect(await service.check('openai')).toMatchObject({ keyCheckStatus: 'unavailable' });
+    clipboard = SECRET;
+    expect(await service.saveFromClipboard('openai')).toMatchObject({
+      keyCheckStatus: 'unchecked',
+    });
+    checkKey.mockResolvedValue({ status: 'valid' });
+    await service.check('openai');
+    expect(await service.remove('openai')).toMatchObject({
+      status: 'missing',
+      keyCheckStatus: 'unchecked',
+    });
+    expect(JSON.stringify(h.events)).not.toContain(SECRET);
+  });
+
+  it('serializes a pending check before removing its key', async () => {
+    await service.saveFromClipboard('openai');
+    let finish: (result: ProviderKeyCheck) => void = () => undefined;
+    let start: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      start = resolve;
+    });
+    checkKey.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+          start();
+        }),
+    );
+    const checking = service.check('openai');
+    await started;
+    const removing = service.remove('openai');
+    finish({ status: 'valid' });
+    await checking;
+    expect(await removing).toMatchObject({ keyCheckStatus: 'unchecked', status: 'missing' });
+  });
   it('returns only strict metadata, saves an encrypted key and selects references without plaintext', async () => {
     const initial = await call<ProviderRow[]>(CHANNELS.providersList);
     expect(initial.ok && ProviderListSchema.safeParse(initial.value).success).toBe(true);
@@ -161,6 +214,7 @@ describe('provider clipboard bridge', () => {
     CHANNELS.providersList,
     CHANNELS.providersSaveKeyFromClipboard,
     CHANNELS.providersRemoveKey,
+    CHANNELS.providersCheckKey,
   ])('rejects malformed %s input without echoing field names or values', async (channel) => {
     for (const raw of [
       { provider: SECRET },

@@ -5,9 +5,14 @@ DeepSeek, OpenRouter, Groq, Mistral and xAI. Copy a key, then choose **Save from
 provider. The main process reads the clipboard; the renderer has no key input or clipboard access.
 Nexar clears the clipboard after storage only if its text has not changed during the operation.
 
-**Saved** means stored, not verified with the provider. Model counts describe the discovered static
-pi-ai catalog, not the key's model access. Network key checks and vendor sign-in are separate work
-(NXR-052c/d); no model generation or paid calls occur when saving a key.
+**Saved** means stored. Model counts describe the discovered static pi-ai catalog, not the key's
+model access. Choose **Check key** to request the provider's documented metadata endpoint.
+**Metadata access verified** means that endpoint accepted authentication; **Authentication rejected**
+means HTTP 401. Restrictions, billing/quota errors, malformed responses and timeouts show
+**Check unavailable**. Checks generate no model output and do not establish credits or generation
+permissions. Saving/removing a key and restarting Desktop reset the network result to **Not checked**.
+Vendor sign-in remains separate work (NXR-052d). Endpoint and security details are in the
+[metadata-check research](../research/upstream/provider-key-checks.md).
 
 Saving enables that provider in `discovery.sources.piCatalog.providers` and selects
 `discovery.credentialSource: "keystore"` for discovered API resources, including DeepSeek Harness.

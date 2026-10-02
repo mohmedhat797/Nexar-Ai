@@ -16,6 +16,7 @@ export const ProviderRowSchema = z.strictObject({
   provider: z.enum(API_PROVIDER_IDS),
   method: z.literal('api-key'),
   status: z.enum(['missing', 'saved', 'unavailable']),
+  keyCheckStatus: z.enum(['valid', 'invalid', 'unchecked', 'unavailable']),
   lastFour: z
     .string()
     .regex(/^[A-Za-z0-9_.:-]{4}$/)

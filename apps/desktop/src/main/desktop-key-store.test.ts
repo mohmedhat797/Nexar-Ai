@@ -346,7 +346,8 @@ $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
             env: { SystemRoot: systemRoot, NEXAR_KEYSTORE_ACL_TEST: file },
             windowsHide: true,
             shell: false,
-            timeout: 15_000,
+            // Hosted CI can start PowerShell slowly while the offline suite runs in parallel.
+            timeout: 30_000,
             encoding: 'utf8',
             stdio: ['ignore', 'pipe', 'pipe'],
           },
@@ -377,7 +378,8 @@ $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
       expect(acl(root).protected).toBe(true);
       expect(store.metadata(NAME)).toEqual({ present: false });
     },
-    30_000,
+    // Five bounded ACL probes plus private-directory setup and credential writes.
+    180_000,
   );
 
   it('rejects hard-linked credential files and leaves the outside target unchanged', async () => {

@@ -70,6 +70,19 @@ preservation). Full Windows `pnpm check` passed (2,267 tests / 121 skips, format
 types and build); all four source Electron E2E scenarios passed. The skips cover the existing
 platform/live requirements plus unavailable Windows file-link privileges and POSIX mode checks.
 
+**NXR-052c:** explicit metadata checks for eight API providers, owned by the pi integration with
+header-only keys, no generation, no redirects, no retries/pagination, a five-second deadline and
+64 KiB streamed response cap. Host resolves only the chosen keystore reference at call time;
+main exposes normalized status through strict provider-only IPC. UI separates encrypted storage
+from network authentication, disables controls while checking and resets results on key changes
+or restart. Full Windows `pnpm check` passed: 2,333 tests / 121 skips, format, lint, boundaries,
+types and build (archive `61c240bb45beb1ba`). The updated native Windows Provider E2E passed,
+including busy controls and provider-only check IPC (archive `b5d21274615bcb83`). Fake HTTP tests
+cover all endpoint mappings, status normalization, redirects, aborts, stalled headers/body,
+malformed responses and byte caps; no real provider credentials or paid generation were used.
+Allowance reached 89% after validation; reset credits remain unused. Finish this checkpoint and
+verify CI before starting NXR-052d. PR #36 stays draft; owner acceptance remains pending.
+
 **Windows (NXR-051):** implementation complete, automated acceptance complete (CI green at
 `747c8bb`, `4e23de2`, `660fbbf`: Linux, Windows tests, native and packaged Electron E2E, installer
 packaging, secret scan), **owner/manual acceptance pending**
@@ -103,10 +116,15 @@ confirmed). NXR-052a is merged (`979db5a`: keystore `CredentialRef`, resolver in
 DSH, ADR-022 amendment: keystore names = credential variable, clipboard-only key entry in main,
 header-only non-generating key checks).
 
-1. Verify CI for the NXR-052b checkpoint once pushed. Do not revisit resolved Windows failures or
+1. Verify CI for the NXR-052c checkpoint once pushed. NXR-052b is `d0705d3`; its CI run `37024629110`
+   failed on a test-only secret sentinel and a Windows ACL probe startup timeout. The follow-up
+   keeps all default secret rules with one exact sentinel exception and extends only test deadlines.
+   Do not revisit resolved Windows failures or
    copy the interrupted `D:/nexar-operating-wt` / `wip/operating` scratch work.
-2. NXR-052c key checks (pi integration, documented model-listing endpoints, key in header); NXR-052d
-   subscription sign-in commands (verify per pinned runtime).
+2. NXR-052d subscription sign-in commands (verify per pinned runtime); research native CLI versions
+   and documented login/status commands before implementing. NXR-052c implements explicit metadata
+   checks for eight API providers, header-only keys, manual redirects, bounded deadlines and body,
+   normalized statuses and strict IPC; results are ephemeral and mean endpoint access only.
 3. Then NXR-055 Code lane, NXR-056 Cowork lane, NXR-053 behavior, integrated E2E.
 
 ## BLOCKERS
