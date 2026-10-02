@@ -7,6 +7,7 @@ export {
   type EngineeringRunOptions,
   type WorktreeOps,
 } from './execution.js';
+export { readTaskPatch, type TaskPatchOptions, type TaskPatchView } from './patch-view.js';
 export {
   PLAN_FILE,
   PlanCatalog,
@@ -24,6 +25,7 @@ export {
 } from './lane-history.js';
 export {
   RECORD_FILE,
+  isEngineeringLineage,
   isTaskId,
   listEngineeringRecords,
   readEngineeringRecord,

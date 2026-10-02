@@ -68,6 +68,9 @@ importers:
       '@nexar/integration-openworker':
         specifier: workspace:*
         version: link:../../integrations/openworker
+      '@nexar/plane-protocol':
+        specifier: workspace:*
+        version: link:../../packages/plane-protocol
       '@nexar/process':
         specifier: workspace:*
         version: link:../../packages/process
@@ -426,6 +429,15 @@ importers:
       '@nexar/sessions':
         specifier: workspace:*
         version: link:../sessions
+
+  packages/plane-protocol:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/process:
     dependencies:

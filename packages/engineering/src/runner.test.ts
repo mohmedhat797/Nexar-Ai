@@ -625,6 +625,69 @@ describe('EngineeringRunner: preconditions and lifecycle', () => {
     expect(branches(x)).toBe('');
   });
 
+  describe('lineage (ADR-025)', () => {
+    const lineage = {
+      sessionId: `ses_${'1'.repeat(32)}`,
+      turnId: `turn_${'2'.repeat(32)}`,
+      correlationId: `turn_${'2'.repeat(32)}`,
+      depth: 1,
+    };
+
+    it('is validated before anything is created', async () => {
+      const x = await harness();
+      for (const bad of [
+        { ...lineage, sessionId: 'ses_1' },
+        { ...lineage, turnId: '../x' },
+        { ...lineage, depth: 3 },
+        { ...lineage, extra: 'x' },
+      ]) {
+        await expect(x.run({ lineage: bad })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      }
+      expect(existsSync(join(x.stateDir, 'engineering'))).toBe(false);
+    });
+
+    it('reaches the record and every engineering telemetry event, as ids only', async () => {
+      const x = await harness();
+      const controller = new AbortController();
+      x.adapter.queue(
+        'feature',
+        (_call, context) =>
+          new Promise<string>((_resolve, reject) => {
+            context.signal.addEventListener('abort', () =>
+              reject(new NexarError('EXECUTION_CANCELLED', 'stopped')),
+            );
+          }),
+      );
+      const outcome = await x.run(
+        { lineage },
+        {
+          signal: controller.signal,
+          onProgress: (e) => {
+            if (e.type === 'lane.started') setTimeout(() => controller.abort(), 20);
+          },
+        },
+      );
+      expect(outcome.status).toBe('cancelled');
+      expect((await record(x)).lineage).toEqual(lineage);
+      const steps = x.events.filter((e) => e.type === 'engineering.step');
+      expect(steps.length).toBeGreaterThan(0);
+      for (const event of steps) {
+        expect(event).toMatchObject({ lineage });
+      }
+      expect(JSON.stringify(steps)).not.toContain(GOAL_MARKER);
+    });
+
+    it('is absent when the task was not started by a turn', async () => {
+      const x = await harness({ engineering: { ...never, maxReworkRounds: 0 } });
+      x.adapter.queue('feature', () => 'did nothing');
+      await x.run();
+      expect(await record(x)).not.toHaveProperty('lineage');
+      expect(x.events.filter((e) => e.type === 'engineering.step')[0]).not.toHaveProperty(
+        'lineage',
+      );
+    });
+  });
+
   // Reaching gates requires the Linux harvest; cancellation of native resources is tested separately.
   it.skipIf(process.platform === 'win32')(
     'cancels a running gate by killing its process group',

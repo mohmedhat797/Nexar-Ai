@@ -7,6 +7,7 @@ import {
   isNexarError,
   resourceId as toResourceId,
   taskId as toTaskId,
+  type EngineeringLineage,
   type EngineeringStep,
   type Logger,
   type ProcessLauncher,
@@ -56,6 +57,8 @@ export interface EngineeringInput {
   readonly planId?: string;
   /** Overrides the project's `baseBranch`. */
   readonly baseBranch?: string;
+  /** Ids of the Operating turn that asked for the task; recorded and put on telemetry (ADR-025). */
+  readonly lineage?: EngineeringLineage;
 }
 
 /**
@@ -127,6 +130,7 @@ export interface ExecutionTarget {
   readonly repository: string;
   readonly goal: string;
   readonly baseBranch: string;
+  readonly lineage?: EngineeringLineage;
 }
 
 /** Ends the task with a status; thrown from anywhere in the flow and settled in one place. */
@@ -302,6 +306,7 @@ export class EngineeringExecution {
       reviews: this.reviews,
       ...(this.approval === undefined ? {} : { approval: this.approval }),
       ...(this.commit === undefined ? {} : { commit: this.commit }),
+      ...(this.target.lineage === undefined ? {} : { lineage: this.target.lineage }),
     };
   }
 
@@ -321,6 +326,7 @@ export class EngineeringExecution {
         at: this.deps.clock().toISOString(),
         engineeringTaskId: this.target.taskId,
         projectId: this.target.project.id,
+        ...(this.target.lineage === undefined ? {} : { lineage: this.target.lineage }),
         step,
         detail,
       });

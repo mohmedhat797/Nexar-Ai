@@ -74,6 +74,9 @@
       "path": "./packages/sessions"
     },
     {
+      "path": "./packages/plane-protocol"
+    },
+    {
       "path": "./packages/operating"
     },
     {

@@ -30,6 +30,9 @@
       "path": "../../packages/engineering"
     },
     {
+      "path": "../../packages/plane-protocol"
+    },
+    {
       "path": "../../packages/projects"
     },
     {

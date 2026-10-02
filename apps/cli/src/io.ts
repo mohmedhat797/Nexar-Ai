@@ -7,6 +7,8 @@ export interface CliIo {
   readonly env: NodeJS.ProcessEnv;
   readonly cwd: string;
   readonly stdin?: () => Promise<string>;
+  /** Streaming standard input for long-lived protocol commands (`nexar plane serve`). */
+  readonly stdinChunks?: () => AsyncIterable<string | Uint8Array>;
   /** Present only when a person can answer at a terminal; asks a yes/no question. */
   readonly confirm?: (question: string) => Promise<boolean>;
 }
