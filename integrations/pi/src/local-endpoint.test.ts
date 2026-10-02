@@ -4,13 +4,13 @@ import type { AddressInfo } from 'node:net';
 import { NexarError, taskId } from '@nexar/contracts';
 import type { ExecutionContext, ExecutionRequest, Logger } from '@nexar/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PiExecutionAdapter, piModelResource } from './index.js';
+import { PiExecutionAdapter, localEndpointDiscoverySource, piModelResource } from './index.js';
 
 // A loopback-only OpenAI-compatible stub: exercises the real createProvider +
 // openAICompletionsApi path with no external network.
 let server: Server;
 let baseUrl: string;
-const seen: { path?: string; auth?: string; body?: Record<string, unknown> }[] = [];
+const seen: { method: string; path?: string; auth?: string; body?: Record<string, unknown> }[] = [];
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
@@ -22,8 +22,27 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 beforeAll(async () => {
   server = createServer((req, res) => {
+    if (req.method === 'GET' && ['/v1/models', '/tenant/v1/models'].includes(req.url ?? '')) {
+      seen.push({
+        method: req.method,
+        ...(req.url === undefined ? {} : { path: req.url }),
+        ...(req.headers.authorization === undefined ? {} : { auth: req.headers.authorization }),
+      });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ object: 'list', data: [{ id: 'tiny' }] }));
+      return;
+    }
+    if (
+      req.method !== 'POST' ||
+      !['/v1/chat/completions', '/tenant/v1/chat/completions'].includes(req.url ?? '')
+    ) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
     void readBody(req).then((raw) => {
       seen.push({
+        method: req.method ?? '',
         ...(req.url === undefined ? {} : { path: req.url }),
         ...(req.headers.authorization === undefined ? {} : { auth: req.headers.authorization }),
         body: JSON.parse(raw) as Record<string, unknown>,
@@ -87,6 +106,38 @@ function request(resource: ExecutionRequest['resource']): ExecutionRequest {
 const context = (): ExecutionContext => ({ signal: new AbortController().signal, logger });
 
 describe('local OpenAI-compatible endpoint (runtime.options.baseUrl)', () => {
+  it.each([
+    ['', '/v1'],
+    ['/', '/v1'],
+    ['/v1', '/v1'],
+    ['/v1/', '/v1'],
+    ['/tenant', '/tenant/v1'],
+    ['/tenant/', '/tenant/v1'],
+    ['/tenant/v1', '/tenant/v1'],
+    ['/tenant/v1/', '/tenant/v1'],
+  ])('discovers and executes through the same API prefix for %s', async (input, apiBase) => {
+    const origin = new URL(baseUrl).origin;
+    const before = seen.length;
+    const [resource] = await localEndpointDiscoverySource({
+      endpoints: [{ id: 'stub-local', kind: 'openai-compatible', baseUrl: `${origin}${input}` }],
+    }).discover({ now: new Date(), signal: AbortSignal.timeout(5000) });
+    expect(resource).toBeDefined();
+    if (resource === undefined) throw new Error('Fake endpoint returned no resource');
+    expect(resource.runtime.options).toEqual({ baseUrl: `${origin}${apiBase}` });
+    expect(resource.auth).toEqual({ mode: 'none' });
+    const result = await new PiExecutionAdapter({ env: {} }).execute(request(resource), context());
+    expect(result.text).toBe('local answer');
+    expect(result.resolved).toMatchObject({ provider: 'stub-local', model: 'tiny' });
+    const calls = seen.slice(before);
+    expect(calls.map(({ method, path }) => ({ method, path }))).toEqual([
+      { method: 'GET', path: `${apiBase}/models` },
+      { method: 'POST', path: `${apiBase}/chat/completions` },
+    ]);
+    expect(calls[0]?.auth).toBeUndefined();
+    expect(calls[1]?.body?.model).toBe('tiny');
+    expect(JSON.stringify(calls[1]?.body)).toContain('hello local');
+  });
+
   it('executes against the configured baseUrl without an allowlist entry or key', async () => {
     const adapter = new PiExecutionAdapter({ env: {} });
     const resource = piModelResource({

@@ -8,6 +8,19 @@ exactly. Git history was recovered without changing source files; the feature br
 
 ## LAST COMPLETED
 
+NXR-052e checkpoint adds keyless Local / Custom endpoint address-entry, edit/remove/rediscovery,
+cached candidate model counts, strict public-URL main/preload IPC and serialized reload/rollback.
+OpenAI-compatible discovery and execution now share one `/v1` API base for root, API-base, tenant
+and trailing-slash forms; Ollama semantics are retained. Endpoint/network/UI validation is recorded
+after the full gate below. No credential or arbitrary command fields are added.
+Validation: full Windows pinned `pnpm check` passed: format, lint, boundaries (698 tracked files),
+types, 2,592 tests passed / 122 skipped and build. Endpoint main/preload tests passed 88/88;
+discovery/execution tests passed 30/30; Provider Electron E2E passed 1/1 (20.20 seconds), covering
+server add/edit/refresh, busy controls, relaunch persistence/removal and existing conversations,
+subscription controls and encrypted API keys. Independent integrated review found no blocker.
+Allowance reached 96%; no further subsystem starts. Push this checkpoint immediately and inspect
+its CI. Reset credits remain unused; NXR-055/056/053 remain unfinished.
+
 NXR-052d implementation checkpoint: native Claude Code/Codex browser sign-in and safe account-status
 ports, shell-free bounded process runner, runtime-only main/preload IPC, independent Subscription UI,
 cancel/recheck/poll lifecycle, and explicit unsupported Antigravity authentication. No vendor
@@ -30,6 +43,8 @@ The cleanup follow-up passed three focused Windows process runs (15 passed / 1 P
 then full pinned `pnpm check` again (2,484 passed / 122 skipped, format, lint, boundaries, types and
 build). The lone fixture lint warning was removed. Source/production code remains at `5b56a15`.
 No reset credits were used.
+NXR-052d cleanup checkpoint `0ab5b79` then passed CI `37070938000`: Windows (including native and
+packaged Electron E2E, installer packaging), Ubuntu and secret scan. Source and remote matched.
 The following foundation delivery notes are historical.
 
 Windows foundation implementation: shell-free executable/Node npm-shim launches (`@nexar/process`),
@@ -74,7 +89,8 @@ subscription-connected. Login success is re-probed. No real sign-in, paid genera
 vendor state inspection was performed. Installed Claude public version metadata is 2.1.287.0;
 installed Codex/Antigravity semantic versions remain unverified because the lean-ctx shell allowlist blocked
 CLI execution. Default native CLI profiles are separate from custom resource binary/home settings.
-NXR-052 remains open for Local / Custom address-entry setup UI and owner/live acceptance; acceptance
+NXR-052e delivers keyless Local / Custom address-entry; keyed custom resources retain their existing
+explicit config credential path. NXR-052 remains live-unverified; acceptance
 criteria now distinguish automated resolver/security evidence from real provider execution.
 
 Claude Code handoff baseline (2026-10-02). PR #36 ("Nexar Desktop — Windows foundation and Operating
@@ -149,13 +165,12 @@ handoff CI `37012870983`. NXR-052a is merged (`979db5a`: keystore `CredentialRef
 DSH, ADR-022 amendment: keystore names = credential variable, clipboard-only key entry in main,
 header-only non-generating key checks).
 
-1. Verify the latest NXR-052d cleanup follow-up CI before further feature work. Do not revisit resolved
+1. Verify the latest NXR-052e checkpoint CI before further feature work. Do not revisit resolved
    NXR-052b/c CI failures or copy interrupted scratch work.
-2. Finish the remaining NXR-052 Local / Custom endpoint setup UI through the existing owner-listed
-   discovery/config path, with strict endpoint-only IPC and no scanning or renderer credential input.
-   Review OpenAI-compatible base URL composition before exposing the form: current discovery appends
-   `/v1/models`, whereas execution passes the configured base directly to the OpenAI-compatible API.
-   Review all NXR-052 acceptance criteria; keep real browser/provider acceptance explicitly pending.
+2. Review all NXR-052 acceptance evidence and close its implementation accurately; preserve
+   implemented/offline-tested/live-unverified distinctions. Local keyless setup and compatible API
+   base consistency are delivered. Keyed custom servers use the existing explicit config path.
+   Keep real browser/provider acceptance explicitly pending; do not invent installed CLI versions.
 3. Once NXR-052 implementation is complete and CI green: NXR-055 Code lane, NXR-056 Cowork lane,
    NXR-053 behavior, integrated E2E. NXR-054/Mobile stay deferred.
 

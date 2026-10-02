@@ -164,9 +164,11 @@ beforeAll(async () => {
     launcher,
     `
 import { ipcMain } from 'electron';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 const handlers = new Map();
 const checked = new Set();
+const endpointState = ${JSON.stringify(join(base, 'endpoint-fixture.json'))};
+let endpoints = existsSync(endpointState) ? JSON.parse(readFileSync(endpointState, 'utf8')) : [];
 const subscriptions = new Map([
   ['claude-code', { runtime: 'claude-code', method: 'subscription', status: 'not-connected', authMode: 'none', version: '2.1.91', loginSupported: true, loginState: 'idle', usableBy: 'claude-code' }],
   ['codex', { runtime: 'codex', method: 'subscription', status: 'not-connected', authMode: 'api-key', version: '0.159.3', loginSupported: true, loginState: 'idle', usableBy: 'codex' }],
@@ -179,7 +181,21 @@ const register = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) => {
   const recording = async (event, ...args) => {
     let value;
-    if (channel === ${JSON.stringify(CHANNELS.subscriptionsList)}) {
+    if ([${JSON.stringify(CHANNELS.endpointsList)}, ${JSON.stringify(CHANNELS.endpointsSave)}, ${JSON.stringify(CHANNELS.endpointsRemove)}, ${JSON.stringify(CHANNELS.endpointsRefresh)}].includes(channel)) {
+      // Static UI fixture only: no model request or server connection is made.
+      if (channel === ${JSON.stringify(CHANNELS.endpointsSave)}) {
+        const input = args[0];
+        const row = { id: input.id ?? 'fixture-server', kind: input.kind, baseUrl: input.baseUrl, modelCount: 2, enabled: true };
+        endpoints = [...endpoints.filter((entry) => entry.id !== row.id), row];
+      }
+      if (channel === ${JSON.stringify(CHANNELS.endpointsRemove)}) endpoints = endpoints.filter((row) => row.id !== args[0].id);
+      if (channel === ${JSON.stringify(CHANNELS.endpointsRefresh)}) {
+        await new Promise((resolve) => { globalThis.nexarTestEndpointRelease = resolve; });
+        delete globalThis.nexarTestEndpointRelease;
+      }
+      writeFileSync(endpointState, JSON.stringify(endpoints), { mode: 0o600 });
+      value = { ok: true, value: endpoints };
+    } else if (channel === ${JSON.stringify(CHANNELS.subscriptionsList)}) {
       value = { ok: true, value: [...subscriptions.values()] };
     } else if ([${JSON.stringify(CHANNELS.subscriptionsRefresh)}, ${JSON.stringify(CHANNELS.subscriptionsLogin)}, ${JSON.stringify(CHANNELS.subscriptionsCancel)}].includes(channel)) {
       // Fixed safe UI states only: never run a vendor login or inspect the owner's account.
@@ -260,7 +276,7 @@ describe('Desktop Providers', () => {
       ).toContain('cannot power pi-ai, DeepSeek Harness or OpenWorker');
       expect(
         await page.getByRole('region', { name: 'Local and custom servers' }).innerText(),
-      ).toContain('existing Nexar configuration');
+      ).toContain('never scans your network');
       await native.getByRole('button', { name: 'Sign in to Claude Code' }).click();
       await expect.poll(() => native.innerText(), POLL).toContain('Login: Running');
       expect(
@@ -366,6 +382,55 @@ describe('Desktop Providers', () => {
         true,
       );
     }
+    if (!EXECUTABLE) {
+      const local = page.getByRole('region', { name: 'Local and custom servers' });
+      await expect
+        .poll(() => local.getByRole('button', { name: 'Refresh models' }).isEnabled(), POLL)
+        .toBe(true);
+      expect(await local.innerText()).toContain('keyless access through pi-ai only');
+      expect(await local.innerText()).toContain(
+        'Zero does not prove a server is offline or authenticated',
+      );
+      expect(await local.locator('input[type="password"], input[type="text"]').count()).toBe(0);
+      await local.getByLabel('Server type').selectOption('openai-compatible');
+      await local.getByLabel('Server address').fill('http://127.0.0.1:1234/v1');
+      await local.getByRole('button', { name: 'Add server', exact: true }).click();
+      const endpoint = page.getByTestId('endpoint-fixture-server');
+      await expect.poll(() => endpoint.innerText(), POLL).toContain('Discovered models: 2');
+      expect(await endpoint.innerText()).toContain('http://127.0.0.1:1234/v1');
+      await endpoint.getByRole('button', { name: 'Edit server fixture-server' }).click();
+      expect(await local.getByLabel('Server address').inputValue()).toBe(
+        'http://127.0.0.1:1234/v1',
+      );
+      await local.getByLabel('Server address').fill('http://127.0.0.1:4567/v1');
+      await local.getByRole('button', { name: 'Save server', exact: true }).click();
+      await expect.poll(() => endpoint.innerText(), POLL).toContain('http://127.0.0.1:4567/v1');
+      await local.getByRole('button', { name: 'Refresh models' }).click();
+      await expect
+        .poll(
+          () =>
+            app.evaluate(
+              () =>
+                typeof (globalThis as unknown as { nexarTestEndpointRelease?: unknown })
+                  .nexarTestEndpointRelease === 'function',
+            ),
+          POLL,
+        )
+        .toBe(true);
+      const controls = local.getByRole('button');
+      expect(await controls.count()).toBeGreaterThan(0);
+      for (const button of await controls.all()) expect(await button.isDisabled()).toBe(true);
+      expect(await local.getByLabel('Server address').isDisabled()).toBe(true);
+      expect(await page.getByRole('button', { name: 'Refresh providers' }).isEnabled()).toBe(true);
+      await app.evaluate(() => {
+        (
+          globalThis as unknown as { nexarTestEndpointRelease: () => void }
+        ).nexarTestEndpointRelease();
+      });
+      await expect
+        .poll(() => local.getByRole('button', { name: 'Refresh models' }).isEnabled(), POLL)
+        .toBe(true);
+    }
     expect(await page.locator('input[type="password"], input[type="text"]').count()).toBe(0);
     expect(await page.getByTestId('providers-list').innerText()).toContain('Network: Not checked');
     const backend = await app.evaluate(({ safeStorage }) => ({
@@ -463,6 +528,15 @@ describe('Desktop Providers', () => {
     await close(app);
     ({ app, page } = await launch());
     await providers(page);
+    if (!EXECUTABLE) {
+      const endpoint = page.getByTestId('endpoint-fixture-server');
+      await expect.poll(() => endpoint.innerText(), POLL).toContain('http://127.0.0.1:4567/v1');
+      await endpoint.getByRole('button', { name: 'Remove server fixture-server' }).click();
+      await expect.poll(() => endpoint.count(), POLL).toBe(0);
+      expect(
+        await page.getByRole('region', { name: 'Local and custom servers' }).innerText(),
+      ).toContain('No servers configured.');
+    }
     const reopened = page.getByTestId('provider-deepseek');
     await expect.poll(() => reopened.innerText(), POLL).toContain('ending in Q7x9');
     await reopened.getByRole('button', { name: 'Remove DeepSeek API key' }).click();
@@ -529,6 +603,49 @@ describe('Desktop Providers', () => {
           (frame) =>
             frame.channel === CHANNELS.providersSaveKeyFromClipboard &&
             JSON.stringify(frame.args) === JSON.stringify([{ provider: 'deepseek' }]),
+        ),
+      ).toBe(true);
+      const endpointChannels: readonly string[] = [
+        CHANNELS.endpointsList,
+        CHANNELS.endpointsSave,
+        CHANNELS.endpointsRemove,
+        CHANNELS.endpointsRefresh,
+      ];
+      const endpointFrames = frames.filter((frame) => endpointChannels.includes(frame.channel));
+      expect(
+        endpointFrames.some(
+          (frame) =>
+            frame.channel === CHANNELS.endpointsSave &&
+            JSON.stringify(frame.args) ===
+              JSON.stringify([{ kind: 'openai-compatible', baseUrl: 'http://127.0.0.1:1234/v1' }]),
+        ),
+      ).toBe(true);
+      expect(
+        endpointFrames.some(
+          (frame) =>
+            frame.channel === CHANNELS.endpointsSave &&
+            JSON.stringify(frame.args) ===
+              JSON.stringify([
+                {
+                  id: 'fixture-server',
+                  kind: 'openai-compatible',
+                  baseUrl: 'http://127.0.0.1:4567/v1',
+                },
+              ]),
+        ),
+      ).toBe(true);
+      expect(
+        endpointFrames.some(
+          (frame) =>
+            frame.channel === CHANNELS.endpointsRemove &&
+            JSON.stringify(frame.args) === JSON.stringify([{ id: 'fixture-server' }]),
+        ),
+      ).toBe(true);
+      expect(
+        endpointFrames.some(
+          (frame) =>
+            frame.channel === CHANNELS.endpointsRefresh &&
+            JSON.stringify(frame.args) === JSON.stringify([{}]),
         ),
       ).toBe(true);
       expect(frames.some((frame) => frame.channel === CHANNELS.providersRemoveKey)).toBe(true);

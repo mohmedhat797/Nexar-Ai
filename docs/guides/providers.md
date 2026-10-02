@@ -50,8 +50,21 @@ the config. File writes serialize within the Desktop process; independent Deskto
 the same credential file are outside this guarantee.
 
 Subscriptions remain owned by their native vendor runtimes. Nexar does not extract their tokens for
-pi-ai, DeepSeek Harness or OpenWorker provider APIs. Local / Custom currently explains existing
-owner-defined endpoint configuration; address-entry setup UI remains pending.
+pi-ai, DeepSeek Harness or OpenWorker provider APIs.
+
+**Local / Custom servers** supports owner-listed keyless Ollama and OpenAI-compatible servers.
+Choose the server type and public address, then Save server. Edit keeps its server id stable; Remove
+deletes only that endpoint. Saving or Refresh models reruns discovery against listed addresses;
+there is no host scanning. Ollama takes a server root; compatible servers accept a root or `/v1` API
+base (including a tenant prefix). Discovery and generation use the same API base.
+
+Addresses cannot contain credentials, query strings, fragments or control characters. Keyed custom
+servers keep their existing explicit resource/config credential path; this form has no key field.
+Listed model counts are cached discovery candidates, not authentication or proof that generation
+will succeed. A zero count does not establish that the server is offline. Only pi-ai uses these
+keyless endpoint candidates; the form does not configure DSH or export vendor subscriptions.
+Changes and rediscovery share the config mutation queue; failed reload restores the prior config
+and engine, preserving projects, routing, credentials, sessions and approvals.
 
 Tests cover fake encryption, call-time resolution, strict IPC metadata, malformed input, linked and
 corrupt state, unavailable backends, concurrent writes, clipboard changes, config rollback and session

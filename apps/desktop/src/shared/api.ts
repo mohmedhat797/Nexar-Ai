@@ -4,6 +4,8 @@ export type { ApiProviderId, ProviderRow } from './providers.js';
 import type { SubscriptionRuntimeId } from '@nexar/contracts';
 import type { SubscriptionRow } from './subscriptions.js';
 export type { SubscriptionRow } from './subscriptions.js';
+import type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
+export type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 
 /** What every bridge call resolves to; errors carry a stable code and a safe message only. */
 export type BridgeResult<T> =
@@ -267,6 +269,10 @@ export interface NexarApi {
   getSettings(): Promise<BridgeResult<DesktopSettings>>;
   setSettings(patch: Partial<DesktopSettings>): Promise<BridgeResult<DesktopSettings>>;
   listProviders(): Promise<BridgeResult<readonly ProviderRow[]>>;
+  listLocalEndpoints(): Promise<BridgeResult<readonly LocalEndpointRow[]>>;
+  saveLocalEndpoint(input: LocalEndpointInput): Promise<BridgeResult<readonly LocalEndpointRow[]>>;
+  removeLocalEndpoint(id: string): Promise<BridgeResult<readonly LocalEndpointRow[]>>;
+  refreshLocalEndpoints(): Promise<BridgeResult<readonly LocalEndpointRow[]>>;
   listSubscriptions(): Promise<BridgeResult<readonly SubscriptionRow[]>>;
   refreshSubscription(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
   startSubscriptionLogin(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;

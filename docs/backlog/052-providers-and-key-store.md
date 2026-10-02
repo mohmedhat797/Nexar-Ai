@@ -4,12 +4,13 @@
 
 ## Summary
 
-NXR-052a/b/c/d implemented on the Operating Layer continuation: headless reference/resolver contract,
+NXR-052a/b/c/d/e implemented on the Operating Layer continuation: headless reference/resolver contract,
 strict discovery source selection, encrypted Desktop storage, clipboard-only IPC and Providers UI.
 Explicit non-generating metadata checks use strict provider-only IPC. Claude Code/Codex browser
 sign-in and runtime-only status IPC have offline coverage; live browser acceptance is unverified.
-Antigravity sign-in is disabled because no standalone command is verified. Local endpoint setup UI
-remains, so NXR-052 is **not closed**. See the
+Antigravity sign-in is disabled because no standalone command is verified. Owner-listed keyless
+Ollama/OpenAI-compatible endpoint setup is implemented with consistent discovery/execution API bases.
+NXR-052 is **not marked live-validated**; review the acceptance evidence before closing it. See the
 [Providers guide](../guides/providers.md) and [progress log](../devlog/operating-layer-progress.md).
 
 Implement ADR-022: the Providers settings tab with subscription sign-in, API keys in an encrypted key store and local servers.
@@ -50,8 +51,9 @@ An owner can connect Anthropic, OpenAI, Google, DeepSeek, OpenRouter, Groq, Mist
 
 ## Remaining delivery and owner acceptance
 
-- Local / Custom address-entry and owner-listed endpoint setup UI remains unimplemented; the
-  existing config/discovery path still works. Complete this unit before closing NXR-052.
+- Local / Custom address-entry, edit/remove, rediscovery and cached model counts are implemented
+  for keyless owner-listed servers, with strict public-URL IPC. Keyed custom servers retain the
+  existing explicit resource/config credential path; the form does not ingest custom keys.
 - Native browser sign-in: implemented/offline-tested; real Claude/Codex callback flow unverified.
   Google remains explicitly unsupported pending a documented standalone flow.
 - Installed Codex/Antigravity semantic versions and real provider metadata/generation acceptance

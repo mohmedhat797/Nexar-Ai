@@ -11,6 +11,7 @@ import { createEngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
 import { ProviderService } from './providers.js';
 import { SubscriptionService } from './subscriptions.js';
+import { LocalEndpointService } from './local-endpoints.js';
 import { createStderrLogger } from './logger.js';
 import { ensurePrivateStateDirectory, PrivateStateError } from './private-state.js';
 import { SettingsStore } from './settings-store.js';
@@ -117,6 +118,7 @@ async function start(): Promise<void> {
     settings,
     providers,
     subscriptions,
+    localEndpoints: new LocalEndpointService(config, engine),
     logger,
     // Looked up per call, so a test can replace `dialog.showOpenDialog`.
     dialog: { showOpenDialog: (options) => dialog.showOpenDialog(options) },

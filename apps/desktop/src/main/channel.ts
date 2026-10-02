@@ -10,6 +10,7 @@ import type { EngineHost } from './engine-host.js';
 import type { SettingsStore } from './settings-store.js';
 import type { ProviderService } from './providers.js';
 import type { SubscriptionService } from './subscriptions.js';
+import type { LocalEndpointService } from './local-endpoints.js';
 
 /** The slice of Electron's `dialog` the bridge uses; tests substitute a fake. */
 export interface DialogPort {
@@ -51,6 +52,7 @@ export interface BridgeDeps {
   readonly settings: SettingsStore;
   readonly providers?: ProviderService;
   readonly subscriptions?: SubscriptionService;
+  readonly localEndpoints?: LocalEndpointService;
   readonly logger: Logger;
   readonly dialog: DialogPort;
   readonly shell: ShellPort;

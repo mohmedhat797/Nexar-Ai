@@ -10,6 +10,11 @@ import {
 } from '../shared/providers.js';
 import type { BridgeResult } from '../shared/api.js';
 import {
+  EndpointListSchema,
+  EndpointSaveSchema,
+  EndpointRemoveSchema,
+} from '../shared/local-endpoints.js';
+import {
   SubscriptionArgsSchema,
   SubscriptionListSchema,
   SubscriptionRowSchema,
@@ -70,6 +75,14 @@ async function invokeProvider<S extends z.ZodType>(
 }
 
 const api: NexarApi = {
+  listLocalEndpoints: () =>
+    invokeProvider(CHANNELS.endpointsList, {}, EndpointListSchema, z.strictObject({})),
+  saveLocalEndpoint: (input) =>
+    invokeProvider(CHANNELS.endpointsSave, input, EndpointListSchema, EndpointSaveSchema),
+  removeLocalEndpoint: (id) =>
+    invokeProvider(CHANNELS.endpointsRemove, { id }, EndpointListSchema, EndpointRemoveSchema),
+  refreshLocalEndpoints: () =>
+    invokeProvider(CHANNELS.endpointsRefresh, {}, EndpointListSchema, z.strictObject({})),
   appInfo: () => invoke(CHANNELS.appInfo, {}),
   getSettings: () => invoke(CHANNELS.settingsGet, {}),
   setSettings: (args) => invoke(CHANNELS.settingsSet, args),

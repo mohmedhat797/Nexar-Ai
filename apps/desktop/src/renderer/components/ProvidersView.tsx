@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import type { ApiProviderId, ProviderRow, SubscriptionRow } from '../../shared/api.js';
 import { call, errorText, nexar } from '../bridge.js';
+import { LocalEndpointsView } from './LocalEndpointsView.js';
 
 const PROVIDER_LABELS: Readonly<Record<ApiProviderId, string>> = {
   anthropic: 'Anthropic',
@@ -413,13 +414,7 @@ export function ProvidersView(): ReactElement {
           <p className="muted">No API providers available.</p>
         )}
       </section>
-      <section className="stack" aria-label="Local and custom servers">
-        <h2>Local / Custom servers</h2>
-        <p className="muted">
-          Local and custom servers use your existing Nexar configuration. Setup controls are not
-          available here.
-        </p>
-      </section>
+      <LocalEndpointsView />
     </div>
   );
 }
