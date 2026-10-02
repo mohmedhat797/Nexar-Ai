@@ -66,17 +66,17 @@ NXR-030 to NXR-034 were delivered in v0.4 ([ADR-020](../adr/020-resource-intelli
 
 Phases of [ADR-021](../adr/021-nexar-desktop.md); see also ADR-022 and ADR-023.
 
-| Id                                              | Title                                                   | Milestone | Labels                             | Status      |
-| ----------------------------------------------- | ------------------------------------------------------- | --------- | ---------------------------------- | ----------- |
-| [NXR-050](050-desktop-foundation.md)            | Desktop foundation: host package, shell, bridge, Cowork | v0.5      | desktop                            | Done        |
-| [NXR-051](051-windows-compatibility.md)         | Windows compatibility pass, Windows CI, installer       | v0.5      | desktop, windows                   | In progress |
-| [NXR-052](052-providers-and-key-store.md)       | Providers: sign-in, encrypted key store, local servers  | v0.5      | desktop, security                  | Planned     |
-| [NXR-053](053-ai-behavior-settings.md)          | AI behavior settings per mode                           | v0.5      | desktop, integration               | Planned     |
-| [NXR-054](054-scheduled-tasks.md)               | Scheduled tasks                                         | v0.5      | desktop, automation                | Planned     |
-| [NXR-055](055-code-mode-wsl2.md)                | Code mode through the WSL2 plane (DSH default)          | v0.5      | desktop, engineering               | Planned     |
-| [NXR-056](056-cowork-openworker-agent.md)       | Cowork through OpenWorker (automations seam)            | v0.5      | desktop, openworker                | Planned     |
-| [NXR-057](057-persistent-operating-sessions.md) | Persistent Operating Sessions                           | v0.5      | operating-layer, sessions, desktop | Done        |
-| [NXR-058](058-operating-intent-and-lanes.md)    | Operating intent and lane orchestration                 | v0.5      | operating-layer, routing, desktop  | Planned     |
+| Id                                              | Title                                                   | Milestone | Labels                             | Status                    |
+| ----------------------------------------------- | ------------------------------------------------------- | --------- | ---------------------------------- | ------------------------- |
+| [NXR-050](050-desktop-foundation.md)            | Desktop foundation: host package, shell, bridge, Cowork | v0.5      | desktop                            | Done                      |
+| [NXR-051](051-windows-compatibility.md)         | Windows compatibility pass, Windows CI, installer       | v0.5      | desktop, windows                   | In progress               |
+| [NXR-052](052-providers-and-key-store.md)       | Providers: sign-in, encrypted key store, local servers  | v0.5      | desktop, security                  | Planned                   |
+| [NXR-053](053-ai-behavior-settings.md)          | AI behavior settings per mode                           | v0.5      | desktop, integration               | Planned                   |
+| [NXR-054](054-scheduled-tasks.md)               | Scheduled tasks                                         | v0.5      | desktop, automation                | Planned                   |
+| [NXR-055](055-code-mode-wsl2.md)                | Code mode through the WSL2 plane (DSH default)          | v0.5      | desktop, engineering               | Planned                   |
+| [NXR-056](056-cowork-openworker-agent.md)       | Cowork through OpenWorker (automations seam)            | v0.5      | desktop, openworker                | Planned                   |
+| [NXR-057](057-persistent-operating-sessions.md) | Persistent Operating Sessions                           | v0.5      | operating-layer, sessions, desktop | Done                      |
+| [NXR-058](058-operating-intent-and-lanes.md)    | Operating intent and lane orchestration                 | v0.5      | operating-layer, routing, desktop  | Done (lanes: NXR-055/056) |
 
 ## Nexar Mobile (deferred)
 
