@@ -96,3 +96,21 @@ discovered never means authenticated.
   Out of scope for a local app; documented in the security model.
 - **Upstream login commands change.** Each login path is verified against the pinned runtime version and
   covered by fake-runtime contract tests.
+
+## Amendment (2026-10-02, NXR-052 implementation)
+
+- **A keystore entry's name is the credential variable it supplies.** References are
+  `{ source: 'keystore', name: 'DEEPSEEK_API_KEY' }` (names match `^[A-Z][A-Z0-9_]*$`). pi-ai receives
+  the resolved value as the per-request key; DSH receives exactly that one variable in its minimal
+  child environment. DSH `piAiProviders` entries may name `{ keystore: NAME }` instead of
+  `{ apiKeyEnv: NAME }`. There is no implicit fallback between `env` and `keystore`.
+- **Resolver injection.** `@nexar/host` accepts an optional secret resolver and passes it to the pi and
+  DSH adapters; Desktop main supplies one backed by the key store. Without a resolver (the CLI), a
+  keystore reference is `AUTH_REQUIRED` with a clear message and nothing else is read.
+- **Keys never cross renderer IPC, in either direction.** The renderer asks main to "save the key on
+  the clipboard" for a named provider; main reads the clipboard itself, validates the value, encrypts
+  and stores it, and clears the clipboard when it still holds that key. The renderer only ever sees
+  the provider, status and the last four characters.
+- **Key checks** live in the pi integration (the only code that knows provider endpoints) and use only
+  documented, non-generating model-listing or key-information endpoints, with the key in a header,
+  never in a URL. A provider without such an endpoint reports `unchecked`.

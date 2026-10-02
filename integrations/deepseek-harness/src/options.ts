@@ -3,7 +3,7 @@ import type { ResourceDescriptor } from '@nexar/contracts';
 import { parseAcpOptions } from './acp/options.js';
 import type { AcpOptions } from './acp/options.js';
 import { validatePiAiProviders } from './overlay.js';
-import type { PiAiProviders } from './overlay.js';
+import type { PiAiProviderEntry, PiAiProviders } from './overlay.js';
 
 export const DEFAULT_PROVIDER = 'deepseek-official';
 
@@ -43,14 +43,25 @@ function optionalPositive(raw: Record<string, unknown>, key: string): number | u
 
 function parsePiAiProviders(value: unknown): PiAiProviders {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw bad(`'piAiProviders' must be an object mapping provider name to { apiKeyEnv }`);
+    throw bad(
+      `'piAiProviders' must be an object mapping provider name to { apiKeyEnv } or { keystore }`,
+    );
   }
-  const out: Record<string, { apiKeyEnv: string }> = {};
+  const out: Record<string, PiAiProviderEntry> = {};
   for (const [name, entry] of Object.entries(value)) {
-    const apiKeyEnv = (entry as { apiKeyEnv?: unknown } | null)?.apiKeyEnv;
-    if (typeof apiKeyEnv !== 'string')
-      throw bad(`'piAiProviders.${name}.apiKeyEnv' must be a string`);
-    out[name] = { apiKeyEnv };
+    const { apiKeyEnv, keystore } = (entry ?? {}) as { apiKeyEnv?: unknown; keystore?: unknown };
+    if ((apiKeyEnv === undefined) === (keystore === undefined)) {
+      throw bad(`'piAiProviders.${name}' must set exactly one of 'apiKeyEnv' or 'keystore'`);
+    }
+    if (apiKeyEnv !== undefined) {
+      if (typeof apiKeyEnv !== 'string')
+        throw bad(`'piAiProviders.${name}.apiKeyEnv' must be a string`);
+      out[name] = { apiKeyEnv };
+    } else {
+      if (typeof keystore !== 'string')
+        throw bad(`'piAiProviders.${name}.keystore' must be a string`);
+      out[name] = { keystore };
+    }
   }
   validatePiAiProviders(out);
   return out;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { join } from 'node:path';
+import { NexarError, adapterId } from '@nexar/contracts';
 import { buildDshEnv } from './env.js';
 import { parseRuntimeOptions } from './options.js';
 import { renderPatchOverlay } from './overlay.js';
@@ -220,5 +221,143 @@ describe('deepseekHarnessResource', () => {
     });
     expect(r.dataLocality).toBe('third-party');
     expect(deepseekHarnessResource({ displayName: 'X' }).displayName).toBe('X');
+  });
+});
+
+describe('keystore credentials (env, overlay and options)', () => {
+  const KEYSTORE_VALUE = 'sk-keystore-value';
+  const parentWithSameName: NodeJS.ProcessEnv = {
+    PATH: '/usr/bin',
+    DEEPSEEK_API_KEY: 'sk-parent-env-value',
+    OTHER_PROVIDER_KEY: 'sk-parent-other',
+    GH_TOKEN: 'ghp_secret',
+  };
+  const keystoreResource = deepseekHarnessResource({
+    auth: { mode: 'api-key', credential: { source: 'keystore', name: 'DEEPSEEK_API_KEY' } },
+  });
+
+  it('puts the resolver value under the keystore name, never the parent env value', () => {
+    const env = buildDshEnv(parentWithSameName, keystoreResource, {
+      stateDir: '/s',
+      resolveSecret: (name) => (name === 'DEEPSEEK_API_KEY' ? KEYSTORE_VALUE : undefined),
+    });
+    expect(env.DEEPSEEK_API_KEY).toBe(KEYSTORE_VALUE);
+    expect(Object.values(env)).not.toContain('sk-parent-env-value');
+    expect(env).not.toHaveProperty('GH_TOKEN');
+  });
+
+  it('does not satisfy a keystore reference from the parent env', () => {
+    const missing = buildDshEnv(parentWithSameName, keystoreResource, {
+      stateDir: '/s',
+      resolveSecret: () => undefined,
+    });
+    expect(missing).not.toHaveProperty('DEEPSEEK_API_KEY');
+    const noResolver = buildDshEnv(parentWithSameName, keystoreResource, { stateDir: '/s' });
+    expect(noResolver).not.toHaveProperty('DEEPSEEK_API_KEY');
+    const empty = buildDshEnv(parentWithSameName, keystoreResource, {
+      stateDir: '/s',
+      resolveSecret: () => '',
+    });
+    expect(empty).not.toHaveProperty('DEEPSEEK_API_KEY');
+  });
+
+  it('resolves keystore piAiProviders entries from the resolver and env entries from the env', () => {
+    const env = buildDshEnv(parentWithSameName, deepseekHarnessResource(), {
+      stateDir: '/s',
+      piAiProviders: {
+        stored: { keystore: 'OTHER_PROVIDER_KEY' },
+        fromEnv: { apiKeyEnv: 'GH_TOKEN' },
+      },
+      resolveSecret: (name) => (name === 'OTHER_PROVIDER_KEY' ? KEYSTORE_VALUE : undefined),
+    });
+    expect(env.OTHER_PROVIDER_KEY).toBe(KEYSTORE_VALUE);
+    expect(env.GH_TOKEN).toBe('ghp_secret');
+    expect(env.DEEPSEEK_API_KEY).toBe('sk-parent-env-value'); // the env credential, unchanged
+  });
+
+  it('rejects the same variable requested from both sources', () => {
+    expect(() =>
+      buildDshEnv(parentWithSameName, deepseekHarnessResource(), {
+        stateDir: '/s',
+        piAiProviders: { stored: { keystore: 'DEEPSEEK_API_KEY' } },
+        resolveSecret: () => KEYSTORE_VALUE,
+      }),
+    ).toThrow(/both the environment and the key store/);
+  });
+
+  it.each(['PATH', 'NODE_OPTIONS', 'DSH_HOME'])(
+    'refuses a keystore name that would overwrite %s',
+    (name) => {
+      const resource = deepseekHarnessResource({
+        auth: { mode: 'api-key', credential: { source: 'keystore', name } },
+      });
+      expect(() =>
+        buildDshEnv(parentWithSameName, resource, {
+          stateDir: '/s',
+          resolveSecret: () => KEYSTORE_VALUE,
+        }),
+      ).toThrow(/collides/);
+    },
+  );
+
+  it('never puts a value in a thrown error', () => {
+    try {
+      buildDshEnv(parentWithSameName, deepseekHarnessResource(), {
+        stateDir: '/s',
+        piAiProviders: { stored: { keystore: 'DEEPSEEK_API_KEY' } },
+        resolveSecret: () => KEYSTORE_VALUE,
+      });
+      throw new Error('expected a throw');
+    } catch (e) {
+      expect(String((e as Error).message)).not.toContain(KEYSTORE_VALUE);
+      expect(String((e as Error).message)).not.toContain('sk-parent-env-value');
+    }
+  });
+
+  it('renders the variable NAME for keystore entries and never a value', () => {
+    const yaml = renderPatchOverlay({
+      piAiProviders: { anthropic: { keystore: 'ANTHROPIC_API_KEY' }, other: { apiKeyEnv: 'K2' } },
+    });
+    expect(yaml).toContain('      "anthropic":\n        apiKeyEnv: "ANTHROPIC_API_KEY"');
+    expect(yaml).toContain('      "other":\n        apiKeyEnv: "K2"');
+    expect(yaml).not.toContain('keystore');
+  });
+
+  it.each([
+    ['both keys', { apiKeyEnv: 'A_KEY', keystore: 'A_KEY' }],
+    ['neither key', {}],
+    ['a lowercase keystore name', { keystore: 'lower' }],
+    ['an over-long keystore name', { keystore: 'A'.repeat(129) }],
+    ['a non-string keystore name', { keystore: 5 }],
+  ])('overlay validation rejects %s', (_label, entry) => {
+    expect(() => renderPatchOverlay({ piAiProviders: { ok: entry as never } })).toThrow(NexarError);
+  });
+
+  it('parses keystore piAiProviders options and rejects ambiguous or malformed ones', () => {
+    const parse = (piAiProviders: unknown) =>
+      parseRuntimeOptions(
+        deepseekHarnessResource({
+          runtime: {
+            adapter: adapterId('deepseek-harness'),
+            locality: 'local',
+            options: { model: 'm', piAiProviders },
+          },
+        }),
+      );
+    expect(parse({ x: { keystore: 'X_KEY' } }).piAiProviders).toEqual({
+      x: { keystore: 'X_KEY' },
+    });
+    expect(parse({ x: { apiKeyEnv: 'X_KEY' } }).piAiProviders).toEqual({
+      x: { apiKeyEnv: 'X_KEY' },
+    });
+    for (const bad of [
+      { x: { apiKeyEnv: 'X_KEY', keystore: 'X_KEY' } },
+      { x: {} },
+      { x: { keystore: 5 } },
+      { x: { keystore: 'lower' } },
+      { x: null },
+    ]) {
+      expect(() => parse(bad)).toThrow(NexarError);
+    }
   });
 });

@@ -7,7 +7,8 @@ import type {
   PreparedLaunch,
   ResourceDescriptor,
 } from '@nexar/contracts';
-import { credentialEnvName } from '../env.js';
+import { credentialVariable, resolveOwnCredential } from '../env.js';
+import type { CredentialSources } from '../env.js';
 import { RuntimeProcess } from '../runtime-process.js';
 import type { BinarySpec } from '../runtime-process.js';
 
@@ -20,8 +21,11 @@ export interface AcpLaunchOptions {
   readonly resource: ResourceDescriptor;
   /** Host directory for this resource's DSH state; created 0700. Must not be inside the workspace. */
   readonly dshStateDir: string;
-  /** The adapter's environment; only the resource's own credential variable is read from it. */
-  readonly env: NodeJS.ProcessEnv;
+  /**
+   * Where the resource's own credential comes from: the adapter's environment (env references)
+   * or the key store resolver (keystore references). Nothing else is read.
+   */
+  readonly sources: CredentialSources;
   readonly allowHosts: readonly string[];
 }
 
@@ -50,10 +54,10 @@ export async function prepareAcpLaunch(
   await chmod(options.dshStateDir, 0o700);
 
   const env: Record<string, string> = { DSH_HOME: SANDBOX_DSH_HOME };
-  const credentialName = credentialEnvName(options.resource);
-  const credential = credentialName === undefined ? undefined : options.env[credentialName];
-  if (credentialName !== undefined && credential !== undefined && credential !== '') {
-    env[credentialName] = credential;
+  const variable = credentialVariable(options.resource);
+  const credential = resolveOwnCredential(options.resource, options.sources);
+  if (variable !== undefined && credential !== undefined && credential !== '') {
+    env[variable.name] = credential;
   }
 
   const spec: LaunchSpec = {

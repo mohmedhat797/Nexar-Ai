@@ -124,6 +124,31 @@ describe('parseConfig', () => {
     expect(parseConfig(config({ resources: [managed] }), 'test').resources).toHaveLength(1);
   });
 
+  describe('keystore credentials', () => {
+    const withCredential = (credential: unknown) => ({
+      ...apiResource,
+      auth: { mode: 'api-key', credential },
+    });
+    const parse = (credential: unknown) =>
+      parseConfig(config({ resources: [withCredential(credential)] }), 'test');
+
+    it('accepts keystore references with valid names', () => {
+      expect(parse({ source: 'keystore', name: 'DEEPSEEK_API_KEY' }).resources).toHaveLength(1);
+      expect(parse({ source: 'keystore', name: 'A'.repeat(128) }).resources).toHaveLength(1);
+    });
+
+    it.each([
+      ['lowercase', { source: 'keystore', name: 'deepseek_key' }],
+      ['empty', { source: 'keystore', name: '' }],
+      ['leading digit', { source: 'keystore', name: '1KEY' }],
+      ['over 128 characters', { source: 'keystore', name: 'A'.repeat(129) }],
+      ['extra keys', { source: 'keystore', name: 'KEY', value: 'sk-abc' }],
+      ['missing name', { source: 'keystore' }],
+    ])('rejects keystore references with %s', (_label, credential) => {
+      expect(() => parse(credential)).toThrow(NexarError);
+    });
+  });
+
   it('rejects dangling references and duplicates', () => {
     const dangling = config({ routing: { policy: 'deterministic', defaultResourceId: 'nope' } });
     expect(message(() => parseConfig(dangling, 'test'))).toContain('nope');

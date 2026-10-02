@@ -3,6 +3,8 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import {
+  CREDENTIAL_NAME_MAX_LENGTH,
+  CREDENTIAL_NAME_PATTERN,
   KNOWN_CAPABILITIES,
   NexarError,
   adapterId,
@@ -110,6 +112,10 @@ const FreeForm = z.record(z.string(), z.unknown());
 // Credentials are references only; there is deliberately no field that could hold a secret value.
 const CredentialSchema = z.discriminatedUnion('source', [
   z.strictObject({ source: z.literal('env'), name: z.string().regex(/^[A-Z][A-Z0-9_]*$/) }),
+  z.strictObject({
+    source: z.literal('keystore'),
+    name: z.string().max(CREDENTIAL_NAME_MAX_LENGTH).regex(CREDENTIAL_NAME_PATTERN),
+  }),
   z.strictObject({ source: z.literal('runtime-managed'), description: z.string().min(1) }),
 ]);
 

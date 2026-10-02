@@ -4,11 +4,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_DISCOVERY_CONFIG } from '@nexar/core';
+import { adapterId, resourceId } from '@nexar/contracts';
+import type { ResourceDescriptor, SecretResolver } from '@nexar/contracts';
 import { noopLogger } from '@nexar/telemetry';
 import {
   builtinEngineeringPlansDir,
   builtinWorkflowsDir,
   compose,
+  createAdapters,
   discoverySources,
   loadHostConfig,
   nexarStateDir,
@@ -36,6 +39,79 @@ describe('compose', () => {
     expect(composition.runtime.registry.list().map((r) => r.id)).toContain('local-echo');
     expect(composition.discovery).toBeUndefined();
     expect(composition.quotaSource).toBeDefined();
+  });
+});
+
+describe('createAdapters', () => {
+  const NAME = 'DEEPSEEK_API_KEY';
+  const VALUE = 'sk-host-secret-value';
+  const signal = new AbortController().signal;
+
+  function keystoreResource(adapter: string): ResourceDescriptor {
+    return {
+      id: resourceId(`ks-${adapter}`),
+      displayName: adapter,
+      kind: { type: 'agent', agent: adapter, interface: 'rpc' },
+      capabilities: ['text-generation'],
+      runtime: { adapter: adapterId(adapter), locality: 'local' },
+      auth: { mode: 'api-key', credential: { source: 'keystore', name: NAME } },
+      cost: { model: 'unknown' },
+      dataLocality: 'local',
+    };
+  }
+
+  /** Own enumerable fields (one level) of an adapter that hold the given function. */
+  function holds(adapter: object, fn: unknown): boolean {
+    return Object.values(adapter).some((v) => v === fn);
+  }
+
+  it('hands the resolver to the pi and deepseek-harness adapters only', () => {
+    const resolveSecret: SecretResolver = () => VALUE;
+    const adapters = createAdapters(host, cwd, { resolveSecret });
+    const holders = adapters.filter((a) => holds(a, resolveSecret)).map((a) => String(a.id));
+    expect(holders.sort()).toEqual(['deepseek-harness', 'pi']);
+    // no adapter keeps the resolver in a nested options object either
+    for (const adapter of adapters) {
+      if (holders.includes(String(adapter.id))) continue;
+      const nested = Object.values(adapter).filter(
+        (v): v is object => typeof v === 'object' && v !== null,
+      );
+      expect(nested.some((v) => holds(v, resolveSecret))).toBe(false);
+    }
+  });
+
+  it('gives no adapter a resolver by default (the CLI)', () => {
+    const resolveSecret: SecretResolver = () => VALUE;
+    expect(createAdapters(host, cwd).some((a) => holds(a, resolveSecret))).toBe(false);
+  });
+
+  it('lets the resolved key authenticate a keystore resource on dsh', async () => {
+    const asked: string[] = [];
+    const resolveSecret: SecretResolver = (name) => {
+      asked.push(name);
+      return VALUE;
+    };
+    const adapters = createAdapters(host, cwd, { resolveSecret });
+    const dsh = adapters.find((a) => String(a.id) === 'deepseek-harness');
+    expect((await dsh?.probe(keystoreResource('deepseek-harness'), signal))?.auth).toBe(
+      'authenticated',
+    );
+    expect(asked).toEqual([NAME]);
+  });
+
+  it('reports a keystore resource as unauthenticated without a resolver', async () => {
+    const dsh = createAdapters(host, cwd).find((a) => String(a.id) === 'deepseek-harness');
+    expect((await dsh?.probe(keystoreResource('deepseek-harness'), signal))?.auth).toBe(
+      'unauthenticated',
+    );
+  });
+});
+
+describe('compose with a secret resolver', () => {
+  it('accepts a resolver and still builds the runtime', async () => {
+    const loaded = await loadHostConfig(host, undefined);
+    const composition = await compose(loaded, host, noopLogger, { resolveSecret: () => undefined });
+    expect(composition.runtime.registry.list().map((r) => r.id)).toContain('local-echo');
   });
 });
 

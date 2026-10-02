@@ -22,10 +22,13 @@ A resource names _where_ its credential lives; the file must never contain the s
 
 ```json
 { "source": "env", "name": "ANTHROPIC_API_KEY" }
+{ "source": "keystore", "name": "DEEPSEEK_API_KEY" }
 { "source": "runtime-managed", "description": "Claude Code login (claude auth)" }
 ```
 
-`env` reads the named environment variable at run time. `runtime-managed` means the upstream tool
+`env` reads the named environment variable at run time. `keystore` names an entry in the Nexar
+Desktop key store (ADR-022; names match `^[A-Z][A-Z0-9_]*$`, at most 128 characters); the CLI has
+no key store, so a `keystore` reference there is `AUTH_REQUIRED`. `runtime-managed` means the upstream tool
 keeps its own login (Nexar never reads or copies it). The schema has no field that could hold a
 secret, and unknown keys are rejected.
 

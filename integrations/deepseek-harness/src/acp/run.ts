@@ -7,9 +7,11 @@ import type {
   ExecutionRequest,
   ExecutionResult,
   PreparedLaunch,
+  SecretResolver,
   UsageReport,
 } from '@nexar/contracts';
-import { credentialEnvName } from '../env.js';
+import { assertKeystoreCredentialStored, resolveOwnCredential } from '../env.js';
+import type { CredentialSources } from '../env.js';
 import { mapFailure } from '../failure.js';
 import { RunGuard } from '../guard.js';
 import type { JsonRpcNotification, JsonRpcReply, JsonRpcStdioClient } from '../json-rpc-client.js';
@@ -38,6 +40,8 @@ export interface AcpRunDeps {
   /** Adapter state directory; the per-resource DSH state lives below `acp/<resource id>`. */
   readonly stateDir: string;
   readonly env: NodeJS.ProcessEnv;
+  /** Resolves `keystore` credentials (the adapter's injected resolver). */
+  readonly resolveSecret?: SecretResolver | undefined;
   readonly approvals?: { readonly gate: ApprovalGate; readonly store?: ApprovalStore } | undefined;
   readonly initializeTimeoutMs: number;
   readonly defaultTimeoutMs: number;
@@ -69,8 +73,9 @@ export async function executeAcp(
   let sessionId: string | undefined;
   let broker: PermissionBroker | undefined;
   let promptSettled: Promise<void> | undefined;
-  const credentialName = credentialEnvName(resource);
-  const credential = credentialName === undefined ? undefined : deps.env[credentialName];
+  const sources: CredentialSources = { env: deps.env, resolveSecret: deps.resolveSecret };
+  assertKeystoreCredentialStored(resource, sources);
+  const credential = resolveOwnCredential(resource, sources);
   const secrets = credential === undefined || credential === '' ? [] : [credential];
 
   try {
@@ -81,7 +86,7 @@ export async function executeAcp(
           workspace,
           resource,
           dshStateDir: join(deps.stateDir, 'acp', String(resource.id)),
-          env: deps.env,
+          sources,
           allowHosts: acp.allowHosts,
         },
         context.signal,

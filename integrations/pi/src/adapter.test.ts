@@ -6,6 +6,7 @@ import type {
   ExecutionRequest,
   Logger,
   ResourceDescriptor,
+  SecretResolver,
 } from '@nexar/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { PiExecutionAdapter, piModelResource } from './index.js';
@@ -25,7 +26,13 @@ function silentLogger(): Logger {
   return logger;
 }
 
-function setup(options: { env?: NodeJS.ProcessEnv; allowedProviders?: readonly string[] } = {}) {
+function setup(
+  options: {
+    env?: NodeJS.ProcessEnv;
+    allowedProviders?: readonly string[];
+    resolveSecret?: SecretResolver;
+  } = {},
+) {
   const faux = fauxProvider({
     models: [
       { id: 'faux-1', reasoning: true, cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } },
@@ -38,6 +45,7 @@ function setup(options: { env?: NodeJS.ProcessEnv; allowedProviders?: readonly s
     models,
     env: options.env ?? { [KEY_ENV]: SECRET },
     allowedProviders: options.allowedProviders ?? [provider],
+    ...(options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret }),
     now: () => 1_700_000_000_000,
   });
   const resource = piModelResource({
@@ -437,5 +445,152 @@ describe('PiExecutionAdapter.probe', () => {
     expect(state).toMatchObject({ availability: 'available', auth: 'authenticated' });
     const missing = piModelResource({ id: 'nope', provider: 'anthropic', model: 'no-such-model' });
     expect((await adapter.probe(missing, signal)).availability).toBe('unavailable');
+  });
+});
+
+describe('PiExecutionAdapter keystore credentials', () => {
+  const signal = new AbortController().signal;
+  const NAME = 'DEEPSEEK_API_KEY';
+  const KEYSTORE_SECRET = 'sk-keystore-secret-value';
+
+  function keystoreResource(base: ResourceDescriptor): ResourceDescriptor {
+    return { ...base, auth: { mode: 'api-key', credential: { source: 'keystore', name: NAME } } };
+  }
+
+  function capturingLogger(lines: string[]): Logger {
+    const record = (message: string, fields?: unknown): void => {
+      lines.push(JSON.stringify({ message, fields }));
+    };
+    const logger: Logger = {
+      debug: record,
+      info: record,
+      warn: record,
+      error: record,
+      child: () => logger,
+    };
+    return logger;
+  }
+
+  it('resolves the key through the resolver by name and sends it to pi-ai', async () => {
+    const seenNames: string[] = [];
+    const { faux, adapter, resource } = setup({
+      env: {},
+      resolveSecret: (name) => {
+        seenNames.push(name);
+        return KEYSTORE_SECRET;
+      },
+    });
+    let seen: unknown;
+    faux.setResponses([
+      (_ctx, opts) => {
+        seen = opts;
+        return fauxAssistantMessage('ok');
+      },
+    ]);
+
+    const result = await adapter.execute(request(keystoreResource(resource)), context());
+
+    expect(result.text).toBe('ok');
+    expect(seen).toMatchObject({ apiKey: KEYSTORE_SECRET });
+    expect(new Set(seenNames)).toEqual(new Set([NAME]));
+  });
+
+  it('does not satisfy a keystore reference from the environment', async () => {
+    const { faux, adapter, resource } = setup({
+      env: { [NAME]: SECRET },
+      resolveSecret: () => undefined,
+    });
+    faux.setResponses([fauxAssistantMessage('never')]);
+
+    const error = await failure(adapter.execute(request(keystoreResource(resource)), context()));
+
+    expect(error.code).toBe('AUTH_REQUIRED');
+    expect(faux.state.callCount).toBe(0);
+    expect(await adapter.probe(keystoreResource(resource), signal)).toMatchObject({
+      auth: 'unauthenticated',
+    });
+  });
+
+  it.each([
+    ['no resolver', undefined],
+    ['an unknown name', () => undefined],
+    ['an empty value', () => ''],
+  ])('is AUTH_REQUIRED without leaking anything for %s', async (_label, resolveSecret) => {
+    const { faux, adapter, resource } = setup({
+      env: { [NAME]: SECRET, [KEY_ENV]: SECRET },
+      ...(resolveSecret === undefined ? {} : { resolveSecret }),
+    });
+    faux.setResponses([fauxAssistantMessage('never')]);
+
+    const error = await failure(adapter.execute(request(keystoreResource(resource)), context()));
+
+    expect(error.code).toBe('AUTH_REQUIRED');
+    expect(error.message).toBe(`Credential ${NAME} is not stored in the Nexar key store`);
+    expect(error.details).toEqual({ keystore: NAME });
+    const serialized = JSON.stringify({ message: error.message, details: error.details });
+    expect(serialized).not.toContain(SECRET);
+    expect(serialized.toLowerCase()).not.toContain('environment');
+    expect(faux.state.callCount).toBe(0);
+  });
+
+  it('keeps env references working when a resolver is present', async () => {
+    const resolveSecret = vi.fn<SecretResolver>(() => KEYSTORE_SECRET);
+    const { faux, adapter, resource } = setup({ resolveSecret });
+    let seen: unknown;
+    faux.setResponses([
+      (_ctx, opts) => {
+        seen = opts;
+        return fauxAssistantMessage('ok');
+      },
+    ]);
+
+    await adapter.execute(request(resource), context());
+
+    expect(seen).toMatchObject({ apiKey: SECRET });
+    expect(resolveSecret).not.toHaveBeenCalled();
+  });
+
+  it('probes authenticated only when the resolver holds the key', async () => {
+    const stored = setup({ env: {}, resolveSecret: () => KEYSTORE_SECRET });
+    expect(await stored.adapter.probe(keystoreResource(stored.resource), signal)).toMatchObject({
+      availability: 'available',
+      auth: 'authenticated',
+    });
+    const missing = setup({ env: {}, resolveSecret: () => undefined });
+    expect(await missing.adapter.probe(keystoreResource(missing.resource), signal)).toMatchObject({
+      availability: 'available',
+      auth: 'unauthenticated',
+    });
+    const none = setup({ env: {} });
+    expect(await none.adapter.probe(keystoreResource(none.resource), signal)).toMatchObject({
+      availability: 'available',
+      auth: 'unauthenticated',
+    });
+  });
+
+  it('never exposes the key in errors, details or logs', async () => {
+    const lines: string[] = [];
+    const { faux, adapter, resource } = setup({ env: {}, resolveSecret: () => KEYSTORE_SECRET });
+    faux.setResponses([
+      fauxAssistantMessage('', {
+        stopReason: 'error',
+        errorMessage: `boom ${KEYSTORE_SECRET}`,
+      }),
+    ]);
+
+    const error = await failure(
+      adapter.execute(
+        request(keystoreResource(resource)),
+        context({ logger: capturingLogger(lines) }),
+      ),
+    );
+
+    const serialized = JSON.stringify({
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      lines,
+    });
+    expect(serialized).not.toContain(KEYSTORE_SECRET);
   });
 });
