@@ -149,5 +149,6 @@ phase 1: **about $50.44**. Opus spend and the remaining balance are not exposed 
 | 2026-10-02 | Orchestrator session                    | Opus 5.5   | Windows CI diagnosis and fix, ADR-024, NXR-057/058, review | Not exposed                            | `9a07693` pushed; architecture on `wip/sessions-impl`                                      |
 | 2026-10-02 | sessions-1 relay attempt                | Sonnet 5.5 | `@nexar/sessions`                                          | none (the `claude` CLI not logged in)  | Relay exited before work; replaced by an in-session subagent                               |
 | 2026-10-02 | sessions-1 `@nexar/sessions` (subagent) | Sonnet 5.5 | Package, contracts additions, 67 tests                     | 175,088 tokens, 37 tool uses, 12.3 min | Accepted after review with one amendment (interrupted task state); `9206a47` on wip branch |
+| 2026-10-02 | sessions-2 Desktop sessions (subagent)  | Sonnet 5.5 | Channels, background turns, renderer, E2E                  | 256,103 tokens, 58 tool uses, 16.6 min | Accepted after review; `10a6c59`                                                           |
 
 The in-session subagent reports tokens, not cost; no dollar figure is estimated.

@@ -44,67 +44,68 @@ Local full checks and source/packaged E2E passed; Windows CI acceptance remains 
 
 ## CURRENT STATE
 
-Claude Code continuation (2026-10-02). `9a07693` (`fix(desktop): stabilize Windows ACL validation on
-CI runners`) is pushed to PR #36. Diagnosis from the earlier CI evidence (seven native ACL tests failing
-after ~15 s, including the hard-link case whose production tool call is mocked, so the slow process was
-the _test_ helper): the helpers used `Get-Acl`/`Get-Item`/`ConvertTo-Json`, whose module auto-loading
-runs PowerShell's "Preparing modules for first use" step; under the stripped environment `PSModulePath`
-even contains an unexpanded `%ProgramFiles%`. Locally that step is cheap (5 modules); GitHub images
-ship far more. Fix: .NET-only helpers with `$PSModuleAutoLoadingPreference = 'None'` and bounded,
-path-free failure summaries; the production guard also disables auto-loading, prints a readiness
-marker and maps failures to fixed categories (`PrivateStateError.diagnostic`: category, phase
-preflight/startup/execution, exit code, elapsed ms). The git-integration `createTaskWorktree` suite has
-a Windows-only 20 s allowance (about twelve sequential git processes per case); the Antigravity fixture
-cleanup retries a transient `EBUSY` with Node's bounded `rmSync` retry. ACL policy, ownership checks,
-redirect refusals and helper timeouts are unchanged.
+Claude Code continuation (2026-10-02). **Automated Windows gate is green**: CI run `37004390748` at
+`747c8bb` passed Linux, Windows (tests, native Electron E2E, installer packaging, packaged E2E) and
+the secret scan. Root causes, from the CI logs:
 
-Local Windows evidence at `9a07693`: `pnpm check` (1,802 passed / 118 skipped, build), source and
-packaged Electron E2E, `doctor`, installer build (`Nexar-0.1.0-windows-x64-setup.exe`, SHA256
-`256bc9192bacdd52202321dcad8a72c7e5adf6c6954aa4c329bf7370d3659a31`). CI at `9a07693`: Linux and the
-secret scan pass; **Windows fails and its log has not been read**: this session has no GitHub API
-access (`gh` unauthenticated, private repository). The cause may differ from the diagnosis above.
+- Native ACL test helpers used `Get-Acl`/`Get-Item`/`ConvertTo-Json`; their module auto-loading
+  ("Preparing modules for first use") exceeded the 15 s helper budget on GitHub runners. Helpers are
+  now .NET-only with `$PSModuleAutoLoadingPreference = 'None'`; the production guard also disables
+  auto-loading and reports `PrivateStateError.diagnostic` (category, phase, exit code, elapsed ms).
+- GitHub's Windows runner is elevated: a file Node creates after the guard is owned by
+  `BUILTIN\Administrators` (an elevated token's default owner). The test accepts that only under
+  elevation and re-runs the guard to prove normalization to the user.
+- Fake-runtime cleanup `EBUSY`: `rmSync` ignores `maxRetries` on current Node; harnesses now await
+  `fs.promises.rm` with the bounded retry. `createTaskWorktree` has a Windows-only 20 s allowance.
 
-Architecture and sessions are ready but intentionally **not on this branch** until Windows CI is
-green: `origin/wip/sessions-impl` holds `b4a6d9d` (ADR-024, NXR-057/058, indexes, Mobile deferred)
-and `9206a47` (`@nexar/sessions`, the `CONFLICT` error code, `TaskOrigin.sessionId/turnId`; full
-`pnpm check` passed there: 1,878 passed / 119 skipped). ADR-024 and NXR-057/058 were unused when
-written. NXR-051: implementation complete; automated acceptance pending Windows CI; owner/manual
-acceptance pending.
+NXR-051: implementation complete, automated acceptance complete, **owner/manual acceptance pending**
+([checklist](../guides/windows-validation.md)). Locally on the owner machine: `pnpm check`, source and
+packaged E2E, `doctor`, installer build all passed.
+
+Operating Layer on this branch: ADR-024 (`687ae93`), NXR-057/058 (issues #37/#38), Mobile deferred
+in the roadmap; `@nexar/sessions` (`06f873d`); Desktop persistent multi-turn sessions (`10a6c59`):
+seven validated `sessions:*` channels, background turn execution with session/turn lineage on
+tasks, restart interruption, cancel, idempotent submit, a conversation list, and an offline E2E that
+relaunches and continues the same conversation. Full gate at `10a6c59`: 1,907 passed / 119 skipped;
+both E2E scenarios pass. Turns still see only their own text (context@1 is NXR-058).
 
 ## NEXT EXACT TASK
 
-1. Read the Windows job log of the latest PR #36 run (`gh run view --log-failed`), fix the cause
-   without weakening ACL policy, `pnpm check`, commit, push, until Linux, Windows and the secret scan
-   pass on the same commit.
-2. Cherry-pick `b4a6d9d` and `9206a47` from `origin/wip/sessions-impl` onto this branch, re-run
-   `pnpm check`, push, confirm CI; then delete the `wip/sessions-impl` branch.
-3. Mirror NXR-057/058 as GitHub issues (next free numbers) and add them to the backlog issue table.
-4. NXR-057 Desktop integration: compose `FileSessionStore` in Desktop main (`<userData>/.nexar/sessions`,
-   lease at startup), bridge channels `sessions.list|create|get|submitTurn|cancel|setMode|rename`
-   (zod, narrow DTOs, no paths: artifact URIs map to project-relative names), session list + transcript
-   UI, progress bound to turns, offline restart E2E. Then NXR-058 (`@nexar/operating`).
+1. NXR-058: new `@nexar/operating` package — `intent-rules@1` (explicit kind wins, keyword rules →
+   `TaskKind` with rule ids), `lanes@1` router (affinity `coding → code`,
+   `documentation|meeting-preparation → cowork`, else the mode's lane), mismatch →
+   `pending-confirmation` with confirm/decline, honest `direct` fallback while the orchestrated
+   lanes are unavailable (engineering writes never fall back), `context@1` builder with a stored
+   manifest, correlation envelope on tasks. Then wire Desktop: lane + fallback shown per turn,
+   `sessions:confirmLane`, mode switch in the UI.
+2. Then NXR-052 providers → NXR-055 Code/WSL2 → NXR-056 Cowork/OpenWorker → NXR-053 behavior →
+   integrated Operating Layer E2E. NXR-054 and Mobile stay deferred.
 
 ## BLOCKERS
 
-- **GitHub API access** in this Claude session (`gh auth login`), needed for CI logs, issue mirrors
-  and PR updates. The app's Auto-fix monitor reports failing check names only.
+- `sessions:list` reads at most 200 sessions across all projects before filtering by project; a
+  per-project index or paging is a follow-up before heavy use.
+- A reused process id can make a stale sessions lease look live; it fails closed (`CONFLICT`,
+  sessions unavailable). Follow-up: a stronger liveness proof. A non-`CONFLICT` lease failure (for
+  example an unsafe sessions directory) stops Desktop startup, consistent with the state guard.
+- If every store write fails while a turn completes, the turn stays `running` until the next restart
+  marks it `interrupted`.
 - The `claude` CLI on this machine is not logged in, so the `claude-delegate` relay cannot run;
-  Sonnet work used an in-session Sonnet subagent instead.
-- A reused process id can make a stale sessions lease look live; it fails closed (`CONFLICT`).
-  Follow-up: a stronger liveness proof.
+  Sonnet work used in-session Sonnet subagents.
 - Windows descendants of a leader that exits before cancellation are not contained by `taskkill`;
-  complete lifecycle containment needs a Windows Job Object. Write-capable engineering still requires
-  WSL2/bubblewrap, with no native fallback.
-- Arbitrary batch launchers are refused; unsupported npm shim formats need a supported launcher.
-- Desktop's dedicated data tree has an explicit ACL startup guard; configured external state
-  directories still require a separate ACL audit. Windows artifact storage requires hard-link support.
+  complete containment needs a Windows Job Object. Write-capable engineering still requires
+  WSL2/bubblewrap, with no native fallback. Arbitrary batch launchers are refused.
+- External config state-directory overrides still need their own ACL audit. Windows artifact storage
+  requires hard-link support.
 - WSL A1–A6, provider keys, OpenWorker reverse supervision and installer execution are not validated.
 
 ## OWNER ACTION
 
-- Run `gh auth login` on this machine (or give this session another GitHub read path).
-- Installer and real-resource acceptance in [`windows-validation.md`](../guides/windows-validation.md)
-  remain pending; do not mark them complete from offline echo tests.
+- Owner acceptance in [`windows-validation.md`](../guides/windows-validation.md): install the CI
+  installer artifact (or the local build), confirm `%APPDATA%\Nexar` ACLs, run an echo and a Claude
+  Code Cowork task, relaunch persistence, cancel, uninstall/reinstall. New: confirm a conversation
+  survives a relaunch and can be continued.
+- Optional: `claude /login` so the `claude-delegate` relay works.
 
 ## LIVE TESTS PENDING
 
