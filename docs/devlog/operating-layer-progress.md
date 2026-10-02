@@ -37,7 +37,9 @@ The installer is configured without elevation and preserves data on uninstall; a
 execution and owner acceptance remain pending. The final full gate passed: format, lint, boundaries,
 typecheck, 1,800 tests passed / 118 skipped, and build. Delivery checkpoint
 `6255415748bb655f1d8577e0b41ab2d46ce35004` is pushed; local and remote SHA matched and the tree was
-clean. CI acceptance at that commit remains pending until both matrix jobs finish. Usage reached
+clean. CI run `36995606985` passed Linux and the secret scan, but Windows failed eight cases:
+seven native ACL fixture PowerShell invocations and an Antigravity fixture cleanup `EBUSY`.
+Local full checks and source/packaged E2E passed; Windows CI acceptance remains unresolved. Usage reached
 92%, so the next implementation unit waits for continuation; reset credits remain unused.
 
 ## CURRENT STATE
@@ -48,7 +50,10 @@ and Linux/WSL engineering controls remain authoritative. No paid AI calls were m
 
 ## NEXT EXACT TASK
 
-Verify the Windows delivery checkpoint in both CI jobs on draft PR #36 and perform the owner checklist in
+First diagnose the seven native ACL helper failures and Antigravity fixture cleanup on Windows CI
+run `36995606985` (job `110801499669`). Preserve ACL and lifecycle assertions; capture bounded,
+sanitized helper exit/timeout diagnostics rather than weakening state policy. Re-run both CI jobs
+on draft PR #36 and perform the owner checklist in
 [`windows-validation.md`](../guides/windows-validation.md). After that, define ADR-024 (if still free)
 for Operating Sessions and intent/lane selection; allocate the next unused backlog ids (currently
 057/058), defer Mobile, and implement sessions before provider/Code/Cowork settings integration.
