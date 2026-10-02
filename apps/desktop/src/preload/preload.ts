@@ -9,6 +9,11 @@ import {
   PROVIDER_ERROR_MESSAGE,
 } from '../shared/providers.js';
 import type { BridgeResult } from '../shared/api.js';
+import {
+  SubscriptionArgsSchema,
+  SubscriptionListSchema,
+  SubscriptionRowSchema,
+} from '../shared/subscriptions.js';
 
 /** One fixed channel per method; arguments are always an object (validated in the main process). */
 const invoke = <R>(channel: string, args: unknown): Promise<R> =>
@@ -19,8 +24,9 @@ async function invokeProvider<S extends z.ZodType>(
   channel: string,
   args: unknown,
   schema: S,
+  argsSchema: z.ZodType = ProviderArgsSchema,
 ): Promise<BridgeResult<z.output<S>>> {
-  if (channel !== CHANNELS.providersList && !ProviderArgsSchema.safeParse(args).success) {
+  if (!argsSchema.safeParse(args).success) {
     return { ok: false, error: { code: 'VALIDATION_ERROR', message: PROVIDER_ERROR_MESSAGE } };
   }
   let result: unknown;
@@ -52,16 +58,46 @@ async function invokeProvider<S extends z.ZodType>(
       }),
     ])
     .safeParse(result);
-  return parsed.success
-    ? (parsed.data as BridgeResult<z.output<S>>)
-    : { ok: false, error: { code: 'INTERNAL_ERROR', message: PROVIDER_ERROR_MESSAGE } };
+  const safe = parsed.success ? (parsed.data as BridgeResult<z.output<S>>) : undefined;
+  if (safe?.ok && argsSchema === SubscriptionArgsSchema) {
+    const requested = SubscriptionArgsSchema.parse(args);
+    const row = SubscriptionRowSchema.safeParse(safe.value);
+    if (!row.success || row.data.runtime !== requested.runtime) {
+      return { ok: false, error: { code: 'INTERNAL_ERROR', message: PROVIDER_ERROR_MESSAGE } };
+    }
+  }
+  return safe ?? { ok: false, error: { code: 'INTERNAL_ERROR', message: PROVIDER_ERROR_MESSAGE } };
 }
 
 const api: NexarApi = {
   appInfo: () => invoke(CHANNELS.appInfo, {}),
   getSettings: () => invoke(CHANNELS.settingsGet, {}),
   setSettings: (args) => invoke(CHANNELS.settingsSet, args),
-  listProviders: () => invokeProvider(CHANNELS.providersList, {}, ProviderListSchema),
+  listProviders: () =>
+    invokeProvider(CHANNELS.providersList, {}, ProviderListSchema, z.strictObject({})),
+  listSubscriptions: () =>
+    invokeProvider(CHANNELS.subscriptionsList, {}, SubscriptionListSchema, z.strictObject({})),
+  refreshSubscription: (runtime) =>
+    invokeProvider(
+      CHANNELS.subscriptionsRefresh,
+      { runtime },
+      SubscriptionRowSchema,
+      SubscriptionArgsSchema,
+    ),
+  startSubscriptionLogin: (runtime) =>
+    invokeProvider(
+      CHANNELS.subscriptionsLogin,
+      { runtime },
+      SubscriptionRowSchema,
+      SubscriptionArgsSchema,
+    ),
+  cancelSubscriptionLogin: (runtime) =>
+    invokeProvider(
+      CHANNELS.subscriptionsCancel,
+      { runtime },
+      SubscriptionRowSchema,
+      SubscriptionArgsSchema,
+    ),
   saveProviderKeyFromClipboard: (provider) =>
     invokeProvider(CHANNELS.providersSaveKeyFromClipboard, { provider }, ProviderRowSchema),
   removeProviderKey: (provider) =>

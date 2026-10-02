@@ -16,6 +16,7 @@ import {
 import { createOperating } from './operating.js';
 import { projectChannels } from './projects.js';
 import { providerChannels } from './providers.js';
+import { subscriptionChannels } from './subscriptions.js';
 import { PROVIDER_ERROR_MESSAGE } from '../shared/providers.js';
 import { resourceChannels } from './resources.js';
 import { sessionChannels } from './sessions.js';
@@ -50,6 +51,7 @@ export function createBridge(deps: BridgeDeps): Bridge {
     [CHANNELS.settingsSet]: defineChannel(SettingsPatchSchema, (patch) => deps.settings.set(patch)),
     ...projectChannels,
     ...providerChannels,
+    ...subscriptionChannels,
     ...resourceChannels,
     ...taskChannels,
     ...artifactChannels,

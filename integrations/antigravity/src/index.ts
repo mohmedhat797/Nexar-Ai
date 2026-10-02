@@ -20,3 +20,5 @@ export { ANTIGRAVITY_ADAPTER_ID, antigravityResource } from './resource.js';
 export { DEFAULT_ALLOW_HOSTS, readSettings } from './settings.js';
 export type { AgyEffort, AntigravitySettings } from './settings.js';
 export { antigravityCliDiscoverySource } from './discovery.js';
+export { createAntigravitySubscription } from './subscription.js';
+export type { AntigravitySubscriptionOptions } from './subscription.js';

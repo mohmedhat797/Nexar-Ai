@@ -3,13 +3,14 @@ import { join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { isNexarError } from '@nexar/contracts';
 import { FileSessionStore } from '@nexar/sessions';
-import { checkProviderCredential } from '@nexar/host';
+import { checkProviderCredential, createNativeSubscriptions } from '@nexar/host';
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
 import { ProviderService } from './providers.js';
+import { SubscriptionService } from './subscriptions.js';
 import { createStderrLogger } from './logger.js';
 import { ensurePrivateStateDirectory, PrivateStateError } from './private-state.js';
 import { SettingsStore } from './settings-store.js';
@@ -81,6 +82,10 @@ async function start(): Promise<void> {
     checkKey: (provider) =>
       checkProviderCredential(provider, { resolveSecret: keys.resolveSecret }),
   });
+  const subscriptions = new SubscriptionService(
+    createNativeSubscriptions({ env: engineEnv, cwd: app.getPath('home') }),
+  );
+  app.on('before-quit', () => subscriptions.dispose());
 
   // Operating Sessions (ADR-024): this process is the single writer. If another Nexar process holds
   // the lease, sessions stay unavailable (every session channel answers CONFLICT) instead of racing it.
@@ -111,6 +116,7 @@ async function start(): Promise<void> {
     config,
     settings,
     providers,
+    subscriptions,
     logger,
     // Looked up per call, so a test can replace `dialog.showOpenDialog`.
     dialog: { showOpenDialog: (options) => dialog.showOpenDialog(options) },

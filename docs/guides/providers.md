@@ -1,4 +1,17 @@
-# Desktop API keys
+# Desktop Providers
+
+Settings → Providers separates **Subscription**, **API Key** and **Local / Custom** connections.
+Claude Code and Codex offer **Sign in**, **Recheck** and cancellation while sign-in is running.
+The vendor CLI owns the browser flow. Nexar discards login output and rechecks native account status
+after the command finishes. **Connected** means a recognized vendor account; it does not verify a
+paid plan. API-key authentication shows separately and does not count as a subscription connection.
+Antigravity has no verified standalone sign-in/status command, so its Sign in control is unavailable.
+
+These rows describe the default CLI profile on Desktop's PATH and public vendor location overrides.
+Use the vendor's own terminal if browser callbacks require interactive/manual code entry, then
+choose Recheck. Nexar's browser launcher has null stdio and cannot accept terminal prompts. Real
+browser sign-in remains owner acceptance; details and version evidence are in the
+[authentication research](../research/upstream/native-subscription-auth.md).
 
 Settings → Providers supports encrypted API-key storage for Anthropic, OpenAI, Google / Gemini,
 DeepSeek, OpenRouter, Groq, Mistral and xAI. Copy a key, then choose **Save from clipboard** for that
@@ -11,7 +24,7 @@ model access. Choose **Check key** to request the provider's documented metadata
 means HTTP 401. Restrictions, billing/quota errors, malformed responses and timeouts show
 **Check unavailable**. Checks generate no model output and do not establish credits or generation
 permissions. Saving/removing a key and restarting Desktop reset the network result to **Not checked**.
-Vendor sign-in remains separate work (NXR-052d). Endpoint and security details are in the
+Endpoint and security details are in the
 [metadata-check research](../research/upstream/provider-key-checks.md).
 
 Saving enables that provider in `discovery.sources.piCatalog.providers` and selects
@@ -37,7 +50,8 @@ the config. File writes serialize within the Desktop process; independent Deskto
 the same credential file are outside this guarantee.
 
 Subscriptions remain owned by their native vendor runtimes. Nexar does not extract their tokens for
-pi-ai or DeepSeek Harness. Owner-defined local endpoints keep their existing discovery configuration.
+pi-ai, DeepSeek Harness or OpenWorker provider APIs. Local / Custom currently explains existing
+owner-defined endpoint configuration; address-entry setup UI remains pending.
 
 Tests cover fake encryption, call-time resolution, strict IPC metadata, malformed input, linked and
 corrupt state, unavailable backends, concurrent writes, clipboard changes, config rollback and session

@@ -1,25 +1,28 @@
 # Operating Layer continuation
 
 Branch: `feat/nexar-operating-layer` · Baseline: `9eaf725` (Desktop foundation, PR #35 merged).
-Date: 2026-10-02.
+Date: 2026-10-03.
 
 The supplied folder was a source archive without `.git`. Its tracked contents matched GitHub main
 exactly. Git history was recovered without changing source files; the feature branch was pushed.
 
 ## LAST COMPLETED
 
-Current delivery: NXR-052b `d0705d3` and NXR-052c `1c27904` are committed and pushed.
-Local HEAD, origin and draft PR #36 matched `1c27904b0e88348a0bb6a0b2bb9f7f47d181ebeb`.
-CI `37026524275` exposed an ineffective targeted global Gitleaks exception when extending
-default rules in pinned 8.28.0. Follow-up uses a rule-level AND exception for only the exact
-test path and idempotency sentinel, retaining default detection and full history scanning.
-Latest Windows local full gate passed 2,333 tests / 121 skips; Provider Electron E2E passed.
-CI `37027117681` confirms the rule-level secret-scan correction. CI `37026524275` passed Linux
-but Windows still timed out in the new keystore ACL test. Its helper is corrected to use .NET
-ACL reads and output with module auto-loading disabled, matching the existing private-state
-fixture. No ACL assertions are removed. Recheck subsequent Windows CI before new feature work.
-Verify the subsequent CI checkpoint before implementing NXR-052d. The following foundation
-delivery notes are historical.
+NXR-052d implementation checkpoint: native Claude Code/Codex browser sign-in and safe account-status
+ports, shell-free bounded process runner, runtime-only main/preload IPC, independent Subscription UI,
+cancel/recheck/poll lifecycle, and explicit unsupported Antigravity authentication. No vendor
+credential-store reads or login-output capture. Version/command research and browser/manual-terminal
+limitations are recorded in `docs/research/upstream/native-subscription-auth.md`.
+
+Continuation baseline verified on 2026-10-03: local HEAD, origin and draft PR #36 all matched
+`4f63caaa50fda0c6ae877c8d8ae51f74d94f7637`. CI `37027946905` passed Windows, Ubuntu and secret scan;
+NXR-052b/c and their CI repairs are complete. NXR-052d full Windows gate passed: pinned pnpm 10.33.0,
+format, lint, boundaries (693 tracked files), types, 2,484 tests passed / 122 skipped and build.
+Focused native/process/main/preload tests passed 151 / 1 platform skip; the real Electron Provider
+E2E passed 1/1 (41.25 seconds) with fake native ports and preserved conversation/API-key checks.
+An independent integrated review found no remaining actionable issues after lifecycle and schema
+fixes. Remote CI must be checked on the pushed checkpoint. No reset credits were used.
+The following foundation delivery notes are historical.
 
 Windows foundation implementation: shell-free executable/Node npm-shim launches (`@nexar/process`),
 Windows Codex environment allowlist, native abort/timeout tree cleanup, atomic approval-store
@@ -56,6 +59,15 @@ Local full checks and source/packaged E2E passed; Windows CI acceptance remains 
 92%, so the next implementation unit waits for continuation; reset credits remain unused.
 
 ## CURRENT STATE
+
+**2026-10-03:** NXR-052d is implemented with offline native port/process tests and Provider Electron
+E2E. Connected requires recognized vendor-account auth; API-key/injected-token modes cannot become
+subscription-connected. Login success is re-probed. No real sign-in, paid generation or private
+vendor state inspection was performed. Installed Claude public version metadata is 2.1.287.0;
+installed Codex/Antigravity semantic versions remain unverified because command review rejected
+CLI execution. Default native CLI profiles are separate from custom resource binary/home settings.
+NXR-052 remains open for Local / Custom address-entry setup UI and owner/live acceptance; acceptance
+criteria now distinguish automated resolver/security evidence from real provider execution.
 
 Claude Code handoff baseline (2026-10-02). PR #36 ("Nexar Desktop — Windows foundation and Operating
 Layer integration", draft) was at `4c05cf28172224ac1468383a1c9ff0a0b46903c2`.
@@ -129,18 +141,19 @@ handoff CI `37012870983`. NXR-052a is merged (`979db5a`: keystore `CredentialRef
 DSH, ADR-022 amendment: keystore names = credential variable, clipboard-only key entry in main,
 header-only non-generating key checks).
 
-1. Verify CI for the NXR-052c checkpoint once pushed. NXR-052b is `d0705d3`; its CI run `37024629110`
-   failed on a test-only secret sentinel and a Windows ACL probe startup timeout. The follow-up
-   keeps all default secret rules with one exact sentinel exception and extends only test deadlines.
-   Do not revisit resolved Windows failures or
-   copy the interrupted `D:/nexar-operating-wt` / `wip/operating` scratch work.
-2. NXR-052d subscription sign-in commands (verify per pinned runtime); research native CLI versions
-   and documented login/status commands before implementing. NXR-052c implements explicit metadata
-   checks for eight API providers, header-only keys, manual redirects, bounded deadlines and body,
-   normalized statuses and strict IPC; results are ephemeral and mean endpoint access only.
-3. Then NXR-055 Code lane, NXR-056 Cowork lane, NXR-053 behavior, integrated E2E.
+1. Verify the latest NXR-052d checkpoint CI before further feature work. Do not revisit resolved
+   NXR-052b/c CI failures or copy interrupted scratch work.
+2. Finish the remaining NXR-052 Local / Custom endpoint setup UI through the existing owner-listed
+   discovery/config path, with strict endpoint-only IPC and no scanning or renderer credential input.
+   Review all NXR-052 acceptance criteria; keep real browser/provider acceptance explicitly pending.
+3. Once NXR-052 implementation is complete and CI green: NXR-055 Code lane, NXR-056 Cowork lane,
+   NXR-053 behavior, integrated E2E. NXR-054/Mobile stay deferred.
 
 ## BLOCKERS
+
+- Native browser callback sign-in remains live-unverified. Null stdio supports browser callbacks,
+  not interactive/manual codes; use the vendor terminal and Recheck for those flows. Antigravity has
+  no verified standalone login/status command, so its login action remains unavailable.
 
 - A pending confirmation's run options (preferred resources, cost ceiling) live in memory; after a
   restart the owner can only decline it (`CONFLICT confirmation-expired`) and resend.
@@ -159,6 +172,10 @@ header-only non-generating key checks).
 
 ## OWNER ACTION
 
+- Optional live acceptance: Claude Code/Codex browser sign-in, cancel/deadline and Recheck with the
+  installed CLI versions. Native auth is never copied to API providers. Manual terminal flows stay
+  vendor-owned. Real provider-key metadata and DeepSeek execution remain optional live checks.
+
 - Owner acceptance in [`windows-validation.md`](../guides/windows-validation.md), plus: a
   conversation survives a relaunch and continues; a Cowork "verify the repository" request asks for
   confirmation and shows the direct fallback; "Implement …" is refused while the Code lane is absent.
@@ -166,5 +183,6 @@ header-only non-generating key checks).
 
 ## LIVE TESTS PENDING
 
-Installed Windows Desktop Cowork task with Claude Code; WSL A1–A6 and one engineering E2E; synthetic
+Claude Code/Codex browser sign-in; installed Codex/Antigravity semantic versions; real provider key
+checks/DeepSeek execution; installed Windows Desktop Cowork task with Claude Code; WSL A1–A6 and one engineering E2E; synthetic
 OpenWorker Cowork E2E. Subscription tests remain opt-in. NXR-054 scheduled work and Mobile stay deferred.

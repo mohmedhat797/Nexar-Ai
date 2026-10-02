@@ -4,10 +4,12 @@
 
 ## Summary
 
-NXR-052a/b/c implemented on the Operating Layer continuation: headless reference/resolver contract,
+NXR-052a/b/c/d implemented on the Operating Layer continuation: headless reference/resolver contract,
 strict discovery source selection, encrypted Desktop storage, clipboard-only IPC and Providers UI.
-Explicit non-generating metadata checks use strict provider-only IPC. Vendor sign-in (052d)
-and local endpoint setup UI remain. See the
+Explicit non-generating metadata checks use strict provider-only IPC. Claude Code/Codex browser
+sign-in and runtime-only status IPC have offline coverage; live browser acceptance is unverified.
+Antigravity sign-in is disabled because no standalone command is verified. Local endpoint setup UI
+remains, so NXR-052 is **not closed**. See the
 [Providers guide](../guides/providers.md) and [progress log](../devlog/operating-layer-progress.md).
 
 Implement ADR-022: the Providers settings tab with subscription sign-in, API keys in an encrypted key store and local servers.
@@ -34,14 +36,26 @@ An owner can connect Anthropic, OpenAI, Google, DeepSeek, OpenRouter, Groq, Mist
 
 ## Technical notes
 
-- Renderer sees only provider, status and the last four characters.
-- Login commands run in the vendor's own window with an explicit environment.
+- API rows expose provider, storage/check status and a four-character suffix. Native rows expose
+  only runtime, account mode, normalized status, safe version and lifecycle metadata.
+- Fixed vendor browser-login commands use explicit public environments and null stdio. Interactive
+  terminal/code-entry flows require the owner terminal; see the authentication research snapshot.
 
 ## Acceptance criteria
 
-- [ ] Keys never appear in config, logs, telemetry, audit, IPC responses or errors.
-- [ ] A saved DeepSeek key lets DSH run; removing it makes DSH `AUTH_REQUIRED`.
-- [ ] Linux without a keyring refuses to store keys.
+- [x] Keys never appear in config, logs, telemetry, audit, IPC responses or errors (offline leak tests).
+- [x] A saved DeepSeek key lets DSH run; removing it makes DSH `AUTH_REQUIRED` (injected/fake runtime
+      tests and call-time resolver tests; live DeepSeek execution remains unverified).
+- [x] Linux without a keyring refuses to store keys (fake backend and Electron refusal coverage).
+
+## Remaining delivery and owner acceptance
+
+- Local / Custom address-entry and owner-listed endpoint setup UI remains unimplemented; the
+  existing config/discovery path still works. Complete this unit before closing NXR-052.
+- Native browser sign-in: implemented/offline-tested; real Claude/Codex callback flow unverified.
+  Google remains explicitly unsupported pending a documented standalone flow.
+- Installed Codex/Antigravity semantic versions and real provider metadata/generation acceptance
+  remain unverified. No paid generation or live subscription login was used in CI.
 
 ## Testing expectations
 

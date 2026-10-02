@@ -11,3 +11,5 @@ export type { ParsedClaudeResult, ParsedRateLimit } from './parse.js';
 export { CLAUDE_CODE_ADAPTER_ID, claudeCodeResource } from './resource.js';
 export type { ClaudeCodeSandboxSettings, ClaudeCodeSettings, PermissionMode } from './settings.js';
 export { claudeCodeCliDiscoverySource } from './discovery.js';
+export { createClaudeSubscription } from './subscription.js';
+export type { ClaudeSubscriptionOptions } from './subscription.js';

@@ -167,12 +167,34 @@ import { ipcMain } from 'electron';
 import { appendFileSync } from 'node:fs';
 const handlers = new Map();
 const checked = new Set();
+const subscriptions = new Map([
+  ['claude-code', { runtime: 'claude-code', method: 'subscription', status: 'not-connected', authMode: 'none', version: '2.1.91', loginSupported: true, loginState: 'idle', usableBy: 'claude-code' }],
+  ['codex', { runtime: 'codex', method: 'subscription', status: 'not-connected', authMode: 'api-key', version: '0.159.3', loginSupported: true, loginState: 'idle', usableBy: 'codex' }],
+  ['antigravity', { runtime: 'antigravity', method: 'subscription', status: 'unknown', authMode: 'unknown', version: '1.2.14', loginSupported: false, loginState: 'idle', usableBy: 'antigravity' }],
+]);
+globalThis.nexarTestSubscriptionPolls = 0;
+globalThis.nexarTestSubscriptionFinish = false;
 globalThis.nexarTestHandlers = handlers;
 const register = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) => {
   const recording = async (event, ...args) => {
     let value;
-    if (channel === 'providers:checkKey') {
+    if (channel === ${JSON.stringify(CHANNELS.subscriptionsList)}) {
+      value = { ok: true, value: [...subscriptions.values()] };
+    } else if ([${JSON.stringify(CHANNELS.subscriptionsRefresh)}, ${JSON.stringify(CHANNELS.subscriptionsLogin)}, ${JSON.stringify(CHANNELS.subscriptionsCancel)}].includes(channel)) {
+      // Fixed safe UI states only: never run a vendor login or inspect the owner's account.
+      const row = subscriptions.get(args[0]?.runtime);
+      if (!row) throw new Error('Unknown fixture runtime');
+      let updated = row;
+      if (channel === ${JSON.stringify(CHANNELS.subscriptionsLogin)}) updated = { ...row, loginState: 'running' };
+      if (channel === ${JSON.stringify(CHANNELS.subscriptionsCancel)}) updated = { ...row, loginState: 'cancelled' };
+      if (channel === ${JSON.stringify(CHANNELS.subscriptionsRefresh)}) {
+        globalThis.nexarTestSubscriptionPolls++;
+        if (row.loginState === 'running' && globalThis.nexarTestSubscriptionFinish) updated = { ...row, status: 'connected', authMode: 'vendor-account', loginState: 'succeeded' };
+      }
+      subscriptions.set(row.runtime, updated);
+      value = { ok: true, value: updated };
+    } else if (channel === 'providers:checkKey') {
       // UI binding only: the real provider service has separate fake-HTTP tests.
       const provider = args[0]?.provider;
       const listed = await handlers.get(${JSON.stringify(CHANNELS.providersList)})(event, {});
@@ -217,6 +239,133 @@ describe('Desktop Providers', () => {
     await expect.poll(() => page.getByTestId('result-text').count(), POLL).toBe(1);
     const originalConversation = await page.getByTestId('conversation-item').first().innerText();
     await providers(page);
+    if (!EXECUTABLE) {
+      const native = page.getByTestId('subscription-claude-code');
+      const google = page.getByTestId('subscription-antigravity');
+      await expect.poll(() => native.count(), POLL).toBe(1);
+      expect(await page.getByTestId('subscription-codex').innerText()).toContain(
+        'Native authentication: API key',
+      );
+      expect(
+        await google.getByRole('button', { name: 'Sign in to Antigravity / Google' }).isDisabled(),
+      ).toBe(true);
+      expect(await google.innerText()).toContain(
+        'native Google CLI sign-in flow is not implemented',
+      );
+      expect(
+        await page.getByRole('region', { name: 'Subscriptions', exact: true }).innerText(),
+      ).toContain('not a paid plan, credits or remaining quota');
+      expect(
+        await page.getByRole('region', { name: 'Subscriptions', exact: true }).innerText(),
+      ).toContain('cannot power pi-ai, DeepSeek Harness or OpenWorker');
+      expect(
+        await page.getByRole('region', { name: 'Local and custom servers' }).innerText(),
+      ).toContain('existing Nexar configuration');
+      await native.getByRole('button', { name: 'Sign in to Claude Code' }).click();
+      await expect.poll(() => native.innerText(), POLL).toContain('Login: Running');
+      expect(
+        await native.getByRole('button', { name: 'Sign in to Claude Code' }).isDisabled(),
+      ).toBe(true);
+      expect(
+        await native.getByRole('button', { name: 'Cancel Claude Code sign-in' }).isEnabled(),
+      ).toBe(true);
+      expect(await page.getByRole('button', { name: 'Refresh providers' }).isEnabled()).toBe(true);
+      await expect
+        .poll(
+          () =>
+            app.evaluate(
+              () =>
+                (globalThis as unknown as { nexarTestSubscriptionPolls: number })
+                  .nexarTestSubscriptionPolls,
+            ),
+          POLL,
+        )
+        .toBeGreaterThan(0);
+      await page.getByTestId('nav-chat').click();
+      const stoppedAt = await app.evaluate(
+        () =>
+          (globalThis as unknown as { nexarTestSubscriptionPolls: number })
+            .nexarTestSubscriptionPolls,
+      );
+      // A running job must not leave a poll timer behind when its view unmounts.
+      await page.waitForTimeout(1500);
+      expect(
+        await app.evaluate(
+          () =>
+            (globalThis as unknown as { nexarTestSubscriptionPolls: number })
+              .nexarTestSubscriptionPolls,
+        ),
+      ).toBe(stoppedAt);
+      await providers(page);
+      await page
+        .getByTestId('subscription-claude-code')
+        .getByRole('button', { name: 'Cancel Claude Code sign-in' })
+        .click();
+      await expect
+        .poll(() => page.getByTestId('subscription-claude-code').innerText(), POLL)
+        .toContain('Login: Cancelled');
+      await page
+        .getByTestId('subscription-claude-code')
+        .getByRole('button', { name: 'Recheck Claude Code authentication' })
+        .click();
+      await expect
+        .poll(
+          () =>
+            page
+              .getByTestId('subscription-claude-code')
+              .getByRole('button', { name: 'Sign in to Claude Code' })
+              .isEnabled(),
+          POLL,
+        )
+        .toBe(true);
+      await page
+        .getByTestId('subscription-claude-code')
+        .getByRole('button', { name: 'Sign in to Claude Code' })
+        .click();
+      await expect
+        .poll(() => page.getByTestId('subscription-claude-code').innerText(), POLL)
+        .toContain('Login: Running');
+      await app.evaluate(() => {
+        (
+          globalThis as unknown as { nexarTestSubscriptionFinish: boolean }
+        ).nexarTestSubscriptionFinish = true;
+      });
+      await expect
+        .poll(() => page.getByTestId('subscription-claude-code').innerText(), POLL)
+        .toContain('Login: Finished');
+      expect(await page.getByTestId('subscription-claude-code').innerText()).toContain(
+        'Native authentication: Vendor account',
+      );
+      expect(await page.getByTestId('subscription-claude-code').innerText()).toContain('Connected');
+      const frames = (await readFile(trace, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { channel: string; args: unknown[]; value: unknown });
+      const subscriptionChannels: readonly string[] = [
+        CHANNELS.subscriptionsList,
+        CHANNELS.subscriptionsRefresh,
+        CHANNELS.subscriptionsLogin,
+        CHANNELS.subscriptionsCancel,
+      ];
+      const nativeFrames = frames.filter((frame) => subscriptionChannels.includes(frame.channel));
+      expect(nativeFrames.length).toBeGreaterThan(0);
+      for (const frame of nativeFrames) {
+        expect(Object.values(CHANNELS)).toContain(frame.channel);
+        expect(JSON.stringify(frame)).not.toContain(SENTINEL);
+        expect(frame.args).toEqual(
+          frame.channel === CHANNELS.subscriptionsList ? [{}] : [{ runtime: 'claude-code' }],
+        );
+      }
+      expect(nativeFrames.some((frame) => frame.channel === CHANNELS.subscriptionsLogin)).toBe(
+        true,
+      );
+      expect(nativeFrames.some((frame) => frame.channel === CHANNELS.subscriptionsRefresh)).toBe(
+        true,
+      );
+      expect(nativeFrames.some((frame) => frame.channel === CHANNELS.subscriptionsCancel)).toBe(
+        true,
+      );
+    }
     expect(await page.locator('input[type="password"], input[type="text"]').count()).toBe(0);
     expect(await page.getByTestId('providers-list').innerText()).toContain('Network: Not checked');
     const backend = await app.evaluate(({ safeStorage }) => ({

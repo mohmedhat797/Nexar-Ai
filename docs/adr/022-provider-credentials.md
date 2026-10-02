@@ -114,3 +114,19 @@ discovered never means authenticated.
 - **Key checks** live in the pi integration (the only code that knows provider endpoints) and use only
   documented, non-generating model-listing or key-information endpoints, with the key in a header,
   never in a URL. A provider without such an endpoint reports `unchecked`.
+
+## Amendment (2026-10-03, NXR-052d)
+
+- Native subscription ports live in each integration and are composed only by `@nexar/host`.
+  Desktop IPC accepts one runtime enum; explicit shared schemas and preload validation return only
+  account mode, normalized status, bounded version and login lifecycle metadata. Connected requires
+  recognized vendor-account authentication; command success alone is insufficient.
+- Claude Code and Codex use fixed documented browser-login commands, null stdio, public environment,
+  explicit executable resolution, a five-minute deadline and cancellation. Status probes have
+  ten-second deadlines and a 16 KiB cap. No login output, auth URL, code or credential is captured.
+  The launcher supports vendor-owned browser callbacks; interactive/manual terminal flows must be
+  completed in the vendor terminal followed by Recheck. Live browser acceptance remains pending.
+- Antigravity's interactive flow has no verified standalone sign-in/status command. Its account
+  status remains unknown and its login action is disabled; model metadata is not authentication.
+  Default native CLI profiles remain separate from explicitly configured resources with other homes.
+  See the [versioned research snapshot](../research/upstream/native-subscription-auth.md).

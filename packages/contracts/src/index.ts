@@ -10,6 +10,7 @@ export * from './logging.js';
 export * from './measured.js';
 export * from './provider.js';
 export * from './resource.js';
+export * from './subscription.js';
 export * from './routing.js';
 export * from './task.js';
 export * from './telemetry.js';

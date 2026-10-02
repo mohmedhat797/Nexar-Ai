@@ -28,6 +28,63 @@ beforeEach(() => {
   electron.invoke.mockReset();
 });
 
+describe('subscription preload boundary', () => {
+  const subscription = {
+    runtime: 'codex',
+    method: 'subscription',
+    status: 'connected',
+    authMode: 'vendor-account',
+    loginSupported: true,
+    loginState: 'idle',
+    usableBy: 'codex',
+    version: '1.2.3',
+  };
+  it('sends fixed runtime-only channels and validates normalized rows', async () => {
+    electron.invoke.mockResolvedValue({ ok: true, value: [subscription] });
+    expect(await api.listSubscriptions()).toEqual({ ok: true, value: [subscription] });
+    expect(electron.invoke).toHaveBeenLastCalledWith(CHANNELS.subscriptionsList, {});
+    electron.invoke.mockResolvedValue({ ok: true, value: subscription });
+    for (const [method, channel] of [
+      [(runtime: 'codex') => api.refreshSubscription(runtime), CHANNELS.subscriptionsRefresh],
+      [(runtime: 'codex') => api.startSubscriptionLogin(runtime), CHANNELS.subscriptionsLogin],
+      [(runtime: 'codex') => api.cancelSubscriptionLogin(runtime), CHANNELS.subscriptionsCancel],
+    ] as const) {
+      expect(await method('codex')).toEqual({ ok: true, value: subscription });
+      expect(electron.invoke).toHaveBeenLastCalledWith(channel, { runtime: 'codex' });
+    }
+  });
+  it('blocks malformed runtime inputs before IPC', async () => {
+    for (const value of [SECRET, null, {}, ['codex']]) {
+      for (const method of [
+        (runtime: never) => api.refreshSubscription(runtime),
+        (runtime: never) => api.startSubscriptionLogin(runtime),
+        (runtime: never) => api.cancelSubscriptionLogin(runtime),
+      ]) {
+        expect(await method(value as never)).toMatchObject({ ok: false });
+      }
+    }
+    expect(electron.invoke).not.toHaveBeenCalled();
+  });
+  it('contains raw outputs, paths, account identities and malformed main errors', async () => {
+    for (const value of [
+      { ...subscription, stdout: SECRET },
+      { ...subscription, email: SECRET },
+      { ...subscription, binary: SECRET },
+      { ...subscription, version: SECRET },
+      { ...subscription, usableBy: 'pi' },
+      { ...subscription, authMode: 'api-key' },
+      { ...subscription, runtime: 'claude-code', usableBy: 'claude-code' },
+    ]) {
+      electron.invoke.mockResolvedValue({ ok: true, value });
+      const result = await api.refreshSubscription('codex');
+      expect(result.ok).toBe(false);
+      expect(JSON.stringify(result)).not.toContain(SECRET);
+    }
+    electron.invoke.mockRejectedValue(new Error(SECRET));
+    expect(JSON.stringify(await api.startSubscriptionLogin('codex'))).not.toContain(SECRET);
+  });
+});
+
 describe('provider preload boundary', () => {
   it('sends only fixed channels and provider ids and validates safe metadata', async () => {
     electron.invoke.mockResolvedValue({ ok: true, value: [row] });

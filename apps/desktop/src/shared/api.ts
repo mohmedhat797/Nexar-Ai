@@ -1,6 +1,9 @@
 import type { QuotaAssessment, RouteDecision } from '@nexar/contracts';
 import type { ApiProviderId, ProviderRow } from './providers.js';
 export type { ApiProviderId, ProviderRow } from './providers.js';
+import type { SubscriptionRuntimeId } from '@nexar/contracts';
+import type { SubscriptionRow } from './subscriptions.js';
+export type { SubscriptionRow } from './subscriptions.js';
 
 /** What every bridge call resolves to; errors carry a stable code and a safe message only. */
 export type BridgeResult<T> =
@@ -264,6 +267,10 @@ export interface NexarApi {
   getSettings(): Promise<BridgeResult<DesktopSettings>>;
   setSettings(patch: Partial<DesktopSettings>): Promise<BridgeResult<DesktopSettings>>;
   listProviders(): Promise<BridgeResult<readonly ProviderRow[]>>;
+  listSubscriptions(): Promise<BridgeResult<readonly SubscriptionRow[]>>;
+  refreshSubscription(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
+  startSubscriptionLogin(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
+  cancelSubscriptionLogin(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
   saveProviderKeyFromClipboard(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   removeProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   checkProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
