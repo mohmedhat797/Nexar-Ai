@@ -1,4 +1,6 @@
 import type { QuotaAssessment, RouteDecision } from '@nexar/contracts';
+import type { ApiProviderId, ProviderRow } from './providers.js';
+export type { ApiProviderId, ProviderRow } from './providers.js';
 
 /** What every bridge call resolves to; errors carry a stable code and a safe message only. */
 export type BridgeResult<T> =
@@ -261,6 +263,9 @@ export interface NexarApi {
   appInfo(): Promise<BridgeResult<AppInfo>>;
   getSettings(): Promise<BridgeResult<DesktopSettings>>;
   setSettings(patch: Partial<DesktopSettings>): Promise<BridgeResult<DesktopSettings>>;
+  listProviders(): Promise<BridgeResult<readonly ProviderRow[]>>;
+  saveProviderKeyFromClipboard(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
+  removeProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   listProjects(): Promise<BridgeResult<readonly ProjectDto[]>>;
   /** Opens the native folder dialog in the main process; null when cancelled. */
   addProject(): Promise<BridgeResult<ProjectDto | null>>;

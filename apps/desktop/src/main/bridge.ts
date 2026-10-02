@@ -15,6 +15,8 @@ import {
 } from './channel.js';
 import { createOperating } from './operating.js';
 import { projectChannels } from './projects.js';
+import { providerChannels } from './providers.js';
+import { PROVIDER_ERROR_MESSAGE } from '../shared/providers.js';
 import { resourceChannels } from './resources.js';
 import { sessionChannels } from './sessions.js';
 import { SettingsPatchSchema } from './settings-store.js';
@@ -47,6 +49,7 @@ export function createBridge(deps: BridgeDeps): Bridge {
     [CHANNELS.settingsGet]: defineChannel(NoArgs, () => deps.settings.get()),
     [CHANNELS.settingsSet]: defineChannel(SettingsPatchSchema, (patch) => deps.settings.set(patch)),
     ...projectChannels,
+    ...providerChannels,
     ...resourceChannels,
     ...taskChannels,
     ...artifactChannels,
@@ -70,7 +73,12 @@ export function createBridge(deps: BridgeDeps): Bridge {
     if (!parsed.success) {
       return {
         ok: false,
-        error: { code: 'VALIDATION_ERROR', message: validationMessage(parsed.error) },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: channel.startsWith('providers:')
+            ? PROVIDER_ERROR_MESSAGE
+            : validationMessage(parsed.error),
+        },
       };
     }
     try {
@@ -84,12 +92,21 @@ export function createBridge(deps: BridgeDeps): Bridge {
     } catch (error) {
       if (isNexarError(error)) {
         deps.logger.info('bridge call failed', { channel, code: error.code });
-        return { ok: false, error: safeError(error) };
+        return {
+          ok: false,
+          error: channel.startsWith('providers:')
+            ? { code: error.code, message: PROVIDER_ERROR_MESSAGE }
+            : safeError(error),
+        };
       }
       // Anything else may carry paths or internals: log the class only, answer generically.
       deps.logger.error('bridge call crashed', {
         channel,
-        errorName: error instanceof Error ? error.name : 'unknown',
+        errorName: channel.startsWith('providers:')
+          ? 'ProviderError'
+          : error instanceof Error
+            ? error.name
+            : 'unknown',
       });
       return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Internal error' } };
     }

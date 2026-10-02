@@ -75,6 +75,33 @@ describe('piCatalogDiscoverySource', () => {
     expect((await source.discover(ctx())).map((d) => d.id)).toEqual(['pi.openai.a', 'pi.openai.b']);
   });
 
+  it('builds keystore references for every selected provider without resolving credentials', async () => {
+    const found = await piCatalogDiscoverySource({
+      providers: ['openai', 'deepseek', 'anthropic'],
+      credentialSource: 'keystore',
+      listModels: () => Promise.resolve([model('candidate')]),
+    }).discover(ctx());
+    expect(found.map((resource) => resource.auth)).toEqual([
+      { mode: 'api-key', credential: { source: 'keystore', name: 'ANTHROPIC_API_KEY' } },
+      { mode: 'api-key', credential: { source: 'keystore', name: 'DEEPSEEK_API_KEY' } },
+      { mode: 'api-key', credential: { source: 'keystore', name: 'OPENAI_API_KEY' } },
+    ]);
+    for (const resource of found) {
+      expect(resource).not.toHaveProperty('state');
+      expect(resource).not.toHaveProperty('authenticated');
+    }
+  });
+
+  it('preserves the exact env descriptor when env is explicitly selected', async () => {
+    const options = { providers: ['openai'], listModels: () => Promise.resolve([model('a')]) };
+    const implicit = await piCatalogDiscoverySource(options).discover(ctx());
+    const explicit = await piCatalogDiscoverySource({
+      ...options,
+      credentialSource: 'env',
+    }).discover(ctx());
+    expect(explicit).toEqual(implicit);
+  });
+
   it('reads the pinned static catalog offline', async () => {
     const found = await piCatalogDiscoverySource({
       providers: ['anthropic'],

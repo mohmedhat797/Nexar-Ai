@@ -1,6 +1,6 @@
 import { dirname, join } from 'node:path';
 import { ApprovalGate, FileApprovalStore, type ApprovalStore } from '@nexar/approvals';
-import type { Logger, ResourceSnapshot } from '@nexar/contracts';
+import type { Logger, ResourceSnapshot, SecretResolver } from '@nexar/contracts';
 import {
   compose,
   composeWorkflows,
@@ -32,6 +32,7 @@ export interface EngineHostOptions {
   readonly configPath: string;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly logger: Logger;
+  readonly resolveSecret?: SecretResolver;
 }
 
 interface Built {
@@ -53,6 +54,7 @@ export async function createEngineHost(options: EngineHostOptions): Promise<Engi
     const composition = await compose(loaded, io, options.logger, {
       workingDirectoryPolicy: 'project-only',
       approvals: { gate, store },
+      ...(options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret }),
     });
     const workflows = await composeWorkflows(composition.runtime, io);
     return { composition, workflows, approvals: store, refreshed: false };

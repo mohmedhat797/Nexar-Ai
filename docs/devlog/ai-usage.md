@@ -154,3 +154,9 @@ phase 1: **about $50.44**. Opus spend and the remaining balance are not exposed 
 | 2026-10-02 | operating-2 Desktop wiring (subagent)     | Sonnet 5.5 | OperatingService in Desktop, confirm card, E2E             | 221,086 tokens, 46 tool uses, 12.8 min | Accepted after review with one amendment (artifact description scoping); `59afa19`                      |
 
 The in-session subagent reports tokens, not cost; no dollar figure is estimated.
+
+Codex continuation (2026-10-02): NXR-052b used bounded discovery/storage/UI subtasks and an
+independent config/secret-boundary review. The primary session owns integration, validation and
+commits. Codex account status after the natural reset reported 49% of the five-hour window used and
+72% of the weekly window used; two reset credits remain unused. Dollar cost and per-agent token
+usage are unavailable and are not estimated. No paid provider generation was used for these checks.

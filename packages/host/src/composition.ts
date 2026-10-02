@@ -78,10 +78,11 @@ export function discoverySources(
     claudeCodeCliDiscoverySource({ env }),
     codexCliDiscoverySource({ env }),
     antigravityCliDiscoverySource({ env }),
-    deepseekHarnessCliDiscoverySource({ env }),
+    deepseekHarnessCliDiscoverySource({ env, credentialSource: config.credentialSource }),
   ];
   const piCatalog = piCatalogDiscoverySource({
     providers: config.piCatalog.providers,
+    credentialSource: config.credentialSource,
     maxModels: config.piCatalog.maxModels,
   });
   const local = localEndpointDiscoverySource({ endpoints: config.localEndpoints.endpoints });

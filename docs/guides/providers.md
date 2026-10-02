@@ -1,0 +1,40 @@
+# Desktop API keys
+
+Settings → Providers supports encrypted API-key storage for Anthropic, OpenAI, Google / Gemini,
+DeepSeek, OpenRouter, Groq, Mistral and xAI. Copy a key, then choose **Save from clipboard** for that
+provider. The main process reads the clipboard; the renderer has no key input or clipboard access.
+Nexar clears the clipboard after storage only if its text has not changed during the operation.
+
+**Saved** means stored, not verified with the provider. Model counts describe the discovered static
+pi-ai catalog, not the key's model access. Network key checks and vendor sign-in are separate work
+(NXR-052c/d); no model generation or paid calls occur when saving a key.
+
+Saving enables that provider in `discovery.sources.piCatalog.providers` and selects
+`discovery.credentialSource: "keystore"` for discovered API resources, including DeepSeek Harness.
+Other discovery choices, projects and routing preferences are retained. Configured pi/DeepSeek Harness
+API resources with that credential name also switch to a keystore reference. The default for headless configurations
+remains `env`. There is no environment fallback from a keystore reference. Owners using environment
+keys for other discovered providers should save those keys here before running their resources.
+
+The encrypted file is `<userData>/credentials.json` (`%APPDATA%\Nexar\credentials.json` on Windows).
+It contains ciphertext and a four-character suffix, with fixed provider credential names; the config
+contains references only. Windows uses Electron `safeStorage` through DPAPI. Linux needs a real
+keyring backend: unavailable encryption, missing backend reporting and `basic_text` are refused.
+There is no plaintext encryption fallback. A corrupt, linked, oversized or replaced file fails closed.
+Do not edit the encrypted file by hand or copy it between machines.
+
+Choose **Remove** to delete the stored credential. References stay explicit, so subsequent requests
+need a newly saved key. Removal cannot retract a credential already handed to an in-flight request.
+Saving/removing reloads the engine without recreating the conversation service or deciding approvals.
+If reloading fails, the config rolls back and the prior engine remains; the encrypted save/removal
+may already have completed. Refresh Providers to see the stored state and retry setup after repairing
+the config. File writes serialize within the Desktop process; independent Desktop instances writing
+the same credential file are outside this guarantee.
+
+Subscriptions remain owned by their native vendor runtimes. Nexar does not extract their tokens for
+pi-ai or DeepSeek Harness. Owner-defined local endpoints keep their existing discovery configuration.
+
+Tests cover fake encryption, call-time resolution, strict IPC metadata, malformed input, linked and
+corrupt state, unavailable backends, concurrent writes, clipboard changes, config rollback and session
+and approval preservation. Electron E2E uses an inert sentinel with Windows encryption, offline echo
+turns and relaunch; Linux without a secure backend verifies refusal. No real API key is needed.

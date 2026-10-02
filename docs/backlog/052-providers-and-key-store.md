@@ -4,6 +4,11 @@
 
 ## Summary
 
+NXR-052a/b implemented on the Operating Layer continuation: headless reference/resolver contract,
+strict discovery source selection, encrypted Desktop storage, clipboard-only IPC and Providers UI.
+Network key checks (052c), vendor sign-in (052d), and local endpoint setup UI remain. See the
+[Providers guide](../guides/providers.md) and [progress log](../devlog/operating-layer-progress.md).
+
 Implement ADR-022: the Providers settings tab with subscription sign-in, API keys in an encrypted key store and local servers.
 
 ## Problem

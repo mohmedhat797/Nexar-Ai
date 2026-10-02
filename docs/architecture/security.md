@@ -24,12 +24,12 @@ subscription logins. Security is an architectural requirement, not a later featu
 
 ## Assets
 
-| Asset                                                 | Where it lives                                   | Nexar's rule                                                                                              |
-| ----------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Provider API keys                                     | Owner's environment (`.env`, shell, OS keychain) | Referenced by env var _name_ in config; injected only into the runtime that needs it                      |
-| Subscription / OAuth sessions (Claude Code, Codex, …) | Each runtime's own credential store              | Never read, copied, or extracted by Nexar; used only through the runtime's supported CLI/SDK              |
-| Source code, documents                                | Owner's filesystem                               | Passed to a resource only when the task requires it; `local-only` tasks never reach third-party resources |
-| Telemetry, sessions                                   | `.nexar/` (git-ignored), file mode 0600          | Contains prompts' metadata, never credentials                                                             |
+| Asset                                                 | Where it lives                                              | Nexar's rule                                                                                              |
+| ----------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Provider API keys                                     | Owner's environment or encrypted Desktop `credentials.json` | Config holds credential names only; main resolves the requested key at call time; no raw keys over IPC    |
+| Subscription / OAuth sessions (Claude Code, Codex, …) | Each runtime's own credential store                         | Never read, copied, or extracted by Nexar; used only through the runtime's supported CLI/SDK              |
+| Source code, documents                                | Owner's filesystem                                          | Passed to a resource only when the task requires it; `local-only` tasks never reach third-party resources |
+| Telemetry, sessions                                   | `.nexar/` (git-ignored), file mode 0600                     | Contains prompts' metadata, never credentials                                                             |
 
 ## Trust boundaries
 
@@ -166,6 +166,16 @@ error codes, never paths or messages.
 | 38  | Session DTOs carry ids, states, bounded owner-visible text and project-relative artifact paths only; the session's own project is authoritative over any request field                                                                                                                            | `apps/desktop/src/main/sessions.ts`                                   | `apps/desktop/src/main/sessions.test.ts`, `apps/desktop/e2e/desktop.e2e.ts`             |
 
 ## Known gaps (tracked in the backlog)
+
+- **Desktop credential storage (NXR-052b):** encrypted `safeStorage` only; unavailable encryption and
+  Linux `basic_text` are refused. Clipboard ingestion stays in main, provider inputs and metadata
+  outputs are strict, and errors never include input or backend messages. Bounded file reads verify
+  regular single-link file and parent identities; atomic writes retain private modes/inherited DACLs.
+  This does not defend against a concurrent process running as the compromised owner account or
+  serialize writes across independent Desktop processes. Provider setup preserves sessions and
+  pending approvals; removing a key does not revoke an already-issued in-flight request. Evidence:
+  `apps/desktop/src/main/{desktop-key-store,providers,config-store}.test.ts`,
+  `apps/desktop/src/preload/preload.test.ts`, `apps/desktop/e2e/providers.e2e.ts`.
 
 - **v0.2 read-only runs are still unsandboxed.** The OS-level sandbox gap is closed for engineering
   lanes (v0.3, NXR-024), but ordinary `nexar run` tasks and MCP work run as the owner's user and rely

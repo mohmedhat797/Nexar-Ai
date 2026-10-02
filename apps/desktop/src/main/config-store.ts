@@ -68,11 +68,22 @@ export class ConfigStore {
   }
 
   /** Read-modify-write, one at a time. */
-  update<T>(mutate: (raw: RawConfig) => Promise<T> | T): Promise<T> {
+  update<T>(
+    mutate: (raw: RawConfig) => Promise<T> | T,
+    afterWrite?: (result: T) => Promise<void>,
+  ): Promise<T> {
     const run = async (): Promise<T> => {
+      const previousText = await this.readText();
       const raw = await this.read();
       const result = await mutate(raw);
       await this.write(raw);
+      try {
+        await afterWrite?.(result);
+      } catch (error) {
+        // Keep rollback in the same queue as all other config mutations.
+        await this.restoreText(previousText);
+        throw error;
+      }
       return result;
     };
     const next = this.queue.then(run, run);

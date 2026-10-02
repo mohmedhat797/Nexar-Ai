@@ -8,6 +8,7 @@ import type { AppInfo, SessionEvent, TaskEvent } from '../shared/api.js';
 import type { ConfigStore } from './config-store.js';
 import type { EngineHost } from './engine-host.js';
 import type { SettingsStore } from './settings-store.js';
+import type { ProviderService } from './providers.js';
 
 /** The slice of Electron's `dialog` the bridge uses; tests substitute a fake. */
 export interface DialogPort {
@@ -47,6 +48,7 @@ export interface BridgeDeps {
   readonly engine: EngineHost;
   readonly config: ConfigStore;
   readonly settings: SettingsStore;
+  readonly providers?: ProviderService;
   readonly logger: Logger;
   readonly dialog: DialogPort;
   readonly shell: ShellPort;

@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { DENSITIES, THEMES, type DesktopSettings, type ThemeId } from '../../shared/api.js';
 import { THEME_LABELS, THEME_TOKENS } from '../theme.js';
+import { ProvidersView } from './ProvidersView.js';
 
 type Tab = 'appearance' | 'behavior' | 'providers';
 
@@ -136,13 +137,7 @@ export function SettingsView({
           text="Default agent, model, reasoning effort and permission mode per mode."
         />
       )}
-      {tab === 'providers' && (
-        <ComingSoon
-          title="Providers"
-          ticket="NXR-052"
-          text="Connect providers without ever exposing keys to this window."
-        />
-      )}
+      {tab === 'providers' && <ProvidersView />}
     </section>
   );
 }

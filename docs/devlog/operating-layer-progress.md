@@ -44,13 +44,31 @@ Local full checks and source/packaged E2E passed; Windows CI acceptance remains 
 
 ## CURRENT STATE
 
-Claude Code continuation (2026-10-02). PR #36 ("Nexar Desktop — Windows foundation and Operating Layer
-integration", draft) at `4c05cf28172224ac1468383a1c9ff0a0b46903c2`.
+Claude Code handoff baseline (2026-10-02). PR #36 ("Nexar Desktop — Windows foundation and Operating
+Layer integration", draft) was at `4c05cf28172224ac1468383a1c9ff0a0b46903c2`.
 
 Codex continuation verification (2026-10-02): fetched origin; local HEAD, remote branch and PR #36
 agree on that SHA, with a clean working tree. CI run `37012870983` passed Windows, Ubuntu and the
 secret scan. The older Windows CI failures above are historical and resolved. Codex usage was
 already 98% at takeover, so this checkpoint corrects the handoff without starting NXR-052b.
+
+The allowance then reset naturally. Verification checkpoint `3dbb364` is pushed and its CI run
+`37020551940` passed Linux, Windows and the secret scan. NXR-052b continues from that clean baseline,
+without using the interrupted scratch worktree. The PR stays draft.
+
+**NXR-052b:** Desktop `safeStorage` key store with call-time resolution, strict bounded encrypted
+state, file/parent identity and link checks, serialized atomic writes, real Windows inherited ACL
+tests, and refusal of insecure/unavailable Linux backends. Strict discovery source selection defaults
+to `env`; Desktop setup selects `keystore` references without fallback. Clipboard-only main ingestion,
+strict provider IPC inputs/outputs (also validated in preload), eight supported API provider rows and
+Settings → Providers replace the placeholder. Config changes/reload/rollback share one queue across
+provider and project mutations; existing conversations and pending approvals survive reload. Network
+validity stays explicitly unchecked. Native login/local setup remain separate. Targeted security,
+provider, preload and config tests pass. Native Windows Provider E2E passed (encrypted sentinel,
+IPC leak checks, clipboard cleanup, removal, relaunch/conversation continuity and owner state
+preservation). Full Windows `pnpm check` passed (2,267 tests / 121 skips, format, lint, boundaries,
+types and build); all four source Electron E2E scenarios passed. The skips cover the existing
+platform/live requirements plus unavailable Windows file-link privileges and POSIX mode checks.
 
 **Windows (NXR-051):** implementation complete, automated acceptance complete (CI green at
 `747c8bb`, `4e23de2`, `660fbbf`: Linux, Windows tests, native and packaged Electron E2E, installer
@@ -85,20 +103,11 @@ confirmed). NXR-052a is merged (`979db5a`: keystore `CredentialRef`, resolver in
 DSH, ADR-022 amendment: keystore names = credential variable, clipboard-only key entry in main,
 header-only non-generating key checks).
 
-1. CI is verified green on current head `4c05cf2`, including the approval expiry race fix
-   `8fd6efb` and NXR-052a `979db5a`. Begin NXR-052b from the current clean PR tip; do not revisit
-   resolved Windows failures.
-2. NXR-052b (interrupted, not committed): an unfinished attempt may remain in the disposable worktree
-   `D:
-exar-operating-wt` (branch `wip/operating`); treat it as untrusted scratch, re-dispatch from a
-   clean worktree at the PR tip. Scope: `discovery.credentialSource: 'env' | 'keystore'` for
-   discovered pi/DSH resources; Desktop `DesktopKeyStore` (`safeStorage`, `<userData>/credentials.json`,
-   refuse without a real backend); `providers:list|saveKeyFromClipboard|removeKey` (no key value over
-   IPC; main reads and clears the clipboard; config update + engine reload); Settings → Providers tab;
-   leak tests over IPC, events and logs.
-3. NXR-052c key checks (pi integration, documented model-listing endpoints, key in header); NXR-052d
+1. Verify CI for the NXR-052b checkpoint once pushed. Do not revisit resolved Windows failures or
+   copy the interrupted `D:/nexar-operating-wt` / `wip/operating` scratch work.
+2. NXR-052c key checks (pi integration, documented model-listing endpoints, key in header); NXR-052d
    subscription sign-in commands (verify per pinned runtime).
-4. Then NXR-055 Code lane, NXR-056 Cowork lane, NXR-053 behavior, integrated E2E.
+3. Then NXR-055 Code lane, NXR-056 Cowork lane, NXR-053 behavior, integrated E2E.
 
 ## BLOCKERS
 

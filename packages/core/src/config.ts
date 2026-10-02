@@ -10,6 +10,7 @@ import {
   adapterId,
   projectId,
   resourceId,
+  type DiscoveryCredentialSource,
   type ResourceDescriptor,
   type ResourceId,
 } from '@nexar/contracts';
@@ -53,6 +54,8 @@ export interface NexarConfig {
 export interface DiscoveryConfig {
   /** Register discovered resources for routing; `nexar resources --discovered` works either way. */
   readonly enabled: boolean;
+  /** Reference source for discovered API providers; defaults to `env`, with no fallback. */
+  readonly credentialSource: DiscoveryCredentialSource;
   readonly refreshIntervalMs: number;
   /** Per source. */
   readonly timeoutMs: number;
@@ -75,6 +78,7 @@ export interface DiscoveryConfig {
 
 export const DEFAULT_DISCOVERY_CONFIG: DiscoveryConfig = {
   enabled: false,
+  credentialSource: 'env',
   refreshIntervalMs: 10 * 60 * 1000,
   timeoutMs: 3000,
   excludeIds: [],
@@ -338,6 +342,7 @@ const ResourceIntelligenceSchema = z.strictObject({
 
 const DiscoverySchema = z.strictObject({
   enabled: z.boolean().optional(),
+  credentialSource: z.enum(['env', 'keystore']).optional(),
   refreshIntervalMs: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().max(60_000).optional(),
   excludeIds: StringList.optional(),
@@ -708,6 +713,7 @@ function resolveDiscovery(
   }
   return {
     enabled: input.enabled ?? d.enabled,
+    credentialSource: input.credentialSource ?? d.credentialSource,
     refreshIntervalMs: input.refreshIntervalMs ?? d.refreshIntervalMs,
     timeoutMs: input.timeoutMs ?? d.timeoutMs,
     excludeIds: input.excludeIds ?? d.excludeIds,

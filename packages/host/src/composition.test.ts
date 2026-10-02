@@ -5,7 +5,11 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_DISCOVERY_CONFIG } from '@nexar/core';
 import { adapterId, resourceId } from '@nexar/contracts';
-import type { ResourceDescriptor, SecretResolver } from '@nexar/contracts';
+import type {
+  DiscoveryCredentialSource,
+  ResourceDescriptor,
+  SecretResolver,
+} from '@nexar/contracts';
 import { noopLogger } from '@nexar/telemetry';
 import {
   builtinEngineeringPlansDir,
@@ -126,6 +130,36 @@ describe('loadHostConfig', () => {
 });
 
 describe('discoverySources', () => {
+  it.each(['env', 'keystore'] as const)(
+    'passes %s to pi and DSH discovery without supplying an authentication resolver',
+    async (credentialSource: DiscoveryCredentialSource) => {
+      const binary = join(cwd, process.platform === 'win32' ? 'dsh.CMD' : 'dsh');
+      // Deliberately not an executable program: discovery must stat it only.
+      await writeFile(binary, 'not a runtime', { mode: 0o755 });
+      const config = {
+        ...DEFAULT_DISCOVERY_CONFIG,
+        credentialSource,
+        piCatalog: { enabled: true, providers: ['anthropic'], maxModels: 1 },
+      };
+      const { sources } = discoverySources(config, { PATH: cwd, DEEPSEEK_API_KEY: 'not-used' });
+      const ctx = {
+        now: new Date('2026-10-02T00:00:00.000Z'),
+        signal: new AbortController().signal,
+      };
+      const dsh = sources.find((source) => source.id === 'cli:deepseek-harness');
+      const pi = sources.find((source) => source.id === 'pi-catalog');
+      const [dshFound, piFound] = await Promise.all([dsh?.discover(ctx), pi?.discover(ctx)]);
+      expect(dshFound?.[0]?.auth).toEqual({
+        mode: 'api-key',
+        credential: { source: credentialSource, name: 'DEEPSEEK_API_KEY' },
+      });
+      expect(piFound?.[0]?.auth).toEqual({
+        mode: 'api-key',
+        credential: { source: credentialSource, name: 'ANTHROPIC_API_KEY' },
+      });
+    },
+  );
+
   it('lists every source and disables nothing for enabled config with endpoints', () => {
     const config = {
       ...DEFAULT_DISCOVERY_CONFIG,

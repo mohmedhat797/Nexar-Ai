@@ -1,12 +1,14 @@
 import { userInfo } from 'node:os';
 import { join, resolve } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { isNexarError } from '@nexar/contracts';
 import { FileSessionStore } from '@nexar/sessions';
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost } from './engine-host.js';
+import { DesktopKeyStore } from './desktop-key-store.js';
+import { ProviderService } from './providers.js';
 import { createStderrLogger } from './logger.js';
 import { ensurePrivateStateDirectory, PrivateStateError } from './private-state.js';
 import { SettingsStore } from './settings-store.js';
@@ -63,7 +65,14 @@ async function start(): Promise<void> {
       );
     }
   }
-  const engine = await createEngineHost({ configPath: config.path, env: engineEnv, logger });
+  const keys = new DesktopKeyStore({ userData, encryption: safeStorage });
+  const engine = await createEngineHost({
+    configPath: config.path,
+    env: engineEnv,
+    logger,
+    resolveSecret: keys.resolveSecret,
+  });
+  const providers = new ProviderService({ keys, clipboard, config, engine });
 
   // Operating Sessions (ADR-024): this process is the single writer. If another Nexar process holds
   // the lease, sessions stay unavailable (every session channel answers CONFLICT) instead of racing it.
@@ -93,6 +102,7 @@ async function start(): Promise<void> {
     engine,
     config,
     settings,
+    providers,
     logger,
     // Looked up per call, so a test can replace `dialog.showOpenDialog`.
     dialog: { showOpenDialog: (options) => dialog.showOpenDialog(options) },
