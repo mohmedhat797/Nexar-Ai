@@ -14,10 +14,11 @@ replacement/read locking, nonregular telemetry-file rejection, and a separator-s
 check. Windows fixtures retain directory containment through junctions and capability-skip file links
 only after Windows refuses their creation. CI now runs checks and Electron E2E on Linux and Windows.
 
-Checkpoint commit: consult this file's Git history; the next checkpoint records its accepted SHA.
-Validation: focused Windows native adapter, state-store and path-security suites passed. Native
-Electron offline E2E passed (project, preview, draft, theme and relaunch persistence). The full
-repository gate must pass before this checkpoint is committed; see the PR for the final result.
+Checkpoint commit: `c749af2` (pushed). Draft PR: https://github.com/mohmedhat797/Nexar-Ai/pull/36.
+Validation: full Windows `pnpm check` passed with pinned pnpm 10.33.0: format, lint, boundaries,
+typecheck, 1,766 tests passed / 115 skipped, and build. Native Electron offline E2E passed (project,
+preview, draft, theme and relaunch persistence). GitHub CI initially found Windows checkout CRLF
+conversion; `.gitattributes` now preserves LF. Rerun Linux/Windows CI remains pending at checkpoint.
 
 ## CURRENT STATE
 
@@ -27,7 +28,7 @@ and Linux/WSL engineering controls remain authoritative. No paid AI calls were m
 
 ## NEXT EXACT TASK
 
-Finish NXR-051: validate Windows CI, deliver and test the per-user x64 NSIS installer, audit default
+Finish NXR-051: inspect both CI jobs on draft PR #36, deliver and test the per-user x64 NSIS installer, audit default
 state-directory ACLs and packaged resource/catalog paths, then perform the owner checklist in
 [`windows-validation.md`](../guides/windows-validation.md). After that, define ADR-024 (if still free)
 for Operating Sessions and intent/lane selection; allocate the next unused backlog ids (currently
@@ -43,6 +44,8 @@ for Operating Sessions and intent/lane selection; allocate the next unused backl
 - POSIX modes do not implement Windows ACL protection. Default `%APPDATA%\Nexar` inherits the
   owner's profile ACL; overrides/shared paths require an explicit ACL audit before secure-state claims.
 - WSL A1–A6, provider keys, OpenWorker reverse supervision, and the installer are not yet validated.
+- Continuation stopped at a pushed coherent foundation checkpoint as the account's five-hour usage
+  reached 95%. No reset credits were consumed. Inspect this file and PR before starting the next unit.
 
 ## OWNER ACTION
 
