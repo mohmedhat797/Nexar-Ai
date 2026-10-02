@@ -158,21 +158,24 @@ auto-loading in ACL test helpers (now .NET-only; production guard disables auto-
 - Gate at `59afa19`: 2,142 passed / 119 skipped; three offline E2E scenarios pass (first run,
   relaunch-and-continue, confirm/fallback/refusal).
 
+**NXR-052 closure (2026-10-03, Claude Code):** PR #36 head `ba4a2c6`; CI run `37072932090` passed
+Linux, Windows and the secret scan. NXR-052a–e are **implemented, offline-tested and CI-validated**;
+real provider execution remains **live-unverified** and owner acceptance pending:
+
+| Unit | Delivered                                                                             | Evidence                         | Live status                                      |
+| ---- | ------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------ |
+| 052a | keystore `CredentialRef`, resolver injection (pi, DSH), CLI `AUTH_REQUIRED`           | unit + adapter tests             | n/a                                              |
+| 052b | `safeStorage` key store, clipboard-only ingestion, provider IPC, Settings → Providers | leak tests, Windows Provider E2E | real keys unverified                             |
+| 052c | header-only, non-generating metadata checks for eight providers                       | fake HTTP tests                  | real checks unverified                           |
+| 052d | Claude Code / Codex native browser sign-in, status probes                             | fake runtime tests, Provider E2E | real sign-in unverified; Antigravity unsupported |
+| 052e | keyless owner-listed local / custom servers                                           | strict URL IPC tests             | real servers unverified                          |
+
 ## NEXT EXACT TASK
 
-Historical Claude usage checkpoint was `8fd6efb`; its CI uncertainty was superseded by green
-handoff CI `37012870983`. NXR-052a is merged (`979db5a`: keystore `CredentialRef`, resolver injection into pi and
-DSH, ADR-022 amendment: keystore names = credential variable, clipboard-only key entry in main,
-header-only non-generating key checks).
-
-1. Verify the latest NXR-052e checkpoint CI before further feature work. Do not revisit resolved
-   NXR-052b/c CI failures or copy interrupted scratch work.
-2. Review all NXR-052 acceptance evidence and close its implementation accurately; preserve
-   implemented/offline-tested/live-unverified distinctions. Local keyless setup and compatible API
-   base consistency are delivered. Keyed custom servers use the existing explicit config path.
-   Keep real browser/provider acceptance explicitly pending; do not invent installed CLI versions.
-3. Once NXR-052 implementation is complete and CI green: NXR-055 Code lane, NXR-056 Cowork lane,
-   NXR-053 behavior, integrated E2E. NXR-054/Mobile stay deferred.
+NXR-055 — Code mode through the WSL2 engineering plane (design first, then bridge, Code lane,
+Desktop surface, offline E2E; A1–A6 and one real engineering E2E only on the owner machine).
+Then NXR-056 Cowork/OpenWorker, NXR-053 behavior profiles, and the integrated Operating Layer E2E.
+NXR-054 and Mobile stay deferred.
 
 ## BLOCKERS
 
