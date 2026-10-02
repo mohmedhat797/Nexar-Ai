@@ -17,6 +17,7 @@ import {
   type ApprovalStore,
   type OutwardAction,
 } from './index.js';
+import { newApprovalId } from './store.js';
 
 class FakeClock {
   private ms = Date.parse('2026-01-01T00:00:00.000Z');
@@ -173,13 +174,24 @@ describe('ApprovalGate', () => {
   });
 
   it('cannot decide an expired request', async () => {
-    const gate = gateFor(store);
-    const pending = gate.request(action, { ...ctx, ttlMs: 1000 });
-    const assertion = expectDenied(pending, 'expired');
-    const id = await waitForPending(store);
+    // A stored pending request with no waiting gate: a gate poller would race `decide` to settle the
+    // expiry (its own denial is covered by "expires during the wait").
+    const createdAt = clock.now();
+    const id = newApprovalId();
+    await store.create({
+      id,
+      createdAt: createdAt.toISOString(),
+      expiresAt: new Date(createdAt.getTime() + 1000).toISOString(),
+      instanceId: 'other-instance',
+      actionType: action.type,
+      summary: ctx.summary,
+      risk: ctx.risk,
+      fingerprint: fingerprintAction(action),
+      status: 'pending',
+    });
     clock.advance(5000);
     await expectDenied(decide(store, id, 'approve', { by: 'mo', clock: clock.now }), 'expired');
-    await assertion;
+    expect((await store.get(id))?.status).toBe('expired');
     await expectDenied(
       decide(store, id, 'approve', { by: 'mo', clock: clock.now }),
       'invalid-state',
