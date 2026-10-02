@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const [mode, ...args] = process.argv.slice(2);
 if (mode === 'args') {
-  console.log(JSON.stringify(args));
+  process.stdout.write(`${JSON.stringify(args)}\n`);
 } else if (mode === 'exit') {
   process.stdout.write('safe metadata');
   process.stderr.write('safe diagnostic');

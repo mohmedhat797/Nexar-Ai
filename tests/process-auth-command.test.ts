@@ -32,7 +32,11 @@ afterEach(async () => {
   vi.mocked(spawn).mockImplementation(
     (await vi.importActual<typeof ChildProcessModule>('node:child_process')).spawn,
   );
-  await rm(cwd, { recursive: true, force: true });
+  await rm(cwd, {
+    recursive: true,
+    force: true,
+    ...(platform === 'win32' ? { maxRetries: 10, retryDelay: 100 } : {}),
+  });
 });
 
 function fakeChild(): ChildProcess {

@@ -10,7 +10,9 @@ credits or generation permissions. It supplies no credential to pi-ai, DSH or Op
 | Codex | Repository tested 0.159.3; current npm/tag inspected 0.160.0; installed executable VersionInfo has no semantic version | `codex login` | `codex --version`, `codex login status` | `codex logout` |
 | Google Antigravity | Repository tested 1.2.14; installed executable VersionInfo has no semantic version; upstream changelog version differs | Interactive `agy` supports vendor sign-in; no standalone login command verified | `agy --version` only; no standalone account-status command verified | Interactive `/logout`; no standalone logout verified |
 
-Installed CLI execution was rejected by automatic command review during development. Public executable
+Installed `claude --version`, `codex --version` and `agy --version` execution was blocked by the
+lean-ctx shell allowlist during development (`[BLOCKED — DO NOT RETRY]`, executable not allowlisted).
+No retry or allowlist change was made. This was not an automatic approval-review rejection. Public executable
 metadata and official documentation were inspected instead; the Codex and Antigravity installed
 semantic versions remain unverified. Repository tested versions are compatibility evidence, not
 claims about this owner's current installation. Production rechecks `--version` through the bounded
