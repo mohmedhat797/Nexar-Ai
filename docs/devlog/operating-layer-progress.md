@@ -45,7 +45,12 @@ Local full checks and source/packaged E2E passed; Windows CI acceptance remains 
 ## CURRENT STATE
 
 Claude Code continuation (2026-10-02). PR #36 ("Nexar Desktop — Windows foundation and Operating Layer
-integration", draft) at `59afa19`.
+integration", draft) at `4c05cf28172224ac1468383a1c9ff0a0b46903c2`.
+
+Codex continuation verification (2026-10-02): fetched origin; local HEAD, remote branch and PR #36
+agree on that SHA, with a clean working tree. CI run `37012870983` passed Windows, Ubuntu and the
+secret scan. The older Windows CI failures above are historical and resolved. Codex usage was
+already 98% at takeover, so this checkpoint corrects the handoff without starting NXR-052b.
 
 **Windows (NXR-051):** implementation complete, automated acceptance complete (CI green at
 `747c8bb`, `4e23de2`, `660fbbf`: Linux, Windows tests, native and packaged Electron E2E, installer
@@ -80,7 +85,9 @@ confirmed). NXR-052a is merged (`979db5a`: keystore `CredentialRef`, resolver in
 DSH, ADR-022 amendment: keystore names = credential variable, clipboard-only key entry in main,
 header-only non-generating key checks).
 
-1. Confirm CI is green on `8fd6efb`; fix any new Windows timing race from the logs.
+1. CI is verified green on current head `4c05cf2`, including the approval expiry race fix
+   `8fd6efb` and NXR-052a `979db5a`. Begin NXR-052b from the current clean PR tip; do not revisit
+   resolved Windows failures.
 2. NXR-052b (interrupted, not committed): an unfinished attempt may remain in the disposable worktree
    `D:
 exar-operating-wt` (branch `wip/operating`); treat it as untrusted scratch, re-dispatch from a
