@@ -41,6 +41,9 @@ export interface TaskOrigin {
   readonly project?: string;
   readonly correlationId?: string;
   readonly requestedBy?: string;
+  /** Operating Session lineage (ADR-024); set by Nexar, never taken from a request body. */
+  readonly sessionId?: string;
+  readonly turnId?: string;
 }
 
 /** The payload a resource acts on. */

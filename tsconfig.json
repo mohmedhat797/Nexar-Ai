@@ -71,6 +71,9 @@
       "path": "./packages/approvals"
     },
     {
+      "path": "./packages/sessions"
+    },
+    {
       "path": "./packages/access"
     },
     {
