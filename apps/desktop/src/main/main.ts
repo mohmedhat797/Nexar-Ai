@@ -27,12 +27,23 @@ import {
 // the app at a throwaway directory instead. Both must happen before `ready`.
 app.setName('Nexar');
 const userDataOverride = process.env['NEXAR_DESKTOP_USER_DATA'];
-app.setPath(
-  'userData',
+const userDataPath =
   userDataOverride !== undefined && userDataOverride !== ''
     ? resolve(userDataOverride)
-    : join(app.getPath('appData'), 'Nexar'),
-);
+    : join(app.getPath('appData'), 'Nexar');
+app.setPath('userData', userDataPath);
+// Chromium's runtime data (disk caches, storage, crash dumps) is not Nexar state and grows without
+// bound. Keeping it outside the ACL-guarded state tree keeps the per-entry guard small and fast;
+// on Windows it lives in the owner-private %LOCALAPPDATA%, next to a test override otherwise.
+const localAppData = process.env['LOCALAPPDATA'];
+const runtimePath =
+  userDataOverride !== undefined && userDataOverride !== ''
+    ? `${userDataPath}.runtime`
+    : process.platform === 'win32' && localAppData !== undefined && localAppData !== ''
+      ? join(localAppData, 'Nexar', 'Runtime')
+      : join(app.getPath('appData'), 'Nexar Runtime');
+app.setPath('sessionData', runtimePath);
+app.setPath('crashDumps', join(runtimePath, 'Crashpad'));
 
 function decider(): string {
   try {

@@ -54,9 +54,17 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     env,
   });
   apps.push(app);
-  const page = await app.firstWindow();
-  await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 60_000 });
-  return { app, page };
+  try {
+    const page = await app.firstWindow();
+    await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 60_000 });
+    return { app, page };
+  } catch (error) {
+    // A launch that never shows its window must not keep running into the next scenario, where it
+    // would still hold the sessions lease and the shared state directory.
+    app.process().kill();
+    apps.splice(apps.indexOf(app), 1);
+    throw error;
+  }
 }
 
 async function close(app: ElectronApplication): Promise<void> {
@@ -178,6 +186,12 @@ describe('Nexar Desktop', () => {
     await isVisible(page.getByTestId('nav-settings'));
 
     await close(app);
+    // Chromium runtime data stays out of the ACL-guarded state tree: the guard visits every entry
+    // at startup, and browser caches grow without bound.
+    expect(
+      (await readdir(userData)).filter((name) => /cache|storage|crashpad|blob/i.test(name)),
+    ).toEqual([]);
+    expect((await readdir(`${userData}.runtime`)).length).toBeGreaterThan(0);
   });
 
   it('keeps a conversation across turns and a relaunch', async () => {

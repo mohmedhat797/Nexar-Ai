@@ -118,6 +118,10 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
   page.on('pageerror', (error) => output.push(error.message));
   await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 120_000 });
   expect(await app.evaluate(({ app: running }) => running.getPath('userData'))).toBe(userData);
+  // Chromium runtime data lives beside the guarded state tree and is scanned for leaks as well.
+  expect(await app.evaluate(({ app: running }) => running.getPath('sessionData'))).toBe(
+    `${userData}.runtime`,
+  );
   await app.evaluate(async ({ clipboard }) => {
     // The owner's original clipboard stays in main only.
     (globalThis as unknown as { nexarTestClipboard?: string }).nexarTestClipboard =
@@ -462,6 +466,7 @@ describe('Desktop Providers', () => {
       expect(JSON.stringify(refused)).not.toContain(SENTINEL);
       expect(await readOptional(join(userData, 'credentials.json'))).toBeUndefined();
       await assertNoStoredSecret(userData);
+      await assertNoStoredSecret(`${userData}.runtime`);
       expect(await page.locator('body').innerText()).not.toContain(SENTINEL);
       expect(output.join('\n')).not.toContain(SENTINEL);
       await close(app);
@@ -523,6 +528,7 @@ describe('Desktop Providers', () => {
     expect(JSON.stringify(metadata)).not.toContain(SENTINEL);
     expect(await page.locator('body').innerText()).not.toContain(SENTINEL);
     await assertNoStoredSecret(userData);
+    await assertNoStoredSecret(`${userData}.runtime`);
 
     // Reopening proves both key metadata and the conversation survive a real host restart.
     await close(app);
@@ -658,6 +664,7 @@ describe('Desktop Providers', () => {
       ).toBe(true);
     }
     await assertNoStoredSecret(userData);
+    await assertNoStoredSecret(`${userData}.runtime`);
     expect(output.join('\n')).not.toContain(SENTINEL);
     await close(app);
   });
