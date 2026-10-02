@@ -30,6 +30,7 @@ ADR (or amend status) when you change one.
 | [022](022-provider-credentials.md)                 | Providers and credentials in Nexar Desktop (encrypted key store)   | Accepted                       |
 | [023](023-scheduled-tasks.md)                      | Scheduled tasks                                                    | Accepted                       |
 | [024](024-operating-layer-and-sessions.md)         | Nexar Operating Layer and Operating Sessions                       | Accepted                       |
+| [025](025-code-lane-wsl-bridge.md)                 | Code lane: Desktop to WSL2 engineering-plane bridge                | Accepted                       |
 
 Template: Status · Context · Decision · Rationale · Alternatives considered · Consequences · Risks ·
 Follow-up work.

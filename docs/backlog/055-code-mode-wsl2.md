@@ -1,6 +1,6 @@
 # NXR-055: Code mode through the WSL2 engineering plane
 
-**Milestone:** v0.5 — Nexar Desktop · **Labels:** desktop, engineering · **Depends on:** NXR-050, NXR-051
+**Milestone:** v0.5 — Nexar Desktop · **Labels:** desktop, engineering · **Depends on:** NXR-050, NXR-051 · **ADR:** [ADR-025](../adr/025-code-lane-wsl-bridge.md)
 
 ## Summary
 
