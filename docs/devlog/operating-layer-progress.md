@@ -44,67 +44,71 @@ Local full checks and source/packaged E2E passed; Windows CI acceptance remains 
 
 ## CURRENT STATE
 
-Claude Code continuation (2026-10-02). **Automated Windows gate is green**: CI run `37004390748` at
-`747c8bb` passed Linux, Windows (tests, native Electron E2E, installer packaging, packaged E2E) and
-the secret scan. Root causes, from the CI logs:
+Claude Code continuation (2026-10-02). PR #36 ("Nexar Desktop — Windows foundation and Operating Layer
+integration", draft) at `59afa19`.
 
-- Native ACL test helpers used `Get-Acl`/`Get-Item`/`ConvertTo-Json`; their module auto-loading
-  ("Preparing modules for first use") exceeded the 15 s helper budget on GitHub runners. Helpers are
-  now .NET-only with `$PSModuleAutoLoadingPreference = 'None'`; the production guard also disables
-  auto-loading and reports `PrivateStateError.diagnostic` (category, phase, exit code, elapsed ms).
-- GitHub's Windows runner is elevated: a file Node creates after the guard is owned by
-  `BUILTIN\Administrators` (an elevated token's default owner). The test accepts that only under
-  elevation and re-runs the guard to prove normalization to the user.
-- Fake-runtime cleanup `EBUSY`: `rmSync` ignores `maxRetries` on current Node; harnesses now await
-  `fs.promises.rm` with the bounded retry. `createTaskWorktree` has a Windows-only 20 s allowance.
+**Windows (NXR-051):** implementation complete, automated acceptance complete (CI green at
+`747c8bb`, `4e23de2`, `660fbbf`: Linux, Windows tests, native and packaged Electron E2E, installer
+packaging, secret scan), **owner/manual acceptance pending**
+([checklist](../guides/windows-validation.md)). Root causes fixed from CI logs: PowerShell module
+auto-loading in ACL test helpers (now .NET-only; production guard disables auto-loading and reports
+`PrivateStateError.diagnostic`), the elevated runner's `BUILTIN\Administrators` default owner
+(accepted only under elevation, then normalized by the guard), fake-runtime cleanup `EBUSY`
+(`rmSync` ignores retries; harnesses await `fs.promises.rm`), and a CLI SIGINT test race.
 
-NXR-051: implementation complete, automated acceptance complete, **owner/manual acceptance pending**
-([checklist](../guides/windows-validation.md)). Locally on the owner machine: `pnpm check`, source and
-packaged E2E, `doctor`, installer build all passed.
+**Operating Layer:**
 
-Operating Layer on this branch: ADR-024 (`687ae93`), NXR-057/058 (issues #37/#38), Mobile deferred
-in the roadmap; `@nexar/sessions` (`06f873d`); Desktop persistent multi-turn sessions (`10a6c59`):
-seven validated `sessions:*` channels, background turn execution with session/turn lineage on
-tasks, restart interruption, cancel, idempotent submit, a conversation list, and an offline E2E that
-relaunches and continues the same conversation. Full gate at `10a6c59`: 1,907 passed / 119 skipped;
-both E2E scenarios pass. Turns still see only their own text (context@1 is NXR-058).
+- ADR-024 (`687ae93`, amended in `660fbbf`: `review` has `code` affinity); NXR-057 (#37), NXR-058
+  (#38); Mobile deferred.
+- `@nexar/sessions` (`06f873d`): durable sessions/turns, lease, revisions, idempotent submission,
+  one active turn, restart interruption without replay, link-refusing bounded storage.
+- Desktop multi-turn sessions (`10a6c59`): conversation list, transcript, cancel, relaunch E2E.
+- `@nexar/operating` (`660fbbf`): `intent-rules@1`, `lanes@1`, `context@1` with manifest,
+  correlation/recursion guard (depth 2), `OperatingService` over injected ports.
+- Desktop through the Operating Layer (`59afa19`): turns get bounded prior context; lane, fallback
+  and refusal shown per turn; `sessions:confirmLane` confirmation card (non-authorizing); mode
+  switch per conversation. Both orchestrated lanes report unavailable (`laneAvailable()` in
+  `apps/desktop/src/main/operating.ts`), so read/draft work runs `direct` with a visible,
+  recorded fallback and engineering writes are refused (`SANDBOX_UNAVAILABLE`).
+- Gate at `59afa19`: 2,142 passed / 119 skipped; three offline E2E scenarios pass (first run,
+  relaunch-and-continue, confirm/fallback/refusal).
 
 ## NEXT EXACT TASK
 
-1. NXR-058: new `@nexar/operating` package — `intent-rules@1` (explicit kind wins, keyword rules →
-   `TaskKind` with rule ids), `lanes@1` router (affinity `coding → code`,
-   `documentation|meeting-preparation → cowork`, else the mode's lane), mismatch →
-   `pending-confirmation` with confirm/decline, honest `direct` fallback while the orchestrated
-   lanes are unavailable (engineering writes never fall back), `context@1` builder with a stored
-   manifest, correlation envelope on tasks. Then wire Desktop: lane + fallback shown per turn,
-   `sessions:confirmLane`, mode switch in the UI.
-2. Then NXR-052 providers → NXR-055 Code/WSL2 → NXR-056 Cowork/OpenWorker → NXR-053 behavior →
-   integrated Operating Layer E2E. NXR-054 and Mobile stay deferred.
+1. NXR-052 providers (ADR-022): Electron `safeStorage` key store in main (secrets never cross IPC;
+   config holds references), Providers settings UI (subscription runtimes: status only, vendor-owned
+   sign-in; API-key providers only where current adapters support them; local/Ollama and
+   owner-defined OpenAI-compatible endpoints), key checks only through documented non-generating
+   endpoints, otherwise "unverified". Read ADR-022 and `docs/backlog/052-providers-and-key-store.md`
+   first; check which providers the pi adapter actually supports.
+2. NXR-055 Code lane: Windows → WSL2 stdio bridge (no listener), DSH-first, existing engineering
+   guarantees unchanged; swap `laneAvailable('code')` only when the bridge and A1–A6 pass.
+3. NXR-056 Cowork lane: research the current pinned OpenWorker first; turn-scoped delegation
+   credential; enforce the `@nexar/operating` correlation guard end to end; approvals mapped to Nexar.
+4. NXR-053 behavior profiles; integrated Operating Layer E2E. NXR-054 and Mobile stay deferred.
 
 ## BLOCKERS
 
-- `sessions:list` reads at most 200 sessions across all projects before filtering by project; a
-  per-project index or paging is a follow-up before heavy use.
-- A reused process id can make a stale sessions lease look live; it fails closed (`CONFLICT`,
-  sessions unavailable). Follow-up: a stronger liveness proof. A non-`CONFLICT` lease failure (for
-  example an unsafe sessions directory) stops Desktop startup, consistent with the state guard.
-- If every store write fails while a turn completes, the turn stays `running` until the next restart
-  marks it `interrupted`.
+- A pending confirmation's run options (preferred resources, cost ceiling) live in memory; after a
+  restart the owner can only decline it (`CONFLICT confirmation-expired`) and resend.
+- In Code mode the Desktop chat area still shows the Code placeholder (existing E2E); revisit with
+  NXR-055.
+- `sessions:list` reads at most 200 sessions across projects before filtering; a reused process id
+  can make a stale sessions lease look live (fails closed); a non-`CONFLICT` lease failure stops
+  startup; a turn whose completion writes all fail stays `running` until the next restart.
 - The `claude` CLI on this machine is not logged in, so the `claude-delegate` relay cannot run;
-  Sonnet work used in-session Sonnet subagents.
-- Windows descendants of a leader that exits before cancellation are not contained by `taskkill`;
-  complete containment needs a Windows Job Object. Write-capable engineering still requires
-  WSL2/bubblewrap, with no native fallback. Arbitrary batch launchers are refused.
+  Sonnet work used in-session Sonnet subagents in disposable worktrees.
+- Windows descendants of an exited leader need a Job Object for containment. Write-capable
+  engineering still requires WSL2/bubblewrap, with no native fallback.
 - External config state-directory overrides still need their own ACL audit. Windows artifact storage
   requires hard-link support.
 - WSL A1–A6, provider keys, OpenWorker reverse supervision and installer execution are not validated.
 
 ## OWNER ACTION
 
-- Owner acceptance in [`windows-validation.md`](../guides/windows-validation.md): install the CI
-  installer artifact (or the local build), confirm `%APPDATA%\Nexar` ACLs, run an echo and a Claude
-  Code Cowork task, relaunch persistence, cancel, uninstall/reinstall. New: confirm a conversation
-  survives a relaunch and can be continued.
+- Owner acceptance in [`windows-validation.md`](../guides/windows-validation.md), plus: a
+  conversation survives a relaunch and continues; a Cowork "verify the repository" request asks for
+  confirmation and shows the direct fallback; "Implement …" is refused while the Code lane is absent.
 - Optional: `claude /login` so the `claude-delegate` relay works.
 
 ## LIVE TESTS PENDING
