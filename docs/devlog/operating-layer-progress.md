@@ -75,17 +75,23 @@ auto-loading in ACL test helpers (now .NET-only; production guard disables auto-
 
 ## NEXT EXACT TASK
 
-1. NXR-052 providers (ADR-022): Electron `safeStorage` key store in main (secrets never cross IPC;
-   config holds references), Providers settings UI (subscription runtimes: status only, vendor-owned
-   sign-in; API-key providers only where current adapters support them; local/Ollama and
-   owner-defined OpenAI-compatible endpoints), key checks only through documented non-generating
-   endpoints, otherwise "unverified". Read ADR-022 and `docs/backlog/052-providers-and-key-store.md`
-   first; check which providers the pi adapter actually supports.
-2. NXR-055 Code lane: Windows → WSL2 stdio bridge (no listener), DSH-first, existing engineering
-   guarantees unchanged; swap `laneAvailable('code')` only when the bridge and A1–A6 pass.
-3. NXR-056 Cowork lane: research the current pinned OpenWorker first; turn-scoped delegation
-   credential; enforce the `@nexar/operating` correlation guard end to end; approvals mapped to Nexar.
-4. NXR-053 behavior profiles; integrated Operating Layer E2E. NXR-054 and Mobile stay deferred.
+Usage limit reached on 2026-10-02 after `8fd6efb` (approvals expiry test race fixed; CI on it not yet
+confirmed). NXR-052a is merged (`979db5a`: keystore `CredentialRef`, resolver injection into pi and
+DSH, ADR-022 amendment: keystore names = credential variable, clipboard-only key entry in main,
+header-only non-generating key checks).
+
+1. Confirm CI is green on `8fd6efb`; fix any new Windows timing race from the logs.
+2. NXR-052b (interrupted, not committed): an unfinished attempt may remain in the disposable worktree
+   `D:
+exar-operating-wt` (branch `wip/operating`); treat it as untrusted scratch, re-dispatch from a
+   clean worktree at the PR tip. Scope: `discovery.credentialSource: 'env' | 'keystore'` for
+   discovered pi/DSH resources; Desktop `DesktopKeyStore` (`safeStorage`, `<userData>/credentials.json`,
+   refuse without a real backend); `providers:list|saveKeyFromClipboard|removeKey` (no key value over
+   IPC; main reads and clears the clipboard; config update + engine reload); Settings → Providers tab;
+   leak tests over IPC, events and logs.
+3. NXR-052c key checks (pi integration, documented model-listing endpoints, key in header); NXR-052d
+   subscription sign-in commands (verify per pinned runtime).
+4. Then NXR-055 Code lane, NXR-056 Cowork lane, NXR-053 behavior, integrated E2E.
 
 ## BLOCKERS
 
