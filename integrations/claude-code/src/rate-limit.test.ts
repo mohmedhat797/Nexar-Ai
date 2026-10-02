@@ -96,8 +96,8 @@ describe('parseRateLimitEvent', () => {
 
 describe('adapter quota signals', () => {
   let h: Harness | undefined;
-  afterEach(() => {
-    h?.cleanup();
+  afterEach(async () => {
+    await h?.cleanup();
     h = undefined;
   });
 

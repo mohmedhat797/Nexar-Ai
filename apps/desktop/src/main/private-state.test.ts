@@ -176,8 +176,12 @@ describe('state guard tool boundary', () => {
   );
 });
 
+type Principal = 'user' | 'SYSTEM' | 'Administrators' | 'other';
+
 interface AclSnapshot {
-  readonly ownerCurrent: boolean;
+  readonly owner: Principal;
+  /** Whether this test process runs elevated (GitHub's Windows runners do). */
+  readonly elevated: boolean;
   readonly protected: boolean;
   readonly rules: readonly {
     readonly principal: string;
@@ -249,22 +253,28 @@ async function powershell(operation: string, script: string, path: string): Prom
 }
 
 async function snapshot(path: string): Promise<AclSnapshot> {
-  // One tab-separated header line (owner, protection, descriptor), then one line per rule.
+  // One tab-separated header line (owner, elevation, protection, descriptor), then one per rule.
   const output = await powershell(
     'snapshot',
     String.raw`
-$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$acl = $item.GetAccessControl($sections)
-$owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-(($owner -eq $sid), $acl.AreAccessRulesProtected,
-  $acl.GetSecurityDescriptorSddlForm($sections)) -join [char] 9
-foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
-  $principal = switch ($rule.IdentityReference.Value) {
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$sid = $identity.User.Value
+$elevated = [System.Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
+  [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
+function Principal([string] $value) {
+  switch ($value) {
     $sid { 'user' }
     'S-1-5-18' { 'SYSTEM' }
     'S-1-5-32-544' { 'Administrators' }
     default { 'other' }
   }
+}
+$acl = $item.GetAccessControl($sections)
+$owner = Principal $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+($owner, $elevated, $acl.AreAccessRulesProtected,
+  $acl.GetSecurityDescriptorSddlForm($sections)) -join [char] 9
+foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+  $principal = Principal $rule.IdentityReference.Value
   ($principal, $rule.FileSystemRights, $rule.InheritanceFlags, $rule.PropagationFlags,
     $rule.IsInherited, $rule.AccessControlType) -join [char] 9
 }
@@ -272,9 +282,10 @@ foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.S
     path,
   );
   const [header = '', ...lines] = output.split(/\r?\n/);
-  const [ownerCurrent, protectedAcl, descriptor = ''] = header.split('\t');
+  const [owner = '', elevated, protectedAcl, descriptor = ''] = header.split('\t');
   return {
-    ownerCurrent: ownerCurrent === 'True',
+    owner: (['user', 'SYSTEM', 'Administrators'].includes(owner) ? owner : 'other') as Principal,
+    elevated: elevated === 'True',
     protected: protectedAcl === 'True',
     descriptor,
     rules: lines.map((line) => {
@@ -295,8 +306,14 @@ function descriptorHash(snapshot: AclSnapshot): string {
   return createHash('sha256').update(snapshot.descriptor).digest('hex');
 }
 
+/**
+ * `protectedAcl` entries were normalized by the guard and must be owned by the user. Entries created
+ * afterwards inherit the private grants; an elevated token's default owner is the local
+ * Administrators group, a trusted owner the guard normalizes on its next run.
+ */
 function expectPrivate(snapshot: AclSnapshot, directory: boolean, protectedAcl = true): void {
-  expect(snapshot.ownerCurrent).toBe(true);
+  if (protectedAcl || !snapshot.elevated) expect(snapshot.owner).toBe('user');
+  else expect(['user', 'Administrators']).toContain(snapshot.owner);
   expect(snapshot.protected).toBe(protectedAcl);
   expect(snapshot.rules.map((rule) => rule.principal).sort()).toEqual([
     'Administrators',
@@ -346,8 +363,11 @@ describe.skipIf(process.platform !== 'win32')('native Windows state ACLs', () =>
     const file = join(state, 'nexar.config.json');
     await writeFile(file, '{}', { mode: 0o600 });
     expectPrivate(await snapshot(file), false, false);
+    // The next startup normalizes the new file: user-owned, protected, explicit private grants.
+    await ensurePrivateStateDirectory(state);
+    expectPrivate(await snapshot(file), false);
     expect(descriptorHash(await snapshot(parent))).toBe(before);
-  }, 20_000);
+  }, 30_000);
 
   it('removes explicit broad child grants as well as inherited grants, preserving content', async () => {
     const parent = await fixture();

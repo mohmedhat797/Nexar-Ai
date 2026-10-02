@@ -8,8 +8,8 @@ import { FAKE_RELAY, harness, isAlive, task, waitFor } from './test/harness.js';
 import type { Harness } from './test/harness.js';
 
 let h: Harness | undefined;
-afterEach(() => {
-  h?.cleanup();
+afterEach(async () => {
+  await h?.cleanup();
   h = undefined;
 });
 

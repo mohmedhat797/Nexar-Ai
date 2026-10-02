@@ -34,8 +34,8 @@ function applicationEnvKeys(env: Readonly<Record<string, string | undefined>>): 
 }
 
 let h: Harness | undefined;
-afterEach(() => {
-  h?.cleanup();
+afterEach(async () => {
+  await h?.cleanup();
   h = undefined;
 });
 
