@@ -35,8 +35,10 @@ The unsigned per-user x64 NSIS build succeeded (118,105,049 bytes) and emits a S
 a project path containing spaces, shipped workflow catalogs, drafts and relaunch persistence.
 The installer is configured without elevation and preserves data on uninstall; actual installer
 execution and owner acceptance remain pending. The final full gate passed: format, lint, boundaries,
-typecheck, 1,800 tests passed / 118 skipped, and build. This delivery checkpoint is ready to push;
-CI acceptance at its exact commit remains pending until both matrix jobs finish.
+typecheck, 1,800 tests passed / 118 skipped, and build. Delivery checkpoint
+`6255415748bb655f1d8577e0b41ab2d46ce35004` is pushed; local and remote SHA matched and the tree was
+clean. CI acceptance at that commit remains pending until both matrix jobs finish. Usage reached
+92%, so the next implementation unit waits for continuation; reset credits remain unused.
 
 ## CURRENT STATE
 
