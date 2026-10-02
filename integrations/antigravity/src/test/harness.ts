@@ -140,7 +140,9 @@ export function harness(
     workspace: (launcher, access = 'read-write') => ({ path: dir, access, launcher }),
     invocations: () =>
       existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as FakeInvocation[]) : [],
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    // A just-terminated fake runtime can briefly hold Windows handles (EBUSY); Node's bounded
+    // retry covers that release window without hiding a persistent lock.
+    cleanup: () => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }
 

@@ -4,6 +4,7 @@ import { chmod, lstat, mkdir } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve, win32 } from 'node:path';
 const FAILURE = 'Cannot secure the Desktop state directory';
+const READY = 'nexar-state-guard:ready';
 
 interface WindowsOptions {
   readonly env: Record<string, string>;
@@ -29,9 +30,14 @@ export interface PrivateStateOptions {
 // The path is data in a private environment variable, never interpolated into this script.
 // Windows PowerShell uses .NET Framework's ACL-aware CreateDirectory overload, which creates
 // a missing state root with the private descriptor instead of inheriting a broad parent ACL.
+// Module auto-loading stays off: the script uses only .NET and core language features, so no
+// module from PSModulePath is imported and no first-use module analysis delays startup.
 const WINDOWS_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
+$PSModuleAutoLoadingPreference = 'None'
 try {
+  [Console]::Out.WriteLine('${READY}')
+  [Console]::Out.Flush()
   $path = [System.IO.Path]::GetFullPath($env:NEXAR_PRIVATE_STATE_PATH)
   $reserved = @([System.IO.Path]::GetPathRoot($path), [System.IO.Path]::GetTempPath())
   foreach ($folder in @('UserProfile', 'ApplicationData', 'LocalApplicationData', 'Desktop', 'MyDocuments')) {
@@ -191,8 +197,76 @@ try {
     $stream.Dispose()
   }
   exit 0
-} catch { exit 1 }
+} catch {
+  # A fixed category code only: never the message, path or account in the exception.
+  $codes = @{
+    'State root is a shared location' = 2; 'State reparse point' = 3
+    'State ancestor is not a directory' = 4; 'State owner mismatch' = 5
+    'State owner cannot be normalized' = 6; 'State tree not recognized' = 7
+    'State tree too large' = 8; 'State owner not normalized' = 9; 'State ACL unprotected' = 9
+    'State ACL rule count' = 9; 'State ACL principal mismatch' = 9; 'State ACL rights mismatch' = 9
+  }
+  $code = $codes[[string] $_.Exception.Message]
+  if ($null -eq $code) { $code = 1 }
+  exit $code
+}
 `;
+
+const EXIT_CATEGORIES: Readonly<Record<number, string>> = {
+  1: 'tool-error',
+  2: 'shared-location',
+  3: 'reparse-point',
+  4: 'ancestor-not-directory',
+  5: 'owner-mismatch',
+  6: 'owner-not-normalizable',
+  7: 'unrecognized-tree',
+  8: 'tree-too-large',
+  9: 'acl-verification',
+};
+
+/** Safe failure metadata: a fixed category, phase, exit code and duration. Never paths or output. */
+export interface PrivateStateDiagnostic {
+  readonly category: string;
+  /** `preflight` runs before the tool; `startup` failed before the script ran; `execution` after. */
+  readonly phase: 'preflight' | 'startup' | 'execution';
+  readonly exitCode?: number;
+  readonly elapsedMs?: number;
+}
+
+export class PrivateStateError extends Error {
+  constructor(readonly diagnostic: PrivateStateDiagnostic) {
+    super(FAILURE);
+    this.name = 'PrivateStateError';
+  }
+}
+
+function toolDiagnostic(error: unknown, elapsedMs: number): PrivateStateDiagnostic {
+  const failure = (typeof error === 'object' && error !== null ? error : {}) as {
+    readonly code?: unknown;
+    readonly status?: unknown;
+    readonly signal?: unknown;
+    readonly stdout?: unknown;
+  };
+  const stdout = failure.stdout;
+  const started =
+    (typeof stdout === 'string' || Buffer.isBuffer(stdout)) && String(stdout).includes(READY);
+  const phase = started ? 'execution' : 'startup';
+  if (failure.code === 'ETIMEDOUT') return { category: 'timeout', phase, elapsedMs };
+  if (failure.code === 'ENOENT') return { category: 'tool-unavailable', phase, elapsedMs };
+  if (typeof failure.status === 'number') {
+    return {
+      category: EXIT_CATEGORIES[failure.status] ?? 'tool-error',
+      phase,
+      exitCode: failure.status,
+      elapsedMs,
+    };
+  }
+  return {
+    category: typeof failure.signal === 'string' ? 'killed' : 'tool-error',
+    phase,
+    elapsedMs,
+  };
+}
 
 function windowsFileBoundary(path: string): void {
   // A hard link is not a reparse point: changing its DACL changes the outside file too.
@@ -305,27 +379,34 @@ export async function ensurePrivateStateDirectory(
       ((command, args, toolOptions) => {
         // Complete native Windows creation/normalization before yielding to Electron's
         // readiness event: Chromium otherwise creates unrecognized first-run cache files.
-        execFileSync(command, [...args], { ...toolOptions, stdio: 'ignore' });
+        // stdout carries only the fixed readiness marker; stderr is discarded unread.
+        execFileSync(command, [...args], { ...toolOptions, stdio: ['ignore', 'pipe', 'ignore'] });
         return Promise.resolve();
       });
-    await runWindows(
-      win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-EncodedCommand',
-        Buffer.from(WINDOWS_SCRIPT, 'utf16le').toString('base64'),
-      ],
-      {
-        env: { SystemRoot: systemRoot, NEXAR_PRIVATE_STATE_PATH: statePath },
-        windowsHide: true,
-        shell: false,
-        timeout: 15_000,
-        maxBuffer: 16 * 1024,
-      },
-    );
-  } catch {
+    const started = Date.now();
+    try {
+      await runWindows(
+        win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-EncodedCommand',
+          Buffer.from(WINDOWS_SCRIPT, 'utf16le').toString('base64'),
+        ],
+        {
+          env: { SystemRoot: systemRoot, NEXAR_PRIVATE_STATE_PATH: statePath },
+          windowsHide: true,
+          shell: false,
+          timeout: 15_000,
+          maxBuffer: 16 * 1024,
+        },
+      );
+    } catch (error) {
+      throw new PrivateStateError(toolDiagnostic(error, Date.now() - started));
+    }
+  } catch (error) {
     // Never include subprocess output, account identifiers, paths or a sensitive cause.
-    throw new Error(FAILURE);
+    if (error instanceof PrivateStateError) throw error;
+    throw new PrivateStateError({ category: 'preflight', phase: 'preflight' });
   }
 }

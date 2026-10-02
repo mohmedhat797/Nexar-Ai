@@ -6,7 +6,7 @@ import { createBridge } from './bridge.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost } from './engine-host.js';
 import { createStderrLogger } from './logger.js';
-import { ensurePrivateStateDirectory } from './private-state.js';
+import { ensurePrivateStateDirectory, PrivateStateError } from './private-state.js';
 import { SettingsStore } from './settings-store.js';
 import {
   bundlePaths,
@@ -107,9 +107,10 @@ app.on('window-all-closed', () => {
 });
 
 start().catch((error: unknown) => {
-  // Startup failures (a broken config, say) are reported without paths or stacks.
-  process.stderr.write(
-    `nexar-desktop: startup failed: ${error instanceof Error ? error.name : 'unknown error'}\n`,
-  );
+  // Startup failures (a broken config, say) are reported without paths or stacks; a state
+  // guard failure adds only its fixed category, phase, exit code and duration.
+  const name = error instanceof Error ? error.name : 'unknown error';
+  const detail = error instanceof PrivateStateError ? ` ${JSON.stringify(error.diagnostic)}` : '';
+  process.stderr.write(`nexar-desktop: startup failed: ${name}${detail}\n`);
   app.exit(1);
 });

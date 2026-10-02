@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ensurePrivateStateDirectory } from './private-state.js';
+import { ensurePrivateStateDirectory, PrivateStateError } from './private-state.js';
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -72,20 +72,71 @@ describe('state guard tool boundary', () => {
   );
 
   it('fails closed if the system tool is unavailable, times out or rejects ownership', async () => {
-    for (const code of ['ENOENT', 'ETIMEDOUT', 'OWNER_MISMATCH']) {
+    const cases = [
+      [{ code: 'ENOENT' }, { category: 'tool-unavailable', phase: 'startup' }],
+      [
+        { code: 'ETIMEDOUT', stdout: '' },
+        { category: 'timeout', phase: 'startup' },
+      ],
+      [
+        { code: 'ETIMEDOUT', stdout: Buffer.from('nexar-state-guard:ready\r\n') },
+        { category: 'timeout', phase: 'execution' },
+      ],
+      [
+        { status: 5, stdout: 'nexar-state-guard:ready\r\n' },
+        { category: 'owner-mismatch', phase: 'execution', exitCode: 5 },
+      ],
+      [
+        { status: 77, stdout: '' },
+        { category: 'tool-error', phase: 'startup', exitCode: 77 },
+      ],
+    ] as const;
+    for (const [failure, diagnostic] of cases) {
       const runWindows = vi.fn(() =>
         Promise.reject(
-          Object.assign(new Error('private path and account in subprocess output'), { code }),
+          Object.assign(
+            new Error('C:\\state private path and account in subprocess output'),
+            failure,
+          ),
         ),
       );
-      await expect(
-        ensurePrivateStateDirectory('C:\\state', {
-          platform: 'win32',
-          systemRoot: 'C:\\Windows',
-          runWindows,
-        }),
-      ).rejects.toThrow(/^Cannot secure the Desktop state directory$/);
+      const error = await ensurePrivateStateDirectory('C:\\state', {
+        platform: 'win32',
+        systemRoot: 'C:\\Windows',
+        runWindows,
+      }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(PrivateStateError);
+      expect((error as Error).message).toBe('Cannot secure the Desktop state directory');
+      const reported = (error as PrivateStateError).diagnostic;
+      expect(reported).toMatchObject(diagnostic);
+      expect(reported.elapsedMs).toBeGreaterThanOrEqual(0);
+      expect(JSON.stringify(reported)).not.toMatch(/state|account|subprocess/);
     }
+  });
+
+  it('reports preflight refusals without a tool diagnostic', async () => {
+    const error = await ensurePrivateStateDirectory('relative', {
+      platform: 'win32',
+      systemRoot: 'C:\\Windows',
+      runWindows: vi.fn(() => Promise.resolve()),
+    }).catch((caught: unknown) => caught);
+    expect((error as PrivateStateError).diagnostic).toEqual({
+      category: 'preflight',
+      phase: 'preflight',
+    });
+  });
+
+  it('disables module auto-loading and emits only the readiness marker', async () => {
+    const runWindows = vi.fn(() => Promise.resolve());
+    await ensurePrivateStateDirectory('C:\\state', {
+      platform: 'win32',
+      systemRoot: 'C:\\Windows',
+      runWindows,
+    });
+    const call = runWindows.mock.calls[0] as unknown as [string, string[]];
+    const script = Buffer.from(call[1][3]!, 'base64').toString('utf16le');
+    expect(script).toContain("$PSModuleAutoLoadingPreference = 'None'");
+    expect(script).toContain("[Console]::Out.WriteLine('nexar-state-guard:ready')");
   });
 
   it('rejects an untrusted system directory before launching a subprocess', async () => {
@@ -139,53 +190,105 @@ interface AclSnapshot {
   readonly descriptor: string;
 }
 
-async function powershell(script: string, path: string): Promise<string> {
+// The helpers use .NET only, with module auto-loading off: cmdlets such as Get-Acl trigger
+// PowerShell's first-use module analysis, which a minimal environment cannot reuse and which
+// exceeded the helper budget on CI runners with large preinstalled module sets.
+const HELPER_PRELUDE = String.raw`
+$ErrorActionPreference = 'Stop'
+$PSModuleAutoLoadingPreference = 'None'
+$path = $env:NEXAR_ACL_TEST_PATH
+if ([System.IO.Directory]::Exists($path)) { $item = [System.IO.DirectoryInfo]::new($path) }
+else { $item = [System.IO.FileInfo]::new($path) }
+$sections = [System.Security.AccessControl.AccessControlSections]::Access -bor
+  [System.Security.AccessControl.AccessControlSections]::Owner
+`;
+
+async function powershell(operation: string, script: string, path: string): Promise<string> {
   const systemRoot = process.env['SystemRoot'] ?? process.env['SYSTEMROOT'];
   if (systemRoot === undefined) throw new Error('Windows test system directory unavailable');
-  const { stdout } = await execFileAsync(
-    win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    [
-      '-NoProfile',
-      '-NonInteractive',
-      '-EncodedCommand',
-      Buffer.from(script, 'utf16le').toString('base64'),
-    ],
-    {
-      env: { SystemRoot: systemRoot, NEXAR_ACL_TEST_PATH: path },
-      windowsHide: true,
-      shell: false,
-      timeout: 15_000,
-      maxBuffer: 64 * 1024,
-    },
-  );
-  return stdout.trim();
+  const started = Date.now();
+  try {
+    const { stdout } = await execFileAsync(
+      win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-EncodedCommand',
+        Buffer.from(HELPER_PRELUDE + script, 'utf16le').toString('base64'),
+      ],
+      {
+        env: { SystemRoot: systemRoot, NEXAR_ACL_TEST_PATH: path },
+        windowsHide: true,
+        shell: false,
+        timeout: 15_000,
+        maxBuffer: 64 * 1024,
+      },
+    );
+    return stdout.trim();
+  } catch (error) {
+    // A bounded summary explains a helper failure without echoing the fixture path.
+    const failure = error as {
+      code?: unknown;
+      signal?: unknown;
+      killed?: unknown;
+      stderr?: unknown;
+    };
+    const stderr = typeof failure.stderr === 'string' ? failure.stderr : '';
+    throw new Error(
+      `ACL test helper ${operation} failed: ${JSON.stringify({
+        code: failure.code,
+        signal: failure.signal,
+        killed: failure.killed,
+        elapsedMs: Date.now() - started,
+        stderr: stderr.split(path).join('<path>').slice(0, 400),
+      })}`,
+      // Temporary fixture paths only; the summary above is what CI logs should be read for.
+      { cause: error },
+    );
+  }
 }
 
 async function snapshot(path: string): Promise<AclSnapshot> {
+  // One tab-separated header line (owner, protection, descriptor), then one line per rule.
   const output = await powershell(
+    'snapshot',
     String.raw`
-$ErrorActionPreference = 'Stop'
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$acl = Get-Acl -LiteralPath $env:NEXAR_ACL_TEST_PATH
-$rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) |
-  ForEach-Object {
-    $principal = switch ($_.IdentityReference.Value) {
-      $sid { 'user' }
-      'S-1-5-18' { 'SYSTEM' }
-      'S-1-5-32-544' { 'Administrators' }
-      default { 'other' }
-    }
-    @{ principal = $principal; rights = $_.FileSystemRights.ToString()
-      inheritance = $_.InheritanceFlags.ToString(); propagation = $_.PropagationFlags.ToString()
-      inherited = $_.IsInherited; type = $_.AccessControlType.ToString() }
-  })
-@{ ownerCurrent = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -eq $sid
-  protected = $acl.AreAccessRulesProtected; rules = $rules; descriptor = $acl.Sddl } |
-  ConvertTo-Json -Depth 4 -Compress
+$acl = $item.GetAccessControl($sections)
+$owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+(($owner -eq $sid), $acl.AreAccessRulesProtected,
+  $acl.GetSecurityDescriptorSddlForm($sections)) -join [char] 9
+foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+  $principal = switch ($rule.IdentityReference.Value) {
+    $sid { 'user' }
+    'S-1-5-18' { 'SYSTEM' }
+    'S-1-5-32-544' { 'Administrators' }
+    default { 'other' }
+  }
+  ($principal, $rule.FileSystemRights, $rule.InheritanceFlags, $rule.PropagationFlags,
+    $rule.IsInherited, $rule.AccessControlType) -join [char] 9
+}
 `,
     path,
   );
-  return JSON.parse(output) as AclSnapshot;
+  const [header = '', ...lines] = output.split(/\r?\n/);
+  const [ownerCurrent, protectedAcl, descriptor = ''] = header.split('\t');
+  return {
+    ownerCurrent: ownerCurrent === 'True',
+    protected: protectedAcl === 'True',
+    descriptor,
+    rules: lines.map((line) => {
+      const [
+        principal = '',
+        rights = '',
+        inheritance = '',
+        propagation = '',
+        inherited,
+        type = '',
+      ] = line.split('\t');
+      return { principal, rights, inheritance, propagation, inherited: inherited === 'True', type };
+    }),
+  };
 }
 
 function descriptorHash(snapshot: AclSnapshot): string {
@@ -211,9 +314,8 @@ function expectPrivate(snapshot: AclSnapshot, directory: boolean, protectedAcl =
 
 async function addBroadExplicitGrant(path: string): Promise<void> {
   await powershell(
+    'grant',
     String.raw`
-$ErrorActionPreference = 'Stop'
-$item = Get-Item -LiteralPath $env:NEXAR_ACL_TEST_PATH -Force
 $acl = $item.GetAccessControl()
 $acl.SetOwner([System.Security.Principal.WindowsIdentity]::GetCurrent().User)
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
