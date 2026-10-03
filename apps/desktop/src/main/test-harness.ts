@@ -106,7 +106,7 @@ export async function createHarness(overrides: Partial<BridgeDeps> = {}): Promis
     },
     call: (channel, args = {}) =>
       bridge.invoke(channel, args, (event) => events.push(event)) as Promise<BridgeResult<never>>,
-    cleanup: () => rm(base, { recursive: true, force: true }),
+    cleanup: () => rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }
 

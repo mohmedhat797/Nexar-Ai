@@ -1206,12 +1206,14 @@ describe('OperatingService', () => {
     it('falls back when there is no Cowork executor even if the lane reports available', async () => {
       const { h, requests } = await coworkHarness();
       const s = await h.newSession('cowork');
-      await h.makeService().submit({
+      // One service: whenIdle must wait for the turn this service started.
+      const service = h.makeService();
+      await service.submit({
         sessionId: s.id,
         submissionKey: nextKey(),
         text: 'Summarize this.',
       });
-      await h.makeService().whenIdle();
+      await service.whenIdle();
       expect(requests).toHaveLength(0);
       expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
         effectiveLane: 'direct',
