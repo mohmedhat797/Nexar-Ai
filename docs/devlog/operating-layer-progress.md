@@ -189,14 +189,23 @@ packaged startup tracing (`3f30513`). Acceptance matrix: [`055-code-mode-wsl2.md
 **Owner live validation pending:** no `nexar-plane` distro exists on the owner machine (WSL 2.7.14,
 kernel 6.18.33.2-2, distros `Ubuntu`, `docker-desktop`).
 
+**NXR-056 (2026-10-03):** ADR-026 (`9eabbd9`) — Cowork through a Nexar-supervised private
+OpenWorker. Adapter (`4a2b13b`, upstream envelope and approval strings verified in source), Cowork
+lane in the Operating Layer and Desktop main (`7453e7f`), Desktop state + E2E (`221aca4`).
+Implementation complete, offline-tested with a fake OpenWorker; live run pending (OpenWorker not
+installed). Recursion is impossible by construction in this version; NXR-059 adds turn-scoped
+delegation.
+
 ## NEXT EXACT TASK
 
-1. NXR-056 Cowork through OpenWorker: refresh the pinned OpenWorker research first (version, headless
-   seam, state, provider injection, approvals, MCP), record a research snapshot, then implement the
-   supervised Cowork lane incrementally (adapter → Cowork lane in OperatingService → Desktop state →
-   recursion/approval/fallback tests).
-2. Then NXR-053 behavior profiles over the real lanes, then the integrated Operating Layer E2E.
-3. Owner, any time: create `nexar-plane` and run A1–A6 plus one small review and one small change.
+1. NXR-053 AI behavior settings over the two real lanes (Cowork: read only / drafts only / ask
+   before write → OpenWorker mode and Nexar policy; Code: plan / ask / auto-edit / full-auto in the
+   sandbox → plan selection and approval behaviour). Settings compile into existing policy inputs
+   (OperatingSession policy, TaskRequirements, NRC owner preferences, adapter options); unsupported
+   combinations are rejected, locked rules stay locked.
+2. Integrated Operating Layer E2E (offline, fakes): Cowork proposal → Code review report →
+   Code change with approval, in one session.
+3. Owner: `nexar-plane` + A1–A6; OpenWorker 0.3.x install; live Cowork, review and change runs.
    NXR-054 and Mobile stay deferred.
 
 ## BLOCKERS

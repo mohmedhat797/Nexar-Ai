@@ -74,7 +74,7 @@ Phases of [ADR-021](../adr/021-nexar-desktop.md); see also ADR-022 and ADR-023.
 | [NXR-053](053-ai-behavior-settings.md)          | AI behavior settings per mode                           | v0.5      | desktop, integration               | Planned                                |
 | [NXR-054](054-scheduled-tasks.md)               | Scheduled tasks                                         | v0.5      | desktop, automation                | Planned                                |
 | [NXR-055](055-code-mode-wsl2.md)                | Code mode through the WSL2 plane (DSH default)          | v0.5      | desktop, engineering               | Implemented (live validation pending)  |
-| [NXR-056](056-cowork-openworker-agent.md)       | Cowork through OpenWorker (automations seam)            | v0.5      | desktop, openworker                | Planned                                |
+| [NXR-056](056-cowork-openworker-agent.md)       | Cowork through OpenWorker (automations seam)            | v0.5      | desktop, openworker                | Implemented (live-unverified)          |
 | [NXR-057](057-persistent-operating-sessions.md) | Persistent Operating Sessions                           | v0.5      | operating-layer, sessions, desktop | Done                                   |
 | [NXR-058](058-operating-intent-and-lanes.md)    | Operating intent and lane orchestration                 | v0.5      | operating-layer, routing, desktop  | Done (lanes: NXR-055/056)              |
 
