@@ -53,10 +53,24 @@ function decider(): string {
   }
 }
 
+/** Startup phase timings on stderr when tracing is requested (tests); phase names and ms only. */
+const traceStartup =
+  process.env['NEXAR_DESKTOP_STARTUP_TRACE'] === '1'
+    ? (() => {
+        const began = Date.now();
+        return (phase: string): void => {
+          process.stderr.write(`nexar-desktop: startup ${phase} ${String(Date.now() - began)}ms\n`);
+        };
+      })()
+    : (): void => undefined;
+
 async function start(): Promise<void> {
   const userData = app.getPath('userData');
+  traceStartup('begin');
   await ensurePrivateStateDirectory(userData, { forbiddenPaths: [app.getPath('appData')] });
+  traceStartup('state-guard');
   await app.whenReady();
+  traceStartup('ready');
   hardenSession();
   installWebContentsLockdown();
 
@@ -80,6 +94,7 @@ async function start(): Promise<void> {
     }
   }
   const keys = new DesktopKeyStore({ userData, encryption: safeStorage });
+  traceStartup('stores');
   const engine = await createEngineHost({
     configPath: config.path,
     env: engineEnv,
@@ -104,7 +119,9 @@ async function start(): Promise<void> {
   const sessionStore = new FileSessionStore(join(userData, '.nexar', 'sessions'));
   let sessions: FileSessionStore | undefined;
   try {
+    traceStartup('engine');
     const { interruptedTurns } = await sessionStore.acquireLease();
+    traceStartup('sessions');
     sessions = sessionStore;
     if (interruptedTurns > 0) logger.info('marked running turns interrupted', { interruptedTurns });
   } catch (error) {
@@ -170,6 +187,7 @@ async function start(): Promise<void> {
   }
 
   main = createMainWindow(paths);
+  traceStartup('window');
   main.on('closed', () => {
     main = undefined;
   });

@@ -17,6 +17,8 @@ let base: string;
 let userData: string;
 let projectDir: string;
 const apps: ElectronApplication[] = [];
+/** Recent stdout/stderr of the apps this file launched, printed when a launch fails. */
+let output: string[] = [];
 const POLL = { timeout: 60_000, interval: 200 };
 
 const text = (locator: Locator): Promise<string> => locator.innerText();
@@ -34,6 +36,7 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     ),
   );
   env['NEXAR_DESKTOP_USER_DATA'] = userData;
+  env['NEXAR_DESKTOP_STARTUP_TRACE'] = '1';
   if (EXECUTABLE) {
     // Prove the installed layout finds its own catalogs, with no repository-path override.
     delete env['NEXAR_WORKFLOWS_DIR'];
@@ -54,6 +57,13 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     env,
   });
   apps.push(app);
+  output = [];
+  const capture = (chunk: Buffer): void => {
+    output.push(chunk.toString());
+    if (output.length > 200) output.shift();
+  };
+  app.process().stdout?.on('data', capture);
+  app.process().stderr?.on('data', capture);
   try {
     const page = await app.firstWindow();
     await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 60_000 });
@@ -63,13 +73,23 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     // would still hold the sessions lease and the shared state directory.
     app.process().kill();
     apps.splice(apps.indexOf(app), 1);
+    process.stderr.write(
+      `desktop e2e launch failed; app output:\n${output.join('').slice(-8000)}\n`,
+    );
     throw error;
   }
 }
 
+/** Closes the app and waits until its process has exited before the state is reused. */
 async function close(app: ElectronApplication): Promise<void> {
+  const child = app.process();
   await app.close();
   apps.splice(apps.indexOf(app), 1);
+  const deadline = Date.now() + 20_000;
+  while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (child.exitCode === null && child.signalCode === null) child.kill();
 }
 
 beforeAll(async () => {
@@ -82,7 +102,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await Promise.all(apps.map((a) => a.close().catch(() => undefined)));
-  await rm(base, { recursive: true, force: true });
+  // A just-ended app can briefly hold browser files on Windows; the async rm retries (bounded).
+  await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 describe('Nexar Desktop', () => {
