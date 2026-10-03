@@ -52,7 +52,8 @@ function Composer({
       ...(resource === '' ? {} : { preferredResourceIds: [resource] }),
       ...(Number.isFinite(max) && max >= 0 ? { maxCostUsd: max } : {}),
     }).then(
-      () => setPrompt(''),
+      // Clear only what was sent: the reply can arrive after the owner has typed the next message.
+      () => setPrompt((current) => (current.trim() === text ? '' : current)),
       () => undefined,
     );
   };
