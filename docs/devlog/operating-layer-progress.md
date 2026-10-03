@@ -181,17 +181,22 @@ ceiling or resource preference are refused, not silently dropped. `4f78ed6` move
 data to `%LOCALAPPDATA%\Nexar\Runtime` (the state ACL guard scaled per entry and would eventually fail
 startup); `9aa35ec` made the E2E wait for app exit between relaunches (CI green at `9aa35ec`).
 
+**NXR-055 closure (2026-10-03):** implementation complete, offline-tested and CI-validated at
+`3f30513` (run `37126853300`). Delivered: ADR-025 + report amendment (`de07fe4`, `45a8136`), plane
+protocol and serve command (`5c653c2`), Desktop bridge and Code lane (`487b851`), Code surface
+(`bc14f01`), report-only engineering plans (`f5c1304`), review turns on the Code lane (`41fd1a9`),
+packaged startup tracing (`3f30513`). Acceptance matrix: [`055-code-mode-wsl2.md`](../backlog/055-code-mode-wsl2.md).
+**Owner live validation pending:** no `nexar-plane` distro exists on the owner machine (WSL 2.7.14,
+kernel 6.18.33.2-2, distros `Ubuntu`, `docker-desktop`).
+
 ## NEXT EXACT TASK
 
-1. NXR-055c: replace the Code placeholder with the engineering surface (status banner, per-turn
-   engineering panel, diff view, plane approval buttons), Settings → Code tab, offline Electron E2E
-   with `tests/fixtures/fake-plane.mjs` (in progress in a disposable worktree; not on the branch).
-2. Report-only engineering plans so `review` turns can run on the plane (runner change).
-3. Owner machine: create the hardened `nexar-plane` distro per
-   [`wsl2-engineering-plane.md`](../integration/wsl2-engineering-plane.md), run A1–A6, map one
-   project, and one small real engineering E2E. Not possible without the owner: no `nexar-plane`
-   distro exists on this machine.
-4. Then NXR-056 Cowork/OpenWorker, NXR-053 behavior profiles, the integrated Operating Layer E2E.
+1. NXR-056 Cowork through OpenWorker: refresh the pinned OpenWorker research first (version, headless
+   seam, state, provider injection, approvals, MCP), record a research snapshot, then implement the
+   supervised Cowork lane incrementally (adapter → Cowork lane in OperatingService → Desktop state →
+   recursion/approval/fallback tests).
+2. Then NXR-053 behavior profiles over the real lanes, then the integrated Operating Layer E2E.
+3. Owner, any time: create `nexar-plane` and run A1–A6 plus one small review and one small change.
    NXR-054 and Mobile stay deferred.
 
 ## BLOCKERS
