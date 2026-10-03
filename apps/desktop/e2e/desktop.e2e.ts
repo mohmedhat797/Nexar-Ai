@@ -65,7 +65,8 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
   app.process().stdout?.on('data', capture);
   app.process().stderr?.on('data', capture);
   try {
-    const page = await app.firstWindow();
+    // A freshly packaged app is cold-started under antivirus scanning on CI runners.
+    const page = await app.firstWindow({ timeout: EXECUTABLE ? 90_000 : 30_000 });
     await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 60_000 });
     return { app, page };
   } catch (error) {

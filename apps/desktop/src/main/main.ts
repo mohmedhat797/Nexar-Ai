@@ -107,6 +107,7 @@ async function start(): Promise<void> {
     env: engineEnv,
     logger,
     resolveSecret: keys.resolveSecret,
+    trace: traceStartup,
   });
   const providers = new ProviderService({
     keys,

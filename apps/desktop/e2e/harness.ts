@@ -89,7 +89,8 @@ export async function createHarness(): Promise<Harness> {
     app.process().stdout?.on('data', capture);
     app.process().stderr?.on('data', capture);
     try {
-      const page = await app.firstWindow();
+      // A freshly packaged app is cold-started under antivirus scanning on CI runners.
+      const page = await app.firstWindow({ timeout: EXECUTABLE ? 90_000 : 30_000 });
       await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 60_000 });
       return { app, page };
     } catch (error) {
@@ -120,7 +121,18 @@ export async function createHarness(): Promise<Harness> {
     launch,
     close,
     dispose: async () => {
-      await Promise.all(apps.map((a) => a.close().catch(() => undefined)));
+      // An app that will not close must not hang teardown: give it 15 s, then end its process.
+      await Promise.all(
+        apps.map((a) =>
+          Promise.race([
+            a.close().catch(() => undefined),
+            new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
+          ]).then(() => {
+            const child = a.process();
+            if (child.exitCode === null && child.signalCode === null) child.kill();
+          }),
+        ),
+      );
       await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };
