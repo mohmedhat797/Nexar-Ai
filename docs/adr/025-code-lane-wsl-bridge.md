@@ -129,3 +129,26 @@ credential mounts (ADR-018 §7); Desktop key-store values are never sent to WSL.
 - **WSL message/exit semantics vary by version.** Launch failures map to coarse, safe states; detail
   stays out of the UI and logs.
 - **Plane and Desktop version skew.** The handshake protocol id fails clearly; `planeVersion` is shown.
+
+## Amendment (2026-10-03): report-only engineering plans
+
+Read-only `review` turns run on the plane through **report plans**, not through Desktop special
+cases:
+
+- `plan.json` gains `mode: "change" | "report"` (default `change`). A report plan has only
+  read-only lanes and ends with exactly one `report` lane whose text is the report. The loader
+  rejects any read-write lane, `review` (patch-review) lane or debugging lane in a report plan.
+- The runner keeps the same boundary as a change plan: a private clone on the plane, every lane
+  in the Nexar sandbox with the worktree mounted read-only, NRC-selected resources (owner lane
+  preferences may name a `report` preference; DSH-first is an owner preference, never hard-coded),
+  egress unchanged, cancellation and lineage. It skips agent setup, harvest, gates, the
+  `engineering.commit` approval and the commit; status `reported` ends the task and the clone is
+  cleaned up as for any finished task. No path can reach the commit approval from a report plan.
+- The report text is stored as the lane's text artifact (the record keeps its sha256 and size,
+  never content) and returned bounded (64 KiB, truncation flagged) in `completed.outcome.report`,
+  with the lane resources (`outcome.lanes`: role and resource id). Both fields are additive to
+  `nexar-plane/1`: older frames still validate, and `report` is accepted only with status
+  `reported`.
+- The plane maps `intent: "review"` to the shipped report plan (`repository-report`) and lists it
+  in `ready.readiness.plans`; Desktop treats the Code lane as able to run reviews only when that
+  plan is advertised, otherwise the honest direct fallback stays in place.
