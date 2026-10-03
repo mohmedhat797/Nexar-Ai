@@ -41,6 +41,8 @@ import {
 export const SHIPPED_PLANS = fileURLToPath(new URL('../../../engineering/plans', import.meta.url));
 /** Appears in the goal only: must never reach a record or telemetry. */
 export const GOAL_MARKER = 'GOAL-MARKER-9f3a1c';
+/** Appears in the default report only: must never reach a record or telemetry. */
+export const REPORT_MARKER = 'REPORT-MARKER-77d1e0';
 /** Appears in the diff only: must never reach a record or telemetry. */
 export const DIFF_MARKER = 'UNIQUE-DIFF-42';
 
@@ -148,7 +150,7 @@ export function editFile(call: LaneCall, name = 'a.txt', text = `FEATURE-LINE ${
 
 /**
  * One adapter standing in for every resource. Default behaviour by lane id: `architecture` returns a
- * plan, `review` approves, anything else edits `a.txt` in the workspace. `queue` overrides the next
+ * plan, `review` approves, `report` returns a short report, anything else edits `a.txt` in the workspace. `queue` overrides the next
  * calls of a lane.
  */
 export class ScriptedAdapter implements ExecutionAdapter {
@@ -191,6 +193,7 @@ export class ScriptedAdapter implements ExecutionAdapter {
     if (queued !== undefined) text = await queued(call, context);
     else if (call.lane === 'architecture') text = 'PLAN-TEXT: change a.txt only';
     else if (call.lane === 'review') text = verdictText('approve');
+    else if (call.lane === 'report') text = `Summary ${REPORT_MARKER}\n\nFindings\n- a.txt:1-1 ok`;
     else {
       editFile(call);
       text = 'implemented';

@@ -7,5 +7,9 @@ export const MAX_FRAME_BYTES = 1024 * 1024;
 export const MAX_DIFF_BYTES = 256 * 1024;
 /** The `diff` frame lists at most this many changed files. */
 export const MAX_DIFF_FILES = 500;
+/** A `completed` outcome carries at most this many bytes of report text (status `reported`). */
+export const MAX_REPORT_BYTES = 64 * 1024;
+/** A `completed` outcome lists at most this many lane executions. */
+export const MAX_OUTCOME_LANES = 16;
 /** Same bound as the engineering runner's goal limit. */
 export const MAX_GOAL_CHARS = 20_000;

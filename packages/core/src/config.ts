@@ -196,7 +196,7 @@ const TaskKindRuleSchema = z.strictObject({
 const DOCUMENT_SET_NAME = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 const PathSchema = z.string().min(1);
 const WORKFLOW_ID = /^[a-z][a-z0-9-]{0,63}$/;
-const LANE_ROLES = ['architecture', 'feature', 'tests', 'debugging', 'review'] as const;
+const LANE_ROLES = ['architecture', 'feature', 'tests', 'debugging', 'review', 'report'] as const;
 
 const ArgvSchema = z.array(z.string().min(1)).min(1);
 const EngineeringCommandSchema = z.strictObject({

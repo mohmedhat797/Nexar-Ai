@@ -278,6 +278,22 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
     };
   }
 
+  const planeSeams = (
+    plans: readonly string[] = ['implement-review'],
+  ): NonNullable<CliSeams['plane']> => ({
+    approvalStore: store,
+    readText: (path) =>
+      Promise.resolve(
+        path === '/etc/wsl.conf'
+          ? '[automount]\nenabled = false\n[interop]\nenabled=false\n'
+          : '5.15.153.1-microsoft-standard-WSL2\n',
+      ),
+    planIds: () => Promise.resolve(plans),
+    approvalPollMs: 5,
+    settleTimeoutMs: 2000,
+    user: 'tester',
+  });
+
   function start(runner: EngineeringRunnerPort = approvalRunner(), extra: CliSeams = {}): void {
     exitCode = runCli(['plane', 'serve', '--stdio'], io(), {
       engineering: { runner, launcher: fakeLauncher },
@@ -285,21 +301,25 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
         availability: () => Promise.resolve(available),
         runSelfTest: () => Promise.resolve([pass]),
       },
-      plane: {
-        approvalStore: store,
-        readText: (path) =>
-          Promise.resolve(
-            path === '/etc/wsl.conf'
-              ? '[automount]\nenabled = false\n[interop]\nenabled=false\n'
-              : '5.15.153.1-microsoft-standard-WSL2\n',
-          ),
-        planIds: () => Promise.resolve(['implement-review']),
-        approvalPollMs: 5,
-        settleTimeoutMs: 2000,
-        user: 'tester',
-      },
+      plane: planeSeams(),
       ...extra,
     });
+  }
+
+  /** A runner that records its input and ends with `outcome`, after emitting `events`. */
+  function scriptedRunner(
+    outcome: Omit<EngineeringOutcome, 'taskId' | 'recordPath'>,
+    events: readonly EngineeringProgress[] = [],
+  ): EngineeringRunnerPort {
+    return {
+      run: (runInput: EngineeringInput, options: EngineeringRunOptions = {}) => {
+        runnerCalls += 1;
+        inputs.push(runInput);
+        for (const event of events) options.onProgress?.(event);
+        return Promise.resolve({ taskId: TASK, recordPath: '/abs/secret/record.json', ...outcome });
+      },
+      cleanup: () => Promise.resolve(),
+    };
   }
 
   async function handshake(): Promise<void> {
@@ -571,18 +591,110 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
       expect(framesOf('error')).toEqual([]);
     });
 
-    it('rejects the review intent before touching the runner', async () => {
-      start();
-      await handshake();
-      input.frame(runFrame({ intent: 'review' }));
-      await waitFor(() => framesOf('error').length === 1, 'error');
-      expect(framesOf('error')[0]).toEqual({
-        type: 'error',
-        runId: RUN,
-        code: 'POLICY_REJECTED',
-        message: 'Report-only engineering plans are not available yet',
+    describe('review (report-only plans)', () => {
+      const REPORT_TEXT = 'Summary\n\nFindings\n- src/a.ts:1-3 something';
+      const reported = {
+        status: 'reported',
+        report: { text: REPORT_TEXT, truncated: false },
+        lanes: [{ role: 'report', resourceId: 'local-echo' }],
+      } as const;
+      const withReportPlan = { plane: planeSeams(['implement-review', 'repository-report']) };
+
+      it('rejects a review when the plane has no report plan, before touching the runner', async () => {
+        start();
+        await handshake();
+        input.frame(runFrame({ intent: 'review' }));
+        await waitFor(() => framesOf('error').length === 1, 'error');
+        expect(framesOf('error')[0]).toEqual({
+          type: 'error',
+          runId: RUN,
+          code: 'POLICY_REJECTED',
+          message: 'Report-only engineering plans are not available',
+        });
+        expect(runnerCalls).toBe(0);
+        // A rejected run does not occupy the plane.
+        input.frame(runFrame({ runId: RUN2 }));
+        await waitFor(() => runnerCalls === 1, 'next run');
       });
-      expect(runnerCalls).toBe(0);
+
+      it('runs the report plan and completes with the report and lanes, with no approval', async () => {
+        start(scriptedRunner(reported), withReportPlan);
+        await handshake();
+        expect(framesOf('ready')[0]?.readiness.plans).toContain('repository-report');
+        input.frame(runFrame({ intent: 'review' }));
+        await waitFor(() => framesOf('completed').length === 1, 'completed');
+        expect(inputs).toHaveLength(1);
+        expect(inputs[0]).toMatchObject({ planId: 'repository-report', projectId: 'demo' });
+        expect(framesOf('completed')[0]).toEqual({
+          type: 'completed',
+          runId: RUN,
+          outcome: {
+            taskId: TASK,
+            status: 'reported',
+            report: { text: REPORT_TEXT, truncated: false },
+            lanes: [{ role: 'report', resourceId: 'local-echo' }],
+          },
+        });
+        expect(framesOf('approval-required')).toEqual([]);
+        expect(framesOf('error')).toEqual([]);
+        expect(out).not.toContain('/abs/secret');
+      });
+
+      it('always uses the report plan: the frame cannot name a change plan for a review', async () => {
+        start(scriptedRunner(reported), withReportPlan);
+        await handshake();
+        input.frame(runFrame({ intent: 'review', planId: 'implement-review' }));
+        await waitFor(() => framesOf('completed').length === 1, 'completed');
+        expect(inputs[0]?.planId).toBe('repository-report');
+      });
+
+      it('never announces an approval for a report run and refuses decide for anything', async () => {
+        start(scriptedRunner(reported, [awaiting]), withReportPlan);
+        await handshake();
+        input.frame(runFrame({ intent: 'review' }));
+        await waitFor(() => framesOf('completed').length === 1, 'completed');
+        input.frame({ type: 'decide', approvalId: `apr_${'e'.repeat(32)}`, decision: 'approve' });
+        await waitFor(() => framesOf('error').length === 1, 'error');
+        expect(framesOf('error')[0]).toEqual({
+          type: 'error',
+          code: 'POLICY_REJECTED',
+          message: 'Unknown approval',
+        });
+        expect(framesOf('approval-required')).toEqual([]);
+        expect(framesOf('decided')).toEqual([]);
+      });
+
+      it('sends a report only with status reported', async () => {
+        start(
+          scriptedRunner({
+            status: 'failed',
+            reason: 'lane.report.PROVIDER_ERROR',
+            report: { text: 'stray', truncated: false },
+          }),
+          withReportPlan,
+        );
+        await handshake();
+        input.frame(runFrame({ intent: 'review' }));
+        await waitFor(() => framesOf('completed').length === 1, 'completed');
+        const [completed] = framesOf('completed');
+        expect(completed?.outcome).toEqual({
+          taskId: TASK,
+          status: 'failed',
+          reason: 'lane.report.PROVIDER_ERROR',
+        });
+      });
+
+      it('bounds the lanes list to 16', async () => {
+        const lanes = Array.from({ length: 20 }, (_, i) => ({
+          role: 'feature',
+          resourceId: `r${String(i)}`,
+        }));
+        start(scriptedRunner({ status: 'failed', reason: 'review.changes-requested', lanes }));
+        await handshake();
+        input.frame(runFrame());
+        await waitFor(() => framesOf('completed').length === 1, 'completed');
+        expect(framesOf('completed')[0]?.outcome.lanes).toHaveLength(16);
+      });
     });
 
     it.each([

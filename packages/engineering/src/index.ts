@@ -12,7 +12,9 @@ export {
   PLAN_FILE,
   PlanCatalog,
   SHARED_DIRECTORY,
+  type ChangePlan,
   type LoadedPlan,
+  type ReportPlan,
   type PlanLane,
   type PlanLaneRole,
 } from './plan.js';
@@ -23,6 +25,7 @@ export {
   type LaneHistoryOptions,
   type LaneHistoryResult,
 } from './lane-history.js';
+export { MAX_OUTCOME_LANES, MAX_REPORT_BYTES, boundReport } from './report.js';
 export {
   RECORD_FILE,
   isEngineeringLineage,

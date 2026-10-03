@@ -97,6 +97,7 @@ describe('shipped templates', () => {
       'implement-review',
       'implement-test-review',
       'plan-implement-review',
+      'repository-report',
     ]);
     for (const dir of dirs) {
       for (const file of readdirSync(join(PLANS, dir.name)).filter((f) => f.endsWith('.md'))) {

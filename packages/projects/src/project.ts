@@ -19,7 +19,8 @@ export interface ProjectWorkflowSettings {
 }
 
 /** Lane roles of an engineering plan (ADR-019). `debugging` is the built-in rework lane. */
-export type EngineeringLaneRole = 'architecture' | 'feature' | 'tests' | 'debugging' | 'review';
+export type EngineeringLaneRole =
+  'architecture' | 'feature' | 'tests' | 'debugging' | 'review' | 'report';
 
 /** A setup step or gate: an argv array (never a shell string) run in the sandbox. */
 export interface EngineeringCommand {

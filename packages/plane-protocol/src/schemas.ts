@@ -1,6 +1,12 @@
 import { NEXAR_ERROR_CODES } from '@nexar/contracts';
 import { z } from 'zod';
-import { MAX_DIFF_FILES, MAX_GOAL_CHARS, PLANE_PROTOCOL } from './limits.js';
+import {
+  MAX_DIFF_FILES,
+  MAX_GOAL_CHARS,
+  MAX_OUTCOME_LANES,
+  MAX_REPORT_BYTES,
+  PLANE_PROTOCOL,
+} from './limits.js';
 
 /*
  * Strict schemas for every frame of `nexar-plane/1`. There is no generic command, path, environment
@@ -163,13 +169,31 @@ export const decidedFrameSchema = z.strictObject({
   status: z.enum(['approved', 'denied']),
 });
 
-export const outcomeSchema = z.strictObject({
-  taskId,
-  status: z.enum(['committed', 'not-accepted', 'failed', 'cancelled']),
-  reason: z.string().max(200).optional(),
-  branch: boundedText(200).optional(),
-  commit: id(COMMIT_PATTERN).optional(),
+export const reportSchema = z.strictObject({
+  // At most MAX_REPORT_BYTES of UTF-8, hence at most that many UTF-16 code units.
+  text: boundedText(MAX_REPORT_BYTES),
+  truncated: z.boolean(),
 });
+
+export const outcomeLaneSchema = z.strictObject({
+  role: boundedText(64),
+  resourceId: boundedText(128),
+});
+
+export const outcomeSchema = z
+  .strictObject({
+    taskId,
+    status: z.enum(['committed', 'reported', 'not-accepted', 'failed', 'cancelled']),
+    reason: z.string().max(200).optional(),
+    branch: boundedText(200).optional(),
+    commit: id(COMMIT_PATTERN).optional(),
+    report: reportSchema.optional(),
+    lanes: z.array(outcomeLaneSchema).max(MAX_OUTCOME_LANES).optional(),
+  })
+  .refine((outcome) => outcome.report === undefined || outcome.status === 'reported', {
+    message: 'report is only allowed with status reported',
+    path: ['report'],
+  });
 
 export const completedFrameSchema = z.strictObject({
   type: z.literal('completed'),

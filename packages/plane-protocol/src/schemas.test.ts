@@ -332,3 +332,78 @@ describe('plane to desktop schemas', () => {
     ).toBe(true);
   });
 });
+
+describe('completed outcome: report and lanes (additive to nexar-plane/1)', () => {
+  const completed = (outcome: Record<string, unknown>) => ({
+    type: 'completed',
+    runId: RUN,
+    outcome: { taskId: 'eng-0123456789ab', ...outcome },
+  });
+  const report = { text: 'Summary\n\nFindings', truncated: false };
+  const ok = (frame: unknown): boolean => planeFrameSchema.safeParse(frame).success;
+
+  it('still accepts every completed frame that was valid before the amendment', () => {
+    for (const status of ['committed', 'not-accepted', 'failed', 'cancelled']) {
+      expect(ok(completed({ status }))).toBe(true);
+      expect(ok(completed({ status, reason: 'x' }))).toBe(true);
+    }
+    expect(
+      ok(
+        completed({
+          status: 'committed',
+          branch: 'nexar/eng-0123456789ab',
+          commit: 'd'.repeat(40),
+          reason: 'x',
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('accepts a reported outcome with a report and lanes', () => {
+    expect(
+      ok(
+        completed({
+          status: 'reported',
+          report,
+          lanes: [{ role: 'report', resourceId: 'deepseek-harness' }],
+        }),
+      ),
+    ).toBe(true);
+    expect(ok(completed({ status: 'reported' }))).toBe(true);
+  });
+
+  it('accepts lanes on any status, up to 16', () => {
+    const lanes = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ role: 'feature', resourceId: `r${String(i)}` }));
+    expect(ok(completed({ status: 'committed', lanes: lanes(16) }))).toBe(true);
+    expect(ok(completed({ status: 'failed', lanes: lanes(0) }))).toBe(true);
+    expect(ok(completed({ status: 'failed', lanes: lanes(17) }))).toBe(false);
+  });
+
+  it.each(['committed', 'not-accepted', 'failed', 'cancelled'])(
+    'rejects a report with status %s',
+    (status) => {
+      expect(ok(completed({ status, report }))).toBe(false);
+    },
+  );
+
+  it('bounds the report text and rejects unknown keys', () => {
+    expect(
+      ok(completed({ status: 'reported', report: { ...report, text: 'x'.repeat(65_536) } })),
+    ).toBe(true);
+    expect(
+      ok(completed({ status: 'reported', report: { ...report, text: 'x'.repeat(65_537) } })),
+    ).toBe(false);
+    expect(ok(completed({ status: 'reported', report: { ...report, text: '' } }))).toBe(false);
+    expect(ok(completed({ status: 'reported', report: { text: 'x' } }))).toBe(false);
+    expect(ok(completed({ status: 'reported', report: { ...report, path: '/x' } }))).toBe(false);
+    expect(
+      ok(
+        completed({ status: 'reported', lanes: [{ role: 'report', resourceId: 'r', cwd: '/x' }] }),
+      ),
+    ).toBe(false);
+    expect(ok(completed({ status: 'reported', lanes: [{ role: '', resourceId: 'r' }] }))).toBe(
+      false,
+    );
+  });
+});

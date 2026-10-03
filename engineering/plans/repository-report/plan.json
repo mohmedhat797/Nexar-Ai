@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "repository-report",
+  "displayName": "Repository report",
+  "description": "One resource reads a private read-only checkout and returns a report. No patch, gates, approval or commit.",
+  "mode": "report",
+  "lanes": [
+    {
+      "id": "report",
+      "role": "report",
+      "access": "read-only",
+      "taskKind": "review",
+      "capabilities": ["code-review"],
+      "system": "report.system.md",
+      "brief": "report.md"
+    }
+  ]
+}

@@ -174,7 +174,7 @@ export function progressLine(event: ProgressEvent): {
   }
 }
 
-const OUTCOME_LINES: Readonly<Record<RunOutcome['status'], string>> = {
+const OUTCOME_LINES: Readonly<Record<TurnEngineering['status'], string>> = {
   committed: 'The engineering changes were committed.',
   'not-accepted': 'The engineering changes were not accepted. Nothing was committed.',
   failed: 'The engineering run did not complete. Nothing was committed.',
@@ -749,9 +749,17 @@ export class CodePlane {
         'INTEGRATION_UNAVAILABLE',
         'The engineering run ended without an outcome',
       );
+    // Desktop does not ask for report runs yet (next unit); a `reported` outcome is unexpected.
+    const status = outcome.status;
+    if (status === 'reported') {
+      throw new NexarError(
+        'INTEGRATION_UNAVAILABLE',
+        'The engineering plane sent an invalid message',
+      );
+    }
     const engineering: TurnEngineering = {
       planeTaskId: outcome.taskId,
-      status: outcome.status,
+      status,
       ...(outcome.branch === undefined ? {} : { branch: outcome.branch }),
       ...(outcome.commit === undefined ? {} : { commit: outcome.commit }),
       ...(summary === undefined

@@ -101,7 +101,8 @@ async function sandboxState(
   }
 }
 
-async function planIds(io: CliIo, seams: CliSeams): Promise<string[]> {
+/** The plan ids of the catalog the plane runs from (a seam in tests); `[]` when it cannot be loaded. */
+export async function planIds(io: CliIo, seams: CliSeams): Promise<string[]> {
   try {
     const ids =
       seams.plane?.planIds !== undefined

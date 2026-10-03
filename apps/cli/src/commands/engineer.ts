@@ -149,6 +149,7 @@ function exitForFailure(reason: string | undefined): number {
 function exitForOutcome(outcome: EngineeringOutcome): number {
   switch (outcome.status) {
     case 'committed':
+    case 'reported':
       return EXIT.ok;
     case 'not-accepted':
       return EXIT.notAccepted;

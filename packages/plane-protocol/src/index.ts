@@ -7,6 +7,8 @@ export {
   MAX_DIFF_FILES,
   MAX_FRAME_BYTES,
   MAX_GOAL_CHARS,
+  MAX_OUTCOME_LANES,
+  MAX_REPORT_BYTES,
   PLANE_PROTOCOL,
 } from './limits.js';
 export * from './schemas.js';

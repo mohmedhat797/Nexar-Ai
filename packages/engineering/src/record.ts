@@ -7,7 +7,8 @@ import { NexarError, type EngineeringLineage, type UsageReport } from '@nexar/co
  * lane roles, reason codes, resource ids, usage, exit codes, durations, counts and hashes. Never
  * the goal, prompts, diffs, gate output or any path; those live in task artifacts.
  */
-export type EngineeringStatus = 'running' | 'committed' | 'not-accepted' | 'failed' | 'cancelled';
+export type EngineeringStatus =
+  'running' | 'committed' | 'reported' | 'not-accepted' | 'failed' | 'cancelled';
 
 export interface LaneRecord {
   readonly laneId: string;
@@ -85,6 +86,8 @@ export interface EngineeringRecord {
   readonly reviews: readonly ReviewRecord[];
   readonly approval?: { readonly id?: string; readonly outcome: string };
   readonly commit?: string;
+  /** Report plans only: hash and size of the report; the text lives in the lane's artifact. */
+  readonly report?: { readonly sha256: string; readonly bytes: number };
   /** Ids of the Operating turn that started the task (ADR-025); absent for CLI-started tasks. */
   readonly lineage?: EngineeringLineage;
 }

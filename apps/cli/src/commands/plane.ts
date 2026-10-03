@@ -11,6 +11,7 @@ import {
 import {
   MAX_DIFF_BYTES,
   MAX_DIFF_FILES,
+  MAX_OUTCOME_LANES,
   PLANE_PROTOCOL,
   createDesktopFrameDecoder,
   encodeFrame,
@@ -28,7 +29,7 @@ import {
   type EngineeringComposition,
 } from '../composition.js';
 import { EXIT, UsageError } from '../io.js';
-import { buildReadiness } from '../plane-readiness.js';
+import { buildReadiness, planIds } from '../plane-readiness.js';
 import { CLI_VERSION } from '../version.js';
 
 const USAGE = 'nexar plane serve --stdio';
@@ -40,6 +41,8 @@ const MAX_CONSECUTIVE_DECODE_FAILURES = 8;
 /** The approval lookup gives up this long after the approval's own lifetime. */
 const APPROVAL_LOOKUP_SLACK_MS = 5_000;
 const MIN_DIFF_BYTES = 1024;
+/** The plan every `review` intent runs (ADR-025 amendment); the request never names it. */
+const REPORT_PLAN_ID = 'repository-report';
 
 /** The fixed text per code: nothing from an error, a goal, a path or a record is ever echoed. */
 const MESSAGES: Readonly<Partial<Record<NexarErrorCode, string>>> = {
@@ -106,6 +109,8 @@ function progressEvent(event: EngineeringProgress): ProgressEvent {
 
 interface ActiveRun {
   readonly runId: string;
+  /** A report run (intent `review`): it never has an approval to announce. */
+  readonly report: boolean;
   readonly controller: AbortController;
   settled: boolean;
   done: Promise<void>;
@@ -204,6 +209,18 @@ async function serve(ctx: CommandContext): Promise<number> {
     ...(outcome.reason === undefined ? {} : { reason: outcome.reason.slice(0, 200) }),
     ...(outcome.branch === undefined ? {} : { branch: outcome.branch }),
     ...(outcome.commit === undefined ? {} : { commit: outcome.commit }),
+    // The report is bounded by the runner; only a `reported` outcome may carry one.
+    ...(outcome.status === 'reported' && outcome.report !== undefined
+      ? { report: { text: outcome.report.text, truncated: outcome.report.truncated } }
+      : {}),
+    ...(outcome.lanes === undefined || outcome.lanes.length === 0
+      ? {}
+      : {
+          lanes: outcome.lanes.slice(0, MAX_OUTCOME_LANES).map((lane) => ({
+            role: lane.role.slice(0, 64),
+            resourceId: lane.resourceId.slice(0, 128),
+          })),
+        }),
   });
 
   const execute = async (run: ActiveRun, frame: RunFrame): Promise<void> => {
@@ -212,6 +229,20 @@ async function serve(ctx: CommandContext): Promise<number> {
       if (active === run) active = undefined;
     };
     try {
+      // A review always runs the report plan: the frame's planId can never route it to a change plan.
+      let planId = frame.planId;
+      if (run.report) {
+        if (!(await planIds(ctx.io, ctx.seams)).includes(REPORT_PLAN_ID)) {
+          finish();
+          sendError(
+            'POLICY_REJECTED',
+            run.runId,
+            'Report-only engineering plans are not available',
+          );
+          return;
+        }
+        planId = REPORT_PLAN_ID;
+      }
       const { composition } = await getEngine();
       const project = composition.runtime.projects.get(toProjectId(frame.planeProject));
       if (project?.engineering === undefined) {
@@ -223,13 +254,13 @@ async function serve(ctx: CommandContext): Promise<number> {
         {
           projectId: frame.planeProject,
           goal: frame.goal,
-          ...(frame.planId === undefined ? {} : { planId: frame.planId }),
+          ...(planId === undefined ? {} : { planId }),
           lineage: frame.lineage,
         },
         {
           signal: run.controller.signal,
           onProgress: (event) => {
-            if (event.type === 'awaiting-approval') {
+            if (event.type === 'awaiting-approval' && !run.report) {
               knownTasks.add(event.taskId);
               void announceApproval(run, event).catch(() => undefined);
             }
@@ -253,16 +284,9 @@ async function serve(ctx: CommandContext): Promise<number> {
       sendError('CONFLICT', frame.runId, 'A run is already active');
       return;
     }
-    if (frame.intent === 'review') {
-      sendError(
-        'POLICY_REJECTED',
-        frame.runId,
-        'Report-only engineering plans are not available yet',
-      );
-      return;
-    }
     const run: ActiveRun = {
       runId: frame.runId,
+      report: frame.intent === 'review',
       controller: new AbortController(),
       settled: false,
       done: Promise.resolve(),
