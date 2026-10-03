@@ -110,12 +110,29 @@ const contextSchema = z.strictObject({
   hash: label(128),
 });
 
+const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+const engineeringSchema = z.strictObject({
+  planeTaskId: z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/),
+  status: z.enum(['committed', 'not-accepted', 'failed', 'cancelled']),
+  branch: label(200).optional(),
+  commit: z
+    .string()
+    .regex(/^[0-9a-f]{40,64}$/)
+    .optional(),
+  files: count.optional(),
+  gatesPassed: count.optional(),
+  reviewVerdict: label(32).optional(),
+  approvalId: id(APPROVAL_ID_PATTERN).optional(),
+});
+
 const outcomeSchema = z.strictObject({
   text: z.string().max(MAX_OUTCOME_CHARS).optional(),
   textTruncated: z.boolean().optional(),
   error: z
     .strictObject({ code: label(64), message: z.string().max(MAX_ERROR_MESSAGE_CHARS) })
     .optional(),
+  engineering: engineeringSchema.optional(),
 });
 
 const turnSchema = z.strictObject({

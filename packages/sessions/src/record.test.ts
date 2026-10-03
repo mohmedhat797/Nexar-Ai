@@ -77,6 +77,37 @@ describe('session records', () => {
     expectCorrupt(edit((r) => (r['projectId'] = '../etc')));
   });
 
+  it('round-trips and bounds the engineering outcome', () => {
+    const engineering = {
+      planeTaskId: 'task_1',
+      status: 'not-accepted',
+      files: 1,
+      approvalId: `apr_${'d'.repeat(32)}`,
+    };
+    const stored = edit((r) => {
+      turnOf(r)['state'] = 'failed';
+      turnOf(r)['outcome'] = { text: 'x', engineering };
+      r['activeTurnId'] = null;
+    });
+    expect(parseSession(stored).turns[0]?.outcome?.engineering).toEqual(engineering);
+    for (const bad of [
+      { ...engineering, status: 'bogus' },
+      { ...engineering, extra: 1 },
+      { ...engineering, planeTaskId: '../x' },
+      { ...engineering, commit: 'zz' },
+      { ...engineering, files: -2 },
+      { ...engineering, approvalId: 'apr_x' },
+    ]) {
+      expectCorrupt(
+        edit((r) => {
+          turnOf(r)['state'] = 'failed';
+          turnOf(r)['outcome'] = { engineering: bad };
+          r['activeTurnId'] = null;
+        }),
+      );
+    }
+  });
+
   it('binds the record to the expected id', () => {
     expectCorrupt(serializeSession(valid()), `ses_${'b'.repeat(32)}`);
   });

@@ -7,6 +7,7 @@ import type { FileSessionStore } from '@nexar/sessions';
 import type { AppInfo, SessionEvent, TaskEvent } from '../shared/api.js';
 import type { ConfigStore } from './config-store.js';
 import type { EngineHost } from './engine-host.js';
+import type { CodePlane } from './code-plane.js';
 import type { SettingsStore } from './settings-store.js';
 import type { ProviderService } from './providers.js';
 import type { SubscriptionService } from './subscriptions.js';
@@ -39,6 +40,7 @@ export type SessionService = Pick<
   | 'linkTask'
   | 'updateTask'
   | 'linkArtifacts'
+  | 'linkApprovals'
   | 'completeTurn'
   | 'resolveConfirmation'
   | 'setContext'
@@ -53,6 +55,8 @@ export interface BridgeDeps {
   readonly providers?: ProviderService;
   readonly subscriptions?: SubscriptionService;
   readonly localEndpoints?: LocalEndpointService;
+  /** The WSL2 engineering-plane bridge (ADR-025); absent in tests that do not need it. */
+  readonly codePlane?: CodePlane;
   readonly logger: Logger;
   readonly dialog: DialogPort;
   readonly shell: ShellPort;

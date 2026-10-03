@@ -1,6 +1,14 @@
+import { createHash } from 'node:crypto';
 import { NexarError, isNexarError } from '@nexar/contracts';
 import type { ArtifactRef, Logger, TaskKind } from '@nexar/contracts';
-import type { FileSessionStore, OperatingSession, Turn } from '@nexar/sessions';
+import type {
+  ContextManifest,
+  FileSessionStore,
+  LaneDecision,
+  OperatingSession,
+  Turn,
+  TurnEngineering,
+} from '@nexar/sessions';
 import { buildContext } from './context.js';
 import { rootCorrelation } from './correlation.js';
 import type { OperatingCorrelation } from './correlation.js';
@@ -40,6 +48,35 @@ export interface DirectResult {
   readonly fallback?: boolean;
 }
 
+/** The longest goal the engineering plane accepts (ADR-025: same bound as the runner). */
+export const MAX_CODE_GOAL_CHARS = 20_000;
+
+/** Policy strings recorded on the context manifest of a Code-lane turn: which goal was sent. */
+export const CODE_GOAL_CONTEXT_POLICY = 'context@1/code-goal:context';
+export const CODE_GOAL_REQUEST_ONLY_POLICY = 'context@1/code-goal:request-only';
+
+export interface CodeRequest {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly projectId: string;
+  readonly intent: 'coding' | 'review';
+  /** The context@1 prompt, or the turn's own text when the prompt is over 20,000 characters. */
+  readonly goal: string;
+  readonly correlation: OperatingCorrelation;
+  /** Called with the plane's task id as soon as it is known (idempotent). */
+  readonly onTask: (taskId: string) => Promise<void>;
+  readonly onProgress: (type: 'status' | 'progress', message: string) => void;
+  /** Called with each plane approval id the run is waiting for; never rejects. */
+  readonly onApproval: (approvalId: string) => Promise<void>;
+}
+
+export interface CodeResult {
+  readonly taskId: string;
+  /** A short fixed-format summary built by the port: never diff content, paths or prompts. */
+  readonly text: string;
+  readonly engineering: TurnEngineering;
+}
+
 export interface OperatingPorts {
   readonly store: Pick<
     FileSessionStore,
@@ -49,11 +86,23 @@ export interface OperatingPorts {
     | 'linkTask'
     | 'updateTask'
     | 'linkArtifacts'
+    | 'linkApprovals'
     | 'setContext'
     | 'completeTurn'
   >;
-  readonly lanes: { available(lane: 'cowork' | 'code'): boolean };
+  /**
+   * Availability is per project: the Code lane depends on the session project's engineering plane
+   * mapping. `reason` is a fixed, non-sensitive text shown when an engineering write is refused.
+   */
+  readonly lanes: {
+    available(lane: 'cowork' | 'code', projectId: string): boolean;
+    reason?(lane: 'cowork' | 'code', projectId: string): string | undefined;
+    /** Whether an available lane can run this intent (default: yes). */
+    supports?(lane: 'cowork' | 'code', kind: TaskKind): boolean;
+  };
   readonly executeDirect: (request: DirectRequest, signal: AbortSignal) => Promise<DirectResult>;
+  /** The Code lane (ADR-025). Without it a `code` effective lane executes through `executeDirect`. */
+  readonly executeCode?: (request: CodeRequest, signal: AbortSignal) => Promise<CodeResult>;
   /** A safe display name for an artifact of the session's own project, or undefined to drop it. */
   readonly describeArtifact?: (ref: ArtifactRef, projectId: string) => string | undefined;
   readonly onTurnChanged?: (sessionId: string, turnId: string) => void;
@@ -129,7 +178,7 @@ export class OperatingService {
     const outcome = decideLane({
       mode: session.mode,
       intent,
-      available: this.availability(),
+      available: this.availability(session.projectId),
     });
     const options: RunOptions = {
       preferredResourceIds: input.preferredResourceIds,
@@ -144,7 +193,7 @@ export class OperatingService {
         text: input.text,
         state: outcome.action === 'confirm' ? 'pending-confirmation' : 'running',
         intent,
-        lane: outcome.decision,
+        lane: this.honest(outcome.decision, intent.kind),
       });
       if (!created) return { turn, created: false, action: this.replayAction(turn) };
 
@@ -154,7 +203,7 @@ export class OperatingService {
         return { turn, created: true, action: 'confirm' };
       }
       if (outcome.action === 'refuse') {
-        const failed = await this.failRefused(input.sessionId, turn.id, outcome);
+        const failed = await this.failRefused(input.sessionId, turn.id, outcome, session.projectId);
         return { turn: failed, created: true, action: 'refuse' };
       }
       this.changed(input.sessionId, turn.id);
@@ -191,7 +240,7 @@ export class OperatingService {
     const options = this.pending.get(k);
     if (options === undefined) throw reject('CONFLICT', 'confirmation-expired');
 
-    const outcome = confirmLane(turn.lane, this.availability(), {
+    const outcome = confirmLane(turn.lane, this.availability(session.projectId), {
       kind: turn.intent?.kind ?? 'general',
     });
     const runs = outcome.action === 'run';
@@ -199,12 +248,19 @@ export class OperatingService {
     try {
       const { turn: resolved } = await this.ports.store.resolveConfirmation(sessionId, turnId, {
         decision: 'confirm',
-        effectiveLane: outcome.decision.effectiveLane,
-        fallbackReason: outcome.decision.fallbackReason ?? null,
+        ...((): { effectiveLane: LaneDecision['effectiveLane']; fallbackReason: string | null } => {
+          const honest = this.honest(outcome.decision, turn.intent?.kind ?? 'general');
+          return {
+            effectiveLane: honest.effectiveLane,
+            fallbackReason: honest.fallbackReason ?? null,
+          };
+        })(),
       });
       this.pending.delete(k);
       this.changed(sessionId, turnId);
-      if (outcome.action === 'refuse') return this.failRefused(sessionId, turnId, outcome);
+      if (outcome.action === 'refuse') {
+        return this.failRefused(sessionId, turnId, outcome, session.projectId);
+      }
       this.start(sessionId, turnId, options);
       return resolved;
     } finally {
@@ -228,11 +284,24 @@ export class OperatingService {
     return session;
   }
 
-  private availability(): { readonly cowork: boolean; readonly code: boolean } {
+  private availability(projectId: string): { readonly cowork: boolean; readonly code: boolean } {
     return {
-      cowork: this.ports.lanes.available('cowork'),
-      code: this.ports.lanes.available('code'),
+      cowork: this.ports.lanes.available('cowork', projectId),
+      // Without a Code executor the lane cannot run anything: report it unavailable, so engineering
+      // writes are refused instead of silently executing direct.
+      code: this.ports.executeCode !== undefined && this.ports.lanes.available('code', projectId),
     };
+  }
+
+  /** The router's refusal plus the fixed reason, when the lanes port has one (never user text). */
+  private refusalMessage(base: string, projectId: string): string {
+    let reason: string | undefined;
+    try {
+      reason = this.ports.lanes.reason?.('code', projectId);
+    } catch {
+      reason = undefined;
+    }
+    return reason === undefined || reason === '' ? base : `${base} (${reason})`;
   }
 
   private replayAction(turn: Turn): LaneOutcome['action'] {
@@ -262,6 +331,7 @@ export class OperatingService {
     sessionId: string,
     turnId: string,
     outcome: LaneOutcome,
+    projectId: string,
   ): Promise<Turn> {
     const refusal = outcome.refusal ?? {
       code: 'SANDBOX_UNAVAILABLE' as const,
@@ -269,7 +339,9 @@ export class OperatingService {
     };
     const { turn } = await this.ports.store.completeTurn(sessionId, turnId, {
       state: 'failed',
-      outcome: { error: { code: refusal.code, message: refusal.message } },
+      outcome: {
+        error: { code: refusal.code, message: this.refusalMessage(refusal.message, projectId) },
+      },
     });
     this.changed(sessionId, turnId);
     return turn;
@@ -302,14 +374,36 @@ export class OperatingService {
   }
 
   /**
-   * One turn: context -> executeDirect -> durable outcome. Never rejects: every failure ends in
+   * Records where a turn will really execute (ADR-024 §9: never claim an orchestrator ran when it
+   * did not). The Code lane runs only engineering intents the plane supports; any other turn that
+   * inherits it from the session mode runs direct and is recorded so, with the reason. Engineering
+   * writes (`coding`) are never rewritten: without the lane they stay refused.
+   */
+  private honest(decision: LaneDecision, kind: TaskKind): LaneDecision {
+    if (decision.effectiveLane !== 'code' || kind === 'coding') return decision;
+    const supported =
+      kind === 'review' &&
+      this.ports.executeCode !== undefined &&
+      (this.ports.lanes.supports?.('code', kind) ?? true);
+    if (supported) return decision;
+    return {
+      ...decision,
+      effectiveLane: 'direct',
+      fallbackReason: kind === 'review' ? 'code-report-unavailable' : 'code-engineering-only',
+    };
+  }
+
+  /**
+   * One turn: context -> lane execution -> durable outcome. Never rejects: every failure ends in
    * the turn's state (or, if the store itself fails, stays `running` until restart recovery marks
    * it `interrupted`).
    *
-   * In v1 ALL effective lanes execute through `executeDirect`: the orchestrated lanes are not
-   * built, so a `cowork`/`code` effective lane can only occur when a test (or a later host) reports
-   * it available. The lane is recorded honestly. NXR-055/056 replace this branch with real lane
-   * adapters; until then nothing here claims an orchestrator ran.
+   * `coding`/`review` turns whose effective lane is `code` run through `executeCode` (the WSL2
+   * engineering plane, ADR-025). Every other turn executes through `executeDirect`. That includes
+   * `general`/`analysis`/... turns that merely inherit the `code` lane from the session mode: they
+   * must never become engineering writes. A `cowork` effective lane still uses `executeDirect`
+   * until the OpenWorker lane (NXR-056) exists: nothing here claims an orchestrator ran when it did
+   * not.
    */
   private async execute(
     sessionId: string,
@@ -319,6 +413,8 @@ export class OperatingService {
   ): Promise<void> {
     const { store } = this.ports;
     let linkedTaskId: string | undefined;
+    // Approval links queue here so the turn is never completed before they were attempted.
+    let approvalLinks: Promise<void> = Promise.resolve();
     try {
       const session = await this.load(sessionId);
       const turn = session.turns.find((t) => t.id === turnId);
@@ -330,7 +426,49 @@ export class OperatingService {
         describeArtifact:
           describe === undefined ? undefined : (ref) => describe(ref, session.projectId),
       });
-      await store.setContext(sessionId, turnId, manifest);
+      const kind = turn.intent?.kind ?? 'general';
+      const codeIntent = kind === 'coding' ? 'coding' : kind === 'review' ? 'review' : undefined;
+      const executeCode = this.ports.executeCode;
+      const viaCode =
+        turn.lane?.effectiveLane === 'code' &&
+        executeCode !== undefined &&
+        codeIntent !== undefined;
+
+      let goal = prompt;
+      let recorded: ContextManifest = manifest;
+      if (
+        viaCode &&
+        (options.maxCostUsd !== undefined || (options.preferredResourceIds?.length ?? 0) > 0)
+      ) {
+        // The plane protocol carries neither yet: refuse rather than silently drop an owner setting.
+        throw new NexarError(
+          'POLICY_REJECTED',
+          'Cost ceilings and resource preferences are not supported on the Code lane yet',
+          { details: { reason: 'code-options-unsupported' } },
+        );
+      }
+      if (viaCode) {
+        // The plane's goal limit is 20,000 characters: over it, send only the turn's own text.
+        const requestOnly = prompt.length > MAX_CODE_GOAL_CHARS;
+        if (requestOnly) {
+          if (turn.text.length > MAX_CODE_GOAL_CHARS) {
+            throw reject('VALIDATION_ERROR', 'goal-too-long');
+          }
+          goal = turn.text;
+        }
+        recorded = requestOnly
+          ? {
+              policy: CODE_GOAL_REQUEST_ONLY_POLICY,
+              turnIds: [],
+              omittedTurns: manifest.turnIds.length + manifest.omittedTurns,
+              truncatedTurnIds: [],
+              chars: goal.length,
+              artifactIds: [],
+              hash: createHash('sha256').update(goal).digest('hex'),
+            }
+          : { ...manifest, policy: CODE_GOAL_CONTEXT_POLICY };
+      }
+      await store.setContext(sessionId, turnId, recorded);
       this.changed(sessionId, turnId);
       if (controller.signal.aborted) throw reject('CONFLICT', 'cancelled'); // ends as `cancelled`
 
@@ -340,12 +478,71 @@ export class OperatingService {
         linkedTaskId = taskId;
         this.changed(sessionId, turnId);
       };
+      const onProgress = (type: 'status' | 'progress', message: string): void => {
+        try {
+          this.ports.onProgress?.(sessionId, turnId, type, message);
+        } catch (error) {
+          this.ports.logger.warn('operating: progress listener failed', { code: codeOf(error) });
+        }
+      };
+
+      if (viaCode && codeIntent !== undefined) {
+        const result = await executeCode(
+          {
+            sessionId,
+            turnId,
+            projectId: session.projectId,
+            intent: codeIntent,
+            goal,
+            correlation: rootCorrelation(sessionId, turnId),
+            onTask: link,
+            onProgress,
+            onApproval: (approvalId) => {
+              approvalLinks = approvalLinks.then(() =>
+                this.attempt('approval', async () => {
+                  await store.linkApprovals(sessionId, turnId, [approvalId]);
+                  this.changed(sessionId, turnId);
+                }),
+              );
+              return approvalLinks;
+            },
+          },
+          controller.signal,
+        );
+        await approvalLinks;
+        await link(result.taskId);
+        const { engineering } = result;
+        const cancelled = controller.signal.aborted || engineering.status === 'cancelled';
+        const committed = !cancelled && engineering.status === 'committed';
+        const state = cancelled ? 'cancelled' : committed ? 'succeeded' : 'failed';
+        await store.updateTask(sessionId, turnId, result.taskId, { state });
+        await store.completeTurn(sessionId, turnId, {
+          state,
+          outcome: {
+            text: result.text,
+            engineering,
+            ...(state !== 'failed'
+              ? {}
+              : {
+                  error:
+                    engineering.status === 'not-accepted'
+                      ? {
+                          code: 'POLICY_REJECTED',
+                          message: 'The engineering changes were not accepted',
+                        }
+                      : { code: 'INTERNAL_ERROR', message: 'The engineering run did not complete' },
+                }),
+          },
+        });
+        return;
+      }
+
       const result = await this.ports.executeDirect(
         {
           sessionId,
           turnId,
           projectId: session.projectId,
-          kind: turn.intent?.kind ?? 'general',
+          kind,
           prompt,
           correlation: rootCorrelation(sessionId, turnId),
           ...(options.preferredResourceIds === undefined
@@ -353,15 +550,7 @@ export class OperatingService {
             : { preferredResourceIds: options.preferredResourceIds }),
           ...(options.maxCostUsd === undefined ? {} : { maxCostUsd: options.maxCostUsd }),
           onTask: link,
-          onProgress: (type, message) => {
-            try {
-              this.ports.onProgress?.(sessionId, turnId, type, message);
-            } catch (error) {
-              this.ports.logger.warn('operating: progress listener failed', {
-                code: codeOf(error),
-              });
-            }
-          },
+          onProgress,
         },
         controller.signal,
       );
@@ -384,6 +573,7 @@ export class OperatingService {
       });
     } catch (error) {
       const cancelled = controller.signal.aborted;
+      await approvalLinks.catch(() => undefined);
       if (linkedTaskId !== undefined) {
         const taskId = linkedTaskId;
         await this.attempt('task', () =>

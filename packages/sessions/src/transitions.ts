@@ -25,6 +25,7 @@ import type {
   OperatingMode,
   OperatingSession,
   Turn,
+  TurnEngineering,
   TurnIntent,
   TurnOutcome,
   TurnState,
@@ -338,6 +339,65 @@ export interface CompleteTurnInput {
   readonly outcome?: TurnOutcome;
 }
 
+const PLANE_TASK_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+const COMMIT_ID = /^[0-9a-f]{40,64}$/;
+const ENGINEERING_STATUSES: readonly string[] = [
+  'committed',
+  'not-accepted',
+  'failed',
+  'cancelled',
+];
+
+const isCount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+
+/** Copies only the known, bounded scalar fields; anything else is dropped or rejected. */
+function boundEngineering(value: TurnEngineering): TurnEngineering {
+  if (
+    typeof value.planeTaskId !== 'string' ||
+    !PLANE_TASK_ID.test(value.planeTaskId) ||
+    !ENGINEERING_STATUSES.includes(value.status)
+  ) {
+    throw invalid('engineering');
+  }
+  const out: { -readonly [K in keyof TurnEngineering]: TurnEngineering[K] } = {
+    planeTaskId: value.planeTaskId,
+    status: value.status,
+  };
+  if (value.branch !== undefined) {
+    if (typeof value.branch !== 'string' || value.branch.length < 1 || value.branch.length > 200) {
+      throw invalid('engineering');
+    }
+    out.branch = value.branch;
+  }
+  if (value.commit !== undefined) {
+    if (typeof value.commit !== 'string' || !COMMIT_ID.test(value.commit)) {
+      throw invalid('engineering');
+    }
+    out.commit = value.commit;
+  }
+  for (const field of ['files', 'gatesPassed'] as const) {
+    const count = value[field];
+    if (count === undefined) continue;
+    if (!isCount(count)) throw invalid('engineering');
+    out[field] = count;
+  }
+  if (value.reviewVerdict !== undefined) {
+    const verdict = value.reviewVerdict;
+    if (typeof verdict !== 'string' || verdict.length < 1 || verdict.length > 32) {
+      throw invalid('engineering');
+    }
+    out.reviewVerdict = verdict;
+  }
+  if (value.approvalId !== undefined) {
+    if (typeof value.approvalId !== 'string' || !APPROVAL_ID_PATTERN.test(value.approvalId)) {
+      throw invalid('engineering');
+    }
+    out.approvalId = value.approvalId;
+  }
+  return out;
+}
+
 function boundOutcome(outcome: TurnOutcome | undefined): TurnOutcome | undefined {
   if (outcome === undefined) return undefined;
   const bounded: { -readonly [K in keyof TurnOutcome]: TurnOutcome[K] } = {};
@@ -354,6 +414,8 @@ function boundOutcome(outcome: TurnOutcome | undefined): TurnOutcome | undefined
       message: truncateText(outcome.error.message, MAX_ERROR_MESSAGE_CHARS).text,
     };
   }
+  if (outcome.engineering !== undefined)
+    bounded.engineering = boundEngineering(outcome.engineering);
   return bounded;
 }
 

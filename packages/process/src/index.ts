@@ -258,6 +258,26 @@ function terminateWindowsTree(child: ChildProcess, env: NodeJS.ProcessEnv): Prom
 }
 
 /**
+ * Ends a child process and its descendants: `taskkill /t /f` on Windows, the process group on POSIX
+ * (the child must have been spawned `detached` there). Best effort and bounded; never rejects, and
+ * nothing about the process or its output is reported.
+ */
+export function terminateProcessTree(
+  child: ChildProcess,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  if (process.platform === 'win32') return terminateWindowsTree(child, env);
+  signalPosixGroup(child, 'SIGTERM');
+  return new Promise((done) => {
+    const timer = setTimeout(() => {
+      signalPosixGroup(child, 'SIGKILL');
+      done();
+    }, TERMINATION_GRACE_MS);
+    timer.unref();
+  });
+}
+
+/**
  * Non-generating vendor commands. Browser mode discards all output and supports only vendor-owned
  * callback/browser flows, not terminal prompts or manual device-code entry. On Windows a detached,
  * visible native console is requested; POSIX desktop apps do not acquire a terminal this way.

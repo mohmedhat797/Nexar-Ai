@@ -1,11 +1,12 @@
 import { userInfo } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { isNexarError } from '@nexar/contracts';
 import { FileSessionStore } from '@nexar/sessions';
 import { checkProviderCredential, createNativeSubscriptions } from '@nexar/host';
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
+import { CodePlane } from './code-plane.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
@@ -13,6 +14,12 @@ import { ProviderService } from './providers.js';
 import { SubscriptionService } from './subscriptions.js';
 import { LocalEndpointService } from './local-endpoints.js';
 import { createStderrLogger } from './logger.js';
+import {
+  createScriptLauncher,
+  createWslLauncher,
+  disabledPlaneLauncher,
+  type PlaneLauncher,
+} from './plane-connection.js';
 import { ensurePrivateStateDirectory, PrivateStateError } from './private-state.js';
 import { SettingsStore } from './settings-store.js';
 import {
@@ -140,6 +147,28 @@ async function start(): Promise<void> {
       .finally(() => app.quit());
   });
 
+  // The Code lane (ADR-025): Desktop reaches the WSL2 engineering plane through `wsl.exe`. Under the
+  // test-only `NEXAR_DESKTOP_USER_DATA` override the real WSL is never touched: the lane uses the
+  // fake plane named by `NEXAR_DESKTOP_TEST_PLANE`, or is simply unavailable. Neither variable is
+  // ever set in production.
+  const testPlane = process.env['NEXAR_DESKTOP_TEST_PLANE'];
+  let planeLauncher: PlaneLauncher = createWslLauncher();
+  if (userDataOverride !== undefined && userDataOverride !== '') {
+    planeLauncher =
+      testPlane !== undefined && isAbsolute(testPlane)
+        ? createScriptLauncher(testPlane)
+        : disabledPlaneLauncher;
+  }
+  const codePlane = new CodePlane({
+    settings,
+    launcher: planeLauncher,
+    logger,
+    decider: decider(),
+  });
+  app.on('before-quit', () => codePlane.dispose());
+  // Non-blocking: the lane reports "still being checked" until the first probe finishes.
+  void codePlane.refresh();
+
   const bridge = createBridge({
     engine,
     config,
@@ -154,6 +183,7 @@ async function start(): Promise<void> {
     appInfo: { version: app.getVersion(), platform: process.platform },
     decider: decider(),
     sessions,
+    codePlane,
     // A turn outlives the call that started it; every live window hears about it.
     broadcastSession: (event) => {
       for (const window of BrowserWindow.getAllWindows()) {

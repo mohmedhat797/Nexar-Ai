@@ -110,6 +110,12 @@ importers:
       '@nexar/operating':
         specifier: workspace:*
         version: link:../../packages/operating
+      '@nexar/plane-protocol':
+        specifier: workspace:*
+        version: link:../../packages/plane-protocol
+      '@nexar/process':
+        specifier: workspace:*
+        version: link:../../packages/process
       '@nexar/projects':
         specifier: workspace:*
         version: link:../../packages/projects

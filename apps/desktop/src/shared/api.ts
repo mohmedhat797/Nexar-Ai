@@ -134,6 +134,60 @@ export interface ApprovalDto {
   readonly projectId?: string;
   readonly decidedAt?: string;
   readonly decidedBy?: string;
+  /** `plane`: a pending `engineering.commit` approval of the WSL2 engineering plane (ADR-025). */
+  readonly source?: 'plane';
+  readonly sessionId?: string;
+  readonly turnId?: string;
+  readonly plane?: {
+    readonly branch: string;
+    readonly files: number;
+    readonly gatesPassed: number;
+    readonly reviewVerdict: string;
+  };
+}
+
+/** Why the Code lane can or cannot run (ADR-025 section 4). */
+export const PLANE_STATES = [
+  'ready',
+  'wsl-unavailable',
+  'plane-missing',
+  'plane-unreachable',
+  'protocol-mismatch',
+  'sandbox-unavailable',
+  'hardening-drift',
+  'engineering-unavailable',
+] as const;
+export type PlaneStateDto = (typeof PLANE_STATES)[number];
+export type ProjectPlaneStateDto = PlaneStateDto | 'project-unmapped' | 'project-unknown-to-plane';
+
+/** Availability of the Code lane for one Desktop project. */
+export interface ProjectPlaneDto {
+  readonly projectId: string;
+  readonly state: ProjectPlaneStateDto;
+  /** A fixed, non-sensitive text. */
+  readonly reason: string;
+  /** The mapped plane project id, when one is set. */
+  readonly planeProject?: string;
+}
+
+/** The engineering plane's state. Ids and fixed texts only; never a path, distro or command. */
+export interface PlaneStatusDto {
+  readonly state: PlaneStateDto;
+  readonly reason: string;
+  readonly planeVersion?: string;
+  readonly kernel?: string;
+  /** Plane project ids the owner can map Desktop projects to. */
+  readonly projects: readonly string[];
+  readonly checkedAt: string;
+  /** Present when the call named a Desktop project. */
+  readonly project?: ProjectPlaneDto;
+}
+
+/** A turn's diff as retrieved from the plane (bounded; repository-relative file names). */
+export interface CodeDiffDto {
+  readonly text: string;
+  readonly truncated: boolean;
+  readonly files: readonly string[];
 }
 
 export interface WorkflowDto {
@@ -229,7 +283,20 @@ export interface TurnDto {
     readonly text?: string;
     readonly textTruncated?: boolean;
     readonly error?: { readonly code: string; readonly message: string };
+    /** What the engineering plane reported for a Code-lane turn: ids and scalars only. */
+    readonly engineering?: TurnEngineeringDto;
   };
+}
+
+export interface TurnEngineeringDto {
+  readonly planeTaskId: string;
+  readonly status: 'committed' | 'not-accepted' | 'failed' | 'cancelled';
+  readonly branch?: string;
+  readonly commit?: string;
+  readonly files?: number;
+  readonly gatesPassed?: number;
+  readonly reviewVerdict?: string;
+  readonly approvalId?: string;
 }
 
 export interface SessionDto extends SessionSummaryDto {
@@ -325,6 +392,15 @@ export interface NexarApi {
     title: string;
     expectedRevision?: number;
   }): Promise<BridgeResult<SessionDto>>;
+  codeStatus(args?: { projectId?: string }): Promise<BridgeResult<PlaneStatusDto>>;
+  /** Re-probes the engineering plane now (otherwise the status is cached for a minute). */
+  refreshCode(args?: { projectId?: string }): Promise<BridgeResult<PlaneStatusDto>>;
+  /** Maps a Desktop project to a plane project id (`null` removes the mapping). */
+  setPlaneProject(args: {
+    projectId: string;
+    planeProject: string | null;
+  }): Promise<BridgeResult<PlaneStatusDto>>;
+  getCodeDiff(args: { sessionId: string; turnId: string }): Promise<BridgeResult<CodeDiffDto>>;
   /** Subscribes to task progress; returns the unsubscribe function. */
   onTaskEvent(callback: (event: TaskEvent) => void): () => void;
   /** Subscribes to Operating Session changes; returns the unsubscribe function. */

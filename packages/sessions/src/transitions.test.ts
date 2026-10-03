@@ -411,6 +411,64 @@ describe('completeTurn', () => {
     expect(turn.outcome?.error?.message).toHaveLength(2000);
   });
 
+  describe('engineering outcome', () => {
+    const engineering = {
+      planeTaskId: 'task_1',
+      status: 'committed' as const,
+      branch: 'nexar/task-1',
+      commit: 'c'.repeat(40),
+      files: 2,
+      gatesPassed: 3,
+      reviewVerdict: 'approve',
+      approvalId: APR,
+    };
+
+    it('stores the bounded engineering scalars and drops unknown keys', () => {
+      const { turn } = completeTurn(
+        running(),
+        T1,
+        {
+          state: 'succeeded',
+          outcome: {
+            text: 'ok',
+            engineering: { ...engineering, extra: 'x' } as typeof engineering,
+          },
+        },
+        T_2,
+      );
+      expect(turn.outcome?.engineering).toEqual(engineering);
+    });
+
+    it.each([
+      { planeTaskId: '../etc' },
+      { planeTaskId: '' },
+      { status: 'weird' },
+      { commit: 'not-a-sha' },
+      { files: -1 },
+      { files: 1.5 },
+      { gatesPassed: Number.NaN },
+      { branch: '' },
+      { branch: 'b'.repeat(201) },
+      { reviewVerdict: 'v'.repeat(33) },
+      { approvalId: 'apr_short' },
+    ])('rejects an invalid engineering field %j', (patch) => {
+      expectNexar(
+        () =>
+          completeTurn(
+            running(),
+            T1,
+            {
+              state: 'succeeded',
+              outcome: { engineering: { ...engineering, ...patch } as typeof engineering },
+            },
+            T_2,
+          ),
+        'VALIDATION_ERROR',
+        'engineering',
+      );
+    });
+  });
+
   it('refuses pending-confirmation turns and invalid states', () => {
     const pending = beginTurn(fresh(), {
       turnId: T1,

@@ -19,8 +19,16 @@ export { INTENT_POLICY, INTENT_RULES, classifyIntent } from './intent.js';
 export type { ClassifyIntentInput, IntentRule } from './intent.js';
 export { LANE_POLICY, affinityLane, confirmLane, decideLane } from './router.js';
 export type { DecideLaneInput, LaneAvailability, LaneOutcome, LaneRefusal } from './router.js';
-export { MAX_CONCURRENT_TURNS, OperatingService } from './service.js';
+export {
+  CODE_GOAL_CONTEXT_POLICY,
+  CODE_GOAL_REQUEST_ONLY_POLICY,
+  MAX_CODE_GOAL_CHARS,
+  MAX_CONCURRENT_TURNS,
+  OperatingService,
+} from './service.js';
 export type {
+  CodeRequest,
+  CodeResult,
   DirectRequest,
   DirectResult,
   OperatingPorts,

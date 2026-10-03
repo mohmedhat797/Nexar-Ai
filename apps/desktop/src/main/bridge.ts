@@ -4,6 +4,7 @@ import type { BridgeResult } from '../shared/api.js';
 import { CHANNELS, type ChannelName } from '../shared/channels.js';
 import { approvalChannels } from './approvals.js';
 import { artifactChannels } from './artifacts.js';
+import { codeChannels } from './code.js';
 import {
   JobRegistry,
   NoArgs,
@@ -60,6 +61,7 @@ export function createBridge(deps: BridgeDeps): Bridge {
     ...approvalChannels,
     ...workflowChannels,
     ...sessionChannels,
+    ...codeChannels,
   };
   const jobs = new JobRegistry();
   const operating = createOperating(deps, jobs);

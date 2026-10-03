@@ -12,6 +12,7 @@ import {
   type OperatingSession,
   type SessionSummary,
   type Turn,
+  type TurnEngineering,
   type UnavailableSession,
 } from '@nexar/sessions';
 import type {
@@ -19,6 +20,7 @@ import type {
   SessionSummaryDto,
   SubmitTurnResult,
   TurnDto,
+  TurnEngineeringDto,
   TurnLaneDto,
 } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
@@ -134,6 +136,22 @@ function toLaneDto(lane: LaneDecision): TurnLaneDto {
   };
 }
 
+/** Text the plane supplied is shown as plain text: control characters are dropped. */
+const plainText = (value: string): string => value.replace(/[\p{Cc}\p{Cf}]/gu, ' ').trim();
+
+function toEngineeringDto(e: TurnEngineering): TurnEngineeringDto {
+  return {
+    planeTaskId: e.planeTaskId,
+    status: e.status,
+    ...(e.branch === undefined ? {} : { branch: plainText(e.branch) }),
+    ...(e.commit === undefined ? {} : { commit: e.commit }),
+    ...(e.files === undefined ? {} : { files: e.files }),
+    ...(e.gatesPassed === undefined ? {} : { gatesPassed: e.gatesPassed }),
+    ...(e.reviewVerdict === undefined ? {} : { reviewVerdict: plainText(e.reviewVerdict) }),
+    ...(e.approvalId === undefined ? {} : { approvalId: e.approvalId }),
+  };
+}
+
 function toTurnDto(project: Project, turn: Turn): TurnDto {
   const owner = turn.tasks[0]?.taskId ?? turn.id;
   const artifacts = turn.artifacts.flatMap((ref) => mapArtifact(project, ref, owner) ?? []);
@@ -172,6 +190,9 @@ function toTurnDto(project: Project, turn: Turn): TurnDto {
             ...(turn.outcome.error === undefined
               ? {}
               : { error: { code: turn.outcome.error.code, message: turn.outcome.error.message } }),
+            ...(turn.outcome.engineering === undefined
+              ? {}
+              : { engineering: toEngineeringDto(turn.outcome.engineering) }),
           },
         }),
   };

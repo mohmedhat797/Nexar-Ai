@@ -142,6 +142,10 @@ const api: NexarApi = {
   cancelTurn: (args) => invoke(CHANNELS.sessionsCancel, args),
   setSessionMode: (args) => invoke(CHANNELS.sessionsSetMode, args),
   renameSession: (args) => invoke(CHANNELS.sessionsRename, args),
+  codeStatus: (args) => invoke(CHANNELS.codeStatus, args),
+  refreshCode: (args) => invoke(CHANNELS.codeRefresh, args),
+  setPlaneProject: (args) => invoke(CHANNELS.codeSetPlaneProject, args),
+  getCodeDiff: (args) => invoke(CHANNELS.codeDiff, args),
   onTaskEvent(callback) {
     // The IPC event object (and its sender) is never handed to the page.
     const listener = (_event: unknown, payload: TaskEvent): void => callback(payload);

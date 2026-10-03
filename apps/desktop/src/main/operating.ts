@@ -1,19 +1,14 @@
-import { OperatingService, type DirectRequest, type DirectResult } from '@nexar/operating';
+import {
+  OperatingService,
+  type CodeRequest,
+  type DirectRequest,
+  type DirectResult,
+} from '@nexar/operating';
 import { NexarError, projectId, type ArtifactRef } from '@nexar/contracts';
 import type { Project } from '@nexar/projects';
 import { toArtifactDto } from './artifacts.js';
 import type { BridgeDeps, CallContext, JobRegistry } from './channel.js';
 import { createTask, progressLine, storeDraftRef } from './tasks.js';
-
-/**
- * Which orchestrated lanes can run. Both are unavailable until the OpenWorker (NXR-056) and
- * DeepSeek Harness (NXR-055) lanes exist; a later unit swaps this one function. Nexar never reports
- * a lane as available when it cannot run it.
- */
-export function laneAvailable(lane: 'cowork' | 'code'): boolean {
-  void lane;
-  return false;
-}
 
 /** A path inside a project (relative, never `..`); anything else is dropped. */
 function displayPath(project: Project, ref: ArtifactRef): string | undefined {
@@ -31,13 +26,15 @@ function displayPath(project: Project, ref: ArtifactRef): string | undefined {
 }
 
 /**
- * One `OperatingService` over the session store (ADR-024). Direct execution is the only lane that
- * can run today: the session's own project is authoritative, the task carries Nexar-set lineage,
- * and the NRC still routes it with every hard filter.
+ * One `OperatingService` over the session store (ADR-024). Direct execution and the Code lane
+ * (the WSL2 engineering plane, ADR-025) can run; Cowork cannot yet. The session's own project is
+ * authoritative, direct tasks carry Nexar-set lineage and the NRC still routes them with every
+ * hard filter.
  */
 export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingService | undefined {
   const store = deps.sessions;
   if (store === undefined) return undefined;
+  const { codePlane } = deps;
   // The direct pipeline only needs `deps`; it never emits task events for session turns.
   const ctx: CallContext = { deps, jobs, emit: () => undefined, operating: undefined };
 
@@ -90,8 +87,22 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
 
   return new OperatingService({
     store,
-    lanes: { available: laneAvailable },
+    lanes: {
+      // The Cowork lane (OpenWorker, NXR-056) does not exist yet. The Code lane is available for a
+      // project only when the engineering plane is ready and the project is mapped to a plane
+      // project. Nexar never reports a lane as available when it cannot run it.
+      available: (lane, projectId) => lane === 'code' && (codePlane?.available(projectId) ?? false),
+      reason: (lane, projectId) => (lane === 'code' ? codePlane?.reason(projectId) : undefined),
+      // Report-only plans do not exist yet: read-only review turns run direct, recorded as such.
+      supports: (lane, kind) => !(lane === 'code' && kind === 'review'),
+    },
     executeDirect,
+    ...(codePlane === undefined
+      ? {}
+      : {
+          executeCode: (request: CodeRequest, signal: AbortSignal) =>
+            codePlane.run(request, signal),
+        }),
     describeArtifact,
     onTurnChanged: (sessionId, turnId) =>
       deps.broadcastSession({ sessionId, turnId, type: 'turn' }),

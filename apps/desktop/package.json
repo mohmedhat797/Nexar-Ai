@@ -21,6 +21,8 @@
     "@nexar/core": "workspace:*",
     "@nexar/host": "workspace:*",
     "@nexar/operating": "workspace:*",
+    "@nexar/plane-protocol": "workspace:*",
+    "@nexar/process": "workspace:*",
     "@nexar/projects": "workspace:*",
     "@nexar/resource-controller": "workspace:*",
     "@nexar/sessions": "workspace:*",

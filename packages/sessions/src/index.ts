@@ -67,6 +67,8 @@ export type {
   OperatingSession,
   SessionSummary,
   Turn,
+  TurnEngineering,
+  TurnEngineeringStatus,
   TurnIntent,
   TurnOutcome,
   TurnState,

@@ -60,10 +60,28 @@ export interface ContextManifest {
   readonly hash: string;
 }
 
+export type TurnEngineeringStatus = 'committed' | 'not-accepted' | 'failed' | 'cancelled';
+
+/**
+ * What the engineering plane reported for a Code-lane turn (ADR-025 section 7): ids and scalars
+ * only. Never a diff, a path, gate output or a prompt.
+ */
+export interface TurnEngineering {
+  readonly planeTaskId: string;
+  readonly status: TurnEngineeringStatus;
+  readonly branch?: string;
+  readonly commit?: string;
+  readonly files?: number;
+  readonly gatesPassed?: number;
+  readonly reviewVerdict?: string;
+  readonly approvalId?: string;
+}
+
 export interface TurnOutcome {
   readonly text?: string;
   readonly textTruncated?: boolean;
   readonly error?: { readonly code: string; readonly message: string };
+  readonly engineering?: TurnEngineering;
 }
 
 export interface Turn {

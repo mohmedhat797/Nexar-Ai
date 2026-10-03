@@ -40,6 +40,10 @@ export const CHANNELS = {
   sessionsCancel: 'sessions:cancel',
   sessionsSetMode: 'sessions:setMode',
   sessionsRename: 'sessions:rename',
+  codeStatus: 'code:status',
+  codeRefresh: 'code:refresh',
+  codeSetPlaneProject: 'code:setPlaneProject',
+  codeDiff: 'code:diff',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];

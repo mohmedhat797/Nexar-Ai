@@ -6,8 +6,8 @@ import type { Logger } from '@nexar/contracts';
 import { FileSessionStore } from '@nexar/sessions';
 import type { OperatingMode, OperatingSession } from '@nexar/sessions';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MAX_CONCURRENT_TURNS, OperatingService } from './service.js';
-import type { DirectRequest, OperatingPorts } from './service.js';
+import { MAX_CODE_GOAL_CHARS, MAX_CONCURRENT_TURNS, OperatingService } from './service.js';
+import type { CodeRequest, DirectRequest, OperatingPorts } from './service.js';
 
 let root: string;
 
@@ -46,7 +46,7 @@ interface Harness {
   readonly availability: { cowork: boolean; code: boolean };
   newSession(mode?: OperatingMode): Promise<OperatingSession>;
   session(id: string): Promise<OperatingSession>;
-  makeService(overrides?: Partial<OperatingPorts>): OperatingService;
+  makeService(overrides?: Partial<OperatingPorts>, withCode?: boolean): OperatingService;
 }
 
 type Execute = OperatingPorts['executeDirect'];
@@ -92,11 +92,43 @@ async function harness(execute?: Execute): Promise<Harness> {
     return run(request, signal);
   };
 
-  const makeService = (overrides: Partial<OperatingPorts> = {}): OperatingService =>
+  // A fake Code executor over the same recording executor, so Code-lane turns are counted too.
+  const executeCode: NonNullable<OperatingPorts['executeCode']> = async (request, signal) => {
+    const result = await recording(
+      {
+        sessionId: request.sessionId,
+        turnId: request.turnId,
+        projectId: request.projectId,
+        kind: request.intent,
+        prompt: request.goal,
+        correlation: request.correlation,
+        onTask: request.onTask,
+        onProgress: request.onProgress,
+      },
+      signal,
+    );
+    return {
+      taskId: result.taskId,
+      text: result.text,
+      engineering: {
+        planeTaskId: result.taskId,
+        status: 'committed',
+        files: 1,
+        gatesPassed: 1,
+        reviewVerdict: 'approve',
+      },
+    };
+  };
+
+  const makeService = (
+    overrides: Partial<OperatingPorts> = {},
+    withCode = true,
+  ): OperatingService =>
     new OperatingService({
       store,
       lanes: { available: (lane) => availability[lane] },
       executeDirect: recording,
+      ...(withCode ? { executeCode } : {}),
       describeArtifact: (ref) => ref.label,
       onTurnChanged: (_s, t) => void changes.push(t),
       onProgress: (_s, _t, _type, message) => void progress.push(message),
@@ -270,7 +302,6 @@ describe('OperatingService', () => {
         sessionId: s.id,
         submissionKey: nextKey(),
         text: 'Implement the missing backend endpoint.',
-        maxCostUsd: 1,
       });
       expect(submitted).toMatchObject({ created: true, action: 'confirm' });
       expect(submitted.turn.state).toBe('pending-confirmation');
@@ -296,7 +327,24 @@ describe('OperatingService', () => {
         lane: { confirmed: true, effectiveLane: 'code', mode: 'cowork' },
       });
       expect(h.requests).toHaveLength(1);
-      expect(h.requests[0]).toMatchObject({ kind: 'coding', maxCostUsd: 1 });
+      expect(h.requests[0]).toMatchObject({ kind: 'coding' });
+    });
+
+    it('refuses a Code-lane run that carries a cost ceiling instead of dropping it', async () => {
+      const h = await harness();
+      h.availability.code = true;
+      const s = await h.newSession('code');
+      await h.service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Implement the missing backend endpoint.',
+        maxCostUsd: 1,
+      });
+      await h.service.whenIdle();
+      const turn = (await h.session(s.id)).turns[0];
+      expect(turn?.state).toBe('failed');
+      expect(turn?.outcome?.error?.code).toBe('POLICY_REJECTED');
+      expect(h.requests).toHaveLength(0);
     });
 
     it('declining runs nothing and frees the session', async () => {
@@ -450,15 +498,49 @@ describe('OperatingService', () => {
       expect(h.requests).toHaveLength(1);
     });
 
-    it('still executes through executeDirect when a lane is reported available (v1)', async () => {
+    it('records a non-engineering turn in Code mode as direct, with the reason', async () => {
       const h = await harness();
       h.availability.code = true;
+      const service = h.makeService({
+        executeCode: () => Promise.reject(new Error('must not run')),
+      });
       const s = await h.newSession('code');
-      await h.service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Explain this' });
-      await h.service.whenIdle();
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Explain this' });
+      await service.whenIdle();
       const session = await h.session(s.id);
-      expect(session.turns[0]?.lane).toMatchObject({ effectiveLane: 'code' });
+      expect(session.turns[0]?.lane).toMatchObject({
+        requestedLane: 'code',
+        effectiveLane: 'direct',
+        fallbackReason: 'code-engineering-only',
+      });
+      expect(session.turns[0]?.state).toBe('succeeded');
       expect(h.requests).toHaveLength(1);
+    });
+
+    it('records a review turn as direct while the Code lane cannot run reports', async () => {
+      const h = await harness();
+      h.availability.code = true;
+      const service = h.makeService({
+        lanes: {
+          available: (lane) => h.availability[lane],
+          supports: (lane, kind) => !(lane === 'code' && kind === 'review'),
+        },
+        executeCode: () => Promise.reject(new Error('must not run')),
+      });
+      const s = await h.newSession('code');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Now verify whether the repository implementation supports this proposal.',
+      });
+      await service.whenIdle();
+      const turn = (await h.session(s.id)).turns[0];
+      expect(turn?.intent?.kind).toBe('review');
+      expect(turn?.lane).toMatchObject({
+        effectiveLane: 'direct',
+        fallbackReason: 'code-report-unavailable',
+      });
+      expect(turn?.state).toBe('succeeded');
     });
   });
 
@@ -608,6 +690,7 @@ describe('OperatingService', () => {
           linkTask: (...args) => h.store.linkTask(...args),
           updateTask: (...args) => h.store.updateTask(...args),
           linkArtifacts: (...args) => h.store.linkArtifacts(...args),
+          linkApprovals: (...args) => h.store.linkApprovals(...args),
           setContext: (...args) => h.store.setContext(...args),
           completeTurn: () => Promise.reject(new NexarError('CONFLICT', 'disk says OWNER-TEXT')),
         },
@@ -667,6 +750,356 @@ describe('OperatingService', () => {
       expect(h.service.executions()).toBe(0);
       await h.service.submit({ sessionId: extra.id, submissionKey: nextKey(), text: 'work' });
       await h.service.whenIdle();
+    });
+  });
+
+  describe('lane availability per project and refusal reason', () => {
+    it('asks the lanes port about the session project and appends its fixed reason', async () => {
+      const h = await harness();
+      const asked: string[] = [];
+      const service = h.makeService({
+        lanes: {
+          available: (lane, projectId) => {
+            asked.push(`${lane}:${projectId}`);
+            return false;
+          },
+          reason: (lane, projectId) => (lane === 'code' ? `unmapped for ${projectId}` : undefined),
+        },
+      });
+      const s = await h.newSession('code');
+      const result = await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Please implement the retry logic.',
+      });
+      expect(result.action).toBe('refuse');
+      expect(result.turn.outcome?.error).toEqual({
+        code: 'SANDBOX_UNAVAILABLE',
+        message:
+          'Engineering changes need the Code lane (WSL2 engineering plane), which is not available yet. (unmapped for proj-1)',
+      });
+      expect(asked).toContain('code:proj-1');
+      expect(asked).toContain('cowork:proj-1');
+    });
+
+    it('keeps the router message when there is no reason, or the reason port throws', async () => {
+      const h = await harness();
+      const s = await h.newSession('code');
+      for (const reason of [undefined, () => '', () => undefined]) {
+        const service = h.makeService({
+          lanes: { available: () => false, ...(reason === undefined ? {} : { reason }) },
+        });
+        const result = await service.submit({
+          sessionId: s.id,
+          submissionKey: nextKey(),
+          text: 'Please implement the retry logic.',
+        });
+        expect(result.turn.outcome?.error?.message).toBe(
+          'Engineering changes need the Code lane (WSL2 engineering plane), which is not available yet.',
+        );
+      }
+      const throwing = h.makeService({
+        lanes: {
+          available: () => false,
+          reason: () => {
+            throw new Error('boom');
+          },
+        },
+      });
+      const result = await throwing.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Please implement the retry logic.',
+      });
+      expect(result.turn.outcome?.error?.message).not.toContain('boom');
+    });
+
+    it('applies the reason on a confirmed turn that loses the lane while pending', async () => {
+      const h = await harness();
+      let codeUp = true;
+      const service = h.makeService({
+        lanes: {
+          available: (lane) => lane === 'code' && codeUp,
+          reason: () => 'plane-unreachable',
+        },
+        executeCode: () => Promise.reject(new Error('must not run')),
+      });
+      const s = await h.newSession('cowork');
+      const submitted = await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Implement the missing part.',
+      });
+      expect(submitted.action).toBe('confirm');
+      codeUp = false;
+      const turn = await service.confirm({
+        sessionId: s.id,
+        turnId: submitted.turn.id,
+        decision: 'confirm',
+      });
+      expect(turn.state).toBe('failed');
+      expect(turn.outcome?.error?.message).toMatch(/\(plane-unreachable\)$/);
+    });
+  });
+
+  describe('code lane', () => {
+    const engineering = (status: 'committed' | 'not-accepted' | 'failed' | 'cancelled') => ({
+      planeTaskId: 'task_9',
+      status,
+      ...(status === 'committed' ? { branch: 'nexar/task-9', commit: 'a'.repeat(40) } : {}),
+      files: 2,
+      gatesPassed: 3,
+      reviewVerdict: 'approve',
+    });
+
+    async function codeHarness(execute?: NonNullable<OperatingPorts['executeCode']>) {
+      const h = await harness();
+      h.availability.code = true;
+      const requests: CodeRequest[] = [];
+      const run: NonNullable<OperatingPorts['executeCode']> =
+        execute ??
+        (async (request) => {
+          await request.onTask('task_9');
+          request.onProgress('status', 'Engineering step: task.started');
+          await request.onApproval(`apr_${'c'.repeat(32)}`);
+          return {
+            taskId: 'task_9',
+            text: 'Committed 2 files',
+            engineering: engineering('committed'),
+          };
+        });
+      const service = h.makeService({
+        executeCode: (request, signal) => {
+          requests.push(request);
+          return run(request, signal);
+        },
+      });
+      return { h, service, requests };
+    }
+
+    it('runs a coding turn through executeCode and records the engineering outcome', async () => {
+      const { h, service, requests } = await codeHarness();
+      const s = await h.newSession('code');
+      const { turn } = await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Please implement the retry logic.',
+      });
+      await service.whenIdle();
+
+      expect(h.requests).toHaveLength(0); // executeDirect never ran
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({
+        sessionId: s.id,
+        turnId: turn.id,
+        projectId: 'proj-1',
+        intent: 'coding',
+        correlation: { depth: 0, rootSessionId: s.id, turnId: turn.id },
+      });
+      expect(requests[0]?.goal).toContain('Please implement the retry logic.');
+      expect(requests[0]?.goal).toContain('<untrusted-input name="request">');
+
+      const stored = (await h.session(s.id)).turns[0];
+      expect(stored).toMatchObject({
+        state: 'succeeded',
+        lane: { effectiveLane: 'code' },
+        tasks: [{ taskId: 'task_9', state: 'succeeded' }],
+        approvalIds: [`apr_${'c'.repeat(32)}`],
+        context: { policy: 'context@1/code-goal:context' },
+        outcome: { text: 'Committed 2 files', engineering: engineering('committed') },
+      });
+      expect(h.progress).toContain('Engineering step: task.started');
+    });
+
+    it('maps review turns to the review intent', async () => {
+      const { h, service, requests } = await codeHarness();
+      const s = await h.newSession('code');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Review the code in this repository.',
+      });
+      await service.whenIdle();
+      expect(requests[0]?.intent).toBe('review');
+    });
+
+    it('never turns a non-engineering turn into an engineering write', async () => {
+      const { h, service, requests } = await codeHarness();
+      const s = await h.newSession('code');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Explain this',
+      });
+      await service.whenIdle();
+      expect(requests).toHaveLength(0);
+      expect(h.requests).toHaveLength(1);
+    });
+
+    it('refuses an engineering write when no Code executor exists, executing nothing', async () => {
+      const h = await harness();
+      h.availability.code = true;
+      const service = h.makeService({}, false);
+      const s = await h.newSession('code');
+      const submitted = await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Please implement the retry logic.',
+      });
+      await service.whenIdle();
+      expect(submitted.action).toBe('refuse');
+      expect((await h.session(s.id)).turns[0]?.outcome?.error?.code).toBe('SANDBOX_UNAVAILABLE');
+      expect(h.requests).toHaveLength(0);
+    });
+
+    it.each([
+      ['not-accepted', 'failed', 'POLICY_REJECTED', 'failed'],
+      ['failed', 'failed', 'INTERNAL_ERROR', 'failed'],
+      ['cancelled', 'cancelled', undefined, 'cancelled'],
+    ] as const)(
+      'ends the turn for plane status %s as %s',
+      async (status, turnState, errorCode, taskState) => {
+        const { h, service } = await codeHarness(async (request) => {
+          await request.onTask('task_9');
+          return { taskId: 'task_9', text: 'summary', engineering: engineering(status) };
+        });
+        const s = await h.newSession('code');
+        await service.submit({
+          sessionId: s.id,
+          submissionKey: nextKey(),
+          text: 'Please implement the retry logic.',
+        });
+        await service.whenIdle();
+        const stored = (await h.session(s.id)).turns[0];
+        expect(stored?.state).toBe(turnState);
+        expect(stored?.outcome?.error?.code).toBe(errorCode);
+        expect(stored?.outcome?.engineering?.status).toBe(status);
+        expect(stored?.tasks[0]?.state).toBe(taskState);
+      },
+    );
+
+    it('records a plane error code and keeps the linked task failed', async () => {
+      const { h, service } = await codeHarness(async (request) => {
+        await request.onTask('task_9');
+        throw new NexarError('POLICY_REJECTED', 'The request was rejected by plane policy');
+      });
+      const s = await h.newSession('code');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Please implement the retry logic.',
+      });
+      await service.whenIdle();
+      const stored = (await h.session(s.id)).turns[0];
+      expect(stored).toMatchObject({
+        state: 'failed',
+        outcome: {
+          error: { code: 'POLICY_REJECTED', message: 'The request was rejected by plane policy' },
+        },
+        tasks: [{ taskId: 'task_9', state: 'failed' }],
+      });
+    });
+
+    it('aborts the code run like a direct run on cancel', async () => {
+      let seen: AbortSignal | undefined;
+      let started!: () => void;
+      const startedPromise = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const { h, service } = await codeHarness(
+        (_request, signal) =>
+          new Promise((_resolve, reject) => {
+            seen = signal;
+            started();
+            signal.addEventListener('abort', () =>
+              reject(new NexarError('EXECUTION_CANCELLED', 'aborted')),
+            );
+          }),
+      );
+      const s = await h.newSession('code');
+      const { turn } = await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Please implement the retry logic.',
+      });
+      await startedPromise;
+      expect(service.cancel(s.id, turn.id)).toBe(true);
+      await service.whenIdle();
+      expect(seen?.aborted).toBe(true);
+      expect((await h.session(s.id)).turns[0]?.state).toBe('cancelled');
+    });
+
+    it('sends only the turn text, and records it, when the context goal is too long', async () => {
+      const { h, service, requests } = await codeHarness();
+      const s = await h.newSession('code');
+      // A long previous turn pushes the rendered context over the plane's goal limit.
+      const long = `Implement ${'x'.repeat(19_950)}`;
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: long });
+      await service.whenIdle();
+      expect(requests[0]?.goal.length).toBeGreaterThan(MAX_CODE_GOAL_CHARS - 1_000);
+      expect(requests[0]?.goal).toBe(long); // exact text, no wrapper
+      const stored = (await h.session(s.id)).turns[0];
+      expect(stored?.context).toMatchObject({
+        policy: 'context@1/code-goal:request-only',
+        chars: long.length,
+        turnIds: [],
+      });
+      expect(stored?.state).toBe('succeeded');
+    });
+
+    it('fails with a constant reason when even the turn text exceeds the goal limit', async () => {
+      const { h, service, requests } = await codeHarness();
+      const s = await h.newSession('code');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: `Implement ${'y'.repeat(MAX_CODE_GOAL_CHARS)}`,
+      });
+      await service.whenIdle();
+      expect(requests).toHaveLength(0);
+      const stored = (await h.session(s.id)).turns[0];
+      expect(stored?.state).toBe('failed');
+      expect(stored?.outcome?.error?.code).toBe('VALIDATION_ERROR');
+      expect(JSON.stringify(stored?.outcome)).not.toContain('yyyy');
+    });
+
+    it('still completes the turn when linking an approval fails', async () => {
+      const { h, service } = await codeHarness(async (request) => {
+        await request.onTask('task_9');
+        await request.onApproval('not-an-approval-id');
+        return { taskId: 'task_9', text: 'ok', engineering: engineering('committed') };
+      });
+      const s = await h.newSession('code');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Please implement the retry logic.',
+      });
+      await service.whenIdle();
+      const stored = (await h.session(s.id)).turns[0];
+      expect(stored?.state).toBe('succeeded');
+      expect(stored?.approvalIds).toEqual([]);
+      expect(h.logs.some((l) => l.level === 'warn' && JSON.stringify(l).includes('approval'))).toBe(
+        true,
+      );
+    });
+
+    it('confirming a lane never changes permissions: a confirmed coding turn runs once', async () => {
+      const { h, service, requests } = await codeHarness();
+      const s = await h.newSession('cowork');
+      const submitted = await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Implement the missing part.',
+      });
+      expect(submitted.action).toBe('confirm');
+      expect(requests).toHaveLength(0);
+      await service.confirm({ sessionId: s.id, turnId: submitted.turn.id, decision: 'confirm' });
+      await service.whenIdle();
+      expect(requests).toHaveLength(1);
+      const session = await h.session(s.id);
+      expect(session.mode).toBe('cowork');
+      expect(session.turns[0]?.lane).toMatchObject({ confirmed: true, effectiveLane: 'code' });
     });
   });
 });
