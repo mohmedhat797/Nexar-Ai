@@ -83,6 +83,78 @@ Local full checks and source/packaged E2E passed; Windows CI acceptance remains 
 
 ## CURRENT STATE
 
+**Operating Layer milestone (2026-10-03, Claude Code):** PR #36 (draft) at `f6f885a`. The product
+flow is implemented and proven offline in one persistent session
+(`apps/desktop/e2e/operating-layer.e2e.ts`): Cowork → OpenWorker → draft; review → Code lane
+confirmation → report-only engineering plan; implementation → Code lane → engineering change →
+owner-approved Nexar commit; everything survives a relaunch. Live runs are pending (below).
+
+| Item                                   | State                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| NXR-051 Windows foundation             | implemented, CI-validated; owner installer acceptance pending                                                 |
+| NXR-052 Providers                      | implemented, CI-validated; real provider keys/sign-in live-unverified                                         |
+| NXR-055 Code lane (WSL plane)          | implemented, offline-tested (fake plane), CI-validated; A1–A6 and real runs pending (no `nexar-plane` distro) |
+| NXR-056 Cowork lane (OpenWorker)       | implemented, offline-tested (fake OpenWorker); live run pending (OpenWorker not installed)                    |
+| NXR-053 AI behavior                    | implemented per the ADR-021 v1 matrix; live runs pending with the lanes                                       |
+| NXR-057/058 Sessions, intent and lanes | done                                                                                                          |
+| NXR-054 Scheduled tasks, Mobile        | deferred (not started)                                                                                        |
+
+Key decisions: ADR-024 (sessions, lanes), ADR-025 (+ report-only amendment), ADR-026 (supervised
+OpenWorker), ADR-021 behavior amendment. Acceptance matrices: backlog 055, 056, 053.
+
+## NEXT EXACT TASK
+
+1. Owner live validation (see OWNER ACTION), then record results in the backlog matrices.
+2. NXR-059: turn-scoped delegation so OpenWorker can call Nexar services inside a Cowork turn
+   (correlation depth limit, same-turn return, ADR-015 scoped short-lived client token).
+3. Behavior v2: per-edit plane approvals ("Ask before edits"), full-auto network profile, per-turn
+   reasoning effort — each needs its own protocol/adapter work before the UI option is enabled.
+4. Only after the live Operating Layer flow passes: NXR-054 scheduled tasks. Mobile stays deferred.
+
+## BLOCKERS
+
+- Native browser callback sign-in remains live-unverified. Null stdio supports browser callbacks,
+  not interactive/manual codes; use the vendor terminal and Recheck for those flows. Antigravity has
+  no verified standalone login/status command, so its login action remains unavailable.
+
+- A pending confirmation's run options (preferred resources, cost ceiling) live in memory; after a
+  restart the owner can only decline it (`CONFLICT confirmation-expired`) and resend.
+- In Code mode the Desktop chat area still shows the Code placeholder (existing E2E); revisit with
+  NXR-055.
+- `sessions:list` reads at most 200 sessions across projects before filtering; a reused process id
+  can make a stale sessions lease look live (fails closed); a non-`CONFLICT` lease failure stops
+  startup; a turn whose completion writes all fail stays `running` until the next restart.
+- The `claude` CLI on this machine is not logged in, so the `claude-delegate` relay cannot run;
+  Sonnet work used in-session Sonnet subagents in disposable worktrees.
+- Windows descendants of an exited leader need a Job Object for containment. Write-capable
+  engineering still requires WSL2/bubblewrap, with no native fallback.
+- External config state-directory overrides still need their own ACL audit. Windows artifact storage
+  requires hard-link support.
+- WSL A1–A6, provider keys, OpenWorker reverse supervision and installer execution are not validated.
+
+## OWNER ACTION
+
+- **Engineering plane:** create the hardened `nexar-plane` WSL2 distro per
+  [`wsl2-engineering-plane.md`](../integration/wsl2-engineering-plane.md) (Ubuntu 24.04,
+  `nexar` user without sudo, hardened `wsl.conf`, `bubblewrap socat git`, Node ≥ 22.19 + pnpm,
+  Nexar at `/usr/local/bin/nexar`, one engineering project), run A1–A6, map the Desktop project in
+  Settings → Code, then one small review and one small change (no push).
+- **OpenWorker:** install OpenWorker 0.3.x per upstream instructions (set `cowork.executable` /
+  `cowork.versionExecutable` in `desktop-settings.json` if not on `PATH`), allow one provider for
+  OpenWorker in Settings → Providers, run one small Cowork turn.
+- Windows installer acceptance ([`windows-validation.md`](../guides/windows-validation.md)) and
+  optional provider live checks remain open.
+
+## LIVE TESTS PENDING
+
+Claude Code/Codex browser sign-in; installed Codex/Antigravity semantic versions; real provider key
+checks/DeepSeek execution; installed Windows Desktop Cowork task with Claude Code; WSL A1–A6 and one engineering E2E; synthetic
+OpenWorker Cowork E2E. Subscription tests remain opt-in. NXR-054 scheduled work and Mobile stay deferred.
+
+## Checkpoint history
+
+Detailed checkpoint notes recorded before the 2026-10-03 milestone summary above.
+
 **2026-10-03:** NXR-052d is implemented with offline native port/process tests and Provider Electron
 E2E. Connected requires recognized vendor-account auth; API-key/injected-token modes cannot become
 subscription-connected. Login success is re-probed. No real sign-in, paid generation or private
@@ -195,53 +267,3 @@ lane in the Operating Layer and Desktop main (`7453e7f`), Desktop state + E2E (`
 Implementation complete, offline-tested with a fake OpenWorker; live run pending (OpenWorker not
 installed). Recursion is impossible by construction in this version; NXR-059 adds turn-scoped
 delegation.
-
-## NEXT EXACT TASK
-
-1. NXR-053 AI behavior settings over the two real lanes (Cowork: read only / drafts only / ask
-   before write → OpenWorker mode and Nexar policy; Code: plan / ask / auto-edit / full-auto in the
-   sandbox → plan selection and approval behaviour). Settings compile into existing policy inputs
-   (OperatingSession policy, TaskRequirements, NRC owner preferences, adapter options); unsupported
-   combinations are rejected, locked rules stay locked.
-2. Integrated Operating Layer E2E (offline, fakes): Cowork proposal → Code review report →
-   Code change with approval, in one session.
-3. Owner: `nexar-plane` + A1–A6; OpenWorker 0.3.x install; live Cowork, review and change runs.
-   NXR-054 and Mobile stay deferred.
-
-## BLOCKERS
-
-- Native browser callback sign-in remains live-unverified. Null stdio supports browser callbacks,
-  not interactive/manual codes; use the vendor terminal and Recheck for those flows. Antigravity has
-  no verified standalone login/status command, so its login action remains unavailable.
-
-- A pending confirmation's run options (preferred resources, cost ceiling) live in memory; after a
-  restart the owner can only decline it (`CONFLICT confirmation-expired`) and resend.
-- In Code mode the Desktop chat area still shows the Code placeholder (existing E2E); revisit with
-  NXR-055.
-- `sessions:list` reads at most 200 sessions across projects before filtering; a reused process id
-  can make a stale sessions lease look live (fails closed); a non-`CONFLICT` lease failure stops
-  startup; a turn whose completion writes all fail stays `running` until the next restart.
-- The `claude` CLI on this machine is not logged in, so the `claude-delegate` relay cannot run;
-  Sonnet work used in-session Sonnet subagents in disposable worktrees.
-- Windows descendants of an exited leader need a Job Object for containment. Write-capable
-  engineering still requires WSL2/bubblewrap, with no native fallback.
-- External config state-directory overrides still need their own ACL audit. Windows artifact storage
-  requires hard-link support.
-- WSL A1–A6, provider keys, OpenWorker reverse supervision and installer execution are not validated.
-
-## OWNER ACTION
-
-- Optional live acceptance: Claude Code/Codex browser sign-in, cancel/deadline and Recheck with the
-  installed CLI versions. Native auth is never copied to API providers. Manual terminal flows stay
-  vendor-owned. Real provider-key metadata and DeepSeek execution remain optional live checks.
-
-- Owner acceptance in [`windows-validation.md`](../guides/windows-validation.md), plus: a
-  conversation survives a relaunch and continues; a Cowork "verify the repository" request asks for
-  confirmation and shows the direct fallback; "Implement …" is refused while the Code lane is absent.
-- Optional: `claude /login` so the `claude-delegate` relay works.
-
-## LIVE TESTS PENDING
-
-Claude Code/Codex browser sign-in; installed Codex/Antigravity semantic versions; real provider key
-checks/DeepSeek execution; installed Windows Desktop Cowork task with Claude Code; WSL A1–A6 and one engineering E2E; synthetic
-OpenWorker Cowork E2E. Subscription tests remain opt-in. NXR-054 scheduled work and Mobile stay deferred.

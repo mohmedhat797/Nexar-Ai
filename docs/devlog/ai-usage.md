@@ -160,6 +160,8 @@ phase 1: **about $50.44**. Opus spend and the remaining balance are not exposed 
 | 2026-10-03 | 056a OpenWorker adapter (relay)                              | Sonnet 5.5 | supervisor, session client, policy, fake server            | $1.177                                 | Accepted with upstream contract fixes (event envelope, interactive requests); `4a2b13b`                 |
 | 2026-10-03 | 056b Cowork lane wiring (relay, resumed after a usage limit) | Sonnet 5.5 | executeCowork, CoworkService, provider opt-in              | $1.002 + $3.654                        | Accepted with version-executable fix; `7453e7f`                                                         |
 | 2026-10-03 | 056c Cowork Desktop state (relay)                            | Sonnet 5.5 | banner, lane line, opt-in toggle, E2E                      | $0.848                                 | Accepted with re-probe and dispose race fix; `221aca4`                                                  |
+| 2026-10-03 | 053 AI behavior (relay)                                      | Sonnet 5.5 | settings, Cowork/Code profiles, implementation-plan        | $5.503                                 | Accepted; relay ended before its gate, Opus ran gates and fixed lint/E2E; `7494a9b`                     |
+| 2026-10-03 | Integrated Operating Layer E2E (relay)                       | Sonnet 5.5 | one-session Cowork → review → change E2E                   | $0.254                                 | Accepted; `f6f885a`                                                                                     |
 
 The in-session subagent reports tokens, not cost; no dollar figure is estimated.
 
