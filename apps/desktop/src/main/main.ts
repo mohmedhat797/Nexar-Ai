@@ -23,6 +23,7 @@ import {
 } from './plane-connection.js';
 import { ensurePrivateStateDirectory, PrivateStateError } from './private-state.js';
 import { SettingsStore } from './settings-store.js';
+import { holdQuitUntil } from './shutdown.js';
 import { newTask } from './tasks.js';
 import {
   bundlePaths,
@@ -53,6 +54,9 @@ const runtimePath =
       : join(app.getPath('appData'), 'Nexar Runtime');
 app.setPath('sessionData', runtimePath);
 app.setPath('crashDumps', join(runtimePath, 'Crashpad'));
+
+/** Upper bound on ending the lanes' children and releasing the sessions lease at quit. */
+const QUIT_CLEANUP_BOUND_MS = 5_000;
 
 function decider(): string {
   try {
@@ -139,18 +143,6 @@ async function start(): Promise<void> {
     if (!isNexarError(error) || error.code !== 'CONFLICT') throw error;
     logger.warn('sessions are open in another Nexar process', { code: error.code });
   }
-  let leaseReleased = false;
-  app.on('will-quit', (event) => {
-    if (sessions === undefined || leaseReleased) return;
-    // Best effort: give the lease back before exiting so the next launch needs no stale recovery.
-    event.preventDefault();
-    leaseReleased = true;
-    void sessionStore
-      .releaseLease()
-      .catch(() => undefined)
-      .finally(() => app.quit());
-  });
-
   // The Code lane (ADR-025): Desktop reaches the WSL2 engineering plane through `wsl.exe`. Under the
   // test-only `NEXAR_DESKTOP_USER_DATA` override the real WSL is never touched: the lane uses the
   // fake plane named by `NEXAR_DESKTOP_TEST_PLANE`, or is simply unavailable. Neither variable is
@@ -169,7 +161,6 @@ async function start(): Promise<void> {
     logger,
     decider: decider(),
   });
-  app.on('before-quit', () => codePlane.dispose());
   // Non-blocking: the lane reports "still being checked" until the first probe finishes.
   void codePlane.refresh();
 
@@ -204,7 +195,24 @@ async function start(): Promise<void> {
         { sessionId: request.sessionId, turnId: request.turnId },
       ),
   });
-  app.on('before-quit', () => void cowork.dispose());
+  // Quitting ends the lanes' children (a plane run, a starting or running OpenWorker) as soon as it
+  // begins, and the exit waits (bounded) for that before the sessions lease is given back (best
+  // effort, so the next launch needs no stale recovery). Exiting first left a supervised server
+  // running behind the closed app.
+  let lanesStopped: Promise<unknown> | undefined;
+  app.on('before-quit', () => {
+    if (lanesStopped !== undefined) return;
+    codePlane.dispose();
+    lanesStopped = cowork.dispose();
+  });
+  holdQuitUntil(
+    app,
+    async () => {
+      await lanesStopped?.catch(() => undefined);
+      if (sessions !== undefined) await sessionStore.releaseLease();
+    },
+    QUIT_CLEANUP_BOUND_MS,
+  );
   void cowork.warm();
   const bridge = createBridge({
     engine,

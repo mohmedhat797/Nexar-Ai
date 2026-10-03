@@ -258,6 +258,7 @@ export class CoworkService {
       config.value.versionExecutable ?? DEFAULT_OPENWORKER_VERSION_EXECUTABLE;
     if (this.supervisor?.executable !== executable) {
       await this.supervisor?.value.stop();
+      if (this.disposed) return MISSING_STATUS;
       this.supervisor = {
         executable,
         value: new OpenWorkerSupervisor({
@@ -271,6 +272,8 @@ export class CoworkService {
         }),
       };
     }
+    // Checked right before starting: dispose() stops the supervisor and must not be outrun.
+    if (this.disposed) return MISSING_STATUS;
     const started: OpenWorkerStatus = await this.supervisor.value.start();
     if (this.disposed) {
       // Disposed while starting: never leave a server running behind a closed app.
@@ -579,8 +582,12 @@ export class CoworkService {
   async dispose(): Promise<void> {
     this.disposed = true;
     for (const controller of this.active) controller.abort();
-    // A probe already in flight may still be starting a server: let it settle, then stop it.
+    // Stop first: a probe in flight may be starting a server, and stop() abandons that start (its
+    // version probe or server is ended) instead of waiting up to the startup bound for it. Waiting
+    // first let Desktop exit before the stop, leaving the server running behind a closed app.
+    await this.supervisor?.value.stop();
     await this.inflight?.catch(() => undefined);
+    // The probe may have replaced the supervisor before it saw `disposed`.
     await this.supervisor?.value.stop();
   }
 }

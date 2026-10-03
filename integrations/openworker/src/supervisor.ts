@@ -89,17 +89,22 @@ function freeLoopbackPort(): Promise<number> {
 
 const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
+const NOT_STARTED: OpenWorkerStatus = {
+  state: 'startup-failed',
+  reason: 'OpenWorker has not been started',
+};
+
 /** Owns one private `openworker-server` (ADR-026 §1, §6): probe, launch, health, stop. */
 export class OpenWorkerSupervisor {
   readonly #options: OpenWorkerSupervisorOptions;
-  #status: OpenWorkerStatus = {
-    state: 'startup-failed',
-    reason: 'OpenWorker has not been started',
-  };
+  #status: OpenWorkerStatus = NOT_STARTED;
   #starting: Promise<OpenWorkerStatus> | undefined;
   #child: ChildProcess | undefined;
   #http: OpenWorkerHttpClient | undefined;
   #stopping = false;
+  /** Bumped by `stop()`: a launch started before it is abandoned and never spawns or reports ready. */
+  #generation = 0;
+  #launchAbort: AbortController | undefined;
 
   constructor(options: OpenWorkerSupervisorOptions) {
     this.#options = options;
@@ -126,13 +131,17 @@ export class OpenWorkerSupervisor {
     return this.#starting;
   }
 
+  /** Ends the server, and abandons a start in progress (its version probe or server is ended too). */
   async stop(): Promise<void> {
     this.#stopping = true;
+    this.#generation += 1;
+    this.#launchAbort?.abort();
+    this.#launchAbort = undefined;
     const child = this.#child;
     this.#child = undefined;
     this.#http = undefined;
     this.#starting = undefined;
-    this.#status = { state: 'startup-failed', reason: 'OpenWorker has not been started' };
+    this.#status = NOT_STARTED;
     if (child !== undefined) await terminateProcessTree(child, this.#options.env ?? process.env);
   }
 
@@ -179,6 +188,10 @@ export class OpenWorkerSupervisor {
       return this.#fail('configuration-missing');
     }
     this.#stopping = false;
+    const generation = this.#generation;
+    const stopped = (): boolean => generation !== this.#generation;
+    const abort = new AbortController();
+    this.#launchAbort = abort;
     const parentEnv = options.env ?? process.env;
     const publicEnv = publicRuntimeEnvironment(parentEnv);
     const spawnImpl = options.spawn ?? spawnRuntime;
@@ -194,11 +207,12 @@ export class OpenWorkerSupervisor {
       args: ['version'],
       cwd: options.stateDir,
       env: publicEnv,
-      signal: new AbortController().signal,
+      signal: abort.signal,
       timeoutMs: VERSION_TIMEOUT_MS,
       interaction: 'probe',
       spawnImpl,
     });
+    if (stopped()) return NOT_STARTED;
     if (probe.kind === 'unavailable') return this.#fail('openworker-missing');
     if (probe.kind !== 'exited' || probe.exitCode !== 0) return this.#fail('startup-failed');
     const parsed = parseVersion(probe.stdout);
@@ -218,6 +232,8 @@ export class OpenWorkerSupervisor {
     } catch {
       return this.#fail('startup-failed', version);
     }
+    // Stopped while probing: never spawn a server nobody will stop.
+    if (stopped()) return NOT_STARTED;
     const token = randomBytes(32).toString('hex');
     const env: Record<string, string> = {
       ...publicEnv,
@@ -260,14 +276,18 @@ export class OpenWorkerSupervisor {
     const clock = options.clock ?? Date.now;
     const deadline = clock() + (options.startupTimeoutMs ?? 30_000);
     const healthy = options.probe ?? ((client: OpenWorkerHttpClient) => client.health());
-    while (!exited && clock() < deadline) {
-      if (await healthy(http)) {
+    while (!exited && !stopped() && clock() < deadline) {
+      const up = await healthy(http);
+      if (stopped()) break;
+      if (up) {
         this.#http = http;
         this.#status = { state: 'ready', version, reason: REASONS.ready };
         return this.#status;
       }
       await sleep(POLL_INTERVAL_MS);
     }
+    // `stop()` already ended this launch's server (and may have started a newer one): leave it.
+    if (stopped()) return NOT_STARTED;
     await this.stop();
     return this.#fail('startup-failed', version);
   }

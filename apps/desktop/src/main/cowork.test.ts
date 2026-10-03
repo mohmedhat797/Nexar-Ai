@@ -1,7 +1,8 @@
+import type { ChildProcess } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Logger } from '@nexar/contracts';
 import type { Turn } from '@nexar/sessions';
 import type { BridgeResult, CoworkStatusDto, SessionDto, SubmitTurnResult } from '../shared/api.js';
@@ -104,6 +105,7 @@ interface Setup {
   readonly disabled?: boolean;
   readonly timings?: Partial<CoworkTimings>;
   readonly createTaskSpy?: (request: Parameters<typeof newTask>[1], correlation: unknown) => void;
+  readonly onSpawn?: (args: readonly string[], child: ChildProcess) => void;
 }
 
 async function setup(options: Setup = {}) {
@@ -113,6 +115,12 @@ async function setup(options: Setup = {}) {
   for (const provider of options.allowed ?? ['anthropic']) {
     await h.deps.settings.setOpenWorkerAccess(provider, true);
   }
+  const scriptSpawn = createScriptSpawn(FAKE, { ...options.env });
+  const spawn = ((command: string, args: readonly string[], spawnOptions: object) => {
+    const child = (scriptSpawn as (...a: unknown[]) => ChildProcess)(command, args, spawnOptions);
+    options.onSpawn?.(args, child);
+    return child;
+  }) as unknown as typeof scriptSpawn;
   const cowork = new CoworkService({
     settings: h.deps.settings,
     engine,
@@ -120,7 +128,7 @@ async function setup(options: Setup = {}) {
     logger: capture,
     stateDir: join(dirname(h.userData), 'ow-runtime'),
     ...(options.disabled === true ? { disabled: true } : {}),
-    spawn: createScriptSpawn(FAKE, { ...options.env }),
+    spawn,
     timings: { ...TIMINGS, ...options.timings },
     createTask: (request, excludedResourceIds) => {
       options.createTaskSpy?.(request, request.correlation);
@@ -444,6 +452,29 @@ describe('Cowork lane', () => {
     await cowork.dispose();
     expect(supervisor.client()).toBeUndefined();
     expect(cowork.available()).toBe(false);
+  });
+
+  it('ends a server that is still starting on dispose, without waiting for the startup bound', async () => {
+    const servers: ChildProcess[] = [];
+    const { cowork } = await setup({
+      env: { NEXAR_FAKE_OPENWORKER_NEVER_READY: '1' },
+      onSpawn: (args, child) => {
+        if (args[0] === '--host') servers.push(child);
+      },
+    });
+    // The probe waits for a health check that never passes (bound: 15 s).
+    const probing = cowork.refresh();
+    await vi.waitFor(() => expect(servers).toHaveLength(1), { timeout: 10_000 });
+    const server = servers[0]!;
+    const disposedAt = Date.now();
+    await cowork.dispose();
+    expect(Date.now() - disposedAt).toBeLessThan(5_000);
+    expect((await probing).state).not.toBe('ready');
+    await vi.waitFor(
+      () => expect(server.exitCode !== null || server.signalCode !== null).toBe(true),
+      { timeout: 5_000 },
+    );
+    expect(servers).toHaveLength(1);
   });
 });
 

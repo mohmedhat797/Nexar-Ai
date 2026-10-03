@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import type { SpawnOptions } from 'node:child_process';
+import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -26,7 +26,12 @@ afterEach(async () => {
 interface Harness {
   readonly supervisor: OpenWorkerSupervisor;
   readonly stateDir: string;
-  readonly spawned: { command: string; args: readonly string[]; env: NodeJS.ProcessEnv }[];
+  readonly spawned: {
+    command: string;
+    args: readonly string[];
+    env: NodeJS.ProcessEnv;
+    child: ChildProcess;
+  }[];
 }
 
 /** Runs the fake server script in place of `openworker`; knobs are added after env capture. */
@@ -49,11 +54,12 @@ function harness(
     },
     startupTimeoutMs: 15_000,
     spawn: ((command: string, args: readonly string[], options: SpawnOptions) => {
-      spawned.push({ command, args, env: { ...options.env } });
-      return spawn(process.execPath, [FAKE, ...args], {
+      const child = spawn(process.execPath, [FAKE, ...args], {
         ...options,
         env: { ...options.env, ...knobs },
       });
+      spawned.push({ command, args, env: { ...options.env }, child });
+      return child;
     }) as unknown as typeof spawn,
     ...overrides,
   });
@@ -271,6 +277,61 @@ describe('OpenWorkerSupervisor', () => {
     await expect(
       supervisor.configureProviders([{ provider: 'anthropic', apiKey: '' }]),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('stop() during the health wait ends the starting server and never reports ready', async () => {
+    const { supervisor, spawned } = harness({ FAKE_OW_NEVER_READY: '1' });
+    const starting = supervisor.start();
+    await vi.waitFor(() => expect(spawned.some((s) => s.args[0] === '--host')).toBe(true), {
+      timeout: 10_000,
+    });
+    const server = spawned.find((s) => s.args[0] === '--host')!.child;
+    const stoppedAt = Date.now();
+    await supervisor.stop();
+    expect(await starting).toMatchObject({ state: 'startup-failed' });
+    // Abandoned at once, not after the 15 s startup bound.
+    expect(Date.now() - stoppedAt).toBeLessThan(5_000);
+    expect(supervisor.client()).toBeUndefined();
+    await vi.waitFor(
+      () => expect(server.exitCode !== null || server.signalCode !== null).toBe(true),
+      {
+        timeout: 5_000,
+      },
+    );
+  });
+
+  it('stop() during the version probe never launches a server', async () => {
+    const versions: ChildProcess[] = [];
+    const { supervisor, spawned } = harness(
+      {},
+      {
+        spawn: ((command: string, args: readonly string[], options: SpawnOptions) => {
+          // A version probe that would answer only after the test: stop() must not wait for it.
+          const child = spawn(
+            process.execPath,
+            ['-e', "setTimeout(() => console.log('openworker 0.3.0'), 8000)"],
+            options,
+          );
+          if (args[0] === 'version') versions.push(child);
+          spawned.push({ command, args, env: { ...options.env }, child });
+          return child;
+        }) as unknown as typeof spawn,
+      },
+    );
+    const starting = supervisor.start();
+    await vi.waitFor(() => expect(versions).toHaveLength(1), { timeout: 10_000 });
+    const stoppedAt = Date.now();
+    await supervisor.stop();
+    expect(await starting).toMatchObject({ state: 'startup-failed' });
+    expect(Date.now() - stoppedAt).toBeLessThan(5_000);
+    expect(spawned.filter((s) => s.args[0] === '--host')).toHaveLength(0);
+    const probe = versions[0]!;
+    await vi.waitFor(
+      () => expect(probe.exitCode !== null || probe.signalCode !== null).toBe(true),
+      {
+        timeout: 5_000,
+      },
+    );
   });
 
   it('stop() ends the server and the client', async () => {
