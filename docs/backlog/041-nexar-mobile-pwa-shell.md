@@ -1,6 +1,6 @@
 # NXR-041: Nexar Mobile PWA shell
 
-**Milestone:** v0.6 — Nexar Mobile · **Labels:** mobile · **Depends on:** NXR-040
+**Milestone:** Nexar Mobile (deferred) · **Labels:** mobile · **Depends on:** NXR-040
 
 ## Summary
 

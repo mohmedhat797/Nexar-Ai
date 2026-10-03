@@ -43,6 +43,9 @@ async function decideOn(
   decision: 'approve' | 'deny',
   args: z.output<typeof DecisionSchema>,
 ): Promise<ApprovalDto> {
+  // An id of a pending plane approval is decided on the plane; Desktop's own store never sees it.
+  const plane = ctx.deps.codePlane;
+  if (plane?.owns(args.id) === true) return plane.decide(args.id, decision);
   const decided = await decide(ctx.deps.engine.approvals(), args.id, decision, {
     by: ctx.deps.decider,
     ...(args.reason === undefined ? {} : { reason: args.reason }),
@@ -57,7 +60,8 @@ export const approvalChannels: Readonly<Record<string, ChannelDefinition>> = {
       const records = await ctx.deps.engine
         .approvals()
         .list(args.all === true ? undefined : { status: 'pending' });
-      return records.map(toApprovalDto);
+      // Pending approvals of the engineering plane live in memory beside Desktop's own records.
+      return [...records.map(toApprovalDto), ...(ctx.deps.codePlane?.pendingApprovals() ?? [])];
     },
   ),
   [CHANNELS.approvalsApprove]: defineChannel(DecisionSchema, (a, ctx) =>

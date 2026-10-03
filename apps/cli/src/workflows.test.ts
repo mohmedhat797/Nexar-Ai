@@ -292,7 +292,7 @@ describe('nexar workflows / nexar run --workflow (in-process, offline)', () => {
       const c = capture(dir);
       expect(await runCli([...SOW, '--input', 'references=refs'], c.io)).toBe(0);
       const text = await readFile(c.out().trim(), 'utf8');
-      expect(text).toContain('- refs/a.md');
+      expect(text).toContain(`- ${join('refs', 'a.md')}`);
       expect(text).not.toContain('FILE-SENTINEL');
     });
 

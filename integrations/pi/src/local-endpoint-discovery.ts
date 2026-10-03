@@ -102,10 +102,13 @@ async function listEndpoint(
   signal: AbortSignal,
 ): Promise<ResourceDescriptor[]> {
   const base = parseBase(endpoint);
-  const path = endpoint.kind === 'ollama' ? '/api/tags' : '/v1/models';
+  // Discovery and execution must address the same API, accepting a server root or /v1 base.
+  const apiBase =
+    base.endsWith('/v1') && endpoint.kind === 'openai-compatible' ? base : `${base}/v1`;
+  const listingUrl = endpoint.kind === 'ollama' ? `${base}/api/tags` : `${apiBase}/models`;
   let response: Response;
   try {
-    response = await fetchFn(base + path, {
+    response = await fetchFn(listingUrl, {
       method: 'GET',
       redirect: 'error',
       signal,
@@ -127,7 +130,7 @@ async function listEndpoint(
     throw fail('local endpoint returned malformed JSON');
   }
   const loopback = isLoopbackUrl(base);
-  const baseUrl = endpoint.kind === 'ollama' ? `${base}/v1` : base;
+  const baseUrl = apiBase;
   const seen = new Set<string>();
   const out: ResourceDescriptor[] = [];
   for (const name of [...new Set(modelNames(endpoint.kind, json))].sort()) {

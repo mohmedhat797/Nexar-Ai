@@ -25,5 +25,6 @@ process.exitCode = await runCli(process.argv.slice(2), {
   env: process.env,
   cwd: process.cwd(),
   stdin: readStdin,
+  stdinChunks: () => process.stdin,
   ...(interactive ? { confirm } : {}),
 });

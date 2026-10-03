@@ -6,6 +6,7 @@ import type {
   ExecutionResult,
   ResourceDescriptor,
   ResourceState,
+  SecretResolver,
 } from '@nexar/contracts';
 import {
   DEFAULT_ALLOWED_PROVIDERS,
@@ -24,6 +25,11 @@ export interface PiExecutionAdapterOptions {
   readonly models?: PiModelsLike;
   /** Environment used to resolve credential references. Defaults to `process.env`. */
   readonly env?: NodeJS.ProcessEnv;
+  /**
+   * Resolves `keystore` credential references (injected by the host). Without it, a keystore
+   * reference counts as not stored; the environment is never consulted for it.
+   */
+  readonly resolveSecret?: SecretResolver;
   /** Providers this adapter may call. Defaults to {@link DEFAULT_ALLOWED_PROVIDERS}. */
   readonly allowedProviders?: readonly string[];
   /** Clock (epoch ms) for message and probe timestamps. Defaults to `Date.now`. */
@@ -90,6 +96,7 @@ export class PiExecutionAdapter implements ExecutionAdapter {
   readonly displayName = 'pi-ai direct model adapter';
 
   private readonly env: NodeJS.ProcessEnv;
+  private readonly resolveSecret: SecretResolver | undefined;
   private readonly allowedProviders: readonly string[];
   private readonly now: () => number;
   private readonly injected: PiModelsLike | undefined;
@@ -99,6 +106,7 @@ export class PiExecutionAdapter implements ExecutionAdapter {
   constructor(options: PiExecutionAdapterOptions = {}) {
     this.injected = options.models;
     this.env = options.env ?? process.env;
+    this.resolveSecret = options.resolveSecret;
     this.allowedProviders = options.allowedProviders ?? DEFAULT_ALLOWED_PROVIDERS;
     this.now = options.now ?? Date.now;
   }
@@ -156,7 +164,15 @@ export class PiExecutionAdapter implements ExecutionAdapter {
     if (target.auth.mode === 'api-key') {
       apiKey = this.readCredential(target.auth.credential);
       if (apiKey === undefined) {
-        const name = target.auth.credential.source === 'env' ? target.auth.credential.name : '';
+        const { credential } = target.auth;
+        if (credential.source === 'keystore') {
+          throw new NexarError(
+            'AUTH_REQUIRED',
+            `Credential ${credential.name} is not stored in the Nexar key store`,
+            { details: { keystore: credential.name } },
+          );
+        }
+        const name = credential.source === 'env' ? credential.name : '';
         throw new NexarError(
           'AUTH_REQUIRED',
           `Credential environment variable ${name} is not set`,
@@ -243,16 +259,23 @@ export class PiExecutionAdapter implements ExecutionAdapter {
     }
   }
 
-  /** Reads the referenced env var; empty or absent means "no credential". Never logs the value. */
+  /**
+   * Reads the referenced env var or key store entry; empty or absent means "no credential". The
+   * sources never fall back to each other. Never logs the value.
+   */
   private readCredential(
     credential: Extract<ResourceDescriptor['auth'], { mode: 'api-key' }>['credential'],
   ): string | undefined {
-    if (credential.source !== 'env') {
-      throw configError('pi-ai resources need an env credential reference', {
+    let value: string | undefined;
+    if (credential.source === 'env') {
+      value = this.env[credential.name];
+    } else if (credential.source === 'keystore') {
+      value = this.resolveSecret?.(credential.name);
+    } else {
+      throw configError('pi-ai resources need an env or keystore credential reference', {
         source: credential.source,
       });
     }
-    const value = this.env[credential.name];
     return value === undefined || value === '' ? undefined : value;
   }
 

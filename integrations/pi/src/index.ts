@@ -11,7 +11,11 @@ export type {
 } from './pi-models.js';
 export { PI_ADAPTER_ID, piModelResource } from './resource.js';
 export type { PiModelResourceInput } from './resource.js';
-export { PI_CATALOG_SOURCE_ID, piCatalogDiscoverySource } from './catalog-discovery.js';
+export {
+  PI_CATALOG_SOURCE_ID,
+  PI_PROVIDER_CREDENTIAL_NAMES,
+  piCatalogDiscoverySource,
+} from './catalog-discovery.js';
 export type { PiCatalogDiscoveryOptions } from './catalog-discovery.js';
 export {
   LOCAL_ENDPOINTS_SOURCE_ID,
@@ -23,3 +27,4 @@ export type {
 } from './local-endpoint-discovery.js';
 export { toExecutionResult } from './result.js';
 export type { ToExecutionResultOptions } from './result.js';
+export { checkProviderApiKey } from './key-check.js';

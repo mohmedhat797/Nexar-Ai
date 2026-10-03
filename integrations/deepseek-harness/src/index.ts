@@ -13,7 +13,7 @@ export type {
 export { parseRuntimeOptions } from './options.js';
 export type { DshRuntimeOptions } from './options.js';
 export { renderPatchOverlay } from './overlay.js';
-export type { PatchOverlayOptions, PiAiProviders } from './overlay.js';
+export type { PatchOverlayOptions, PiAiProviderEntry, PiAiProviders } from './overlay.js';
 export {
   DEEPSEEK_HARNESS_ADAPTER_ID,
   DSH_PINNED_VERSION,

@@ -3,6 +3,21 @@ export const CHANNELS = {
   appInfo: 'app:info',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
+  behaviorGet: 'behavior:get',
+  behaviorSet: 'behavior:set',
+  providersList: 'providers:list',
+  endpointsList: 'providers:listLocalEndpoints',
+  endpointsSave: 'providers:saveLocalEndpoint',
+  endpointsRemove: 'providers:removeLocalEndpoint',
+  endpointsRefresh: 'providers:refreshLocalEndpoints',
+  subscriptionsList: 'providers:listSubscriptions',
+  subscriptionsRefresh: 'providers:refreshSubscription',
+  subscriptionsLogin: 'providers:startSubscriptionLogin',
+  subscriptionsCancel: 'providers:cancelSubscriptionLogin',
+  providersSaveKeyFromClipboard: 'providers:saveKeyFromClipboard',
+  providersRemoveKey: 'providers:removeKey',
+  providersCheckKey: 'providers:checkKey',
+  providersSetOpenWorkerAccess: 'providers:setOpenWorkerAccess',
   projectsList: 'projects:list',
   projectsAdd: 'projects:add',
   projectsRemove: 'projects:remove',
@@ -20,9 +35,26 @@ export const CHANNELS = {
   approvalsDeny: 'approvals:deny',
   workflowsList: 'workflows:list',
   workflowsRun: 'workflows:run',
+  sessionsList: 'sessions:list',
+  sessionsCreate: 'sessions:create',
+  sessionsGet: 'sessions:get',
+  sessionsSubmitTurn: 'sessions:submitTurn',
+  sessionsConfirmLane: 'sessions:confirmLane',
+  sessionsCancel: 'sessions:cancel',
+  sessionsSetMode: 'sessions:setMode',
+  sessionsRename: 'sessions:rename',
+  codeStatus: 'code:status',
+  codeRefresh: 'code:refresh',
+  codeSetPlaneProject: 'code:setPlaneProject',
+  codeDiff: 'code:diff',
+  coworkStatus: 'cowork:status',
+  coworkRefresh: 'cowork:refresh',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
 
 /** Main → renderer push channel for task progress. */
 export const TASK_EVENT_CHANNEL = 'task:event';
+
+/** Main -> renderer push channel for Operating Session changes (ids and short status lines only). */
+export const SESSION_EVENT_CHANNEL = 'session:event';

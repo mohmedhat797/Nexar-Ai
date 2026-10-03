@@ -46,12 +46,29 @@ function Candidate({
   );
 }
 
+/** Every candidate the router considered, scored or with its rejection reason. */
+export function CandidateList({ decision }: { decision: SelectedDecision }): ReactElement {
+  const { selected, alternatives, rejected } = decision;
+  const candidates = [selected, ...alternatives, ...rejected];
+  const max = Math.max(...candidates.filter((c) => c.eligible).map((c) => c.score), 0);
+  return (
+    <ul className="candidates">
+      {candidates.map((c) => (
+        <Candidate
+          key={c.resourceId}
+          c={c}
+          chosen={c.resourceId === selected.resourceId}
+          max={max}
+        />
+      ))}
+    </ul>
+  );
+}
+
 /** "‹resource› · chosen by Nexar · ‹policy›", status chips and the full candidate list. */
 export function RoutingCard({ decision }: { decision: SelectedDecision }): ReactElement {
   const [open, setOpen] = useState(false);
-  const { selected, alternatives, rejected, policy } = decision;
-  const candidates = [selected, ...alternatives, ...rejected];
-  const max = Math.max(...candidates.filter((c) => c.eligible).map((c) => c.score), 0);
+  const { selected, policy } = decision;
   const cost = selected.cost?.class ?? 'unknown';
   return (
     <section className="routing-card" data-testid="routing-card" aria-label="Routing decision">
@@ -74,18 +91,7 @@ export function RoutingCard({ decision }: { decision: SelectedDecision }): React
       <button type="button" className="link" aria-expanded={open} onClick={() => setOpen(!open)}>
         Why this choice?
       </button>
-      {open && (
-        <ul className="candidates">
-          {candidates.map((c) => (
-            <Candidate
-              key={c.resourceId}
-              c={c}
-              chosen={c.resourceId === selected.resourceId}
-              max={max}
-            />
-          ))}
-        </ul>
-      )}
+      {open && <CandidateList decision={decision} />}
     </section>
   );
 }

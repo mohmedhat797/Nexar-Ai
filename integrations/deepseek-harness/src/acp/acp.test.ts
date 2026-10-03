@@ -9,7 +9,7 @@ import {
   type ApprovalRequest,
   type ApprovalStore,
 } from '@nexar/approvals';
-import { adapterId } from '@nexar/contracts';
+import { NexarError, adapterId } from '@nexar/contracts';
 import type {
   ExecutionContext,
   ExecutionEvent,
@@ -17,6 +17,7 @@ import type {
   PreparedLaunch,
   ProcessLauncher,
   ResourceDescriptor,
+  SecretResolver,
 } from '@nexar/contracts';
 import { DeepSeekHarnessExecutionAdapter } from '../adapter.js';
 import { DEEPSEEK_HARNESS_ADAPTER_ID, deepseekHarnessResource } from '../resource.js';
@@ -93,6 +94,8 @@ interface Options {
   isolation?: 'none' | 'sandbox';
   reportedIsolation?: 'none' | 'sandbox';
   env?: NodeJS.ProcessEnv;
+  resolveSecret?: SecretResolver;
+  auth?: ResourceDescriptor['auth'];
   options?: Record<string, unknown>;
   prompt?: string;
   systemPrompt?: string;
@@ -127,9 +130,11 @@ function setup(o: Options = {}) {
     },
     initializeTimeoutMs: 5000,
     defaultTimeoutMs: 20_000,
+    ...(o.resolveSecret === undefined ? {} : { resolveSecret: o.resolveSecret }),
     ...(approvals === undefined ? {} : { approvals }),
   });
   const resource: ResourceDescriptor = deepseekHarnessResource({
+    ...(o.auth === undefined ? {} : { auth: o.auth }),
     runtime: {
       adapter: DEEPSEEK_HARNESS_ADAPTER_ID,
       locality: 'local',
@@ -401,7 +406,7 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     expect(t.launcher.disposed).toBe(1);
   }, 20_000);
 
-  it('kills the process group when the agent ignores session/cancel', async () => {
+  it('kills the runtime when the agent ignores session/cancel', async () => {
     const t = setup({ flags: { scenario: 'hang', 'ignore-cancel': '1' } });
     const settled = t.run().then(
       () => undefined,
@@ -475,7 +480,8 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     expect(spec.mounts).toHaveLength(1);
     expect(mount).toMatchObject({ sandboxPath: '/home/agent/.dsh', access: 'read-write' });
     expect(mount?.hostPath.startsWith(t.stateDir)).toBe(true);
-    expect(statSync(mount?.hostPath as string).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32')
+      expect(statSync(mount?.hostPath as string).mode & 0o777).toBe(0o700);
   });
 
   it('omits the credential when it is not set and honors allowHosts', async () => {
@@ -487,6 +493,40 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     const spec = t.launcher.specs[0] as LaunchSpec;
     expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh' });
     expect(spec.network).toEqual({ mode: 'proxy', allowHosts: ['example.test'] });
+  });
+
+  it('hands the sandbox a keystore credential from the resolver, never from the parent env', async () => {
+    const stored = 'sk-keystore-acp-value';
+    const t = setup({
+      auth: {
+        mode: 'api-key',
+        credential: { source: 'keystore', name: 'DEEPSEEK_API_KEY' },
+      },
+      resolveSecret: (name) => (name === 'DEEPSEEK_API_KEY' ? stored : undefined),
+      acp: { permissions: { mode: 'deny' } },
+    });
+    await t.run();
+    const spec = t.launcher.specs[0] as LaunchSpec;
+    expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh', DEEPSEEK_API_KEY: stored });
+    expect(JSON.stringify(t.logs)).not.toContain(stored);
+  });
+
+  it('is AUTH_REQUIRED for a missing keystore credential and never reads the parent env', async () => {
+    const t = setup({
+      auth: {
+        mode: 'api-key',
+        credential: { source: 'keystore', name: 'DEEPSEEK_API_KEY' },
+      },
+      resolveSecret: () => undefined,
+    });
+    const error = await t.run().then(
+      () => undefined,
+      (e: unknown) => e as NexarError,
+    );
+    expect(error).toBeInstanceOf(NexarError);
+    expect(error?.code).toBe('AUTH_REQUIRED');
+    expect(error?.message).toBe('Credential DEEPSEEK_API_KEY is not stored in the Nexar key store');
+    expect(t.launcher.specs).toHaveLength(0);
   });
 
   it('prepends the system prompt with a clear separator and sets model/effort options', async () => {

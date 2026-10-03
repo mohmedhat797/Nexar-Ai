@@ -9,7 +9,7 @@ import {
   type LaneTemplate,
 } from './render.js';
 
-export type PlanLaneRole = 'architecture' | 'feature' | 'tests' | 'review';
+export type PlanLaneRole = 'architecture' | 'feature' | 'tests' | 'review' | 'report';
 
 /** One lane of a plan, with its templates loaded. The system prompt is trusted and has no variables. */
 export interface PlanLane {
@@ -22,14 +22,27 @@ export interface PlanLane {
   readonly brief: LaneTemplate;
 }
 
-export interface LoadedPlan {
+interface PlanBase {
   readonly id: string;
   readonly displayName: string;
   readonly description: string;
   readonly lanes: readonly PlanLane[];
-  /** The built-in rework lane, shared by every plan. */
+}
+
+/** Produces a patch: read-write lanes, gates, review, owner approval and a Nexar-made commit. */
+export interface ChangePlan extends PlanBase {
+  readonly mode: 'change';
+  /** The built-in rework lane, shared by every change plan. */
   readonly debugging: { readonly system: string; readonly brief: LaneTemplate };
 }
+
+/** Read-only lanes whose last lane's text is the report. No patch, rework, approval or commit. */
+export interface ReportPlan extends PlanBase {
+  readonly mode: 'report';
+}
+
+/** Discriminated by `mode`: only a `ChangePlan` has the rework lane, so change-only steps need one. */
+export type LoadedPlan = ChangePlan | ReportPlan;
 
 export const PLAN_FILE = 'plan.json';
 export const SHARED_DIRECTORY = '_shared';
@@ -37,12 +50,13 @@ const MAX_TEMPLATE_BYTES = 256 * 1024;
 const PLAN_ID = /^[a-z][a-z0-9-]{0,63}$/;
 const LANE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const TEMPLATE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.md$/;
-const ROLES = ['architecture', 'feature', 'tests', 'review', 'debugging'] as const;
+const ROLES = ['architecture', 'feature', 'tests', 'review', 'report', 'debugging'] as const;
 const ACCESS_BY_ROLE: Readonly<Record<PlanLaneRole, PlanLane['access']>> = {
   architecture: 'read-only',
   feature: 'read-write',
   tests: 'read-write',
   review: 'read-only',
+  report: 'read-only',
 };
 
 function configError(message: string): NexarError {
@@ -102,8 +116,25 @@ async function loadTemplates(
   }
 }
 
+/** Report plans: optional architecture first, then exactly one report lane last; all read-only. */
+function reportOrderProblem(lanes: readonly PlanLane[]): string | undefined {
+  if (lanes.some((l) => l.role !== 'architecture' && l.role !== 'report')) {
+    return 'a report plan may only have architecture and report lanes';
+  }
+  if (lanes.filter((l) => l.role === 'report').length !== 1) {
+    return 'a report plan needs exactly one report lane';
+  }
+  if (lanes[lanes.length - 1]?.role !== 'report') return 'the report lane must be last';
+  if (lanes.filter((l) => l.role === 'architecture').length > 1) {
+    return 'a plan may have at most one architecture lane';
+  }
+  if (lanes.some((l) => l.access !== 'read-only')) return 'a report plan has only read-only lanes';
+  return undefined;
+}
+
 /** Order rule: optional architecture first, then read-write lanes, then exactly one review last. */
-function laneOrderProblem(lanes: readonly PlanLane[]): string | undefined {
+function changeOrderProblem(lanes: readonly PlanLane[]): string | undefined {
+  if (lanes.some((l) => l.role === 'report')) return 'only a report plan may have a report lane';
   const reviews = lanes.filter((l) => l.role === 'review');
   if (reviews.length !== 1) return 'a plan needs exactly one review lane';
   if (lanes[lanes.length - 1]?.role !== 'review') return 'the review lane must be last';
@@ -133,7 +164,7 @@ async function loadLane(
     throw configError(`${what}: "debugging" is the built-in rework lane and cannot be listed`);
   }
   if (typeof role !== 'string' || !(ROLES as readonly string[]).includes(role)) {
-    throw configError(`${what}: role must be one of architecture, feature, tests, review`);
+    throw configError(`${what}: role must be one of architecture, feature, tests, review, report`);
   }
   const laneRole = role as PlanLaneRole;
   const access = raw['access'];
@@ -165,7 +196,7 @@ async function loadLane(
 async function loadPlan(
   realDir: string,
   expectedId: string,
-  debugging: LoadedPlan['debugging'],
+  debugging: ChangePlan['debugging'],
 ): Promise<LoadedPlan> {
   const label = `Plan "${expectedId}"`;
   let json: unknown;
@@ -176,7 +207,11 @@ async function loadPlan(
     throw configError(`${label}: ${PLAN_FILE} is not valid JSON`);
   }
   if (!isRecord(json)) throw configError(`${label}: ${PLAN_FILE} must be an object`);
-  assertKeys(json, ['schemaVersion', 'id', 'displayName', 'description', 'lanes'], label);
+  assertKeys(json, ['schemaVersion', 'id', 'displayName', 'description', 'mode', 'lanes'], label);
+  const mode = json['mode'] ?? 'change';
+  if (mode !== 'change' && mode !== 'report') {
+    throw configError(`${label}: mode must be "change" or "report"`);
+  }
   if (json['schemaVersion'] !== 1) throw configError(`${label}: schemaVersion must be 1`);
   const id = json['id'];
   if (typeof id !== 'string' || !PLAN_ID.test(id)) throw configError(`${label}: invalid id`);
@@ -191,15 +226,15 @@ async function loadPlan(
     if (lanes.some((l) => l.id === lane.id)) throw configError(`${label}: duplicate lane id`);
     lanes.push(lane);
   }
-  const problem = laneOrderProblem(lanes);
+  const problem = mode === 'report' ? reportOrderProblem(lanes) : changeOrderProblem(lanes);
   if (problem !== undefined) throw configError(`${label}: ${problem}`);
-  return {
+  const base = {
     id,
     displayName: text(json['displayName'], `${label} displayName`, 200),
     description: text(json['description'], `${label} description`, 2000),
     lanes,
-    debugging,
   };
+  return mode === 'report' ? { ...base, mode } : { ...base, mode, debugging };
 }
 
 async function readPlanFile(realDir: string): Promise<string> {

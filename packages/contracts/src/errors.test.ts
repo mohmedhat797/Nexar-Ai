@@ -21,6 +21,11 @@ describe('NexarError', () => {
     expect(new NexarError('APPROVAL_DENIED', 'm').retryable).toBe(false);
   });
 
+  it('includes CONFLICT, which is not retryable by default', () => {
+    expect(NEXAR_ERROR_CODES).toContain('CONFLICT');
+    expect(new NexarError('CONFLICT', 'm').retryable).toBe(false);
+  });
+
   it('serializes without stack or cause', () => {
     const e = new NexarError('PROVIDER_ERROR', 'boom', {
       details: { a: 1 },

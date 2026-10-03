@@ -3,7 +3,15 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**', 'docs/research/**'] },
+  {
+    ignores: [
+      '**/dist/**',
+      'release/**',
+      '**/coverage/**',
+      '**/node_modules/**',
+      'docs/research/**',
+    ],
+  },
   eslint.configs.recommended,
   {
     files: ['**/*.ts'],

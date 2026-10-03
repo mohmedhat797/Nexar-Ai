@@ -203,8 +203,12 @@ describe('ClientRegistry', () => {
   it('creates the directory 0700 and file 0600', async () => {
     const registry = await ClientRegistry.open(file);
     await registry.add('openworker', scopes);
-    expect((await stat(join(dir, 'state'))).mode & 0o777).toBe(0o700);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows permissions are ACL-based; Node's mode bits do not represent them.
+    if (process.platform !== 'win32') {
+      expect((await stat(join(dir, 'state'))).mode & 0o777).toBe(0o700);
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+    }
+    expect(await readFile(file, 'utf8')).toContain('openworker');
   });
 
   it('serializes concurrent adds without losing clients', async () => {

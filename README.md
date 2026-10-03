@@ -128,9 +128,10 @@ default settings those factors are neutral. Evidence:
 **Planned, not built** — see [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) and [`docs/backlog/`](docs/backlog/):
 
 - Outward actions: sending email, calendar changes, publishing or uploading (approvals exist; no executors).
-- Network (HTTP) MCP transport and remote/mobile access (v0.5 control plane).
+- Persistent multi-turn Operating Sessions and lane orchestration ([ADR-024](docs/adr/024-operating-layer-and-sessions.md)).
+- Network (HTTP) MCP transport and remote/mobile access (deferred control plane).
 - DOCX / PDF / PPTX export ([NXR-017](docs/backlog/017-document-export-formats.md)).
-- Memory and retrieval (v0.6); automation and scheduling (v0.7).
+- Memory and retrieval (v0.7); automation (v0.8); Mobile is deferred after them.
 - Parallel engineering lanes, a seccomp filter for the sandbox, MCP access to engineering, and live
   Antigravity validation (see [`docs/backlog/`](docs/backlog/)).
 - Vendor quota probes: none of the installed runtimes has a supported, non-experimental quota

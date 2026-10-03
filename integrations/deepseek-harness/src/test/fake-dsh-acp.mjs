@@ -13,7 +13,7 @@
 //   --fake-ids=scrambled       option ids that do not hint at their kind
 //   --fake-stop=<reason>       stopReason of the prompt response (default end_turn)
 //   --fake-rpc-message=<text>  error message for the rpc-error scenario
-import { writeFileSync } from 'node:fs';
+import { renameSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 const argv = process.argv.slice(2);
@@ -46,7 +46,26 @@ const record = {
 };
 
 function save() {
-  if (recordPath !== undefined) writeFileSync(recordPath, JSON.stringify(record, null, 2));
+  if (recordPath === undefined) return;
+  // The test polls while the agent runs: publish complete snapshots without truncating its reader.
+  const temporary = `${recordPath}.tmp`;
+  writeFileSync(temporary, JSON.stringify(record, null, 2));
+  const deadline = Date.now() + 1000;
+  for (;;) {
+    try {
+      renameSync(temporary, recordPath);
+      return;
+    } catch (error) {
+      // Windows readers can briefly hold a sharing lock on the previously published snapshot.
+      if (
+        process.platform !== 'win32' ||
+        !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) ||
+        Date.now() >= deadline
+      )
+        throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
 }
 
 function send(message) {

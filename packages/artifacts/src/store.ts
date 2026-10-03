@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readdir, realpath, unlink, writeFile } from 'node:fs/promises';
-import { extname, isAbsolute, join, normalize, relative } from 'node:path';
+import { link, lstat, mkdir, open, readdir, realpath, unlink } from 'node:fs/promises';
+import { dirname, extname, isAbsolute, join, normalize, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { NexarError, type ArtifactRef, type ProjectId, type TaskId } from '@nexar/contracts';
 import { isWithin, type Project, type ProjectRegistry } from '@nexar/projects';
@@ -11,6 +11,7 @@ export const DEFAULT_MAX_ARTIFACT_BYTES = 5 * 1024 * 1024;
 const MAX_COLLISION_SUFFIX = 99;
 const DEFAULT_DIRECTORY = ['.nexar', 'artifacts'] as const;
 const DRAFTS = 'drafts';
+const STAGED_NAME_PATTERN = /^\.nexar-[0-9a-f]{32}\.tmp$/;
 
 export interface StoreArtifactInput {
   readonly projectId: ProjectId;
@@ -127,7 +128,7 @@ export class LocalArtifactStore implements ArtifactStore {
       if (!isWithin(root, current)) throw escapeError();
       // Keep artifacts out of source control even when .nexar/ already existed (telemetry, runtimes).
       if (gitignore && index === 0) {
-        await writeFile(join(current, '.gitignore'), '*\n', { flag: 'wx', mode: 0o600 }).catch(
+        await this.publishExclusive(join(current, '.gitignore'), Buffer.from('*\n')).catch(
           (error: unknown) => {
             if (!isErrno(error, 'EEXIST')) throw error;
           },
@@ -156,36 +157,63 @@ export class LocalArtifactStore implements ArtifactStore {
     const directory = await this.ensureDirectory(root, segments, isDefault);
     const { stem, ext } = stemAndExtension(sanitizeFilename(input.filename, input.mediaType));
 
-    for (let attempt = 1; attempt <= MAX_COLLISION_SUFFIX; attempt++) {
-      const name = attempt === 1 ? `${stem}${ext}` : `${stem}-${String(attempt)}${ext}`;
-      const path = join(directory, name);
-      let handle;
-      try {
-        // O_EXCL: refuses an existing file and an existing symlink alike, so nothing is overwritten.
-        handle = await open(path, 'wx', 0o600);
-      } catch (error) {
-        if (isErrno(error, 'EEXIST')) continue;
-        throw error;
+    // Windows CREATE_NEW can follow a dangling symlink. Publish via a hard link, which refuses
+    // every existing destination entry, after writing a random temporary file in this directory.
+    const staged = process.platform === 'win32' ? await this.stage(directory, bytes) : undefined;
+
+    try {
+      for (let attempt = 1; attempt <= MAX_COLLISION_SUFFIX; attempt++) {
+        const name = attempt === 1 ? `${stem}${ext}` : `${stem}-${String(attempt)}${ext}`;
+        const path = join(directory, name);
+        try {
+          if (staged === undefined) await this.writeExclusive(path, bytes);
+          else await link(staged, path);
+        } catch (error) {
+          if (isErrno(error, 'EEXIST')) continue;
+          throw error;
+        }
+        return {
+          uri: pathToFileURL(path).href,
+          label: input.label ?? relative(root, path),
+          mediaType: input.mediaType,
+          sizeBytes: bytes.byteLength,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+          draft,
+        };
       }
-      try {
-        await handle.writeFile(bytes);
-        await handle.sync();
-      } catch (error) {
-        await handle.close().catch(() => undefined);
-        await unlink(path).catch(() => undefined);
-        throw error;
-      }
-      await handle.close();
-      return {
-        uri: pathToFileURL(path).href,
-        label: input.label ?? relative(root, path),
-        mediaType: input.mediaType,
-        sizeBytes: bytes.byteLength,
-        sha256: createHash('sha256').update(bytes).digest('hex'),
-        draft,
-      };
+      throw new NexarError('VALIDATION_ERROR', 'Too many artifacts with this name');
+    } finally {
+      if (staged !== undefined) await unlink(staged);
     }
-    throw new NexarError('VALIDATION_ERROR', 'Too many artifacts with this name');
+  }
+
+  private async writeExclusive(path: string, bytes: Uint8Array): Promise<void> {
+    const handle = await open(path, 'wx', 0o600);
+    try {
+      await handle.writeFile(bytes);
+      await handle.sync();
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      await unlink(path).catch(() => undefined);
+      throw error;
+    }
+    await handle.close();
+  }
+
+  private async stage(directory: string, bytes: Uint8Array): Promise<string> {
+    const path = join(directory, `.nexar-${randomBytes(16).toString('hex')}.tmp`);
+    await this.writeExclusive(path, bytes);
+    return path;
+  }
+
+  private async publishExclusive(path: string, bytes: Uint8Array): Promise<void> {
+    if (process.platform !== 'win32') return this.writeExclusive(path, bytes);
+    const staged = await this.stage(dirname(path), bytes);
+    try {
+      await link(staged, path);
+    } finally {
+      await unlink(staged);
+    }
   }
 
   async list(query: {
@@ -205,6 +233,7 @@ export class LocalArtifactStore implements ArtifactStore {
       }
       if (!isWithin(root, directory)) throw escapeError();
       for (const entry of await readdir(directory)) {
+        if (STAGED_NAME_PATTERN.test(entry)) continue;
         const path = join(directory, entry);
         const ref = await this.describe(root, path, draft);
         if (ref !== undefined) refs.push(ref);
@@ -221,7 +250,7 @@ export class LocalArtifactStore implements ArtifactStore {
   ): Promise<ArtifactRef | undefined> {
     let info;
     try {
-      info = await lstat(path);
+      info = await lstat(path, { bigint: true });
     } catch {
       return undefined;
     }
@@ -230,9 +259,24 @@ export class LocalArtifactStore implements ArtifactStore {
     let sha256: string | undefined;
     if (info.size <= this.maxBytes) {
       try {
-        // O_NOFOLLOW closes the window between lstat and open.
+        // O_NOFOLLOW protects POSIX. Windows also verifies the opened file's identity and the
+        // current directory entry before reading, because its O_NOFOLLOW flag is unavailable.
         const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
         try {
+          const opened = await handle.stat({ bigint: true });
+          const current = await lstat(path, { bigint: true });
+          if (
+            !opened.isFile() ||
+            opened.size > this.maxBytes ||
+            !current.isFile() ||
+            opened.dev !== info.dev ||
+            opened.ino !== info.ino ||
+            current.dev !== opened.dev ||
+            current.ino !== opened.ino ||
+            !isWithin(root, await realpath(path))
+          ) {
+            return undefined;
+          }
           sha256 = createHash('sha256')
             .update(await handle.readFile())
             .digest('hex');
@@ -247,7 +291,7 @@ export class LocalArtifactStore implements ArtifactStore {
       uri: pathToFileURL(path).href,
       label: relative(root, path),
       ...(mediaType === undefined ? {} : { mediaType }),
-      sizeBytes: info.size,
+      sizeBytes: Number(info.size),
       ...(sha256 === undefined ? {} : { sha256 }),
       draft,
     };

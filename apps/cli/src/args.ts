@@ -9,6 +9,7 @@ import {
   type ResourceId,
 } from '@nexar/contracts';
 import type { Nexar } from '@nexar/core';
+import type { ApprovalStore } from '@nexar/approvals';
 import type { EngineeringRunnerPort, EngineeringSeams } from '@nexar/host';
 import type { SandboxAvailability, SelfTestOptions, SelfTestResult } from '@nexar/sandbox';
 import { UsageError, type CliIo } from './io.js';
@@ -33,6 +34,21 @@ export interface CliSeams {
       launcher: ProcessLauncher,
       options: SelfTestOptions,
     ) => Promise<SelfTestResult[]>;
+  };
+  /** Seams for `nexar plane serve --stdio`. */
+  readonly plane?: {
+    /** Replaces the file-backed approval store. */
+    readonly approvalStore?: ApprovalStore;
+    /** Reads a bounded host file (`/etc/wsl.conf`, the kernel release); `undefined` when absent. */
+    readonly readText?: (path: string, maxBytes: number) => Promise<string | undefined>;
+    /** Replaces the built-in plan catalog listing. */
+    readonly planIds?: () => Promise<readonly string[]>;
+    /** How often the pending approval is looked up while a run awaits the owner. Default 250 ms. */
+    readonly approvalPollMs?: number;
+    /** How long shutdown waits for the active run to settle. Default 10 s. */
+    readonly settleTimeoutMs?: number;
+    /** The decider name part: `desktop:<user>`. Default: the OS user. */
+    readonly user?: string;
   };
   readonly doctor?: {
     readonly availability?: () => Promise<SandboxAvailability>;

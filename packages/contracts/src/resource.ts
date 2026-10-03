@@ -37,13 +37,26 @@ export interface RuntimeBinding {
 }
 
 /**
- * A *reference* to where the runtime finds its credential (an env var name or a
- * human description of a runtime-managed login). It must NEVER contain a secret
- * value; the shape intentionally has no field that could hold one.
+ * A *reference* to where the runtime finds its credential (an env var name, a Nexar
+ * key store entry name, or a human description of a runtime-managed login). It must
+ * NEVER contain a secret value; the shape intentionally has no field that could hold one.
  */
 export type CredentialRef =
   | { readonly source: 'env'; readonly name: string }
+  | { readonly source: 'keystore'; readonly name: string }
   | { readonly source: 'runtime-managed'; readonly description: string };
+
+/** Valid names for `env` and `keystore` credential references (also the child variable name). */
+export const CREDENTIAL_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+
+/** Maximum length of a credential name. */
+export const CREDENTIAL_NAME_MAX_LENGTH = 128;
+
+/**
+ * Resolves a `keystore` credential name to its secret value (`undefined` = not stored). Injected by
+ * the host; integrations never touch the key store directly. Callers must never log the result.
+ */
+export type SecretResolver = (name: string) => string | undefined;
 
 /** How a resource authenticates, so routing can reason about auth without seeing secrets. */
 export type AuthRequirement =

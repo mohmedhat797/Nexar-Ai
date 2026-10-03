@@ -6,7 +6,7 @@ pasted verbatim as a GitHub issue body ([ADR-010](../adr/010-github-source-of-tr
 
 Every item uses the same sections: Summary, Problem, Objective, Scope, Out of scope, Technical notes,
 Acceptance criteria, Testing expectations, Security considerations. Ids are stable: `NXR-00x` is v0.1
-follow-ups, `01x` v0.2 (`017` is an unscheduled follow-up), `02x` v0.3 (`025`–`029` are v0.3.x and later follow-ups), `03x` v0.4, `04x` v0.6 (mobile), `05x` v0.5 (desktop).
+follow-ups, `01x` v0.2 (`017` is an unscheduled follow-up), `02x` v0.3 (`025`–`029` are v0.3.x and later follow-ups), `03x` v0.4, `04x` mobile (deferred), `05x` v0.5 (desktop).
 
 ## v0.1 — Foundation (follow-ups)
 
@@ -66,17 +66,21 @@ NXR-030 to NXR-034 were delivered in v0.4 ([ADR-020](../adr/020-resource-intelli
 
 Phases of [ADR-021](../adr/021-nexar-desktop.md); see also ADR-022 and ADR-023.
 
-| Id                                        | Title                                                   | Milestone | Labels               | Status  |
-| ----------------------------------------- | ------------------------------------------------------- | --------- | -------------------- | ------- |
-| [NXR-050](050-desktop-foundation.md)      | Desktop foundation: host package, shell, bridge, Cowork | v0.5      | desktop              | Done    |
-| [NXR-051](051-windows-compatibility.md)   | Windows compatibility pass, Windows CI, installer       | v0.5      | desktop, windows     | Planned |
-| [NXR-052](052-providers-and-key-store.md) | Providers: sign-in, encrypted key store, local servers  | v0.5      | desktop, security    | Planned |
-| [NXR-053](053-ai-behavior-settings.md)    | AI behavior settings per mode                           | v0.5      | desktop, integration | Planned |
-| [NXR-054](054-scheduled-tasks.md)         | Scheduled tasks                                         | v0.5      | desktop, automation  | Planned |
-| [NXR-055](055-code-mode-wsl2.md)          | Code mode through the WSL2 plane (DSH default)          | v0.5      | desktop, engineering | Planned |
-| [NXR-056](056-cowork-openworker-agent.md) | Cowork through OpenWorker (automations seam)            | v0.5      | desktop, openworker  | Planned |
+| Id                                              | Title                                                   | Milestone | Labels                             | Status                                   |
+| ----------------------------------------------- | ------------------------------------------------------- | --------- | ---------------------------------- | ---------------------------------------- |
+| [NXR-050](050-desktop-foundation.md)            | Desktop foundation: host package, shell, bridge, Cowork | v0.5      | desktop                            | Done                                     |
+| [NXR-051](051-windows-compatibility.md)         | Windows compatibility pass, Windows CI, installer       | v0.5      | desktop, windows                   | Implemented (owner acceptance pending)   |
+| [NXR-052](052-providers-and-key-store.md)       | Providers: sign-in, encrypted key store, local servers  | v0.5      | desktop, security                  | Implemented (live-unverified)            |
+| [NXR-053](053-ai-behavior-settings.md)          | AI behavior settings per mode                           | v0.5      | desktop, integration               | Implemented (v1 matrix; live-unverified) |
+| [NXR-054](054-scheduled-tasks.md)               | Scheduled tasks                                         | v0.5      | desktop, automation                | Planned                                  |
+| [NXR-055](055-code-mode-wsl2.md)                | Code mode through the WSL2 plane (DSH default)          | v0.5      | desktop, engineering               | Implemented (owner live-validated)       |
+| [NXR-056](056-cowork-openworker-agent.md)       | Cowork through OpenWorker (automations seam)            | v0.5      | desktop, openworker                | Implemented (live-unverified)            |
+| [NXR-057](057-persistent-operating-sessions.md) | Persistent Operating Sessions                           | v0.5      | operating-layer, sessions, desktop | Done                                     |
+| [NXR-058](058-operating-intent-and-lanes.md)    | Operating intent and lane orchestration                 | v0.5      | operating-layer, routing, desktop  | Done (lanes: NXR-055/056)                |
 
-## v0.6 — Nexar Mobile
+## Nexar Mobile (deferred)
+
+Deferred by the owner until after the Operating Layer, Memory and Automation milestones.
 
 | Id                                                      | Title                                       | Milestone | Labels                  |
 | ------------------------------------------------------- | ------------------------------------------- | --------- | ----------------------- |
@@ -99,4 +103,5 @@ Issue numbers are sequential in NXR order (verified against GitHub on 2026-09-30
 | NXR-011 | #7    | NXR-022 | #15   | NXR-041 | #23   |
 | NXR-012 | #8    | NXR-023 | #16   |         |       |
 
-NXR-017 (document export formats, follow-up from v0.2) is issue #25.
+NXR-017 (document export formats, follow-up from v0.2) is issue #25. NXR-057 is issue #37 and
+NXR-058 is issue #38.

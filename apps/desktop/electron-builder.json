@@ -1,0 +1,29 @@
+{
+  "appId": "ai.nexar.desktop",
+  "productName": "Nexar",
+  "electronVersion": "44.5.1",
+  "directories": {
+    "app": "dist/desktop-staging",
+    "output": "release/desktop"
+  },
+  "files": ["dist/**/*", "package.json"],
+  "extraResources": [
+    { "from": "workflows", "to": "workflows", "filter": ["**/*"] },
+    { "from": "engineering/plans", "to": "engineering/plans", "filter": ["**/*"] }
+  ],
+  "asar": true,
+  "npmRebuild": false,
+  "artifactName": "Nexar-${version}-windows-${arch}-setup.${ext}",
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "allowElevation": false,
+    "packElevateHelper": false,
+    "deleteAppDataOnUninstall": false,
+    "runAfterFinish": false
+  }
+}

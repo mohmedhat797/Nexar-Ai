@@ -1,16 +1,35 @@
 # Nexar security model and threat assumptions
 
+Windows compatibility evidence and remaining gaps: native launchers resolve supported Node npm
+shims to a script and Node executable, without evaluating batch argument expansion. Arbitrary batch
+launchers are refused. Live process trees are killed on abort/timeout with the host's system
+`taskkill.exe`; orphan descendants after prior leader exit still require Job Object containment.
+Windows file modes are not ACL evidence: Desktop startup secures its dedicated state tree with a
+protected DACL granting this user, SYSTEM and local Administrators access. Foreign-owned entries,
+redirected paths, hard-linked files and unrelated existing folders fail closed; parent ACLs stay
+unchanged. SYSTEM/Admin-owned entries can be normalized only with the caller's existing ACL and
+owner rights; the final owner must be the current user. Startup path checks do not prevent concurrent
+replacement by a compromised OS account. Explicit config state-directory overrides outside
+Desktop's data tree still need an audit. Linux controls stay enforced on the WSL engineering plane.
+See the [Windows checklist](../guides/windows-validation.md) and
+[continuation state](../devlog/operating-layer-progress.md); NXR-051 remains open.
+
+Windows artifact publication uses an exclusive hard link from a random staging file; it never opens
+the predictable destination, because Windows `wx` can follow a dangling file link. Filesystems that
+do not support hard links fail closed. Artifact, engineering-history and relay-result readers verify
+regular-file identities before reading; Windows does not implement POSIX `O_NOFOLLOW`.
+
 Nexar will handle source code, client documents, email, calendars, OAuth sessions, API keys, and
 subscription logins. Security is an architectural requirement, not a later feature.
 
 ## Assets
 
-| Asset                                                 | Where it lives                                   | Nexar's rule                                                                                              |
-| ----------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Provider API keys                                     | Owner's environment (`.env`, shell, OS keychain) | Referenced by env var _name_ in config; injected only into the runtime that needs it                      |
-| Subscription / OAuth sessions (Claude Code, Codex, …) | Each runtime's own credential store              | Never read, copied, or extracted by Nexar; used only through the runtime's supported CLI/SDK              |
-| Source code, documents                                | Owner's filesystem                               | Passed to a resource only when the task requires it; `local-only` tasks never reach third-party resources |
-| Telemetry, sessions                                   | `.nexar/` (git-ignored), file mode 0600          | Contains prompts' metadata, never credentials                                                             |
+| Asset                                                 | Where it lives                                              | Nexar's rule                                                                                              |
+| ----------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Provider API keys                                     | Owner's environment or encrypted Desktop `credentials.json` | Config holds credential names only; main resolves the requested key at call time; no raw keys over IPC    |
+| Subscription / OAuth sessions (Claude Code, Codex, …) | Each runtime's own credential store                         | Never read, copied, or extracted by Nexar; used only through the runtime's supported CLI/SDK              |
+| Source code, documents                                | Owner's filesystem                                          | Passed to a resource only when the task requires it; `local-only` tasks never reach third-party resources |
+| Telemetry, sessions                                   | `.nexar/` (git-ignored), file mode 0600                     | Contains prompts' metadata, never credentials                                                             |
 
 ## Trust boundaries
 
@@ -135,15 +154,28 @@ error codes, never paths or messages.
 
 ## v0.5 controls (Nexar Desktop, ADR-021)
 
-| #   | Control                                                                                                                                                               | Enforced in                                                           | Proven by                                                                               |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| 31  | The renderer is untrusted: `sandbox`, `contextIsolation`, no Node integration, strict CSP (header and meta), navigation, new windows, webviews and permissions denied | `apps/desktop/src/main/window.ts`, `src/renderer/index.html`          | `apps/desktop/e2e/desktop.e2e.ts` (web preferences, no `require`/`process` in the page) |
-| 32  | One narrow bridge: fixed channels only, every request validated by a strict zod schema in the main process, errors mapped to codes, crashes answered generically      | `apps/desktop/src/main/{bridge,channel}.ts`, `src/preload/preload.ts` | `apps/desktop/src/main/bridge.test.ts`                                                  |
-| 33  | Paths from the renderer are project-relative, contained with `resolveContainedPath` and never echoed; projects are added only through the native folder dialog        | `apps/desktop/src/main/{channel,projects}.ts`                         | `bridge.test.ts` (`..`, absolute and symlink escapes)                                   |
-| 34  | Only Nexar artifacts of the store's own file types can be opened with the OS default handler                                                                          | `apps/desktop/src/main/artifacts.ts`                                  | `bridge.test.ts` (planted `.exe` and `.html` refused)                                   |
-| 35  | Model output is rendered as text, never as HTML; no network listener; the engine uses the `project-only` workspace policy                                             | `apps/desktop/src/renderer/*`, `src/main/engine-host.ts`              | `bridge.test.ts`, E2E                                                                   |
+| #   | Control                                                                                                                                                                                                                                                                                           | Enforced in                                                           | Proven by                                                                               |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 31  | The renderer is untrusted: `sandbox`, `contextIsolation`, no Node integration, strict CSP (header and meta), navigation, new windows, webviews and permissions denied                                                                                                                             | `apps/desktop/src/main/window.ts`, `src/renderer/index.html`          | `apps/desktop/e2e/desktop.e2e.ts` (web preferences, no `require`/`process` in the page) |
+| 32  | One narrow bridge: fixed channels only, every request validated by a strict zod schema in the main process, errors mapped to codes, crashes answered generically                                                                                                                                  | `apps/desktop/src/main/{bridge,channel}.ts`, `src/preload/preload.ts` | `apps/desktop/src/main/bridge.test.ts`                                                  |
+| 33  | Paths from the renderer are project-relative, contained with `resolveContainedPath` and never echoed; projects are added only through the native folder dialog                                                                                                                                    | `apps/desktop/src/main/{channel,projects}.ts`                         | `bridge.test.ts` (`..`, absolute and symlink escapes)                                   |
+| 34  | Only Nexar artifacts of the store's own file types can be opened with the OS default handler                                                                                                                                                                                                      | `apps/desktop/src/main/artifacts.ts`                                  | `bridge.test.ts` (planted `.exe` and `.html` refused)                                   |
+| 35  | Model output is rendered as text, never as HTML; no network listener; the engine uses the `project-only` workspace policy                                                                                                                                                                         | `apps/desktop/src/renderer/*`, `src/main/engine-host.ts`              | `bridge.test.ts`, E2E                                                                   |
+| 36  | Operating Sessions (ADR-024) are private owner state: one 0600 JSON file per session in the ACL-guarded `.nexar/sessions`, exclusive temp file + atomic replace, bounded reads refusing links, hard links and non-regular files, strict schema; corrupt files fail closed and are never rewritten | `packages/sessions/src/store.ts`, `record.ts`                         | `packages/sessions/src/store.test.ts`, `record.test.ts`                                 |
+| 37  | One writer per state directory (lease) with revision-checked mutations; durable submission keys make turn submission idempotent; one active turn per session; restart marks running turns interrupted and replays nothing                                                                         | `packages/sessions/src/store.ts`, `transitions.ts`                    | `packages/sessions/src/*.test.ts`, `apps/desktop/src/main/sessions.test.ts`             |
+| 38  | Session DTOs carry ids, states, bounded owner-visible text and project-relative artifact paths only; the session's own project is authoritative over any request field                                                                                                                            | `apps/desktop/src/main/sessions.ts`                                   | `apps/desktop/src/main/sessions.test.ts`, `apps/desktop/e2e/desktop.e2e.ts`             |
 
 ## Known gaps (tracked in the backlog)
+
+- **Desktop credential storage (NXR-052b):** encrypted `safeStorage` only; unavailable encryption and
+  Linux `basic_text` are refused. Clipboard ingestion stays in main, provider inputs and metadata
+  outputs are strict, and errors never include input or backend messages. Bounded file reads verify
+  regular single-link file and parent identities; atomic writes retain private modes/inherited DACLs.
+  This does not defend against a concurrent process running as the compromised owner account or
+  serialize writes across independent Desktop processes. Provider setup preserves sessions and
+  pending approvals; removing a key does not revoke an already-issued in-flight request. Evidence:
+  `apps/desktop/src/main/{desktop-key-store,providers,config-store}.test.ts`,
+  `apps/desktop/src/preload/preload.test.ts`, `apps/desktop/e2e/providers.e2e.ts`.
 
 - **v0.2 read-only runs are still unsandboxed.** The OS-level sandbox gap is closed for engineering
   lanes (v0.3, NXR-024), but ordinary `nexar run` tasks and MCP work run as the owner's user and rely

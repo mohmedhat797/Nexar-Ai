@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseConfig } from '@nexar/core';
@@ -21,7 +21,10 @@ describe('examples/engineering-demo/nexar.config.template.json', () => {
 
   async function parsed() {
     // The same substitution `setup.sh` does.
-    const text = (await readFile(templatePath, 'utf8')).replaceAll('__REPO__', repo);
+    const text = (await readFile(templatePath, 'utf8')).replaceAll(
+      '__REPO__',
+      JSON.stringify(repo).slice(1, -1),
+    );
     return parseConfig(JSON.parse(text), templatePath, { baseDir: repo });
   }
 
@@ -31,7 +34,7 @@ describe('examples/engineering-demo/nexar.config.template.json', () => {
     expect(config.resources.some((r) => r.runtime.adapter === 'echo')).toBe(false);
     expect(config.routing.defaultResourceId).toBe('claude-code');
     expect(config.engineering).toEqual({
-      toolchainPaths: ['/opt/node22'],
+      toolchainPaths: [resolve(repo, '/opt/node22')],
       author: { name: 'Nexar', email: 'nexar@localhost' },
       approvalTtlMs: 1_800_000,
     });

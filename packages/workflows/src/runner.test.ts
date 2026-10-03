@@ -240,11 +240,11 @@ describe('WorkflowRunner (echo adapter, offline)', () => {
       const { task } = await prepare('sow', { ...SOW, references: 'refs' });
       const prompt = task.input.prompt;
       expect(prompt).toContain('<untrusted-input name="references">');
-      expect(prompt).toContain('- refs/a.md');
+      expect(prompt).toContain(`- ${join('refs', 'a.md')}`);
       expect(prompt).not.toContain(SENTINEL);
       expect(task.input.systemPrompt).not.toContain(SENTINEL);
       expect(task.input.attachments).toEqual([
-        expect.objectContaining({ label: 'refs/a.md', mediaType: 'text/markdown' }),
+        expect.objectContaining({ label: join('refs', 'a.md'), mediaType: 'text/markdown' }),
       ]);
     });
 

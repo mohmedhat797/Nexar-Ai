@@ -1,6 +1,6 @@
 import { dirname, join } from 'node:path';
 import { ApprovalGate, FileApprovalStore, type ApprovalStore } from '@nexar/approvals';
-import type { Logger, ResourceSnapshot } from '@nexar/contracts';
+import type { Logger, ResourceSnapshot, SecretResolver } from '@nexar/contracts';
 import {
   compose,
   composeWorkflows,
@@ -32,6 +32,9 @@ export interface EngineHostOptions {
   readonly configPath: string;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly logger: Logger;
+  readonly resolveSecret?: SecretResolver;
+  /** Startup phase names for diagnostics (no data); see NEXAR_DESKTOP_STARTUP_TRACE. */
+  readonly trace?: (phase: string) => void;
 }
 
 interface Built {
@@ -47,14 +50,18 @@ export async function createEngineHost(options: EngineHostOptions): Promise<Engi
 
   async function build(): Promise<Built> {
     const loaded = await loadHostConfig(io, options.configPath);
+    options.trace?.('engine-config');
     // The same store `nexar approvals` decides on, so ACP and engineering requests land here.
     const store = new FileApprovalStore(join(nexarStateDir(loaded, io), 'approvals'));
     const gate = new ApprovalGate({ mode: 'store', store, logger: options.logger });
     const composition = await compose(loaded, io, options.logger, {
       workingDirectoryPolicy: 'project-only',
       approvals: { gate, store },
+      ...(options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret }),
     });
+    options.trace?.('engine-compose');
     const workflows = await composeWorkflows(composition.runtime, io);
+    options.trace?.('engine-workflows');
     return { composition, workflows, approvals: store, refreshed: false };
   }
 

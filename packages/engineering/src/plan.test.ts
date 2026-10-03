@@ -9,12 +9,14 @@ import { PlanCatalog } from './plan.js';
 const SHIPPED = fileURLToPath(new URL('../../../engineering/plans', import.meta.url));
 
 describe('PlanCatalog (shipped plans)', () => {
-  it('loads the three plans with the documented lane order', async () => {
+  it('loads the five plans with the documented lane order', async () => {
     const catalog = await PlanCatalog.load(SHIPPED);
     expect(catalog.list().map((p) => p.id)).toEqual([
       'implement-review',
       'implement-test-review',
+      'implementation-plan',
       'plan-implement-review',
+      'repository-report',
     ]);
     const roles = (id: string) => catalog.require(id).lanes.map((l) => `${l.role}:${l.access}`);
     expect(roles('implement-review')).toEqual(['feature:read-write', 'review:read-only']);
@@ -28,15 +30,55 @@ describe('PlanCatalog (shipped plans)', () => {
       'feature:read-write',
       'review:read-only',
     ]);
+    expect(roles('repository-report')).toEqual(['report:read-only']);
+    expect(roles('implementation-plan')).toEqual(['report:read-only']);
   });
 
-  it('gives every plan the shared debugging lane and trusted system prompts', async () => {
+  it('defaults to change mode; the shipped report plan is mode report', async () => {
+    const catalog = await PlanCatalog.load(SHIPPED);
+    expect(catalog.require('implement-review').mode).toBe('change');
+    const report = catalog.require('repository-report');
+    expect(report.mode).toBe('report');
+    expect(report).not.toHaveProperty('debugging');
+    expect(report.lanes[0]).toMatchObject({ taskKind: 'review', capabilities: ['code-review'] });
+  });
+
+  it('gives every change plan the shared debugging lane and every plan trusted system prompts', async () => {
     const catalog = await PlanCatalog.load(SHIPPED);
     for (const plan of catalog.list()) {
-      expect(plan.debugging.system).toMatch(/debugging lane/);
+      if (plan.mode === 'change') expect(plan.debugging.system).toMatch(/debugging lane/);
       expect(plan.lanes.every((l) => !l.system.includes('{{'))).toBe(true);
-      expect(plan.lanes.at(-1)?.capabilities).toEqual(['code-review']);
+      expect(plan.lanes.at(-1)?.capabilities).toEqual(
+        plan.id === 'implementation-plan' ? ['coding', 'code-review'] : ['code-review'],
+      );
     }
+  });
+
+  it('ships a read-only implementation-plan report plan for coding goals', async () => {
+    const plan = (await PlanCatalog.load(SHIPPED)).require('implementation-plan');
+    expect(plan.mode).toBe('report');
+    expect(plan.lanes).toHaveLength(1);
+    expect(plan.lanes[0]).toMatchObject({
+      role: 'report',
+      access: 'read-only',
+      taskKind: 'coding',
+      capabilities: ['coding', 'code-review'],
+    });
+    expect(plan.lanes[0]?.system).toMatch(/never modify/i);
+    expect(plan.lanes[0]?.system).toMatch(/implementation plan/i);
+    expect(plan.lanes[0]?.system).toMatch(/Files to touch/);
+    expect(plan.lanes[0]?.brief.nodes.some((n) => n.kind === 'var' && n.name === 'goal')).toBe(
+      true,
+    );
+  });
+
+  it('keeps the report lane untrusted-input wrapping and read-only instructions', async () => {
+    const plan = (await PlanCatalog.load(SHIPPED)).require('repository-report');
+    expect(plan.lanes[0]?.system).toMatch(/never modify/i);
+    expect(plan.lanes[0]?.system).toMatch(/untrusted/i);
+    expect(plan.lanes[0]?.brief.nodes.some((n) => n.kind === 'var' && n.name === 'goal')).toBe(
+      true,
+    );
   });
 
   it('rejects an unknown plan id', async () => {
@@ -102,6 +144,62 @@ describe('PlanCatalog (validation)', () => {
       lane('review', 'review', 'read-only'),
     ]);
     expect((await PlanCatalog.load(dir)).require('implement-review').lanes).toHaveLength(2);
+  });
+
+  describe('report mode', () => {
+    const reportPlan = (lanes: unknown[], extra: Record<string, unknown> = {}) =>
+      writePlan(lanes, { mode: 'report', ...extra });
+
+    it('accepts an optional architecture lane followed by one report lane', async () => {
+      await reportPlan([lane('report', 'report', 'read-only')]);
+      const only = (await PlanCatalog.load(dir)).require('implement-review');
+      expect(only.mode).toBe('report');
+      await reportPlan([
+        lane('architecture', 'architecture', 'read-only'),
+        lane('report', 'report', 'read-only'),
+      ]);
+      expect((await PlanCatalog.load(dir)).require('implement-review').lanes).toHaveLength(2);
+    });
+
+    it('rejects read-write, feature, tests and review lanes', async () => {
+      for (const bad of [
+        lane('feature', 'feature', 'read-write'),
+        lane('tests', 'tests', 'read-write'),
+        lane('review', 'review', 'read-only'),
+      ]) {
+        await reportPlan([bad, lane('report', 'report', 'read-only')]);
+        expect(await failure()).toMatch(/only have architecture and report lanes/);
+      }
+      await reportPlan([lane('report', 'report', 'read-write')]);
+      expect(await failure()).toMatch(/report lane must be read-only/);
+      await reportPlan([lane('architecture', 'architecture', 'read-write')]);
+      expect(await failure()).toMatch(/architecture lane must be read-only/);
+    });
+
+    it('requires exactly one report lane, last', async () => {
+      await reportPlan([lane('architecture', 'architecture', 'read-only')]);
+      expect(await failure()).toMatch(/exactly one report lane/);
+      await reportPlan([lane('r1', 'report', 'read-only'), lane('r2', 'report', 'read-only')]);
+      expect(await failure()).toMatch(/exactly one report lane/);
+      await reportPlan([
+        lane('report', 'report', 'read-only'),
+        lane('architecture', 'architecture', 'read-only'),
+      ]);
+      expect(await failure()).toMatch(/report lane must be last/);
+    });
+
+    it('rejects a change plan with a report lane, and an unknown mode', async () => {
+      await writePlan([
+        lane('feature', 'feature', 'read-write'),
+        lane('report', 'report', 'read-only'),
+        lane('review', 'review', 'read-only'),
+      ]);
+      expect(await failure()).toMatch(/only a report plan may have a report lane/);
+      await writePlan([lane('report', 'report', 'read-only')], { mode: 'change' });
+      expect(await failure()).toMatch(/only a report plan may have a report lane/);
+      await writePlan([lane('report', 'report', 'read-only')], { mode: 'both' });
+      expect(await failure()).toMatch(/mode must be "change" or "report"/);
+    });
   });
 
   it('requires exactly one review lane', async () => {
@@ -242,7 +340,7 @@ describe('PlanCatalog (validation)', () => {
     expect(await failure()).toMatch(/unknown variable "secrets"/);
   });
 
-  it('rejects a template symlinked outside the plan directory', async () => {
+  it('rejects a template symlinked outside the plan directory', async (context) => {
     await writePlan([
       lane('feature', 'feature', 'read-write'),
       lane('review', 'review', 'read-only'),
@@ -250,7 +348,16 @@ describe('PlanCatalog (validation)', () => {
     const outside = join(dir, 'outside.md');
     await writeFile(outside, 'x');
     await rm(join(dir, 'implement-review', 'feature.md'));
-    await symlink(outside, join(dir, 'implement-review', 'feature.md'));
+    try {
+      await symlink(outside, join(dir, 'implement-review', 'feature.md'), 'file');
+    } catch (error) {
+      if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') {
+        context.skip(
+          'Windows file symlinks require Developer Mode or SeCreateSymbolicLinkPrivilege',
+        );
+      }
+      throw error;
+    }
     expect(await failure()).toMatch(/outside the plan directory/);
   });
 

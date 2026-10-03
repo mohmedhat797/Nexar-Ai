@@ -1,4 +1,33 @@
 const PASSTHROUGH = ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL'] as const;
+const WINDOWS_PASSTHROUGH = [
+  'SystemRoot',
+  'SystemDrive',
+  'windir',
+  'ComSpec',
+  'PATHEXT',
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'TEMP',
+  'TMP',
+] as const;
+
+function inherit(
+  parentEnv: NodeJS.ProcessEnv,
+  names: readonly string[],
+  platform: NodeJS.Platform,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const name of names) {
+    const key =
+      platform === 'win32'
+        ? Object.keys(parentEnv).find((candidate) => candidate.toUpperCase() === name.toUpperCase())
+        : name;
+    const value = key === undefined ? undefined : parentEnv[key];
+    if (value !== undefined && value !== '') env[name] = value;
+  }
+  return env;
+}
 
 /**
  * The environment for an unsandboxed Codex process: an explicit allowlist, nothing inherited.
@@ -10,12 +39,13 @@ const PASSTHROUGH = ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL'] as const;
 export function buildCodexEnv(
   parentEnv: NodeJS.ProcessEnv,
   codexHome: string,
+  platform: NodeJS.Platform = process.platform,
 ): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const name of PASSTHROUGH) {
-    const value = parentEnv[name];
-    if (value !== undefined && value !== '') env[name] = value;
-  }
+  const env = inherit(
+    parentEnv,
+    [...PASSTHROUGH, ...(platform === 'win32' ? WINDOWS_PASSTHROUGH : [])],
+    platform,
+  );
   env['TERM'] = 'dumb';
   env['CODEX_HOME'] = codexHome;
   return env;
@@ -25,11 +55,14 @@ export function buildCodexEnv(
 export function buildProbeEnv(
   parentEnv: NodeJS.ProcessEnv,
   codexHome: string,
+  platform: NodeJS.Platform = process.platform,
 ): Record<string, string> {
-  const env: Record<string, string> = { CODEX_HOME: codexHome };
-  for (const name of ['PATH', 'HOME'] as const) {
-    const value = parentEnv[name];
-    if (value !== undefined && value !== '') env[name] = value;
-  }
-  return env;
+  return {
+    ...inherit(
+      parentEnv,
+      ['PATH', 'HOME', ...(platform === 'win32' ? WINDOWS_PASSTHROUGH : [])],
+      platform,
+    ),
+    CODEX_HOME: codexHome,
+  };
 }

@@ -1,13 +1,16 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import {
+  CREDENTIAL_NAME_MAX_LENGTH,
+  CREDENTIAL_NAME_PATTERN,
   KNOWN_CAPABILITIES,
   NexarError,
   adapterId,
   projectId,
   resourceId,
+  type DiscoveryCredentialSource,
   type ResourceDescriptor,
   type ResourceId,
 } from '@nexar/contracts';
@@ -51,6 +54,8 @@ export interface NexarConfig {
 export interface DiscoveryConfig {
   /** Register discovered resources for routing; `nexar resources --discovered` works either way. */
   readonly enabled: boolean;
+  /** Reference source for discovered API providers; defaults to `env`, with no fallback. */
+  readonly credentialSource: DiscoveryCredentialSource;
   readonly refreshIntervalMs: number;
   /** Per source. */
   readonly timeoutMs: number;
@@ -73,6 +78,7 @@ export interface DiscoveryConfig {
 
 export const DEFAULT_DISCOVERY_CONFIG: DiscoveryConfig = {
   enabled: false,
+  credentialSource: 'env',
   refreshIntervalMs: 10 * 60 * 1000,
   timeoutMs: 3000,
   excludeIds: [],
@@ -110,6 +116,10 @@ const FreeForm = z.record(z.string(), z.unknown());
 // Credentials are references only; there is deliberately no field that could hold a secret value.
 const CredentialSchema = z.discriminatedUnion('source', [
   z.strictObject({ source: z.literal('env'), name: z.string().regex(/^[A-Z][A-Z0-9_]*$/) }),
+  z.strictObject({
+    source: z.literal('keystore'),
+    name: z.string().max(CREDENTIAL_NAME_MAX_LENGTH).regex(CREDENTIAL_NAME_PATTERN),
+  }),
   z.strictObject({ source: z.literal('runtime-managed'), description: z.string().min(1) }),
 ]);
 
@@ -186,7 +196,7 @@ const TaskKindRuleSchema = z.strictObject({
 const DOCUMENT_SET_NAME = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 const PathSchema = z.string().min(1);
 const WORKFLOW_ID = /^[a-z][a-z0-9-]{0,63}$/;
-const LANE_ROLES = ['architecture', 'feature', 'tests', 'debugging', 'review'] as const;
+const LANE_ROLES = ['architecture', 'feature', 'tests', 'debugging', 'review', 'report'] as const;
 
 const ArgvSchema = z.array(z.string().min(1)).min(1);
 const EngineeringCommandSchema = z.strictObject({
@@ -332,6 +342,7 @@ const ResourceIntelligenceSchema = z.strictObject({
 
 const DiscoverySchema = z.strictObject({
   enabled: z.boolean().optional(),
+  credentialSource: z.enum(['env', 'keystore']).optional(),
   refreshIntervalMs: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().max(60_000).optional(),
   excludeIds: StringList.optional(),
@@ -395,7 +406,14 @@ function configError(message: string, origin: string): NexarError {
 function assertArtifactsDirectory(id: string, directory: string, origin: string): void {
   const escapes = isAbsolute(directory) || /^[A-Za-z]:/.test(directory);
   const rel = relative('/root', resolve('/root', directory));
-  if (escapes || rel === '' || rel === '..' || rel.startsWith('../') || directory.includes('\0')) {
+  if (
+    escapes ||
+    rel === '' ||
+    rel === '..' ||
+    rel.startsWith(`..${sep}`) ||
+    isAbsolute(rel) ||
+    directory.includes('\0')
+  ) {
     throw configError(
       `projects.${id}.artifactsDirectory must be a relative path inside the project root`,
       origin,
@@ -695,6 +713,7 @@ function resolveDiscovery(
   }
   return {
     enabled: input.enabled ?? d.enabled,
+    credentialSource: input.credentialSource ?? d.credentialSource,
     refreshIntervalMs: input.refreshIntervalMs ?? d.refreshIntervalMs,
     timeoutMs: input.timeoutMs ?? d.timeoutMs,
     excludeIds: input.excludeIds ?? d.excludeIds,

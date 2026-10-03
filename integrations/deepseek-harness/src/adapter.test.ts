@@ -1,8 +1,8 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { ExecutionEvent, ResourceDescriptor } from '@nexar/contracts';
-import { adapterId } from '@nexar/contracts';
+import type { ExecutionEvent, ResourceDescriptor, SecretResolver } from '@nexar/contracts';
+import { NexarError, adapterId } from '@nexar/contracts';
 import { DeepSeekHarnessExecutionAdapter } from './adapter.js';
 import { DSH_PINNED_VERSION, deepseekHarnessResource } from './resource.js';
 import { fakeBinary, makeContext, makeTask, makeTempDir, readRecord } from './test/support.js';
@@ -105,7 +105,7 @@ describe('DeepSeekHarnessExecutionAdapter.execute', () => {
     expect(args).toEqual(['--profile', 'sdk', '--patch', overlayPath, '--patch', '/extra/one.yml']);
     expect(record.overlay).toContain('- id: session-log-deepseek\n  disabled: true');
     expect(record.overlay).toContain('"anthropic":');
-    expect(statSync(overlayPath).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(overlayPath).mode & 0o777).toBe(0o600);
 
     expect(record.envKeys).not.toContain('GH_TOKEN');
     expect(record.envKeys).toContain('DEEPSEEK_API_KEY');
@@ -456,5 +456,165 @@ describe('DeepSeekHarnessExecutionAdapter.probe', () => {
     ac.abort();
     const state = await prober({}).probe(deepseekHarnessResource(), ac.signal);
     expect(state.availability).toBe('unavailable');
+  });
+});
+
+async function rejection(promise: Promise<unknown>): Promise<NexarError> {
+  try {
+    await promise;
+  } catch (e) {
+    expect(e).toBeInstanceOf(NexarError);
+    return e as NexarError;
+  }
+  throw new Error('expected the call to reject');
+}
+
+describe('DeepSeekHarnessExecutionAdapter keystore credentials', () => {
+  const NAME = 'DEEPSEEK_API_KEY';
+  const STORED = 'sk-keystore-value-789';
+  const PARENT = 'sk-parent-env-value-000';
+  const signal = new AbortController().signal;
+  const keystoreResource = (
+    options: Record<string, unknown> = { model: 'deepseek-v4-flash' },
+  ): ResourceDescriptor =>
+    deepseekHarnessResource({
+      auth: { mode: 'api-key', credential: { source: 'keystore', name: NAME } },
+      runtime: { adapter: adapterId('deepseek-harness'), locality: 'local', options },
+    });
+
+  function build(
+    settings: Record<string, string>,
+    resolveSecret: SecretResolver | undefined,
+    env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: '/home/test', [NAME]: PARENT },
+  ) {
+    const dir = makeTempDir();
+    const recordPath = join(dir, 'record.json');
+    const adapter = new DeepSeekHarnessExecutionAdapter({
+      binary: fakeBinary({ record: recordPath, ...settings }),
+      stateDir: join(dir, 'state'),
+      env,
+      initializeTimeoutMs: 5000,
+      defaultTimeoutMs: 20_000,
+      ...(resolveSecret === undefined ? {} : { resolveSecret }),
+    });
+    return { dir, recordPath, adapter };
+  }
+
+  it('gives the child the keystore variable and a resolver-only name set', async () => {
+    const asked: string[] = [];
+    const { dir, recordPath, adapter } = build({}, (name) => {
+      asked.push(name);
+      return STORED;
+    });
+    const logs: LogLine[] = [];
+    const result = await adapter.execute(
+      { task: makeTask({ workingDirectory: dir }), resource: keystoreResource() },
+      makeContext({ logs }),
+    );
+    expect(result.text).toBe('final answer');
+    expect(readRecord(recordPath).envKeys).toContain(NAME);
+    expect(new Set(asked)).toEqual(new Set([NAME]));
+    expect(JSON.stringify({ result, logs })).not.toContain(STORED);
+  });
+
+  it('names a keystore piAiProviders variable in the overlay and the child env', async () => {
+    const { dir, recordPath, adapter } = build({}, (name) =>
+      name === 'ANTHROPIC_API_KEY' || name === NAME ? STORED : undefined,
+    );
+    await adapter.execute(
+      {
+        task: makeTask({ workingDirectory: dir }),
+        resource: keystoreResource({
+          model: 'm',
+          piAiProviders: { anthropic: { keystore: 'ANTHROPIC_API_KEY' } },
+        }),
+      },
+      makeContext(),
+    );
+    const record = readRecord(recordPath);
+    expect(record.envKeys).toContain('ANTHROPIC_API_KEY');
+    expect(record.overlay).toContain('"anthropic":\n        apiKeyEnv: "ANTHROPIC_API_KEY"');
+    expect(record.overlay).not.toContain(STORED);
+  });
+
+  it.each([
+    ['no resolver', undefined],
+    ['an unknown name', () => undefined],
+    ['an empty value', () => ''],
+  ])(
+    'is AUTH_REQUIRED for %s even when the parent env has the same variable',
+    async (_label, resolveSecret) => {
+      const { dir, recordPath, adapter } = build({}, resolveSecret);
+      const error = await rejection(
+        adapter.execute(
+          { task: makeTask({ workingDirectory: dir }), resource: keystoreResource() },
+          makeContext(),
+        ),
+      );
+      expect(error.code).toBe('AUTH_REQUIRED');
+      expect(error.message).toBe(`Credential ${NAME} is not stored in the Nexar key store`);
+      expect(error.details).toEqual({ keystore: NAME });
+      expect(JSON.stringify({ message: error.message, details: error.details })).not.toContain(
+        PARENT,
+      );
+      expect(existsSync(recordPath)).toBe(false); // nothing was launched
+    },
+  );
+
+  it('does not require a stored key for env references', async () => {
+    const { dir, adapter } = build({}, () => undefined);
+    const result = await adapter.execute(
+      { task: makeTask({ workingDirectory: dir }), resource: deepseekHarnessResource() },
+      makeContext(),
+    );
+    expect(result.text).toBe('final answer');
+  });
+
+  it('redacts the keystore value if the runtime echoes it', async () => {
+    const { dir, adapter } = build(
+      { mode: 'crash-on-init', stderr: `bad key ${STORED} rejected` },
+      () => STORED,
+    );
+    const error = await rejection(
+      adapter.execute(
+        { task: makeTask({ workingDirectory: dir }), resource: keystoreResource() },
+        makeContext(),
+      ),
+    );
+    expect(error.message).not.toContain(STORED);
+    expect(error.message).toContain('[redacted]');
+  });
+
+  it('redacts a keystore piAiProviders value too', async () => {
+    const other = 'sk-provider-keystore-value';
+    const { dir, adapter } = build(
+      { mode: 'crash-on-init', stderr: `bad key ${other} rejected` },
+      (name) => (name === NAME ? STORED : name === 'ANTHROPIC_API_KEY' ? other : undefined),
+    );
+    const error = await rejection(
+      adapter.execute(
+        {
+          task: makeTask({ workingDirectory: dir }),
+          resource: keystoreResource({
+            model: 'm',
+            piAiProviders: { anthropic: { keystore: 'ANTHROPIC_API_KEY' } },
+          }),
+        },
+        makeContext(),
+      ),
+    );
+    expect(error.message).not.toContain(other);
+    expect(error.message).toContain('[redacted]');
+  });
+
+  it('probes authenticated only when the resolver holds a value', async () => {
+    const stored = build({}, () => STORED).adapter;
+    expect((await stored.probe(keystoreResource(), signal)).auth).toBe('authenticated');
+    const missing = build({}, () => undefined).adapter;
+    expect((await missing.probe(keystoreResource(), signal)).auth).toBe('unauthenticated');
+    const empty = build({}, () => '').adapter;
+    expect((await empty.probe(keystoreResource(), signal)).auth).toBe('unauthenticated');
+    const noResolver = build({}, undefined).adapter;
+    expect((await noResolver.probe(keystoreResource(), signal)).auth).toBe('unauthenticated');
   });
 });

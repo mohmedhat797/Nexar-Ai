@@ -1,13 +1,14 @@
 import { chmod, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { NexarError, type UsageReport } from '@nexar/contracts';
+import { NexarError, type EngineeringLineage, type UsageReport } from '@nexar/contracts';
 
 /**
  * Durable summary of an engineering task (ADR-019 section 10). Allowlisted fields only: ids,
  * lane roles, reason codes, resource ids, usage, exit codes, durations, counts and hashes. Never
  * the goal, prompts, diffs, gate output or any path; those live in task artifacts.
  */
-export type EngineeringStatus = 'running' | 'committed' | 'not-accepted' | 'failed' | 'cancelled';
+export type EngineeringStatus =
+  'running' | 'committed' | 'reported' | 'not-accepted' | 'failed' | 'cancelled';
 
 export interface LaneRecord {
   readonly laneId: string;
@@ -85,6 +86,36 @@ export interface EngineeringRecord {
   readonly reviews: readonly ReviewRecord[];
   readonly approval?: { readonly id?: string; readonly outcome: string };
   readonly commit?: string;
+  /** Report plans only: hash and size of the report; the text lives in the lane's artifact. */
+  readonly report?: { readonly sha256: string; readonly bytes: number };
+  /** Ids of the Operating turn that started the task (ADR-025); absent for CLI-started tasks. */
+  readonly lineage?: EngineeringLineage;
+}
+
+const SESSION_ID = /^ses_[0-9a-f]{32}$/;
+const TURN_ID = /^turn_[0-9a-f]{32}$/;
+const CORRELATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const LINEAGE_KEYS = ['sessionId', 'turnId', 'correlationId', 'depth'];
+
+/** True for a well-formed lineage: exactly the four id fields, each matching its pattern. */
+export function isEngineeringLineage(value: unknown): value is EngineeringLineage {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const l = value as Record<string, unknown>;
+  const keys = Object.keys(l);
+  return (
+    keys.length === LINEAGE_KEYS.length &&
+    LINEAGE_KEYS.every((key) => keys.includes(key)) &&
+    typeof l['sessionId'] === 'string' &&
+    SESSION_ID.test(l['sessionId']) &&
+    typeof l['turnId'] === 'string' &&
+    TURN_ID.test(l['turnId']) &&
+    typeof l['correlationId'] === 'string' &&
+    CORRELATION_ID.test(l['correlationId']) &&
+    typeof l['depth'] === 'number' &&
+    Number.isInteger(l['depth']) &&
+    l['depth'] >= 0 &&
+    l['depth'] <= 2
+  );
 }
 
 export const RECORD_FILE = 'record.json';
@@ -129,7 +160,8 @@ function isRecord(value: unknown): value is EngineeringRecord {
     typeof r['taskId'] === 'string' &&
     typeof r['projectId'] === 'string' &&
     typeof r['status'] === 'string' &&
-    Array.isArray(r['lanes'])
+    Array.isArray(r['lanes']) &&
+    (r['lineage'] === undefined || isEngineeringLineage(r['lineage']))
   );
 }
 

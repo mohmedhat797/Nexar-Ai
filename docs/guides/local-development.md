@@ -1,5 +1,12 @@
 # Continuing Nexar on your own machine
 
+Current continuation (2026-10-02): work is on `feat/nexar-operating-layer`, draft PR #36. Windows
+automated acceptance, Operating Sessions and routing, and Desktop encrypted API-key setup are
+implemented, including explicit provider metadata checks. Owner Windows acceptance remains pending; vendor sign-in,
+WSL Code, OpenWorker Cowork and behavior settings follow. Schedules and Mobile are deferred.
+Use the [continuation state](../devlog/operating-layer-progress.md) for the exact next unit and
+the [Providers guide](providers.md) for key setup. The phase-1 snapshot below is historical.
+
 This is the hand-over guide for developing and testing Nexar locally, written at the end of the
 **Nexar Desktop phase 1** session (2026-10-01). It says where things stand, how to run and test
 everything, how the desktop app is built, and exactly what to build next.

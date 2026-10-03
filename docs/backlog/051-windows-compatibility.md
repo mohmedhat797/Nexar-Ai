@@ -32,9 +32,10 @@ The desktop app installs and runs on Windows with Claude Code and Codex resource
 
 ## Acceptance criteria
 
-- [ ] The Windows CI job is green.
+- [x] The Windows CI job is green (run 37004390748 at `747c8bb`: tests, native and packaged E2E,
+      installer packaging).
 - [ ] The owner installs the app on their laptop and runs a Cowork task with Claude Code.
-- [ ] Known Windows gaps are listed in the security model.
+- [x] Known Windows gaps are listed in the security model.
 
 ## Testing expectations
 

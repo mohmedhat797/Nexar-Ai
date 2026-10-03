@@ -15,6 +15,22 @@ marked UNVERIFIED. All `path:line` refs are at the inspected SHA (permalinks in 
 | First commit in this repo | 2026-07-21 ("OpenWorker: initial import"); history was carved out of the aisuite repo |
 | Tags | 7 total: v0.1.6 (07-23), v0.1.7 (07-30), v0.2.0 (08-24), v0.2.1 (08-25), v0.3.0 (09-30) plus two older |
 
+## Refresh (2026-10-03, NXR-056)
+
+Upstream still at `v0.3.0` (latest release 2026-09-30); `main` at `074ad3f` adds one change since the
+inspected commit: an approval owner check on every transport (#567, security tightening). Verified in
+source at `074ad3f` for the supervised seam (ADR-026):
+
+- `coworker/server/run.py`: a supervisor may supply the API token in memory via `COWORKER_API_TOKEN`
+  (never persisted); `COWORKER_EXIT_WITH_PARENT=1` + `COWORKER_PARENT_PID` bind the server to its
+  parent; `COWORKER_STATE_LOCK=strict` refuses a shared state directory; `--host`, `--port`, `--cwd`.
+- `coworker/secrets.py:state_dir`: `COWORKER_STATE_DIR` overrides the state directory on any OS.
+- `coworker/server/app.py`: `WS /ws/session/{id}?agent=&workspace=`; client frames `user_message`,
+  `set_mode`, `approval` (`decision`), `interrupt`, `retry`; `turn_done`, `input_rejected`.
+- `coworker/engine.py`: `permission_required` carries `name`, `arguments`, `reason`, `escalation`,
+  `category` and the exact `target`; modes `discuss`, `plan`, `interactive` (default),
+  `bypass-approvals`, auto-approve with reviewer.
+
 ## 1. Canonical repo determination
 
 - `andrewyng/openworker` is the parent repo, not a fork (WebFetch of the GitHub page: "Parent

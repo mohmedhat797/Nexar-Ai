@@ -17,8 +17,8 @@ import { harness, task, waitFor } from './test/harness.js';
 import type { Harness } from './test/harness.js';
 
 let h: Harness | undefined;
-afterEach(() => {
-  h?.cleanup();
+afterEach(async () => {
+  await h?.cleanup();
   h = undefined;
 });
 
@@ -372,7 +372,7 @@ describe('stream-json output', () => {
   it('classifies an error result as PROVIDER_ERROR and a login failure as AUTH_REQUIRED', async () => {
     const a = rig('sandbox', 'read-write', { FAKE_CLAUDE_MODE: 'error' });
     expect((await rejection(a.hh.adapter.execute(request(), a.ctx()))).code).toBe('PROVIDER_ERROR');
-    a.hh.cleanup();
+    await a.hh.cleanup();
     const b = rig('sandbox', 'read-write', { FAKE_CLAUDE_MODE: 'auth' });
     expect((await rejection(b.hh.adapter.execute(request(), b.ctx()))).code).toBe('AUTH_REQUIRED');
   });

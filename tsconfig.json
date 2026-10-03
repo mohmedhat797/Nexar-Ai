@@ -5,6 +5,9 @@
       "path": "./packages/contracts"
     },
     {
+      "path": "./packages/process"
+    },
+    {
       "path": "./packages/resource-registry"
     },
     {
@@ -66,6 +69,15 @@
     },
     {
       "path": "./packages/approvals"
+    },
+    {
+      "path": "./packages/sessions"
+    },
+    {
+      "path": "./packages/plane-protocol"
+    },
+    {
+      "path": "./packages/operating"
     },
     {
       "path": "./packages/access"

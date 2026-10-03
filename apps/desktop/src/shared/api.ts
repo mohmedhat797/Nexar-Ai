@@ -1,4 +1,20 @@
 import type { QuotaAssessment, RouteDecision } from '@nexar/contracts';
+import type { ApiProviderId, ProviderRow } from './providers.js';
+export type { ApiProviderId, ProviderRow } from './providers.js';
+import type { SubscriptionRuntimeId } from '@nexar/contracts';
+import type { BehaviorPatch, BehaviorView } from './behavior.js';
+export type {
+  BehaviorPatch,
+  BehaviorSettings,
+  BehaviorView,
+  CodePermissionId,
+  CoworkPermissionId,
+  UnsupportedOption,
+} from './behavior.js';
+import type { SubscriptionRow } from './subscriptions.js';
+export type { SubscriptionRow } from './subscriptions.js';
+import type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
+export type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 
 /** What every bridge call resolves to; errors carry a stable code and a safe message only. */
 export type BridgeResult<T> =
@@ -127,6 +143,75 @@ export interface ApprovalDto {
   readonly projectId?: string;
   readonly decidedAt?: string;
   readonly decidedBy?: string;
+  /** `plane`: a pending `engineering.commit` approval of the WSL2 engineering plane (ADR-025). */
+  readonly source?: 'plane';
+  readonly sessionId?: string;
+  readonly turnId?: string;
+  readonly plane?: {
+    readonly branch: string;
+    readonly files: number;
+    readonly gatesPassed: number;
+    readonly reviewVerdict: string;
+  };
+}
+
+/** Why the Code lane can or cannot run (ADR-025 section 4). */
+export const PLANE_STATES = [
+  'ready',
+  'wsl-unavailable',
+  'plane-missing',
+  'plane-unreachable',
+  'protocol-mismatch',
+  'sandbox-unavailable',
+  'hardening-drift',
+  'engineering-unavailable',
+] as const;
+export type PlaneStateDto = (typeof PLANE_STATES)[number];
+export type ProjectPlaneStateDto = PlaneStateDto | 'project-unmapped' | 'project-unknown-to-plane';
+
+/** Availability of the Code lane for one Desktop project. */
+export interface ProjectPlaneDto {
+  readonly projectId: string;
+  readonly state: ProjectPlaneStateDto;
+  /** A fixed, non-sensitive text. */
+  readonly reason: string;
+  /** The mapped plane project id, when one is set. */
+  readonly planeProject?: string;
+}
+
+/** The engineering plane's state. Ids and fixed texts only; never a path, distro or command. */
+export interface PlaneStatusDto {
+  readonly state: PlaneStateDto;
+  readonly reason: string;
+  readonly planeVersion?: string;
+  readonly kernel?: string;
+  /** Plane project ids the owner can map Desktop projects to. */
+  readonly projects: readonly string[];
+  readonly checkedAt: string;
+  /** Present when the call named a Desktop project. */
+  readonly project?: ProjectPlaneDto;
+}
+
+/** A turn's diff as retrieved from the plane (bounded; repository-relative file names). */
+export interface CodeDiffDto {
+  readonly text: string;
+  readonly truncated: boolean;
+  readonly files: readonly string[];
+}
+
+/** The Cowork lane (supervised OpenWorker, ADR-026). Fixed texts and a version only. */
+export const COWORK_STATES = [
+  'ready',
+  'openworker-missing',
+  'unsupported-version',
+  'startup-failed',
+  'configuration-missing',
+  'checking',
+] as const;
+export interface CoworkStatusDto {
+  readonly state: (typeof COWORK_STATES)[number];
+  readonly reason: string;
+  readonly version?: string;
 }
 
 export interface WorkflowDto {
@@ -157,11 +242,142 @@ export interface RunWorkflowArgs {
   readonly inputs: Readonly<Record<string, string | readonly string[]>>;
 }
 
+export const TURN_STATES = [
+  'pending-confirmation',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+  'interrupted',
+  'declined',
+] as const;
+export type TurnStateDto = (typeof TURN_STATES)[number];
+
+export interface SessionSummaryDto {
+  readonly id: string;
+  readonly projectId: string;
+  readonly mode: Mode;
+  readonly title: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly revision: number;
+  readonly turnCount: number;
+  /** True while a turn is running or waiting for confirmation. */
+  readonly active: boolean;
+  readonly lastTurnState?: TurnStateDto;
+}
+
+export type LaneDto = 'cowork' | 'code' | 'direct';
+
+/** Which rules classified the turn; constant identifiers only, never text. */
+export interface TurnIntentDto {
+  readonly kind: string;
+  readonly source: 'explicit' | 'rules';
+  readonly ruleIds: readonly string[];
+}
+
+/** The lane decision (ADR-024 section 9); constant identifiers only. */
+export interface TurnLaneDto {
+  readonly requestedLane: LaneDto;
+  readonly effectiveLane: LaneDto;
+  readonly mismatch?: { readonly from: LaneDto; readonly to: LaneDto };
+  readonly confirmed?: boolean;
+  /** For example `orchestrator-unavailable`. */
+  readonly fallbackReason?: string;
+}
+
+export interface TurnDto {
+  readonly id: string;
+  readonly index: number;
+  /** The owner's message. */
+  readonly text: string;
+  readonly state: TurnStateDto;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly kind?: string;
+  readonly intent?: TurnIntentDto;
+  readonly lane?: TurnLaneDto;
+  readonly tasks: readonly {
+    readonly taskId: string;
+    readonly state: string;
+    readonly resourceId?: string;
+  }[];
+  readonly artifacts: readonly ArtifactDto[];
+  readonly outcome?: {
+    readonly text?: string;
+    readonly textTruncated?: boolean;
+    readonly error?: { readonly code: string; readonly message: string };
+    /** What the engineering plane reported for a Code-lane turn: ids and scalars only. */
+    readonly engineering?: TurnEngineeringDto;
+  };
+}
+
+export interface TurnEngineeringDto {
+  readonly planeTaskId: string;
+  readonly status: 'committed' | 'reported' | 'not-accepted' | 'failed' | 'cancelled';
+  /** Lane role to the resource id that served it (change and report runs). */
+  readonly lanes?: readonly { readonly role: string; readonly resourceId: string }[];
+  readonly branch?: string;
+  readonly commit?: string;
+  readonly files?: number;
+  readonly gatesPassed?: number;
+  readonly reviewVerdict?: string;
+  readonly approvalId?: string;
+}
+
+export interface SessionDto extends SessionSummaryDto {
+  readonly turns: readonly TurnDto[];
+}
+
+export interface SubmitTurnArgs {
+  readonly sessionId: string;
+  /** Client-generated idempotency key, `^[A-Za-z0-9_-]{16,64}$`; reuse it when retrying. */
+  readonly submissionKey: string;
+  readonly text: string;
+  /** An explicit task kind; omit (or `general`) to let Nexar decide from the message. */
+  readonly kind?: string;
+  readonly preferredResourceIds?: readonly string[];
+  readonly maxCostUsd?: number;
+}
+
+export interface SubmitTurnResult {
+  readonly turn: TurnDto;
+  /** False when the submission key already existed and nothing was started. */
+  readonly created: boolean;
+  /** `confirm`: the turn waits for the owner (mode mismatch). `refuse`: it failed up front. */
+  readonly action: 'run' | 'confirm' | 'refuse';
+}
+
+/** A change notification: `turn` means "re-fetch the session"; it carries no content. */
+export interface SessionEvent {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly type: 'status' | 'progress' | 'turn';
+  readonly message?: string;
+}
+
 /** `window.nexar`: the only thing the preload exposes. */
 export interface NexarApi {
   appInfo(): Promise<BridgeResult<AppInfo>>;
   getSettings(): Promise<BridgeResult<DesktopSettings>>;
   setSettings(patch: Partial<DesktopSettings>): Promise<BridgeResult<DesktopSettings>>;
+  listProviders(): Promise<BridgeResult<readonly ProviderRow[]>>;
+  listLocalEndpoints(): Promise<BridgeResult<readonly LocalEndpointRow[]>>;
+  saveLocalEndpoint(input: LocalEndpointInput): Promise<BridgeResult<readonly LocalEndpointRow[]>>;
+  removeLocalEndpoint(id: string): Promise<BridgeResult<readonly LocalEndpointRow[]>>;
+  refreshLocalEndpoints(): Promise<BridgeResult<readonly LocalEndpointRow[]>>;
+  listSubscriptions(): Promise<BridgeResult<readonly SubscriptionRow[]>>;
+  refreshSubscription(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
+  startSubscriptionLogin(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
+  cancelSubscriptionLogin(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
+  saveProviderKeyFromClipboard(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
+  removeProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
+  checkProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
+  /** Owner opt-in: lets OpenWorker use this provider's saved key (never moves the key). */
+  setOpenWorkerAccess(args: {
+    provider: ApiProviderId;
+    allowed: boolean;
+  }): Promise<BridgeResult<ProviderRow>>;
   listProjects(): Promise<BridgeResult<readonly ProjectDto[]>>;
   /** Opens the native folder dialog in the main process; null when cancelled. */
   addProject(): Promise<BridgeResult<ProjectDto | null>>;
@@ -180,6 +396,49 @@ export interface NexarApi {
   deny(args: { id: string; reason?: string }): Promise<BridgeResult<ApprovalDto>>;
   listWorkflows(args?: { projectId?: string }): Promise<BridgeResult<readonly WorkflowDto[]>>;
   runWorkflow(args: RunWorkflowArgs): Promise<BridgeResult<TaskResult>>;
+  listSessions(projectId: string): Promise<BridgeResult<readonly SessionSummaryDto[]>>;
+  createSession(args: {
+    projectId: string;
+    mode: Mode;
+    title?: string;
+  }): Promise<BridgeResult<SessionDto>>;
+  getSession(sessionId: string): Promise<BridgeResult<SessionDto>>;
+  submitTurn(args: SubmitTurnArgs): Promise<BridgeResult<SubmitTurnResult>>;
+  cancelTurn(args: {
+    sessionId: string;
+    turnId: string;
+  }): Promise<BridgeResult<{ readonly cancelled: boolean }>>;
+  confirmLane(args: {
+    sessionId: string;
+    turnId: string;
+    decision: 'confirm' | 'decline';
+  }): Promise<BridgeResult<TurnDto>>;
+  setSessionMode(args: {
+    sessionId: string;
+    mode: Mode;
+    expectedRevision?: number;
+  }): Promise<BridgeResult<SessionDto>>;
+  renameSession(args: {
+    sessionId: string;
+    title: string;
+    expectedRevision?: number;
+  }): Promise<BridgeResult<SessionDto>>;
+  codeStatus(args?: { projectId?: string }): Promise<BridgeResult<PlaneStatusDto>>;
+  /** Re-probes the engineering plane now (otherwise the status is cached for a minute). */
+  refreshCode(args?: { projectId?: string }): Promise<BridgeResult<PlaneStatusDto>>;
+  /** Maps a Desktop project to a plane project id (`null` removes the mapping). */
+  setPlaneProject(args: {
+    projectId: string;
+    planeProject: string | null;
+  }): Promise<BridgeResult<PlaneStatusDto>>;
+  getCodeDiff(args: { sessionId: string; turnId: string }): Promise<BridgeResult<CodeDiffDto>>;
+  getBehavior(): Promise<BridgeResult<BehaviorView>>;
+  setBehavior(patch: BehaviorPatch): Promise<BridgeResult<BehaviorView>>;
+  coworkStatus(): Promise<BridgeResult<CoworkStatusDto>>;
+  /** Re-probes OpenWorker now (otherwise the status is cached for a minute). */
+  refreshCowork(): Promise<BridgeResult<CoworkStatusDto>>;
   /** Subscribes to task progress; returns the unsubscribe function. */
   onTaskEvent(callback: (event: TaskEvent) => void): () => void;
+  /** Subscribes to Operating Session changes; returns the unsubscribe function. */
+  onSessionEvent(callback: (event: SessionEvent) => void): () => void;
 }

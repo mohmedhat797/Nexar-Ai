@@ -7,11 +7,14 @@ export {
   type EngineeringRunOptions,
   type WorktreeOps,
 } from './execution.js';
+export { readTaskPatch, type TaskPatchOptions, type TaskPatchView } from './patch-view.js';
 export {
   PLAN_FILE,
   PlanCatalog,
   SHARED_DIRECTORY,
+  type ChangePlan,
   type LoadedPlan,
+  type ReportPlan,
   type PlanLane,
   type PlanLaneRole,
 } from './plan.js';
@@ -22,8 +25,10 @@ export {
   type LaneHistoryOptions,
   type LaneHistoryResult,
 } from './lane-history.js';
+export { MAX_OUTCOME_LANES, MAX_REPORT_BYTES, boundReport } from './report.js';
 export {
   RECORD_FILE,
+  isEngineeringLineage,
   isTaskId,
   listEngineeringRecords,
   readEngineeringRecord,
@@ -50,6 +55,7 @@ export {
   DEFAULT_PLAN_ID,
   EngineeringRunner,
   MAX_GOAL_CHARS,
+  MAX_TITLE_CHARS,
   type EngineeringRunnerDependencies,
 } from './runner.js';
 export {

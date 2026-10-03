@@ -175,3 +175,24 @@ schedules (ADR-023) and providers (ADR-022). Each method is a separate, schema-v
 4. **Scheduled tasks** (ADR-023), with a tray icon.
 5. **Code mode:** engineering through the WSL2 plane; DSH as the default agent.
 6. **Cowork through OpenWorker:** the ADR-004 automations seam, pinned and contract-tested.
+
+## Amendment (2026-10-03): AI behavior settings, v1 support matrix (NXR-053)
+
+AI behavior settings compile into existing policy inputs — the turn's NRC owner preferences
+(`preferredResourceIds`), the Cowork policy Nexar applies to OpenWorker, and the plan the Code lane
+runs — never into a new router. A setting a lane cannot honour is rejected with a reason and shown
+disabled; it is never silently ignored. Settings only narrow permissions; the locked rules (sandbox for
+every write, review by a different resource, agents never commit or push, no outward actions) are
+displayed and cannot be changed through the bridge.
+
+| Setting                                       | v1 behaviour                                                                                                           |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Cowork: Read only                             | OpenWorker session mode `discuss`; Nexar denies every write; no drafts are stored (direct turns store no draft either) |
+| Cowork: Drafts only (default)                 | current behaviour: writes allowed only inside the turn's scratch root, imported as drafts                              |
+| Cowork: Ask before every write                | each scratch write becomes an owner approval in Desktop's Approvals (deny on expiry or cancel)                         |
+| Code: Plan                                    | engineering turns run the report-only `implementation-plan` plan (a plan, no change, no commit)                        |
+| Code: Auto-edit in sandbox (default)          | current behaviour (change plan, owner approves the commit)                                                             |
+| Code: Ask before edits / Full auto in sandbox | not supported yet (per-edit plane approvals; network allowlist profile) — rejected with a reason                       |
+| Preferred resource per mode                   | passed to the NRC as an owner preference for the turn; hard filters still apply                                        |
+| Reasoning effort per mode                     | not supported yet (effort is a per-resource configuration option today)                                                |
+| Agent network                                 | locked off for gates; agent egress stays the owner's per-resource allowlist                                            |

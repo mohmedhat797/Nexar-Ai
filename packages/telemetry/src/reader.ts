@@ -99,7 +99,10 @@ export async function readTelemetryEvents(
   try {
     const handle = await open(path, 'r');
     try {
-      const { size } = await handle.stat();
+      const info = await handle.stat();
+      // Windows can open a directory and report size 0; it is unreadable, never an empty log.
+      if (!info.isFile()) return { events: [], skipped: 0, unreadable: true };
+      const { size } = info;
       const length = Math.min(size, maxBytes);
       const buffer = Buffer.alloc(length);
       let read = 0;

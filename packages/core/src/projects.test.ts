@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   resourceId,
@@ -48,7 +48,7 @@ describe('config: projects', () => {
 
   it('resolves roots against baseDir and keeps absolute ones', () => {
     const [p] = parse([project({ roots: ['p', '/abs/root', '../up'] })], '/cfg/dir').projects;
-    expect(p?.roots).toEqual(['/cfg/dir/p', '/abs/root', '/cfg/up']);
+    expect(p?.roots).toEqual([resolve('/cfg/dir/p'), resolve('/abs/root'), resolve('/cfg/up')]);
   });
 
   it('resolves working directories and document sets against the first root', () => {
@@ -62,8 +62,14 @@ describe('config: projects', () => {
       ],
       '/cfg/dir',
     ).projects;
-    expect(p?.workingDirectories).toEqual(['/cfg/dir/p/w', '/abs/w', '/abs/root/x']);
-    expect(p?.documentSets).toEqual({ docs: ['/cfg/dir/p/docs/a.md', '/abs/b.md'] });
+    expect(p?.workingDirectories).toEqual([
+      resolve('/cfg/dir/p/w'),
+      resolve('/abs/w'),
+      resolve('/abs/root/x'),
+    ]);
+    expect(p?.documentSets).toEqual({
+      docs: [resolve('/cfg/dir/p/docs/a.md'), resolve('/abs/b.md')],
+    });
   });
 
   it('resolves `..` lexically so escapes are left for the projects package to reject', () => {
@@ -71,8 +77,8 @@ describe('config: projects', () => {
       [project({ workingDirectories: ['../out'], documentSets: { d: ['../secret.md'] } })],
       '/cfg',
     ).projects;
-    expect(p?.workingDirectories).toEqual(['/cfg/out']);
-    expect(p?.documentSets).toEqual({ d: ['/cfg/secret.md'] });
+    expect(p?.workingDirectories).toEqual([resolve('/cfg/out')]);
+    expect(p?.documentSets).toEqual({ d: [resolve('/cfg/secret.md')] });
   });
 
   it('resolves workflow directories and instruction files against the first root', () => {
@@ -88,8 +94,11 @@ describe('config: projects', () => {
       '/cfg/dir',
     ).projects;
     expect(p?.workflows).toEqual({
-      directories: ['/cfg/dir/p/flows', '/abs/flows'],
-      instructions: { sow: '/cfg/dir/p/docs/style.md', 'meeting-brief': '/abs/mb.md' },
+      directories: [resolve('/cfg/dir/p/flows'), resolve('/abs/flows')],
+      instructions: {
+        sow: resolve('/cfg/dir/p/docs/style.md'),
+        'meeting-brief': resolve('/abs/mb.md'),
+      },
     });
     expect(parse([project()]).projects[0]).not.toHaveProperty('workflows');
   });
@@ -282,7 +291,11 @@ describe('engine: projects and working-directory policy', () => {
     });
 
     it('passes the canonical path onward, not the input', async () => {
-      await symlink(join(root, 'sub'), join(root, 'inner'));
+      await symlink(
+        join(root, 'sub'),
+        join(root, 'inner'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
       const { nexar, adapter } = await setup();
       const task = nexar.createTask({
         kind: 'general',
@@ -297,7 +310,7 @@ describe('engine: projects and working-directory policy', () => {
     });
 
     it('rejects the symlink attack and never calls the adapter or emits events', async () => {
-      await symlink(outside, join(root, 'link'));
+      await symlink(outside, join(root, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
       const { nexar, adapter, sink } = await setup();
       const task = nexar.createTask({
         kind: 'general',
@@ -378,7 +391,11 @@ describe('engine: projects and working-directory policy', () => {
     });
 
     it("'project-or-unscoped' canonicalizes the directory", async () => {
-      await symlink(join(root, 'sub'), join(root, 'inner'));
+      await symlink(
+        join(root, 'sub'),
+        join(root, 'inner'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
       const { nexar, adapter } = await setup({ policy: 'project-or-unscoped' });
       await nexar.run(
         nexar.createTask({ kind: 'general', prompt: 'p', workingDirectory: join(root, 'inner') }),
@@ -403,7 +420,7 @@ describe('engine: projects and working-directory policy', () => {
     });
 
     it('a project still constrains the task under project-or-unscoped', async () => {
-      await symlink(outside, join(root, 'link'));
+      await symlink(outside, join(root, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
       const { nexar, adapter } = await setup({ policy: 'project-or-unscoped' });
       const task = nexar.createTask({
         kind: 'general',

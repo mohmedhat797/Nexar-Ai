@@ -8,8 +8,8 @@ import { FAKE_RELAY, harness, isAlive, task, waitFor } from './test/harness.js';
 import type { Harness } from './test/harness.js';
 
 let h: Harness | undefined;
-afterEach(() => {
-  h?.cleanup();
+afterEach(async () => {
+  await h?.cleanup();
   h = undefined;
 });
 
@@ -183,7 +183,7 @@ describe('execute: launch spec', () => {
       'medium',
     ]);
     expect(spec?.env).toEqual({ CODEX_HOME: '/home/agent/.codex', LANG: 'C.UTF-8' });
-    expect(spec?.workspace).toBe(hh.dir + '/work');
+    expect(spec?.workspace).toBe(join(hh.dir, 'work'));
     expect(spec?.workspaceAccess).toBe('read-write');
     expect(spec?.network).toEqual({ mode: 'proxy', allowHosts: ['api.openai.com'] });
 
@@ -348,22 +348,26 @@ describe('execute: result mapping', () => {
     expect(e.message).not.toContain('segfault boom');
   });
 
-  it('creates per-run out dirs under stateDir with mode 0700', async () => {
-    h = harness();
-    let mode: number | undefined;
-    const launcher = h.launcher('completed');
-    const prepare = launcher.prepare.bind(launcher);
-    launcher.prepare = async (spec, signal) => {
-      const out = spec.mounts?.find((m) => m.sandboxPath === '/opt/nexar/out')?.hostPath;
-      if (out !== undefined) mode = statSync(out).mode & 0o777;
-      return prepare(spec, signal);
-    };
-    await h.adapter.execute(
-      { task: task(), resource: h.resource() },
-      h.context(undefined, h.workspace(launcher)),
-    );
-    expect(mode).toBe(0o700);
-  });
+  // POSIX modes do not implement Windows ACLs.
+  it.skipIf(process.platform === 'win32')(
+    'creates per-run out dirs under stateDir with mode 0700',
+    async () => {
+      h = harness();
+      let mode: number | undefined;
+      const launcher = h.launcher('completed');
+      const prepare = launcher.prepare.bind(launcher);
+      launcher.prepare = async (spec, signal) => {
+        const out = spec.mounts?.find((m) => m.sandboxPath === '/opt/nexar/out')?.hostPath;
+        if (out !== undefined) mode = statSync(out).mode & 0o777;
+        return prepare(spec, signal);
+      };
+      await h.adapter.execute(
+        { task: task(), resource: h.resource() },
+        h.context(undefined, h.workspace(launcher)),
+      );
+      expect(mode).toBe(0o700);
+    },
+  );
 });
 
 describe('execute: cancellation and timeout', () => {

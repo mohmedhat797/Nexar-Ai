@@ -11,9 +11,33 @@ import {
 import { fakeLauncher, harness, isAlive, optedIn, task, waitFor } from './test/harness.js';
 import type { Harness } from './test/harness.js';
 
+// Node/libuv restores these public Windows variables during spawn, independently of the adapter.
+const WINDOWS_RUNTIME_KEYS = new Set(
+  process.platform === 'win32'
+    ? [
+        'HOMEDRIVE',
+        'HOMEPATH',
+        'LOGONSERVER',
+        'SYSTEMDRIVE',
+        'SYSTEMROOT',
+        'TEMP',
+        'USERDOMAIN',
+        'USERNAME',
+        'USERPROFILE',
+        'WINDIR',
+      ]
+    : [],
+);
+
+function applicationEnvKeys(env: Readonly<Record<string, string | undefined>>): string[] {
+  return Object.keys(env)
+    .filter((name) => !WINDOWS_RUNTIME_KEYS.has(name.toUpperCase()))
+    .sort();
+}
+
 let h: Harness | undefined;
-afterEach(() => {
-  h?.cleanup();
+afterEach(async () => {
+  await h?.cleanup();
   h = undefined;
 });
 
@@ -144,13 +168,21 @@ describe('execute: opt-in and policy gates', () => {
       ),
     );
     expect(wide.code).toBe('VALIDATION_ERROR');
-
-    const ok = await h.adapter.execute(
-      { task: task({ prompt: 'x'.repeat(MAX_PROMPT_BYTES) }), resource: optedIn() },
-      ctx,
-    );
-    expect(ok.text.length).toBeGreaterThan(MAX_PROMPT_BYTES);
   });
+
+  // The POSIX execution plane supports a 100 kB argv; native Windows CreateProcess does not.
+  it.skipIf(process.platform === 'win32')(
+    'accepts a prompt at the POSIX argv byte limit',
+    async () => {
+      h = harness();
+      const { ctx } = sandboxed(h);
+      const ok = await h.adapter.execute(
+        { task: task({ prompt: 'x'.repeat(MAX_PROMPT_BYTES) }), resource: optedIn() },
+        ctx,
+      );
+      expect(ok.text.length).toBeGreaterThan(MAX_PROMPT_BYTES);
+    },
+  );
 
   it('an already-aborted signal cancels before preparing', async () => {
     h = harness();
@@ -245,7 +277,7 @@ describe('execute: sandboxed run', () => {
     await h.adapter.execute({ task: task(), resource: optedIn() }, ctx);
     const env = h.invocations()[0]?.env ?? {};
     // PATH comes from the (fake) launcher; the adapter itself contributes LANG only.
-    expect(Object.keys(env).sort()).toEqual(['LANG', 'PATH']);
+    expect(applicationEnvKeys(env)).toEqual(['LANG', 'PATH']);
     expect(env['LANG']).toBe('C.UTF-8');
   });
 
@@ -434,33 +466,40 @@ function readPid(harnessInstance: Harness): number {
   }
 }
 
-describe('execute: timeout and abort kill the process group and dispose', () => {
-  it('timeout -> EXECUTION_TIMEOUT, grandchild dies, launch disposed', async () => {
-    h = harness({ mode: 'hang' });
-    const { launcher, ctx } = sandboxed(h);
-    const err = await rejection(
-      h.adapter.execute({ task: task(), resource: optedIn({ timeoutMs: 400 }) }, ctx),
-    );
-    expect(err.code).toBe('EXECUTION_TIMEOUT');
-    expect(launcher.disposed.count).toBe(1);
-    const pid = readPid(h);
-    await waitFor(() => (isAlive(pid) ? undefined : true));
-  });
+// Each case spawns the fake runtime and its grandchild, kills the tree with taskkill (bounded at
+// 5 s on Windows) and waits up to 5 s each for the grandchild to appear and to die: the suite's
+// own bounds exceed the 5 s default on a loaded Windows runner. Assertions are unchanged.
+describe(
+  'execute: timeout and abort kill the process group and dispose',
+  { timeout: process.platform === 'win32' ? 20_000 : 5_000 },
+  () => {
+    it('timeout -> EXECUTION_TIMEOUT, grandchild dies, launch disposed', async () => {
+      h = harness({ mode: 'hang' });
+      const { launcher, ctx } = sandboxed(h);
+      const err = await rejection(
+        h.adapter.execute({ task: task(), resource: optedIn({ timeoutMs: 400 }) }, ctx),
+      );
+      expect(err.code).toBe('EXECUTION_TIMEOUT');
+      expect(launcher.disposed.count).toBe(1);
+      const pid = readPid(h);
+      await waitFor(() => (isAlive(pid) ? undefined : true));
+    });
 
-  it('abort -> EXECUTION_CANCELLED, grandchild dies, launch disposed', async () => {
-    const hh = harness({ mode: 'hang' });
-    h = hh;
-    const ac = new AbortController();
-    const { launcher, ctx } = sandboxed(hh, ac.signal);
-    const run = rejection(hh.adapter.execute({ task: task(), resource: optedIn() }, ctx));
-    await waitFor(() => (Number.isNaN(readPid(hh)) ? undefined : true));
-    const pid = readPid(hh);
-    ac.abort();
-    expect((await run).code).toBe('EXECUTION_CANCELLED');
-    expect(launcher.disposed.count).toBe(1);
-    await waitFor(() => (isAlive(pid) ? undefined : true));
-  });
-});
+    it('abort -> EXECUTION_CANCELLED, grandchild dies, launch disposed', async () => {
+      const hh = harness({ mode: 'hang' });
+      h = hh;
+      const ac = new AbortController();
+      const { launcher, ctx } = sandboxed(hh, ac.signal);
+      const run = rejection(hh.adapter.execute({ task: task(), resource: optedIn() }, ctx));
+      await waitFor(() => (Number.isNaN(readPid(hh)) ? undefined : true));
+      const pid = readPid(hh);
+      ac.abort();
+      expect((await run).code).toBe('EXECUTION_CANCELLED');
+      expect(launcher.disposed.count).toBe(1);
+      await waitFor(() => (isAlive(pid) ? undefined : true));
+    });
+  },
+);
 
 describe('probe', () => {
   it('runs only `--version` then `models`, never -p/--print or a prompt, signed in -> authenticated', async () => {
@@ -474,7 +513,7 @@ describe('probe', () => {
       expect(call.argv.some((a) => a === '-p' || a.startsWith('--print') || a === '--prompt')).toBe(
         false,
       );
-      expect(Object.keys(call.env).sort()).toEqual(['HOME', 'PATH']);
+      expect(applicationEnvKeys(call.env)).toEqual(['HOME', 'PATH']);
     }
   });
 

@@ -15,7 +15,8 @@ import {
 import { harvestPatch } from './harvest.js';
 import type { HarvestResult, TaskWorktree } from './types.js';
 
-describe('commitPatch', () => {
+// ADR-018: this fixture harvests through /bin/sh and verifies POSIX executable modes on the Linux plane.
+describe.skipIf(process.platform === 'win32')('commitPatch', () => {
   let root: string;
   let home: string;
   let owner: OwnerRepo;

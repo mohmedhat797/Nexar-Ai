@@ -4,11 +4,18 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_DISCOVERY_CONFIG } from '@nexar/core';
+import { adapterId, resourceId } from '@nexar/contracts';
+import type {
+  DiscoveryCredentialSource,
+  ResourceDescriptor,
+  SecretResolver,
+} from '@nexar/contracts';
 import { noopLogger } from '@nexar/telemetry';
 import {
   builtinEngineeringPlansDir,
   builtinWorkflowsDir,
   compose,
+  createAdapters,
   discoverySources,
   loadHostConfig,
   nexarStateDir,
@@ -39,6 +46,79 @@ describe('compose', () => {
   });
 });
 
+describe('createAdapters', () => {
+  const NAME = 'DEEPSEEK_API_KEY';
+  const VALUE = 'sk-host-secret-value';
+  const signal = new AbortController().signal;
+
+  function keystoreResource(adapter: string): ResourceDescriptor {
+    return {
+      id: resourceId(`ks-${adapter}`),
+      displayName: adapter,
+      kind: { type: 'agent', agent: adapter, interface: 'rpc' },
+      capabilities: ['text-generation'],
+      runtime: { adapter: adapterId(adapter), locality: 'local' },
+      auth: { mode: 'api-key', credential: { source: 'keystore', name: NAME } },
+      cost: { model: 'unknown' },
+      dataLocality: 'local',
+    };
+  }
+
+  /** Own enumerable fields (one level) of an adapter that hold the given function. */
+  function holds(adapter: object, fn: unknown): boolean {
+    return Object.values(adapter).some((v) => v === fn);
+  }
+
+  it('hands the resolver to the pi and deepseek-harness adapters only', () => {
+    const resolveSecret: SecretResolver = () => VALUE;
+    const adapters = createAdapters(host, cwd, { resolveSecret });
+    const holders = adapters.filter((a) => holds(a, resolveSecret)).map((a) => String(a.id));
+    expect(holders.sort()).toEqual(['deepseek-harness', 'pi']);
+    // no adapter keeps the resolver in a nested options object either
+    for (const adapter of adapters) {
+      if (holders.includes(String(adapter.id))) continue;
+      const nested = Object.values(adapter).filter(
+        (v): v is object => typeof v === 'object' && v !== null,
+      );
+      expect(nested.some((v) => holds(v, resolveSecret))).toBe(false);
+    }
+  });
+
+  it('gives no adapter a resolver by default (the CLI)', () => {
+    const resolveSecret: SecretResolver = () => VALUE;
+    expect(createAdapters(host, cwd).some((a) => holds(a, resolveSecret))).toBe(false);
+  });
+
+  it('lets the resolved key authenticate a keystore resource on dsh', async () => {
+    const asked: string[] = [];
+    const resolveSecret: SecretResolver = (name) => {
+      asked.push(name);
+      return VALUE;
+    };
+    const adapters = createAdapters(host, cwd, { resolveSecret });
+    const dsh = adapters.find((a) => String(a.id) === 'deepseek-harness');
+    expect((await dsh?.probe(keystoreResource('deepseek-harness'), signal))?.auth).toBe(
+      'authenticated',
+    );
+    expect(asked).toEqual([NAME]);
+  });
+
+  it('reports a keystore resource as unauthenticated without a resolver', async () => {
+    const dsh = createAdapters(host, cwd).find((a) => String(a.id) === 'deepseek-harness');
+    expect((await dsh?.probe(keystoreResource('deepseek-harness'), signal))?.auth).toBe(
+      'unauthenticated',
+    );
+  });
+});
+
+describe('compose with a secret resolver', () => {
+  it('accepts a resolver and still builds the runtime', async () => {
+    const loaded = await loadHostConfig(host, undefined);
+    const composition = await compose(loaded, host, noopLogger, { resolveSecret: () => undefined });
+    expect(composition.runtime.registry.list().map((r) => r.id)).toContain('local-echo');
+  });
+});
+
 describe('loadHostConfig', () => {
   it('prefers an explicit path, then NEXAR_CONFIG_PATH', async () => {
     const file = join(cwd, 'custom.json');
@@ -50,6 +130,36 @@ describe('loadHostConfig', () => {
 });
 
 describe('discoverySources', () => {
+  it.each(['env', 'keystore'] as const)(
+    'passes %s to pi and DSH discovery without supplying an authentication resolver',
+    async (credentialSource: DiscoveryCredentialSource) => {
+      const binary = join(cwd, process.platform === 'win32' ? 'dsh.CMD' : 'dsh');
+      // Deliberately not an executable program: discovery must stat it only.
+      await writeFile(binary, 'not a runtime', { mode: 0o755 });
+      const config = {
+        ...DEFAULT_DISCOVERY_CONFIG,
+        credentialSource,
+        piCatalog: { enabled: true, providers: ['anthropic'], maxModels: 1 },
+      };
+      const { sources } = discoverySources(config, { PATH: cwd, DEEPSEEK_API_KEY: 'not-used' });
+      const ctx = {
+        now: new Date('2026-10-02T00:00:00.000Z'),
+        signal: new AbortController().signal,
+      };
+      const dsh = sources.find((source) => source.id === 'cli:deepseek-harness');
+      const pi = sources.find((source) => source.id === 'pi-catalog');
+      const [dshFound, piFound] = await Promise.all([dsh?.discover(ctx), pi?.discover(ctx)]);
+      expect(dshFound?.[0]?.auth).toEqual({
+        mode: 'api-key',
+        credential: { source: credentialSource, name: 'DEEPSEEK_API_KEY' },
+      });
+      expect(piFound?.[0]?.auth).toEqual({
+        mode: 'api-key',
+        credential: { source: credentialSource, name: 'ANTHROPIC_API_KEY' },
+      });
+    },
+  );
+
   it('lists every source and disables nothing for enabled config with endpoints', () => {
     const config = {
       ...DEFAULT_DISCOVERY_CONFIG,
@@ -103,7 +213,7 @@ describe('builtin directories', () => {
   it('honours the environment overrides, resolved against the cwd', () => {
     const env = { NEXAR_WORKFLOWS_DIR: 'wf', NEXAR_ENGINEERING_PLANS_DIR: '/abs/plans' };
     expect(builtinWorkflowsDir({ env, cwd })).toBe(resolve(cwd, 'wf'));
-    expect(builtinEngineeringPlansDir({ env, cwd })).toBe('/abs/plans');
+    expect(builtinEngineeringPlansDir({ env, cwd })).toBe(resolve(cwd, '/abs/plans'));
   });
 
   it('ignores empty overrides', () => {

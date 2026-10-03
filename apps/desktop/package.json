@@ -5,10 +5,14 @@
   "private": true,
   "type": "module",
   "main": "./dist/main/main.js",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "node scripts/start.mjs",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "package:win": "node scripts/package-win.mjs"
   },
   "dependencies": {
     "@nexar/approvals": "workspace:*",
@@ -16,8 +20,13 @@
     "@nexar/contracts": "workspace:*",
     "@nexar/core": "workspace:*",
     "@nexar/host": "workspace:*",
+    "@nexar/integration-openworker": "workspace:*",
+    "@nexar/operating": "workspace:*",
+    "@nexar/plane-protocol": "workspace:*",
+    "@nexar/process": "workspace:*",
     "@nexar/projects": "workspace:*",
     "@nexar/resource-controller": "workspace:*",
+    "@nexar/sessions": "workspace:*",
     "@nexar/workflows": "workspace:*",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -28,6 +37,7 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
     "electron": "44.5.1",
+    "electron-builder": "26.15.3",
     "esbuild": "0.28.2",
     "playwright-core": "1.63.0",
     "vite": "8.3.2"

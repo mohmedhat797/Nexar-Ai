@@ -4,16 +4,26 @@ import type { BridgeResult } from '../shared/api.js';
 import { CHANNELS, type ChannelName } from '../shared/channels.js';
 import { approvalChannels } from './approvals.js';
 import { artifactChannels } from './artifacts.js';
+import { behaviorChannels } from './behavior.js';
+import { codeChannels } from './code.js';
+import { coworkChannels } from './cowork.js';
 import {
   JobRegistry,
   NoArgs,
   defineChannel,
+  safeError,
   type BridgeDeps,
   type CallContext,
   type ChannelDefinition,
 } from './channel.js';
+import { createOperating } from './operating.js';
 import { projectChannels } from './projects.js';
+import { providerChannels } from './providers.js';
+import { subscriptionChannels } from './subscriptions.js';
+import { localEndpointChannels } from './local-endpoints.js';
+import { PROVIDER_ERROR_MESSAGE } from '../shared/providers.js';
 import { resourceChannels } from './resources.js';
+import { sessionChannels } from './sessions.js';
 import { SettingsPatchSchema } from './settings-store.js';
 import { taskChannels } from './tasks.js';
 import { workflowChannels } from './workflows.js';
@@ -44,13 +54,21 @@ export function createBridge(deps: BridgeDeps): Bridge {
     [CHANNELS.settingsGet]: defineChannel(NoArgs, () => deps.settings.get()),
     [CHANNELS.settingsSet]: defineChannel(SettingsPatchSchema, (patch) => deps.settings.set(patch)),
     ...projectChannels,
+    ...providerChannels,
+    ...subscriptionChannels,
+    ...localEndpointChannels,
     ...resourceChannels,
     ...taskChannels,
     ...artifactChannels,
     ...approvalChannels,
     ...workflowChannels,
+    ...sessionChannels,
+    ...codeChannels,
+    ...coworkChannels,
+    ...behaviorChannels,
   };
   const jobs = new JobRegistry();
+  const operating = createOperating(deps, jobs);
 
   async function invoke(
     channel: string,
@@ -65,21 +83,40 @@ export function createBridge(deps: BridgeDeps): Bridge {
     if (!parsed.success) {
       return {
         ok: false,
-        error: { code: 'VALIDATION_ERROR', message: validationMessage(parsed.error) },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: channel.startsWith('providers:')
+            ? PROVIDER_ERROR_MESSAGE
+            : validationMessage(parsed.error),
+        },
       };
     }
     try {
-      const value = await definition.handler(parsed.data as never, { deps, jobs, emit });
+      const value = await definition.handler(parsed.data as never, {
+        deps,
+        jobs,
+        emit,
+        operating,
+      });
       return { ok: true, value };
     } catch (error) {
       if (isNexarError(error)) {
         deps.logger.info('bridge call failed', { channel, code: error.code });
-        return { ok: false, error: { code: error.code, message: error.message } };
+        return {
+          ok: false,
+          error: channel.startsWith('providers:')
+            ? { code: error.code, message: PROVIDER_ERROR_MESSAGE }
+            : safeError(error),
+        };
       }
       // Anything else may carry paths or internals: log the class only, answer generically.
       deps.logger.error('bridge call crashed', {
         channel,
-        errorName: error instanceof Error ? error.name : 'unknown',
+        errorName: channel.startsWith('providers:')
+          ? 'ProviderError'
+          : error instanceof Error
+            ? error.name
+            : 'unknown',
       });
       return { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Internal error' } };
     }

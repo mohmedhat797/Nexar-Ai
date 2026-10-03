@@ -7,8 +7,10 @@ import {
   type DiscoverySource,
   type DiscoverySourceReport,
   type EgressEvent,
+  type ExecutionAdapter,
   type Logger,
   type ProcessLauncher,
+  type SecretResolver,
   type TelemetrySink,
 } from '@nexar/contracts';
 import {
@@ -76,10 +78,11 @@ export function discoverySources(
     claudeCodeCliDiscoverySource({ env }),
     codexCliDiscoverySource({ env }),
     antigravityCliDiscoverySource({ env }),
-    deepseekHarnessCliDiscoverySource({ env }),
+    deepseekHarnessCliDiscoverySource({ env, credentialSource: config.credentialSource }),
   ];
   const piCatalog = piCatalogDiscoverySource({
     providers: config.piCatalog.providers,
+    credentialSource: config.credentialSource,
     maxModels: config.piCatalog.maxModels,
   });
   const local = localEndpointDiscoverySource({ endpoints: config.localEndpoints.endpoints });
@@ -123,6 +126,36 @@ export function loadHostConfig(
   });
 }
 
+/** Every execution adapter the host knows about; the secret resolver reaches pi and DSH only. */
+export function createAdapters(
+  io: HostEnvironment,
+  configDir: string,
+  options: {
+    readonly approvals?: { readonly gate: ApprovalGate; readonly store: ApprovalStore };
+    readonly resolveSecret?: SecretResolver;
+  } = {},
+): readonly ExecutionAdapter[] {
+  const secrets =
+    options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret };
+  return [
+    new EchoExecutionAdapter(),
+    new ClaudeCodeExecutionAdapter({ env: io.env }),
+    new CodexExecutionAdapter({ env: io.env }),
+    new AntigravityExecutionAdapter({ env: io.env }),
+    new DeepSeekHarnessExecutionAdapter({
+      env: io.env,
+      stateDir: join(configDir, '.nexar', 'runtimes', 'deepseek-harness'),
+      ...(options.approvals === undefined ? {} : { approvals: options.approvals }),
+      ...secrets,
+    }),
+    new PiExecutionAdapter({ env: io.env, ...secrets }),
+    new DelegateSkillsExecutionAdapter({
+      env: io.env,
+      stateDir: join(configDir, '.nexar', 'runtimes', 'delegate-skills'),
+    }),
+  ];
+}
+
 /**
  * The only place adapters are instantiated: every integration the host knows about.
  * Canonicalizes project roots, so a misconfigured project fails here with `CONFIGURATION_ERROR`.
@@ -137,6 +170,11 @@ export async function compose(
     readonly approvals?: { readonly gate: ApprovalGate; readonly store: ApprovalStore };
     /** `config` (default): discover only when `discovery.enabled`; `always`: for `--discovered`. */
     readonly discover?: 'config' | 'always';
+    /**
+     * Resolves `keystore` credential references (ADR-022). Handed only to the pi and DeepSeek
+     * Harness adapters. The CLI passes none, so a keystore reference there is `AUTH_REQUIRED`.
+     */
+    readonly resolveSecret?: SecretResolver;
   } = {},
 ): Promise<Composition> {
   const configDir = stateBaseDir(loaded, io);
@@ -159,22 +197,7 @@ export async function compose(
     resources = merged.resources;
     discovery = { reports: result.reports, collisions: merged.collisions };
   }
-  const adapters = [
-    new EchoExecutionAdapter(),
-    new ClaudeCodeExecutionAdapter({ env: io.env }),
-    new CodexExecutionAdapter({ env: io.env }),
-    new AntigravityExecutionAdapter({ env: io.env }),
-    new DeepSeekHarnessExecutionAdapter({
-      env: io.env,
-      stateDir: join(configDir, '.nexar', 'runtimes', 'deepseek-harness'),
-      ...(options.approvals === undefined ? {} : { approvals: options.approvals }),
-    }),
-    new PiExecutionAdapter({ env: io.env }),
-    new DelegateSkillsExecutionAdapter({
-      env: io.env,
-      stateDir: join(configDir, '.nexar', 'runtimes', 'delegate-skills'),
-    }),
-  ];
+  const adapters = createAdapters(io, configDir, options);
   // Without a telemetry file nothing can be accounted: quota stays unknown rather than "0 used".
   const telemetryPath =
     loaded.source === 'default'

@@ -2,6 +2,7 @@ import { NexarError } from '@nexar/contracts';
 import type {
   Capability,
   CostProfile,
+  DiscoveryCredentialSource,
   DiscoveryContext,
   DiscoverySource,
   ResourceDescriptor,
@@ -18,7 +19,7 @@ const LONG_CONTEXT_TOKENS = 200_000;
 const BASE_CAPABILITIES: readonly Capability[] = ['text-generation', 'reasoning', 'knowledge-work'];
 
 /** Nexar-owned: the env var each allowlisted provider's key is conventionally read from. */
-const PROVIDER_API_KEY_ENV: Readonly<Record<string, string>> = {
+export const PI_PROVIDER_CREDENTIAL_NAMES: Readonly<Record<string, string>> = Object.freeze({
   anthropic: 'ANTHROPIC_API_KEY',
   openai: 'OPENAI_API_KEY',
   google: 'GEMINI_API_KEY',
@@ -27,7 +28,7 @@ const PROVIDER_API_KEY_ENV: Readonly<Record<string, string>> = {
   groq: 'GROQ_API_KEY',
   mistral: 'MISTRAL_API_KEY',
   xai: 'XAI_API_KEY',
-};
+});
 
 /** Lowercases, replaces characters outside the id slug alphabet with `-`, truncates to the limit. */
 export function slugifyResourceId(raw: string): string | undefined {
@@ -42,6 +43,8 @@ export function slugifyResourceId(raw: string): string | undefined {
 export interface PiCatalogDiscoveryOptions {
   /** Owner-chosen providers; must be non-empty and within the allowed providers. */
   readonly providers: readonly string[];
+  /** Credential reference source only; default `env`. Discovery never reads either source. */
+  readonly credentialSource?: DiscoveryCredentialSource;
   /** Per provider; default 50. */
   readonly maxModels?: number;
   /** Default: the adapter's default allowlist. */
@@ -50,7 +53,12 @@ export interface PiCatalogDiscoveryOptions {
   readonly listModels?: (provider: string) => Promise<readonly CatalogModel[]>;
 }
 
-function toDescriptor(provider: string, model: CatalogModel, id: string): ResourceDescriptor {
+function toDescriptor(
+  provider: string,
+  model: CatalogModel,
+  id: string,
+  credentialSource: DiscoveryCredentialSource,
+): ResourceDescriptor {
   const free = model.inputPerMillionTokens === 0 && model.outputPerMillionTokens === 0;
   // A 0/0 catalog rate means free, plan-billed or unknown, and cannot be told apart.
   const cost: CostProfile = free
@@ -66,7 +74,7 @@ function toDescriptor(provider: string, model: CatalogModel, id: string): Resour
     provider,
     model: model.id,
     // A reference to the variable's name only: its value is never read here.
-    apiKeyEnv: PROVIDER_API_KEY_ENV[provider] as string,
+    apiKeyEnv: PI_PROVIDER_CREDENTIAL_NAMES[provider] as string,
     capabilities:
       model.contextWindow >= LONG_CONTEXT_TOKENS
         ? [...BASE_CAPABILITIES, 'long-context']
@@ -74,6 +82,13 @@ function toDescriptor(provider: string, model: CatalogModel, id: string): Resour
   });
   return {
     ...base,
+    auth: {
+      mode: 'api-key',
+      credential: {
+        source: credentialSource,
+        name: PI_PROVIDER_CREDENTIAL_NAMES[provider] as string,
+      },
+    },
     cost,
     limits: { contextWindowTokens: model.contextWindow, maxOutputTokens: model.maxTokens },
     metadata: { rates: 'catalog' },
@@ -93,7 +108,7 @@ export function piCatalogDiscoverySource(options: PiCatalogDiscoveryOptions): Di
         throw new NexarError('CONFIGURATION_ERROR', 'pi catalog discovery needs a provider list');
       }
       for (const provider of options.providers) {
-        if (!allowed.includes(provider) || PROVIDER_API_KEY_ENV[provider] === undefined) {
+        if (!allowed.includes(provider) || PI_PROVIDER_CREDENTIAL_NAMES[provider] === undefined) {
           throw new NexarError('POLICY_REJECTED', 'pi catalog discovery: provider not allowed', {
             details: { source: PI_CATALOG_SOURCE_ID },
           });
@@ -110,7 +125,7 @@ export function piCatalogDiscoverySource(options: PiCatalogDiscoveryOptions): Di
           const id = slugifyResourceId(`pi.${provider}.${model.id}`);
           if (id === undefined || seen.has(id)) continue;
           seen.add(id);
-          out.push(toDescriptor(provider, model, id));
+          out.push(toDescriptor(provider, model, id, options.credentialSource ?? 'env'));
           count += 1;
         }
       }

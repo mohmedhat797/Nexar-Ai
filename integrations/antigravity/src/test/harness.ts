@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,7 +102,7 @@ export interface Harness {
   context(signal?: AbortSignal, workspace?: EngineeringWorkspace): ExecutionContext;
   workspace(launcher: ProcessLauncher, access?: 'read-only' | 'read-write'): EngineeringWorkspace;
   invocations(): FakeInvocation[];
-  cleanup(): void;
+  cleanup(): Promise<void>;
 }
 
 /**
@@ -140,7 +141,9 @@ export function harness(
     workspace: (launcher, access = 'read-write') => ({ path: dir, access, launcher }),
     invocations: () =>
       existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as FakeInvocation[]) : [],
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    // Async rm honours the bounded retry (rmSync does not): a killed fake runtime's process can
+    // hold its working directory briefly on Windows (EBUSY/EPERM) after the outcome settles.
+    cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }
 

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseConfig } from '@nexar/core';
@@ -60,7 +60,7 @@ describe('config/nexar.config.example.json', () => {
     const demo = fileURLToPath(new URL('../../../examples/demo-project', import.meta.url));
     expect(project.realRoots).toEqual([await realpath(demo)]);
     const refs = await registry.resolveDocumentSet(project, 'overview');
-    expect(refs.map((r) => r.label)).toEqual(['README.md', 'docs/overview.md']);
+    expect(refs.map((r) => r.label)).toEqual(['README.md', join('docs', 'overview.md')]);
     expect(withBase.projects[0]?.defaults?.preferredResourceIds).toEqual(['claude-code']);
   });
 });

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { spawnRuntime } from '@nexar/process';
 import { readFile } from 'node:fs/promises';
 import { NexarError } from '@nexar/contracts';
 import { DSH_PINNED_VERSION } from '@nexar/integration-deepseek-harness';
@@ -36,23 +36,50 @@ function versionOf(
   args: readonly string[] = ['--version'],
 ): Promise<CommandResult> {
   const env: NodeJS.ProcessEnv = {};
-  for (const key of ['PATH', 'HOME', 'SystemRoot']) {
-    const value = io.env[key];
+  for (const key of [
+    'PATH',
+    'HOME',
+    'SystemRoot',
+    'PATHEXT',
+    'TEMP',
+    'TMP',
+    'USERPROFILE',
+    'APPDATA',
+    'LOCALAPPDATA',
+  ]) {
+    const actual =
+      process.platform === 'win32'
+        ? Object.keys(io.env).find((name) => name.toUpperCase() === key.toUpperCase())
+        : key;
+    const value = actual === undefined ? undefined : io.env[actual];
     if (value !== undefined) env[key] = value;
   }
   return new Promise((resolve) => {
-    execFile(
-      command,
-      [...args],
-      { timeout: EXTERNAL_TIMEOUT_MS, env, cwd: io.cwd, windowsHide: true },
-      (error, stdout, stderr) => {
-        if (error !== null) return resolve({ found: false });
+    try {
+      const child = spawnRuntime(command, [...args], {
+        timeout: EXTERNAL_TIMEOUT_MS,
+        env,
+        cwd: io.cwd,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let outputText = '';
+      const collect = (chunk: Buffer): void => {
+        outputText = (outputText + chunk.toString('utf8')).slice(-8192);
+      };
+      child.stdout.on('data', collect);
+      child.stderr.on('data', collect);
+      child.once('error', () => resolve({ found: false }));
+      child.once('close', (code) => {
+        if (code !== 0) return resolve({ found: false });
         // The first line that carries a version number (`socat -V` opens with a banner).
-        const lines = `${stdout}${stderr}`.trim().split('\n');
+        const lines = outputText.trim().split('\n');
         const output = lines.find((line) => /\d+\.\d+/.test(line)) ?? lines[0] ?? '';
         resolve({ found: true, output });
-      },
-    );
+      });
+    } catch {
+      resolve({ found: false });
+    }
   });
 }
 

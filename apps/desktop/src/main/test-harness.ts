@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { BridgeResult, TaskEvent } from '../shared/api.js';
+import { FileSessionStore } from '@nexar/sessions';
+import type { BridgeResult, SessionEvent, TaskEvent } from '../shared/api.js';
 import { createBridge, type Bridge } from './bridge.js';
 import type { BridgeDeps, DialogPort, ShellPort } from './channel.js';
 import { ConfigStore } from './config-store.js';
@@ -17,6 +18,11 @@ export interface Harness {
   /** A real (canonical) empty directory outside userData, for use as a project. */
   readonly projectDir: string;
   readonly events: TaskEvent[];
+  readonly sessionEvents: SessionEvent[];
+  /** The dependencies the bridge was built with, so a test can build a second bridge over them. */
+  readonly deps: BridgeDeps;
+  /** The session store behind the default bridge (unless the test replaced `sessions`). */
+  readonly sessionStore: FileSessionStore;
   readonly opened: string[];
   readonly revealed: string[];
   /** The folder the fake dialog returns next; `null` means the user cancelled. */
@@ -41,6 +47,10 @@ export async function createHarness(overrides: Partial<BridgeDeps> = {}): Promis
   const opened: string[] = [];
   const revealed: string[] = [];
   const events: TaskEvent[] = [];
+  const sessionEvents: SessionEvent[] = [];
+  const sessionStore = new FileSessionStore(join(userData, '.nexar', 'sessions'));
+  // A test that passes its own `sessions` (even `undefined`) owns the lease question itself.
+  if (!('sessions' in overrides)) await sessionStore.acquireLease();
   const state: { pick: string | null } = { pick: null };
   const dialog: DialogPort = {
     showOpenDialog: () =>
@@ -59,7 +69,7 @@ export async function createHarness(overrides: Partial<BridgeDeps> = {}): Promis
       revealed.push(path);
     },
   };
-  const bridge = createBridge({
+  const deps: BridgeDeps = {
     engine,
     config,
     settings: new SettingsStore(join(userData, 'desktop-settings.json')),
@@ -68,8 +78,13 @@ export async function createHarness(overrides: Partial<BridgeDeps> = {}): Promis
     shell,
     appInfo: { version: '0.0.0-test', platform: 'test' },
     decider: 'desktop:test',
+    sessions: sessionStore,
+    broadcastSession: (event) => {
+      sessionEvents.push(event);
+    },
     ...overrides,
-  });
+  };
+  const bridge = createBridge(deps);
 
   return {
     bridge,
@@ -78,6 +93,9 @@ export async function createHarness(overrides: Partial<BridgeDeps> = {}): Promis
     userData,
     projectDir,
     events,
+    sessionEvents,
+    deps,
+    sessionStore,
     opened,
     revealed,
     get pick() {
@@ -88,7 +106,7 @@ export async function createHarness(overrides: Partial<BridgeDeps> = {}): Promis
     },
     call: (channel, args = {}) =>
       bridge.invoke(channel, args, (event) => events.push(event)) as Promise<BridgeResult<never>>,
-    cleanup: () => rm(base, { recursive: true, force: true }),
+    cleanup: () => rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }
 

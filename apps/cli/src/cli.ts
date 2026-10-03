@@ -9,6 +9,7 @@ import { clientsCommand } from './commands/clients.js';
 import { doctorCommand } from './commands/doctor.js';
 import { engineerCommand } from './commands/engineer.js';
 import { mcpCommand } from './commands/mcp.js';
+import { planeCommand } from './commands/plane.js';
 import { projectsCommand } from './commands/projects.js';
 import { resourcesCommand } from './commands/resources.js';
 import { routeCommand } from './commands/route.js';
@@ -32,6 +33,7 @@ const COMMANDS: readonly Command[] = [
   workflowsCommand,
   engineerCommand,
   sandboxCommand,
+  planeCommand,
   routeCommand,
   runCommand,
 ];

@@ -1,0 +1,286 @@
+# Operating Layer continuation
+
+> **Current state lives in [`project-current-state.md`](project-current-state.md)** (2026-10-04).
+> The sections below are the Operating Layer handoff history; where they disagree, the
+> current-state file wins.
+
+Branch: `feat/nexar-operating-layer` · Baseline: `9eaf725` (Desktop foundation, PR #35 merged).
+Date: 2026-10-03.
+
+The supplied folder was a source archive without `.git`. Its tracked contents matched GitHub main
+exactly. Git history was recovered without changing source files; the feature branch was pushed.
+
+## LAST COMPLETED
+
+**NXR-055 owner validation (2026-10-03, Claude Code, Computer Use)** — evidence:
+[`nxr-055-owner-validation.md`](evidence/nxr-055-owner-validation.md).
+
+- A1: PASS (`nexar doctor`: functional bwrap probe, hardened `wsl.conf`)
+- A2: PASS (`ls /mnt/c`: No such file or directory)
+- A3: PASS (`cmd.exe`: command not found)
+- A4: PASS (`ok`)
+- A5: PASS (`nexar sandbox selftest` 7/7)
+- A6: recorded (`6.18.33.2-microsoft-standard-WSL2`)
+- REAL REPORT E2E: PASS (`eng-be46d6ee399c`, `repository-report`, `reported`, Claude Code; no patch,
+  approval or commit)
+- REAL WRITE E2E: PASS (`eng-7b64bb1aff49`, feature + review on Claude Code, gate passed, review
+  approve, approved in Desktop Approvals)
+- COMMIT: `e15a379` on `nexar/eng-7b64bb1aff49` (1 file, `README.md`)
+- NO-PUSH CHECK: PASS (the plane repository has no remote; only `main` and the result branch)
+- Cancellation smoke check: PASS (`eng-bd56538a05aa` cancelled, nothing committed, no process left)
+
+Earlier checkpoints:
+
+NXR-052e checkpoint adds keyless Local / Custom endpoint address-entry, edit/remove/rediscovery,
+cached candidate model counts, strict public-URL main/preload IPC and serialized reload/rollback.
+OpenAI-compatible discovery and execution now share one `/v1` API base for root, API-base, tenant
+and trailing-slash forms; Ollama semantics are retained. Endpoint/network/UI validation is recorded
+after the full gate below. No credential or arbitrary command fields are added.
+Validation: full Windows pinned `pnpm check` passed: format, lint, boundaries (698 tracked files),
+types, 2,592 tests passed / 122 skipped and build. Endpoint main/preload tests passed 88/88;
+discovery/execution tests passed 30/30; Provider Electron E2E passed 1/1 (20.20 seconds), covering
+server add/edit/refresh, busy controls, relaunch persistence/removal and existing conversations,
+subscription controls and encrypted API keys. Independent integrated review found no blocker.
+Allowance reached 96%; no further subsystem starts. Push this checkpoint immediately and inspect
+its CI. Reset credits remain unused; NXR-055/056/053 remain unfinished.
+
+NXR-052d implementation checkpoint: native Claude Code/Codex browser sign-in and safe account-status
+ports, shell-free bounded process runner, runtime-only main/preload IPC, independent Subscription UI,
+cancel/recheck/poll lifecycle, and explicit unsupported Antigravity authentication. No vendor
+credential-store reads or login-output capture. Version/command research and browser/manual-terminal
+limitations are recorded in `docs/research/upstream/native-subscription-auth.md`.
+
+Continuation baseline verified on 2026-10-03: local HEAD, origin and draft PR #36 all matched
+`4f63caaa50fda0c6ae877c8d8ae51f74d94f7637`. CI `37027946905` passed Windows, Ubuntu and secret scan;
+NXR-052b/c and their CI repairs are complete. NXR-052d full Windows gate passed: pinned pnpm 10.33.0,
+format, lint, boundaries (693 tracked files), types, 2,484 tests passed / 122 skipped and build.
+Focused native/process/main/preload tests passed 151 / 1 platform skip; the real Electron Provider
+E2E passed 1/1 (41.25 seconds) with fake native ports and preserved conversation/API-key checks.
+All four source Electron E2E scenarios subsequently passed (91.38 seconds).
+An independent integrated review found no remaining actionable issues after lifecycle and schema
+fixes. Checkpoint `5b56a15` is pushed. CI `37070197604` passed Ubuntu and the secret scan; Windows
+passed termination assertions but failed cleanup of the new auth process-tree fixture with `EBUSY`.
+The follow-up adds bounded asynchronous test-directory removal retries without weakening process
+assertions or production behavior. Recheck follow-up CI before further feature work.
+The cleanup follow-up passed three focused Windows process runs (15 passed / 1 POSIX skip each),
+then full pinned `pnpm check` again (2,484 passed / 122 skipped, format, lint, boundaries, types and
+build). The lone fixture lint warning was removed. Source/production code remains at `5b56a15`.
+No reset credits were used.
+NXR-052d cleanup checkpoint `0ab5b79` then passed CI `37070938000`: Windows (including native and
+packaged Electron E2E, installer packaging), Ubuntu and secret scan. Source and remote matched.
+The following foundation delivery notes are historical.
+
+Windows foundation implementation: shell-free executable/Node npm-shim launches (`@nexar/process`),
+Windows Codex environment allowlist, native abort/timeout tree cleanup, atomic approval-store
+replacement/read locking, nonregular telemetry-file rejection, and a separator-safe artifact config
+check. Windows fixtures retain directory containment through junctions and capability-skip file links
+only after Windows refuses their creation. CI now runs checks and Electron E2E on Linux and Windows.
+
+Checkpoint commit: `c749af2` (pushed). Draft PR: https://github.com/mohmedhat797/Nexar-Ai/pull/36.
+Validation: full Windows `pnpm check` passed with pinned pnpm 10.33.0: format, lint, boundaries,
+typecheck, 1,766 tests passed / 115 skipped, and build. Native Electron offline E2E passed (project,
+preview, draft, theme and relaunch persistence). GitHub CI initially found Windows checkout CRLF
+conversion; `.gitattributes` now preserves LF (`33031d2`). Linux CI passed at both checkpoints.
+Windows CI then exposed dangling-link publication and record-reading gaps: the follow-up uses
+exclusive hard-link artifact publication, file identity checks, and Node-injected public environment
+assertions. The follow-up full local gate passed: 1,774 tests / 116 skips and build; its privileged
+Windows file-link cases passed on CI at `6e060db`. That CI run found unrelated fixture races: the
+ACP test record writer now publishes atomic snapshots and the 520-file Desktop cap fixture uses
+bounded parallel setup with a Windows allowance. The next checkpoint secures dedicated Windows
+Desktop state ACLs before configuration reads; native tests cover protected grants and redirected
+path refusal. Windows enforcement finishes synchronously before Electron readiness; the original
+asynchronous startup was rejected by the rebuilt E2E and corrected. Bounded approval-store sharing
+retries cover transient lock/read/release failures without retrying approval decisions.
+
+The unsigned per-user x64 NSIS build succeeded (118,105,049 bytes) and emits a SHA256 sidecar in
+`release/desktop`. Source and packaged Electron offline E2E both passed with the native sandbox,
+a project path containing spaces, shipped workflow catalogs, drafts and relaunch persistence.
+The installer is configured without elevation and preserves data on uninstall; actual installer
+execution and owner acceptance remain pending. The final full gate passed: format, lint, boundaries,
+typecheck, 1,800 tests passed / 118 skipped, and build. Delivery checkpoint
+`6255415748bb655f1d8577e0b41ab2d46ce35004` is pushed; local and remote SHA matched and the tree was
+clean. CI run `36995606985` passed Linux and the secret scan, but Windows failed eight cases:
+seven native ACL fixture PowerShell invocations and an Antigravity fixture cleanup `EBUSY`.
+Local full checks and source/packaged E2E passed; Windows CI acceptance remains unresolved. Usage reached
+92%, so the next implementation unit waits for continuation; reset credits remain unused.
+
+## CURRENT STATE
+
+**Operating Layer milestone (2026-10-03, Claude Code):** PR #36 (draft) at `f6f885a`. The product
+flow is implemented and proven offline in one persistent session
+(`apps/desktop/e2e/operating-layer.e2e.ts`): Cowork → OpenWorker → draft; review → Code lane
+confirmation → report-only engineering plan; implementation → Code lane → engineering change →
+owner-approved Nexar commit; everything survives a relaunch. Live runs are pending (below).
+
+| Item                                   | State                                                                                                 |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| NXR-051 Windows foundation             | implemented, CI-validated; owner installer acceptance pending                                         |
+| NXR-052 Providers                      | implemented, CI-validated; real provider keys/sign-in live-unverified                                 |
+| NXR-055 Code lane (WSL plane)          | implemented, CI-validated, **owner live-validated** (A1–A6, real review + change + approval + commit) |
+| NXR-056 Cowork lane (OpenWorker)       | implemented, offline-tested (fake OpenWorker); live run pending (OpenWorker not installed)            |
+| NXR-053 AI behavior                    | implemented per the ADR-021 v1 matrix; live runs pending with the lanes                               |
+| NXR-057/058 Sessions, intent and lanes | done                                                                                                  |
+| NXR-054 Scheduled tasks, Mobile        | deferred (not started)                                                                                |
+
+Key decisions: ADR-024 (sessions, lanes), ADR-025 (+ report-only amendment), ADR-026 (supervised
+OpenWorker), ADR-021 behavior amendment. Acceptance matrices: backlog 055, 056, 053.
+
+## NEXT EXACT TASK
+
+Superseded: see [`project-current-state.md`](project-current-state.md#next-exact-task). The NXR-055
+commit-subject finding was fixed and re-validated live (`2dbb070`); PR #36 was merged into `main`.
+
+## BLOCKERS
+
+- Native browser callback sign-in remains live-unverified. Null stdio supports browser callbacks,
+  not interactive/manual codes; use the vendor terminal and Recheck for those flows. Antigravity has
+  no verified standalone login/status command, so its login action remains unavailable.
+
+- A pending confirmation's run options (preferred resources, cost ceiling) live in memory; after a
+  restart the owner can only decline it (`CONFLICT confirmation-expired`) and resend.
+- `sessions:list` reads at most 200 sessions across projects before filtering; a reused process id
+  can make a stale sessions lease look live (fails closed); a non-`CONFLICT` lease failure stops
+  startup; a turn whose completion writes all fail stays `running` until the next restart.
+- Windows descendants of an exited leader need a Job Object for containment. Write-capable
+  engineering still requires WSL2/bubblewrap, with no native fallback.
+- External config state-directory overrides still need their own ACL audit. Windows artifact storage
+  requires hard-link support.
+- Provider keys, OpenWorker reverse supervision and installer execution are not validated live.
+- Linux CI close hang: fixed (`934db0f`, Desktop ends a starting OpenWorker before quitting); no
+  `did not finish` line in CI run `37153390661`.
+- The plane source is a git bundle of `2dbb070`: update it with a new bundle and `pnpm build`
+  inside `nexar-plane` after source changes that affect the plane.
+
+## OWNER ACTION
+
+- **Engineering plane:** done (2026-10-03). Optional: finish `codex login --device-auth` inside
+  `nexar-plane` for cross-resource review; add a DeepSeek key reference only if DSH model runs are
+  wanted (paid).
+- **OpenWorker:** install OpenWorker 0.3.x per upstream instructions (set `cowork.executable` /
+  `cowork.versionExecutable` in `desktop-settings.json` if not on `PATH`), allow one provider for
+  OpenWorker in Settings → Providers, run one small Cowork turn.
+- Windows installer acceptance ([`windows-validation.md`](../guides/windows-validation.md)) and
+  optional provider live checks remain open.
+
+## LIVE TESTS PENDING
+
+Claude Code/Codex browser sign-in; installed Codex/Antigravity semantic versions; real provider key
+checks/DeepSeek execution; installed Windows Desktop Cowork task with Claude Code; synthetic
+OpenWorker Cowork E2E. Subscription tests remain opt-in. NXR-054 scheduled work and Mobile stay deferred.
+
+## Checkpoint history
+
+Detailed checkpoint notes recorded before the 2026-10-03 milestone summary above.
+
+**2026-10-03:** NXR-052d is implemented with offline native port/process tests and Provider Electron
+E2E. Connected requires recognized vendor-account auth; API-key/injected-token modes cannot become
+subscription-connected. Login success is re-probed. No real sign-in, paid generation or private
+vendor state inspection was performed. Installed Claude public version metadata is 2.1.287.0;
+installed Codex/Antigravity semantic versions remain unverified because the lean-ctx shell allowlist blocked
+CLI execution. Default native CLI profiles are separate from custom resource binary/home settings.
+NXR-052e delivers keyless Local / Custom address-entry; keyed custom resources retain their existing
+explicit config credential path. NXR-052 remains live-unverified; acceptance
+criteria now distinguish automated resolver/security evidence from real provider execution.
+
+Claude Code handoff baseline (2026-10-02). PR #36 ("Nexar Desktop — Windows foundation and Operating
+Layer integration", draft) was at `4c05cf28172224ac1468383a1c9ff0a0b46903c2`.
+
+Codex continuation verification (2026-10-02): fetched origin; local HEAD, remote branch and PR #36
+agree on that SHA, with a clean working tree. CI run `37012870983` passed Windows, Ubuntu and the
+secret scan. The older Windows CI failures above are historical and resolved. Codex usage was
+already 98% at takeover, so this checkpoint corrects the handoff without starting NXR-052b.
+
+The allowance then reset naturally. Verification checkpoint `3dbb364` is pushed and its CI run
+`37020551940` passed Linux, Windows and the secret scan. NXR-052b continues from that clean baseline,
+without using the interrupted scratch worktree. The PR stays draft.
+
+**NXR-052b:** Desktop `safeStorage` key store with call-time resolution, strict bounded encrypted
+state, file/parent identity and link checks, serialized atomic writes, real Windows inherited ACL
+tests, and refusal of insecure/unavailable Linux backends. Strict discovery source selection defaults
+to `env`; Desktop setup selects `keystore` references without fallback. Clipboard-only main ingestion,
+strict provider IPC inputs/outputs (also validated in preload), eight supported API provider rows and
+Settings → Providers replace the placeholder. Config changes/reload/rollback share one queue across
+provider and project mutations; existing conversations and pending approvals survive reload. Network
+validity stays explicitly unchecked. Native login/local setup remain separate. Targeted security,
+provider, preload and config tests pass. Native Windows Provider E2E passed (encrypted sentinel,
+IPC leak checks, clipboard cleanup, removal, relaunch/conversation continuity and owner state
+preservation). Full Windows `pnpm check` passed (2,267 tests / 121 skips, format, lint, boundaries,
+types and build); all four source Electron E2E scenarios passed. The skips cover the existing
+platform/live requirements plus unavailable Windows file-link privileges and POSIX mode checks.
+
+**NXR-052c:** explicit metadata checks for eight API providers, owned by the pi integration with
+header-only keys, no generation, no redirects, no retries/pagination, a five-second deadline and
+64 KiB streamed response cap. Host resolves only the chosen keystore reference at call time;
+main exposes normalized status through strict provider-only IPC. UI separates encrypted storage
+from network authentication, disables controls while checking and resets results on key changes
+or restart. Full Windows `pnpm check` passed: 2,333 tests / 121 skips, format, lint, boundaries,
+types and build (archive `61c240bb45beb1ba`). The updated native Windows Provider E2E passed,
+including busy controls and provider-only check IPC (archive `b5d21274615bcb83`). Fake HTTP tests
+cover all endpoint mappings, status normalization, redirects, aborts, stalled headers/body,
+malformed responses and byte caps; no real provider credentials or paid generation were used.
+Allowance reached 89% after validation; reset credits remain unused. Finish this checkpoint and
+verify CI before starting NXR-052d. PR #36 stays draft; owner acceptance remains pending.
+
+**Windows (NXR-051):** implementation complete, automated acceptance complete (CI green at
+`747c8bb`, `4e23de2`, `660fbbf`: Linux, Windows tests, native and packaged Electron E2E, installer
+packaging, secret scan), **owner/manual acceptance pending**
+([checklist](../guides/windows-validation.md)). Root causes fixed from CI logs: PowerShell module
+auto-loading in ACL test helpers (now .NET-only; production guard disables auto-loading and reports
+`PrivateStateError.diagnostic`), the elevated runner's `BUILTIN\Administrators` default owner
+(accepted only under elevation, then normalized by the guard), fake-runtime cleanup `EBUSY`
+(`rmSync` ignores retries; harnesses await `fs.promises.rm`), and a CLI SIGINT test race.
+
+**Operating Layer:**
+
+- ADR-024 (`687ae93`, amended in `660fbbf`: `review` has `code` affinity); NXR-057 (#37), NXR-058
+  (#38); Mobile deferred.
+- `@nexar/sessions` (`06f873d`): durable sessions/turns, lease, revisions, idempotent submission,
+  one active turn, restart interruption without replay, link-refusing bounded storage.
+- Desktop multi-turn sessions (`10a6c59`): conversation list, transcript, cancel, relaunch E2E.
+- `@nexar/operating` (`660fbbf`): `intent-rules@1`, `lanes@1`, `context@1` with manifest,
+  correlation/recursion guard (depth 2), `OperatingService` over injected ports.
+- Desktop through the Operating Layer (`59afa19`): turns get bounded prior context; lane, fallback
+  and refusal shown per turn; `sessions:confirmLane` confirmation card (non-authorizing); mode
+  switch per conversation. Both orchestrated lanes report unavailable (`laneAvailable()` in
+  `apps/desktop/src/main/operating.ts`), so read/draft work runs `direct` with a visible,
+  recorded fallback and engineering writes are refused (`SANDBOX_UNAVAILABLE`).
+- Gate at `59afa19`: 2,142 passed / 119 skipped; three offline E2E scenarios pass (first run,
+  relaunch-and-continue, confirm/fallback/refusal).
+
+**NXR-052 closure (2026-10-03, Claude Code):** PR #36 head `ba4a2c6`; CI run `37072932090` passed
+Linux, Windows and the secret scan. NXR-052a–e are **implemented, offline-tested and CI-validated**;
+real provider execution remains **live-unverified** and owner acceptance pending:
+
+| Unit | Delivered                                                                             | Evidence                         | Live status                                      |
+| ---- | ------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------ |
+| 052a | keystore `CredentialRef`, resolver injection (pi, DSH), CLI `AUTH_REQUIRED`           | unit + adapter tests             | n/a                                              |
+| 052b | `safeStorage` key store, clipboard-only ingestion, provider IPC, Settings → Providers | leak tests, Windows Provider E2E | real keys unverified                             |
+| 052c | header-only, non-generating metadata checks for eight providers                       | fake HTTP tests                  | real checks unverified                           |
+| 052d | Claude Code / Codex native browser sign-in, status probes                             | fake runtime tests, Provider E2E | real sign-in unverified; Antigravity unsupported |
+| 052e | keyless owner-listed local / custom servers                                           | strict URL IPC tests             | real servers unverified                          |
+
+**NXR-055 progress (2026-10-03, Claude Code):** ADR-025 (`de07fe4`) defines the Code-lane bridge.
+`5c653c2` adds `@nexar/plane-protocol` (`nexar-plane/1`) and `nexar plane serve --stdio` inside WSL.
+`487b851` connects Desktop: shell-free `wsl.exe` client (SystemRoot-only env), readiness states with
+fixed reasons, id-only project mapping, plane approvals in the Approvals view, bounded diffs, and an
+`executeCode` port. Lane records are honest: only engineering intents the plane supports run on the
+Code lane; other Code-mode turns and `review` turns (until report-only plans exist) record `direct`
+with a reason; without a Code executor engineering writes are refused; Code-lane runs with a cost
+ceiling or resource preference are refused, not silently dropped. `4f78ed6` moved Chromium runtime
+data to `%LOCALAPPDATA%\Nexar\Runtime` (the state ACL guard scaled per entry and would eventually fail
+startup); `9aa35ec` made the E2E wait for app exit between relaunches (CI green at `9aa35ec`).
+
+**NXR-055 closure (2026-10-03):** implementation complete, offline-tested and CI-validated at
+`3f30513` (run `37126853300`). Delivered: ADR-025 + report amendment (`de07fe4`, `45a8136`), plane
+protocol and serve command (`5c653c2`), Desktop bridge and Code lane (`487b851`), Code surface
+(`bc14f01`), report-only engineering plans (`f5c1304`), review turns on the Code lane (`41fd1a9`),
+packaged startup tracing (`3f30513`). Acceptance matrix: [`055-code-mode-wsl2.md`](../backlog/055-code-mode-wsl2.md).
+**Owner live validation pending:** no `nexar-plane` distro exists on the owner machine (WSL 2.7.14,
+kernel 6.18.33.2-2, distros `Ubuntu`, `docker-desktop`).
+
+**NXR-056 (2026-10-03):** ADR-026 (`9eabbd9`) — Cowork through a Nexar-supervised private
+OpenWorker. Adapter (`4a2b13b`, upstream envelope and approval strings verified in source), Cowork
+lane in the Operating Layer and Desktop main (`7453e7f`), Desktop state + E2E (`221aca4`).
+Implementation complete, offline-tested with a fake OpenWorker; live run pending (OpenWorker not
+installed). Recursion is impossible by construction in this version; NXR-059 adds turn-scoped
+delegation.

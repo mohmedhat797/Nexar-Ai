@@ -96,3 +96,37 @@ discovered never means authenticated.
   Out of scope for a local app; documented in the security model.
 - **Upstream login commands change.** Each login path is verified against the pinned runtime version and
   covered by fake-runtime contract tests.
+
+## Amendment (2026-10-02, NXR-052 implementation)
+
+- **A keystore entry's name is the credential variable it supplies.** References are
+  `{ source: 'keystore', name: 'DEEPSEEK_API_KEY' }` (names match `^[A-Z][A-Z0-9_]*$`). pi-ai receives
+  the resolved value as the per-request key; DSH receives exactly that one variable in its minimal
+  child environment. DSH `piAiProviders` entries may name `{ keystore: NAME }` instead of
+  `{ apiKeyEnv: NAME }`. There is no implicit fallback between `env` and `keystore`.
+- **Resolver injection.** `@nexar/host` accepts an optional secret resolver and passes it to the pi and
+  DSH adapters; Desktop main supplies one backed by the key store. Without a resolver (the CLI), a
+  keystore reference is `AUTH_REQUIRED` with a clear message and nothing else is read.
+- **Keys never cross renderer IPC, in either direction.** The renderer asks main to "save the key on
+  the clipboard" for a named provider; main reads the clipboard itself, validates the value, encrypts
+  and stores it, and clears the clipboard when it still holds that key. The renderer only ever sees
+  the provider, status and the last four characters.
+- **Key checks** live in the pi integration (the only code that knows provider endpoints) and use only
+  documented, non-generating model-listing or key-information endpoints, with the key in a header,
+  never in a URL. A provider without such an endpoint reports `unchecked`.
+
+## Amendment (2026-10-03, NXR-052d)
+
+- Native subscription ports live in each integration and are composed only by `@nexar/host`.
+  Desktop IPC accepts one runtime enum; explicit shared schemas and preload validation return only
+  account mode, normalized status, bounded version and login lifecycle metadata. Connected requires
+  recognized vendor-account authentication; command success alone is insufficient.
+- Claude Code and Codex use fixed documented browser-login commands, null stdio, public environment,
+  explicit executable resolution, a five-minute deadline and cancellation. Status probes have
+  ten-second deadlines and a 16 KiB cap. No login output, auth URL, code or credential is captured.
+  The launcher supports vendor-owned browser callbacks; interactive/manual terminal flows must be
+  completed in the vendor terminal followed by Recheck. Live browser acceptance remains pending.
+- Antigravity's interactive flow has no verified standalone sign-in/status command. Its account
+  status remains unknown and its login action is disabled; model metadata is not authentication.
+  Default native CLI profiles remain separate from explicitly configured resources with other homes.
+  See the [versioned research snapshot](../research/upstream/native-subscription-auth.md).

@@ -14,6 +14,8 @@ describe('upstream isolation (ADR-008)', () => {
         'PI_ADAPTER_ID',
         'PI_AI_VERSION',
         'PI_CATALOG_SOURCE_ID',
+        'PI_PROVIDER_CREDENTIAL_NAMES',
+        'checkProviderApiKey',
         'PiExecutionAdapter',
         'localEndpointDiscoverySource',
         'piCatalogDiscoverySource',

@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { TestContext } from 'vitest';
 import { parseConfig } from '@nexar/core';
 import type { ApprovalRequest } from '@nexar/approvals';
 import type {
@@ -16,7 +17,19 @@ import type {
 } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
 import { ALL_CHANNELS } from './bridge.js';
+import { SettingsStore } from './settings-store.js';
 import { createHarness, addProject, seed, type Harness } from './test-harness.js';
+
+async function fileSymlink(target: string, path: string, context: TestContext): Promise<void> {
+  try {
+    await symlink(target, path, 'file');
+  } catch (error) {
+    if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') {
+      context.skip('Windows file symlinks require Developer Mode or symlink privileges');
+    }
+    throw error;
+  }
+}
 
 let h: Harness;
 beforeEach(async () => {
@@ -45,6 +58,15 @@ describe('schemas', () => {
       [CHANNELS.settingsSet, { theme: 'neon' }],
       [CHANNELS.settingsSet, { density: 3 }],
       [CHANNELS.settingsSet, { mode: 'other' }],
+      [CHANNELS.behaviorSet, { code: { permission: 'full-auto' } }],
+      [CHANNELS.behaviorSet, { code: { permission: 'ask-before-edits' } }],
+      [CHANNELS.behaviorSet, { cowork: { permission: 'plan' } }],
+      [CHANNELS.behaviorSet, { cowork: { permission: 'read-only', network: true } }],
+      [CHANNELS.behaviorSet, { lockedRules: [] }],
+      [CHANNELS.behaviorSet, { unsupported: [] }],
+      [CHANNELS.behaviorSet, { code: { preferredResourceId: '../etc' } }],
+      [CHANNELS.behaviorSet, { code: { preferredResourceId: 7 } }],
+      [CHANNELS.behaviorSet, { sandbox: 'off' }],
       [CHANNELS.projectsRemove, { id: 7 }],
       [CHANNELS.projectsFiles, { projectId: 'p', dir: 5 }],
       [CHANNELS.projectsReadFile, { projectId: 'p', path: '' }],
@@ -141,7 +163,7 @@ describe('first run, app and settings', () => {
 describe('projects', () => {
   it('adds a project by dialog with the canonical root, persists and lists it', async () => {
     const link = join(h.userData, 'link-to-project');
-    await symlink(h.projectDir, link);
+    await symlink(h.projectDir, link, process.platform === 'win32' ? 'junction' : 'dir');
     h.pick = link;
     const added = await h.call<ProjectDto | null>(CHANNELS.projectsAdd);
     expect(added).toEqual({
@@ -229,9 +251,11 @@ describe('project files', () => {
       'binary.bin': '',
     });
     await writeFile(join(h.projectDir, 'binary.bin'), Buffer.from([0xff, 0xfe, 0x00, 0x61]));
-    await symlink(outside, join(h.projectDir, 'escape-dir'));
-    await symlink(join(outside, 'secret.txt'), join(h.projectDir, 'escape-file'));
-    await symlink(join(h.projectDir, 'readme.md'), join(h.projectDir, 'inside-link'));
+    await symlink(
+      outside,
+      join(h.projectDir, 'escape-dir'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     id = await addProject(h);
   });
 
@@ -244,7 +268,6 @@ describe('project files', () => {
     expect(result.value.entries.map((e) => `${e.kind}:${e.name}`)).toEqual([
       'dir:src',
       'file:binary.bin',
-      'file:inside-link',
       'file:readme.md',
       'file:zeta.txt',
     ]);
@@ -257,17 +280,28 @@ describe('project files', () => {
     });
   });
 
-  it('caps a listing at 500 entries', async () => {
-    const many = join(h.projectDir, 'many');
-    await mkdir(many);
-    for (let i = 0; i < 520; i++) await writeFile(join(many, `f${String(i).padStart(4, '0')}`), '');
-    const result = await h.call<FileListing>(CHANNELS.projectsFiles, {
-      projectId: id,
-      dir: 'many',
-    });
-    expect(result.ok && result.value.entries).toHaveLength(500);
-    expect(result.ok && result.value.truncated).toBe(true);
-  });
+  it(
+    'caps a listing at 500 entries',
+    async () => {
+      const many = join(h.projectDir, 'many');
+      await mkdir(many);
+      for (let i = 0; i < 520; i += 8) {
+        await Promise.all(
+          Array.from({ length: 8 }, (_, offset) =>
+            writeFile(join(many, `f${String(i + offset).padStart(4, '0')}`), ''),
+          ),
+        );
+      }
+      const result = await h.call<FileListing>(CHANNELS.projectsFiles, {
+        projectId: id,
+        dir: 'many',
+      });
+      expect(result.ok && result.value.entries).toHaveLength(500);
+      expect(result.ok && result.value.truncated).toBe(true);
+    },
+    // The 520 real fixture files and containment reads encounter Windows antivirus scanning.
+    process.platform === 'win32' ? 15_000 : undefined,
+  );
 
   it('previews UTF-8 text files', async () => {
     const result = await h.call<FilePreview>(CHANNELS.projectsReadFile, {
@@ -312,7 +346,18 @@ describe('project files', () => {
     }
   });
 
-  it('refuses a symlinked file that leaves the project', async () => {
+  it('lists contained file symlinks and hides escaping file symlinks', async (context) => {
+    await fileSymlink(join(h.projectDir, 'readme.md'), join(h.projectDir, 'inside-link'), context);
+    await fileSymlink(join(outside, 'secret.txt'), join(h.projectDir, 'escape-file'), context);
+    const result = await h.call<FileListing>(CHANNELS.projectsFiles, { projectId: id });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.entries.map((entry) => entry.name)).toContain('inside-link');
+    expect(result.value.entries.map((entry) => entry.name)).not.toContain('escape-file');
+  });
+
+  it('refuses a symlinked file that leaves the project', async (context) => {
+    await fileSymlink(join(outside, 'secret.txt'), join(h.projectDir, 'escape-file'), context);
     const result = await h.call(CHANNELS.projectsReadFile, { projectId: id, path: 'escape-file' });
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).not.toContain('top secret');
@@ -599,6 +644,111 @@ describe('error mapping', () => {
       });
     } finally {
       await broken.cleanup();
+    }
+  });
+});
+
+describe('AI behavior channels (NXR-053)', () => {
+  interface View {
+    settings: unknown;
+    lockedRules: string[];
+    unsupported: { mode: string; id: string; reason: string }[];
+    reasoningEffort: string;
+  }
+
+  it('returns the defaults, the locked rules and the unsupported options with reasons', async () => {
+    const result = await h.call<View>(CHANNELS.behaviorGet);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.settings).toEqual({
+      cowork: { permission: 'drafts-only' },
+      code: { permission: 'auto-edit' },
+    });
+    expect(result.value.lockedRules.join(' ')).toMatch(/sandbox/);
+    expect(result.value.lockedRules.join(' ')).toMatch(/never commit or push/);
+    expect(result.value.unsupported.map((o) => `${o.mode}:${o.id}`)).toEqual([
+      'code:ask-before-edits',
+      'code:full-auto',
+    ]);
+    expect(result.value.unsupported.every((o) => /Not supported yet/.test(o.reason))).toBe(true);
+    expect(result.value.reasoningEffort).toMatch(/not supported yet/);
+  });
+
+  it('applies a patch, persists it and never changes the locked rules or unsupported list', async () => {
+    const before = await h.call<View>(CHANNELS.behaviorGet);
+    const set = await h.call<View>(CHANNELS.behaviorSet, {
+      cowork: { permission: 'read-only', preferredResourceId: 'local-echo' },
+      code: { permission: 'plan' },
+    });
+    expect(set.ok && set.value.settings).toEqual({
+      cowork: { permission: 'read-only', preferredResourceId: 'local-echo' },
+      code: { permission: 'plan' },
+    });
+    if (before.ok && set.ok) {
+      expect(set.value.lockedRules).toEqual(before.value.lockedRules);
+      expect(set.value.unsupported).toEqual(before.value.unsupported);
+    }
+    const file = JSON.parse(
+      await readFile(join(h.userData, 'desktop-settings.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(file['behavior']).toEqual({
+      cowork: { permission: 'read-only', preferredResourceId: 'local-echo' },
+      code: { permission: 'plan' },
+    });
+    const cleared = await h.call<View>(CHANNELS.behaviorSet, {
+      cowork: { preferredResourceId: null },
+    });
+    expect(cleared.ok && cleared.value.settings).toEqual({
+      cowork: { permission: 'read-only' },
+      code: { permission: 'plan' },
+    });
+  });
+
+  it('accepts an empty patch and rejects a resource that is not in the registry', async () => {
+    expect((await h.call(CHANNELS.behaviorSet, {})).ok).toBe(true);
+    const unknown = await h.call(CHANNELS.behaviorSet, {
+      code: { preferredResourceId: 'not-a-resource' },
+    });
+    expect(unknown).toEqual({
+      ok: false,
+      error: { code: 'VALIDATION_ERROR', message: 'Unknown resource' },
+    });
+    const state = await h.call<View>(CHANNELS.behaviorGet);
+    expect(state.ok && state.value.settings).toEqual({
+      cowork: { permission: 'drafts-only' },
+      code: { permission: 'auto-edit' },
+    });
+  });
+
+  it('fails closed on a damaged behavior section without rewriting it', async () => {
+    const path = join(h.userData, 'desktop-settings.json');
+    await writeFile(
+      path,
+      JSON.stringify({
+        theme: 'light',
+        density: 'comfortable',
+        mode: 'cowork',
+        behavior: { code: { permission: 'full-auto' } },
+      }),
+    );
+    const damaged = await createHarness({ settings: new SettingsStore(path) });
+    try {
+      for (const result of [
+        await damaged.call(CHANNELS.behaviorGet),
+        await damaged.call(CHANNELS.behaviorSet, { code: { permission: 'plan' } }),
+      ]) {
+        expect(result).toEqual({
+          ok: false,
+          error: { code: 'CONFIGURATION_ERROR', message: 'The AI behavior settings are not valid' },
+        });
+      }
+      expect((JSON.parse(await readFile(path, 'utf8')) as { behavior?: unknown }).behavior).toEqual(
+        {
+          code: { permission: 'full-auto' },
+        },
+      );
+    } finally {
+      await damaged.cleanup();
     }
   });
 });

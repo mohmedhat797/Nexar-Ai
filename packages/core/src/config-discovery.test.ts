@@ -10,10 +10,29 @@ describe('discovery config (ADR-020 §9)', () => {
     expect(parseConfig(base, 'test').discovery).toEqual(DEFAULT_DISCOVERY_CONFIG);
     expect(DEFAULT_DISCOVERY_CONFIG).toMatchObject({
       enabled: false,
+      credentialSource: 'env',
       cli: { enabled: true },
       piCatalog: { enabled: false, providers: [] },
       localEndpoints: { enabled: true, endpoints: [] },
     });
+  });
+
+  it.each(['env', 'keystore'] as const)('preserves the explicit %s reference source', (source) => {
+    expect(parse({ credentialSource: source }).discovery.credentialSource).toBe(source);
+  });
+
+  it('defaults a present discovery section to env without changing configured resources', () => {
+    const configured = echoResource();
+    const resource = {
+      ...configured,
+      auth: { mode: 'api-key', credential: { source: 'env', name: 'OWNER_API_KEY' } },
+    };
+    const parsed = parseConfig(
+      { version: 1, resources: [resource], discovery: { credentialSource: 'keystore' } },
+      'test',
+    );
+    expect(parse({}).discovery.credentialSource).toBe('env');
+    expect(parsed.resources[0]?.auth).toEqual(resource.auth);
   });
 
   it('resolves owner settings over the defaults', () => {
@@ -43,6 +62,11 @@ describe('discovery config (ADR-020 §9)', () => {
 
   it.each([
     ['an unknown key', { scan: true }],
+    ['an unsupported credential source', { credentialSource: 'runtime-managed' }],
+    ['a credential value object', { credentialSource: { source: 'keystore', value: 'secret' } }],
+    ['a null credential source', { credentialSource: null }],
+    ['a non-string credential source', { credentialSource: false }],
+    ['a differently cased credential source', { credentialSource: 'Keystore' }],
     ['the catalog without a provider allowlist', { sources: { piCatalog: { enabled: true } } }],
     [
       'a non-http endpoint',

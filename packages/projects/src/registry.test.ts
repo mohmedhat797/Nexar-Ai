@@ -54,7 +54,11 @@ describe('ProjectRegistry', () => {
     });
 
     it('accepts a root that is itself a symlink and stores its real path', async () => {
-      await symlink(root, join(base, 'rootlink'));
+      await symlink(
+        root,
+        join(base, 'rootlink'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
       const reg = await ProjectRegistry.create([define({ roots: [join(base, 'rootlink')] })]);
       expect(reg.require(pid).realRoots).toEqual([root]);
       expect(await reg.resolveWorkingDirectory(reg.require(pid), join(root, 'sub'))).toBe(
@@ -73,7 +77,7 @@ describe('ProjectRegistry', () => {
         ProjectRegistry.create([define({ workingDirectories: [outside] })]),
         'CONFIGURATION_ERROR',
       );
-      await symlink(outside, join(root, 'link'));
+      await symlink(outside, join(root, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
       await rejectsWith(
         ProjectRegistry.create([define({ workingDirectories: [join(root, 'link')] })]),
         'CONFIGURATION_ERROR',
@@ -120,7 +124,11 @@ describe('ProjectRegistry', () => {
     });
 
     it('allows a symlink inside pointing inside, returning the canonical path', async () => {
-      await symlink(join(root, 'sub'), join(root, 'inner'));
+      await symlink(
+        join(root, 'sub'),
+        join(root, 'inner'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
       const reg = await ProjectRegistry.create([define()]);
       expect(await reg.resolveWorkingDirectory(reg.require(pid), join(root, 'inner'))).toBe(
         join(root, 'sub'),
@@ -128,10 +136,22 @@ describe('ProjectRegistry', () => {
     });
 
     it('rejects the symlink attack, `..`, absolute outside, missing, dangling and loops', async () => {
-      await symlink(outside, join(root, 'link'));
-      await symlink(join(base, 'gone'), join(root, 'dangling'));
-      await symlink(join(root, 'l2'), join(root, 'l1'));
-      await symlink(join(root, 'l1'), join(root, 'l2'));
+      await symlink(outside, join(root, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
+      await symlink(
+        join(base, 'gone'),
+        join(root, 'dangling'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+      await symlink(
+        join(root, 'l2'),
+        join(root, 'l1'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+      await symlink(
+        join(root, 'l1'),
+        join(root, 'l2'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
       const reg = await ProjectRegistry.create([define()]);
       const project = reg.require(pid);
       for (const bad of [
@@ -218,24 +238,41 @@ describe('ProjectRegistry', () => {
       expect(refs.map((r) => r.uri)).toEqual([...refs.map((r) => r.uri)].sort());
     });
 
-    it('rejects a symlink inside a set directory that escapes the root', async () => {
+    it('rejects a symlink inside a set directory that escapes the root', async (context) => {
       await mkdir(join(root, 'd'));
-      await symlink(join(outside, 'secret.txt'), join(root, 'd', 'leak.txt'));
+      try {
+        await symlink(join(outside, 'secret.txt'), join(root, 'd', 'leak.txt'), 'file');
+      } catch (error) {
+        if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') {
+          context.skip(
+            'Windows file symlinks require Developer Mode or SeCreateSymbolicLinkPrivilege',
+          );
+        }
+        throw error;
+      }
       const { reg, project } = await setup({ docs: [join(root, 'd')] });
       await rejectsWith(reg.resolveDocumentSet(project, 'docs'), 'POLICY_REJECTED');
     });
 
     it('rejects a symlinked directory escaping the root and does not follow one inside', async () => {
       await mkdir(join(root, 'd'));
-      await symlink(outside, join(root, 'd', 'outlink'));
+      await symlink(
+        outside,
+        join(root, 'd', 'outlink'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
       const escaping = await setup({ docs: [join(root, 'd')] });
       await rejectsWith(
         escaping.reg.resolveDocumentSet(escaping.project, 'docs'),
         'POLICY_REJECTED',
       );
 
-      await rm(join(root, 'd', 'outlink'));
-      await symlink(join(root, 'sub'), join(root, 'd', 'inlink'));
+      await rm(join(root, 'd', 'outlink'), { recursive: true });
+      await symlink(
+        join(root, 'sub'),
+        join(root, 'd', 'inlink'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
       await writeFile(join(root, 'sub', 'in-sub.txt'), '');
       const inside = await setup({ docs: [join(root, 'd')] });
       expect(await inside.reg.resolveDocumentSet(inside.project, 'docs')).toEqual([]);

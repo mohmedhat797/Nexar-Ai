@@ -1,4 +1,5 @@
-import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,7 +46,7 @@ export interface Harness {
   context(signal?: AbortSignal): ExecutionContext;
   /** Every recorded fake-claude invocation so far. */
   invocations(): FakeInvocation[];
-  cleanup(): void;
+  cleanup(): Promise<void>;
 }
 
 /** An adapter wired to the fake binary; `env` is merged over the fake's control variables. */
@@ -72,7 +73,9 @@ export function harness(
     }),
     invocations: () =>
       existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as FakeInvocation[]) : [],
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    // Async rm honours the bounded retry (rmSync does not): a killed fake runtime's process can
+    // hold its working directory briefly on Windows (EBUSY/EPERM) after the outcome settles.
+    cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }
 

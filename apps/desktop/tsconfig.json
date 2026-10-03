@@ -15,8 +15,13 @@
     { "path": "../../packages/contracts" },
     { "path": "../../packages/core" },
     { "path": "../../packages/host" },
+    { "path": "../../integrations/openworker" },
+    { "path": "../../packages/operating" },
+    { "path": "../../packages/plane-protocol" },
+    { "path": "../../packages/process" },
     { "path": "../../packages/projects" },
     { "path": "../../packages/resource-controller" },
+    { "path": "../../packages/sessions" },
     { "path": "../../packages/workflows" }
   ]
 }

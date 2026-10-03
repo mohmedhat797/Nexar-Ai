@@ -7,6 +7,7 @@ import {
   isNexarError,
   resourceId as toResourceId,
   taskId as toTaskId,
+  type EngineeringLineage,
   type EngineeringStep,
   type Logger,
   type ProcessLauncher,
@@ -26,7 +27,8 @@ import type {
   removeTaskWorktree,
 } from '@nexar/worktrees';
 import { networkFor, runCommand, type CommandRun } from './commands.js';
-import type { LoadedPlan, PlanLane } from './plan.js';
+import type { ChangePlan, LoadedPlan, PlanLane, ReportPlan } from './plan.js';
+import { MAX_OUTCOME_LANES, boundReport } from './report.js';
 import {
   writeEngineeringRecord,
   type CommandRecord,
@@ -52,10 +54,17 @@ export interface EngineeringInput {
   readonly projectId: string;
   /** Owner text; untrusted data for every lane. At most 20 000 characters. */
   readonly goal: string;
+  /**
+   * The owner's request as one line (at most 200 characters). The commit subject and the approval
+   * summary derive from it; without it they use the goal's first line.
+   */
+  readonly title?: string;
   /** Default `implement-review`. */
   readonly planId?: string;
   /** Overrides the project's `baseBranch`. */
   readonly baseBranch?: string;
+  /** Ids of the Operating turn that asked for the task; recorded and put on telemetry (ADR-025). */
+  readonly lineage?: EngineeringLineage;
 }
 
 /**
@@ -95,11 +104,15 @@ export interface EngineeringRunOptions {
 
 export interface EngineeringOutcome {
   readonly taskId: string;
-  readonly status: 'committed' | 'not-accepted' | 'failed' | 'cancelled';
+  readonly status: 'committed' | 'reported' | 'not-accepted' | 'failed' | 'cancelled';
   readonly reason?: string;
   /** Present only when the task was committed. */
   readonly branch?: string;
   readonly commit?: string;
+  /** Present only when a report plan produced its report (status `reported`). Bounded to 64 KiB. */
+  readonly report?: { readonly text: string; readonly truncated: boolean };
+  /** The lane executions that completed, in order (at most 16). Roles and resource ids only. */
+  readonly lanes?: readonly { readonly role: string; readonly resourceId: string }[];
   readonly recordPath: string;
 }
 
@@ -126,7 +139,9 @@ export interface ExecutionTarget {
   /** Canonical, contained path of the owner's repository. */
   readonly repository: string;
   readonly goal: string;
+  readonly title?: string;
   readonly baseBranch: string;
+  readonly lineage?: EngineeringLineage;
 }
 
 /** Ends the task with a status; thrown from anywhere in the flow and settled in one place. */
@@ -155,6 +170,8 @@ interface LaneResult {
   readonly text: string;
   readonly resourceId: string;
   readonly reasonCodes: readonly string[];
+  /** Hash and size of the text as stored in the lane's artifact. */
+  readonly stored: { readonly sha256: string; readonly bytes: number };
 }
 
 interface CheckResult {
@@ -174,9 +191,12 @@ const sha256 = (data: string | Uint8Array): string =>
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
 
-/** First line of the goal as a safe commit subject (at most 72 characters). */
-export function commitSubject(goal: string): string {
-  const first = goal.split(/\r?\n/)[0] ?? '';
+/**
+ * First line of the text (the task title, else the goal) as a safe commit subject (at most 72
+ * characters).
+ */
+export function commitSubject(text: string): string {
+  const first = text.split(/\r?\n/)[0] ?? '';
   const clean = first.replace(CONTROL_CHARS, ' ').replace(/\s+/g, ' ').trim().slice(0, 72).trim();
   return `nexar: ${clean === '' ? 'engineering task' : clean}`;
 }
@@ -205,6 +225,7 @@ export class EngineeringExecution {
   private round = 0;
   private approval: { id?: string; outcome: string } | undefined;
   private commit: string | undefined;
+  private report: { text: string; sha256: string; bytes: number } | undefined;
   private worktree: TaskWorktree | undefined;
   private planText: string | undefined;
   private readonly branch: string;
@@ -223,18 +244,9 @@ export class EngineeringExecution {
     try {
       recordPath = await this.persist();
       await this.begin();
-      await this.agentSetup();
-      for (const lane of this.deps.plan.lanes) {
-        if (lane.role === 'review') continue;
-        const result = await this.runLane(this.spec(lane), this.work(), lane.access, {
-          goal: this.target.goal,
-          ...(this.planText === undefined ? {} : { plan: this.planText }),
-          round: 0,
-        });
-        if (lane.role === 'architecture') this.planText = result.text;
-      }
-      const accepted = await this.verifyUntilReviewed();
-      await this.accept(accepted);
+      const { plan } = this.deps;
+      if (plan.mode === 'report') await this.runReport(plan);
+      else await this.runChange(plan);
     } catch (error) {
       this.settle(error);
     }
@@ -245,6 +257,9 @@ export class EngineeringExecution {
         status: this.status,
         ...(this.reason === undefined ? {} : { reason: this.reason }),
         rounds: this.round,
+        ...(this.report === undefined
+          ? {}
+          : { reportSha256: this.report.sha256, reportBytes: this.report.bytes }),
       });
     } catch (error) {
       this.deps.logger.warn('engineering record could not be written', {
@@ -259,8 +274,64 @@ export class EngineeringExecution {
       ...(this.status === 'committed' && this.commit !== undefined
         ? { branch: this.branch, commit: this.commit }
         : {}),
+      ...(this.status === 'reported' && this.report !== undefined
+        ? { report: boundReport(this.report.text) }
+        : {}),
+      ...(this.laneExecutions.length === 0
+        ? {}
+        : { lanes: this.laneExecutions.slice(0, MAX_OUTCOME_LANES).map((l) => ({ ...l })) }),
       recordPath,
     };
+  }
+
+  /** Change plans: setup, lanes, harvest, gates, review, approval, commit (ADR-019). */
+  private async runChange(plan: ChangePlan): Promise<void> {
+    await this.agentSetup();
+    for (const lane of plan.lanes) {
+      if (lane.role === 'review') continue;
+      const result = await this.runLane(this.spec(lane), this.work(), lane.access, {
+        goal: this.target.goal,
+        ...(this.planText === undefined ? {} : { plan: this.planText }),
+        round: 0,
+      });
+      if (lane.role === 'architecture') this.planText = result.text;
+    }
+    const accepted = await this.verifyUntilReviewed(plan);
+    await this.accept(accepted);
+  }
+
+  /**
+   * Report plans (ADR-025 amendment): read-only lanes on the private clone; the last lane's text is
+   * the report. Nothing here reaches setup, harvest, gates, review, approval or the commit.
+   */
+  private async runReport(plan: ReportPlan): Promise<void> {
+    let last: LaneResult | undefined;
+    for (const lane of plan.lanes) {
+      if (lane.access !== 'read-only') {
+        throw new NexarError('INTERNAL_ERROR', 'A report plan lane must be read-only');
+      }
+      last = await this.runLane(this.spec(lane), this.work(), 'read-only', {
+        goal: this.target.goal,
+        ...(this.planText === undefined ? {} : { plan: this.planText }),
+        round: 0,
+      });
+      if (lane.role === 'architecture') this.planText = last.text;
+    }
+    if (last === undefined || last.text.trim() === '') throw new TaskEnd('failed', 'report.empty');
+    this.report = { text: last.text, ...last.stored };
+    this.status = 'reported';
+    // Nothing is harvested from a report clone (the text is in the lane artifact): remove it now,
+    // so review turns do not accumulate clones. A failed removal is logged, never fatal.
+    if (this.worktree !== undefined) {
+      try {
+        await this.deps.worktrees.removeTaskWorktree(this.worktree);
+      } catch (error) {
+        this.deps.logger.warn('report worktree cleanup failed', {
+          taskId: this.target.taskId,
+          code: isNexarError(error) ? error.code : 'UNKNOWN',
+        });
+      }
+    }
   }
 
   // ---- settling, records and telemetry -------------------------------------------------------
@@ -302,6 +373,10 @@ export class EngineeringExecution {
       reviews: this.reviews,
       ...(this.approval === undefined ? {} : { approval: this.approval }),
       ...(this.commit === undefined ? {} : { commit: this.commit }),
+      ...(this.report === undefined
+        ? {}
+        : { report: { sha256: this.report.sha256, bytes: this.report.bytes } }),
+      ...(this.target.lineage === undefined ? {} : { lineage: this.target.lineage }),
     };
   }
 
@@ -321,6 +396,7 @@ export class EngineeringExecution {
         at: this.deps.clock().toISOString(),
         engineeringTaskId: this.target.taskId,
         projectId: this.target.project.id,
+        ...(this.target.lineage === undefined ? {} : { lineage: this.target.lineage }),
         step,
         detail,
       });
@@ -414,8 +490,8 @@ export class EngineeringExecution {
     };
   }
 
-  private debuggingSpec(): LaneSpec {
-    const first = this.deps.plan.lanes.find((l) => l.access === 'read-write') as PlanLane;
+  private debuggingSpec(plan: ChangePlan): LaneSpec {
+    const first = plan.lanes.find((l) => l.access === 'read-write') as PlanLane;
     const preferred = this.target.settings.lanePreferences.debugging;
     return {
       id: 'debugging',
@@ -423,8 +499,8 @@ export class EngineeringExecution {
       access: 'read-write',
       taskKind: first.taskKind,
       capabilities: first.capabilities,
-      system: this.deps.plan.debugging.system,
-      brief: this.deps.plan.debugging.brief,
+      system: plan.debugging.system,
+      brief: plan.debugging.brief,
       ...(preferred === undefined ? {} : { preferred }),
     };
   }
@@ -483,9 +559,10 @@ export class EngineeringExecution {
       const reasonCodes = [...outcome.record.routing.reasonCodes, ...extraReasons];
       const resourceId = outcome.record.resourceId;
       const text = outcome.result.text;
+      const storedText = text.slice(0, MAX_ARTIFACT_CHARS) || '(empty)';
       const outputSha256 = await this.storeArtifact(
         `lane-${lane.id}-r${String(round)}.md`,
-        text.slice(0, MAX_ARTIFACT_CHARS) || '(empty)',
+        storedText,
         'text/markdown',
         `Lane ${lane.id} round ${String(round)}`,
       );
@@ -512,7 +589,12 @@ export class EngineeringExecution {
         latencyMs: outcome.record.latencyMs,
         reasons: reasonCodes.join(','),
       });
-      return { text, resourceId, reasonCodes };
+      return {
+        text,
+        resourceId,
+        reasonCodes,
+        stored: { sha256: outputSha256, bytes: Buffer.byteLength(storedText) },
+      };
     } catch (error) {
       if (error instanceof TaskEnd) throw error;
       const code = isNexarError(error) ? error.code : 'INTERNAL_ERROR';
@@ -663,7 +745,7 @@ export class EngineeringExecution {
   }
 
   /** Harvest → gates on a fresh clone → review, reworking while rounds remain. */
-  private async verifyUntilReviewed(): Promise<{
+  private async verifyUntilReviewed(plan: ChangePlan): Promise<{
     harvest: HarvestResult;
     review: ReviewVerdict;
     reviewer: string;
@@ -691,6 +773,7 @@ export class EngineeringExecution {
       if (failed.length > 0) {
         if (this.round >= settings.maxReworkRounds) throw new TaskEnd('failed', 'gates.failed');
         await this.rework(
+          plan,
           failed
             .map(
               (r) =>
@@ -703,7 +786,7 @@ export class EngineeringExecution {
 
       const gates = results.filter((r) => r.phase === 'gate');
       const patchText = await readFile(harvest.patchPath, 'utf8');
-      const lane = this.deps.plan.lanes.find((l) => l.role === 'review') as PlanLane;
+      const lane = plan.lanes.find((l) => l.role === 'review') as PlanLane;
       const reviewed = await this.runLane(this.spec(lane), workspace, 'read-only', {
         goal: this.target.goal,
         ...(this.planText === undefined ? {} : { plan: this.planText }),
@@ -747,6 +830,7 @@ export class EngineeringExecution {
           throw new TaskEnd('not-accepted', 'review.changes-requested');
         }
         await this.rework(
+          plan,
           review.findings
             .map((f) => `[${f.severity}]${f.file === undefined ? '' : ` ${f.file}:`} ${f.message}`)
             .join('\n'),
@@ -758,9 +842,9 @@ export class EngineeringExecution {
   }
 
   /** The built-in `debugging` lane: same worktree, next round. */
-  private async rework(findings: string): Promise<void> {
+  private async rework(plan: ChangePlan, findings: string): Promise<void> {
     this.round += 1;
-    await this.runLane(this.debuggingSpec(), this.work(), 'read-write', {
+    await this.runLane(this.debuggingSpec(plan), this.work(), 'read-write', {
       goal: this.target.goal,
       ...(this.planText === undefined ? {} : { plan: this.planText }),
       findings,
@@ -835,7 +919,7 @@ export class EngineeringExecution {
       baseCommit: worktree.baseCommit,
       harvest,
       branch: this.branch,
-      message: commitSubject(this.target.goal),
+      message: commitSubject(this.target.title ?? this.target.goal),
       author: this.deps.author,
       trailers,
     });
@@ -856,7 +940,7 @@ export class EngineeringExecution {
     const { project, taskId } = this.target;
     try {
       return await this.deps.approvals.request(action, {
-        summary: `${commitSubject(this.target.goal)} (${String(accepted.harvest.entries.length)} files, review ${accepted.review.verdict}) → ${this.branch}`,
+        summary: `${commitSubject(this.target.title ?? this.target.goal)} (${String(accepted.harvest.entries.length)} files, review ${accepted.review.verdict}) → ${this.branch}`,
         risk: 'medium',
         taskId,
         projectId: project.id,

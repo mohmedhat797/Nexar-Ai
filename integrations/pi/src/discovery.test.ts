@@ -75,6 +75,33 @@ describe('piCatalogDiscoverySource', () => {
     expect((await source.discover(ctx())).map((d) => d.id)).toEqual(['pi.openai.a', 'pi.openai.b']);
   });
 
+  it('builds keystore references for every selected provider without resolving credentials', async () => {
+    const found = await piCatalogDiscoverySource({
+      providers: ['openai', 'deepseek', 'anthropic'],
+      credentialSource: 'keystore',
+      listModels: () => Promise.resolve([model('candidate')]),
+    }).discover(ctx());
+    expect(found.map((resource) => resource.auth)).toEqual([
+      { mode: 'api-key', credential: { source: 'keystore', name: 'ANTHROPIC_API_KEY' } },
+      { mode: 'api-key', credential: { source: 'keystore', name: 'DEEPSEEK_API_KEY' } },
+      { mode: 'api-key', credential: { source: 'keystore', name: 'OPENAI_API_KEY' } },
+    ]);
+    for (const resource of found) {
+      expect(resource).not.toHaveProperty('state');
+      expect(resource).not.toHaveProperty('authenticated');
+    }
+  });
+
+  it('preserves the exact env descriptor when env is explicitly selected', async () => {
+    const options = { providers: ['openai'], listModels: () => Promise.resolve([model('a')]) };
+    const implicit = await piCatalogDiscoverySource(options).discover(ctx());
+    const explicit = await piCatalogDiscoverySource({
+      ...options,
+      credentialSource: 'env',
+    }).discover(ctx());
+    expect(explicit).toEqual(implicit);
+  });
+
   it('reads the pinned static catalog offline', async () => {
     const found = await piCatalogDiscoverySource({
       providers: ['anthropic'],
@@ -98,6 +125,7 @@ describe('localEndpointDiscoverySource', () => {
     '/ollama/api/tags': (res) =>
       json(res, { models: [{ name: 'llama3:8b' }, { name: 'qwen2.5' }, { name: '\u0001bad' }] }),
     '/oai/v1/models': (res) => json(res, { object: 'list', data: [{ id: 'local-model' }] }),
+    '/tenant/oai/v1/models': (res) => json(res, { object: 'list', data: [{ id: 'local-model' }] }),
     '/redirect/api/tags': (res) => {
       res.writeHead(302, { location: 'http://example.invalid/api/tags' });
       res.end();
@@ -153,8 +181,31 @@ describe('localEndpointDiscoverySource', () => {
     expect(llama?.dataLocality).toBe('local');
     expect(llama?.auth).toEqual({ mode: 'none' });
     expect(llama?.runtime.options).toEqual({ baseUrl: `${base}/ollama/v1` });
+    expect(found[0]?.runtime.options).toEqual({ baseUrl: `${base}/oai/v1` });
     expect(seen.every((s) => s.startsWith('GET ') && s.endsWith('auth=-'))).toBe(true);
   });
+
+  it.each([
+    ['/oai', '/oai/v1'],
+    ['/oai/', '/oai/v1'],
+    ['/oai/v1', '/oai/v1'],
+    ['/oai/v1/', '/oai/v1'],
+    ['/tenant/oai', '/tenant/oai/v1'],
+    ['/tenant/oai/', '/tenant/oai/v1'],
+    ['/tenant/oai/v1', '/tenant/oai/v1'],
+    ['/tenant/oai/v1/', '/tenant/oai/v1'],
+  ])(
+    'normalizes owner-listed compatible base %s for listing and execution',
+    async (input, apiBase) => {
+      const before = seen.length;
+      const [resource] = await localEndpointDiscoverySource({
+        endpoints: [{ id: 'lab', kind: 'openai-compatible', baseUrl: `${base}${input}` }],
+      }).discover(ctx());
+      expect(resource?.runtime.options).toEqual({ baseUrl: `${base}${apiBase}` });
+      expect(resource?.auth).toEqual({ mode: 'none' });
+      expect(seen.slice(before)).toEqual([`GET ${apiBase}/models auth=-`]);
+    },
+  );
 
   it('refuses redirects, oversize bodies and malformed JSON', async () => {
     for (const path of ['redirect', 'huge', 'broken']) {

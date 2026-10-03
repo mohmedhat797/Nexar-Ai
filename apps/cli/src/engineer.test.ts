@@ -328,10 +328,17 @@ describe('nexar engineer (in-process, offline)', () => {
       await writeConfig();
       const { runner } = fakeRunner('wait-for-abort');
       const c = capture(dir);
+      const listeners = process.listenerCount('SIGINT');
       const pending = runCli(['engineer', 'run', '--project', 'demo', 'goal'], c.io, {
         engineering: { runner },
       });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Signal only once the CLI's handler is installed: a fixed delay lost the race on a loaded
+      // Windows CI runner, and an unhandled emit leaves the fake runner waiting forever.
+      const deadline = Date.now() + 4_000;
+      while (process.listenerCount('SIGINT') === listeners && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(process.listenerCount('SIGINT')).toBeGreaterThan(listeners);
       process.emit('SIGINT');
       expect(await pending).toBe(130);
       expect(c.out()).toContain('cancelled');

@@ -7,7 +7,10 @@ import { createTaskWorktree } from './create.js';
 import { cleanup, git, makeOwnerRepo, tempDir, type OwnerRepo } from './fixtures.testkit.js';
 import { removeTaskWorktree } from './remove.js';
 
-describe('createTaskWorktree', () => {
+// Each case runs about a dozen sequential git processes (owner probes, bare clone, hardened
+// work clone). Windows process creation under a loaded CI runner exceeded the 5 s default for
+// a passing case; the allowance is Windows-only and leaves every assertion unchanged.
+describe('createTaskWorktree', { timeout: process.platform === 'win32' ? 20_000 : 5_000 }, () => {
   let root: string;
   let owner: OwnerRepo;
   let baseDir: string;
@@ -40,7 +43,8 @@ describe('createTaskWorktree', () => {
 
   it('makes the task directory private and refuses to reuse it', async () => {
     const task = await create();
-    expect(statSync(task.taskDir).mode & 0o777).toBe(0o700);
+    // Windows chmod cannot express owner-only POSIX permission bits; ACL audit is separate.
+    if (process.platform !== 'win32') expect(statSync(task.taskDir).mode & 0o777).toBe(0o700);
     await expect(create()).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
     expect(existsSync(task.workPath)).toBe(true);
   });

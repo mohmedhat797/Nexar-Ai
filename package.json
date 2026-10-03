@@ -17,7 +17,8 @@
     "clean": "node scripts/clean.mjs",
     "check": "pnpm format:check && pnpm lint && pnpm check:boundaries && pnpm typecheck && pnpm test && pnpm build",
     "check:boundaries": "node scripts/check-boundaries.mjs",
-    "desktop:e2e": "pnpm --filter @nexar/desktop e2e"
+    "desktop:e2e": "pnpm --filter @nexar/desktop e2e",
+    "desktop:package:win": "pnpm --filter @nexar/desktop package:win"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

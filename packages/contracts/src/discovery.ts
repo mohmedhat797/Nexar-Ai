@@ -1,5 +1,8 @@
 import type { ResourceDescriptor } from './resource.js';
 
+/** Owner-chosen credential reference source; discovery never resolves or authenticates it. */
+export type DiscoveryCredentialSource = 'env' | 'keystore';
+
 /** Context handed to a discovery source: the (injected) current time and a deadline. */
 export interface DiscoveryContext {
   readonly now: Date;

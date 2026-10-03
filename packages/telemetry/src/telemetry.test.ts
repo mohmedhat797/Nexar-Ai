@@ -161,7 +161,8 @@ describe('JsonlFileTelemetrySink', () => {
       'task_1',
       'task_2',
     ]);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows permissions are ACL-based; Node's mode bits do not represent them.
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600);
   });
 
   it('keeps concurrent emits intact and ordered', async () => {

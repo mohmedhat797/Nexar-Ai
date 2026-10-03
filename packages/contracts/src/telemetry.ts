@@ -61,6 +61,18 @@ export type EngineeringStep =
   | 'commit.created'
   | 'task.finished';
 
+/**
+ * Ids that tie an engineering task to the Operating turn that asked for it (ADR-025 section 7).
+ * Ids only: never prompts, goals or paths.
+ */
+export interface EngineeringLineage {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly correlationId: string;
+  /** Delegation depth, 0..2 (ADR-024). */
+  readonly depth: number;
+}
+
 /** Lifecycle events emitted for observability of routing and execution. */
 export type TelemetryEvent =
   | { readonly type: 'route.decided'; readonly at: string; readonly decision: RouteDecision }
@@ -90,6 +102,8 @@ export type TelemetryEvent =
       readonly at: string;
       readonly engineeringTaskId: string;
       readonly projectId: ProjectId;
+      /** Present when the task was started on behalf of an Operating turn. */
+      readonly lineage?: EngineeringLineage;
       readonly step: EngineeringStep;
       /** Allowlisted scalars only (ids, counts, codes, hashes, durations): never prompts, diffs or paths. */
       readonly detail: Readonly<Record<string, string | number | boolean>>;

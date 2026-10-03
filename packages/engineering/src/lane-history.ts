@@ -361,12 +361,36 @@ function guardRecord(json: unknown): EngineeringRecord | undefined {
 
 /** Reads one record without following symlinks (task directory or file) and within `maxBytes`. */
 async function readBounded(dir: string, maxBytes: number): Promise<unknown> {
-  const dirInfo = await lstat(dir);
+  const dirInfo = await lstat(dir, { bigint: true });
   if (!dirInfo.isDirectory()) return undefined;
-  const handle = await open(join(dir, RECORD_FILE), constants.O_RDONLY | constants.O_NOFOLLOW);
+  const path = join(dir, RECORD_FILE);
+  // Windows does not enforce O_NOFOLLOW; reject links before opening on every platform.
+  const recordInfo = await lstat(path, { bigint: true });
+  if (!recordInfo.isFile() || recordInfo.size > maxBytes) return undefined;
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
-    const info = await handle.stat();
-    if (!info.isFile() || info.size > maxBytes) return undefined;
+    const info = await handle.stat({ bigint: true });
+    if (
+      !info.isFile() ||
+      info.size > maxBytes ||
+      info.dev !== recordInfo.dev ||
+      info.ino !== recordInfo.ino
+    )
+      return undefined;
+    // A record or task directory replaced between lstat and open must not supply history.
+    const [currentRecord, currentDir] = await Promise.all([
+      lstat(path, { bigint: true }),
+      lstat(dir, { bigint: true }),
+    ]);
+    if (
+      !currentRecord.isFile() ||
+      !currentDir.isDirectory() ||
+      currentRecord.dev !== info.dev ||
+      currentRecord.ino !== info.ino ||
+      currentDir.dev !== dirInfo.dev ||
+      currentDir.ino !== dirInfo.ino
+    )
+      return undefined;
     return JSON.parse(await handle.readFile('utf8')) as unknown;
   } finally {
     await handle.close();

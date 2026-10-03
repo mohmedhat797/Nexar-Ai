@@ -39,7 +39,7 @@ Not planned before a security review: an HTTP (network) MCP transport, and DOCX/
 
 ## v0.3 — Engineering Machine _(delivered)_
 
-Delivered: sandboxed, multi-agent engineering tasks (bubblewrap sandbox, private worktrees, lane plans, gates, review, owner-approved local commits), Codex, DSH ACP and Delegate Skills relay adapters, and an experimental Antigravity adapter ([ADR-018](../adr/018-engineering-execution-plane.md), [ADR-019](../adr/019-engineering-lanes-and-resources.md); NXR-020 to NXR-024; [v0.3 report](../devlog/v0.3-engineering-machine-report.md)). Verified live with two end-to-end runs; WSL2-specific checks and Antigravity remain owner-run follow-ups.
+Delivered: sandboxed, multi-agent engineering tasks (bubblewrap sandbox, private worktrees, lane plans, gates, review, owner-approved local commits), Codex, DSH ACP and Delegate Skills relay adapters, and an experimental Antigravity adapter ([ADR-018](../adr/018-engineering-execution-plane.md), [ADR-019](../adr/019-engineering-lanes-and-resources.md); NXR-020 to NXR-024; [v0.3 report](../devlog/v0.3-engineering-machine-report.md)). Verified live with two end-to-end runs; WSL2 checks A1–A6 passed on the owner machine on 2026-10-03 (NXR-055); Antigravity remains an owner-run follow-up.
 
 Original scope:
 
@@ -65,7 +65,7 @@ The NRC gained an explainable, quota-, cost- and history-aware policy, `resource
 Report: [`docs/devlog/v0.4-resource-intelligence-report.md`](../devlog/v0.4-resource-intelligence-report.md) ·
 next: [`v0.5-readiness.md`](v0.5-readiness.md).
 
-## v0.5 — Nexar Desktop _(in progress: phase 1 done)_
+## v0.5 — Nexar Desktop _(in progress: Operating Layer merged; NXR-054 remaining)_
 
 A desktop app on the owner's laptop, Windows first ([ADR-021](../adr/021-nexar-desktop.md)), that works
 on project folders like Claude Cowork or the Codex app, with Nexar's engine underneath. Owner-approved
@@ -82,14 +82,14 @@ themes, AI behavior settings, providers and scheduled tasks.
 - Scheduled tasks with budgets and approvals ([ADR-023](../adr/023-scheduled-tasks.md), NXR-054).
 - Code mode through the WSL2 engineering plane with DSH as the default agent (NXR-055).
 - Cowork through OpenWorker via the ADR-004 automations seam (NXR-056).
-
-## v0.6 — Nexar Mobile
-
-Mobile-first PWA and remote control via a local Nexar Control Plane daemon.
-
-- Control-plane ADR (daemon API, device pairing, remote access model).
-- Text + voice conversation, task status, approvals, notifications, artifact preview, project
-  switching, remote task triggering.
+- **Operating Layer** ([ADR-024](../adr/024-operating-layer-and-sessions.md)): persistent multi-turn
+  Operating Sessions (NXR-057) and intent/lane orchestration (NXR-058). One conversation per project;
+  the Operating Router picks the lane (Cowork/OpenWorker, Code/DSH or direct), the NRC picks the
+  resource. Order: Windows gate → sessions → providers → Code → Cowork → AI behavior → integrated E2E;
+  scheduled tasks (NXR-054) follow.
+- **State (2026-10-04):** NXR-051/052/053/055/056/057/058 merged (PR #36). NXR-055 is owner
+  live-validated; live validation of NXR-056, NXR-053, NXR-052 and the installer (NXR-051) remains.
+  Current state: [`project-current-state.md`](../devlog/project-current-state.md).
 
 ## v0.7 — Memory & Personal Context
 
@@ -100,6 +100,17 @@ privacy-scoped storage.
 
 Event-driven Nexar workflows (webhooks, file/email triggers) and an always-on scheduler, building on
 the in-app scheduled tasks of v0.5 (ADR-023), with approvals and budgets.
+
+## Nexar Mobile _(deferred)_
+
+Deferred by the owner (2026-10-02) until after the Operating Layer, Memory and Automation
+milestones; no mobile, control-plane daemon or remote access work before then.
+
+Mobile-first PWA and remote control via a local Nexar Control Plane daemon.
+
+- Control-plane ADR (daemon API, device pairing, remote access model).
+- Text + voice conversation, task status, approvals, notifications, artifact preview, project
+  switching, remote task triggering.
 
 ## v1.0 — Personal AI Operating Layer
 

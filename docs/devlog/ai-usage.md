@@ -141,3 +141,39 @@ v0.4 totals (observed values only):
 v0.5 phase 1 totals (observed values only): relay spend **$3.74** (desk-1 $0.521 + desk-2 resumed
 $3.215; the interrupted desk-2 run reported no cost). Cumulative observed relay spend v0.1 to v0.5
 phase 1: **about $50.44**. Opus spend and the remaining balance are not exposed and are not estimated.
+
+### Operating Layer continuation (2026-10-02)
+
+| Date       | Unit                                                         | Model      | Work                                                       | Observed usage                         | Outcome                                                                                                 |
+| ---------- | ------------------------------------------------------------ | ---------- | ---------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 2026-10-02 | Orchestrator session                                         | Opus 5.5   | Windows CI diagnosis and fix, ADR-024, NXR-057/058, review | Not exposed                            | `9a07693` pushed; architecture on `wip/sessions-impl`                                                   |
+| 2026-10-02 | sessions-1 relay attempt                                     | Sonnet 5.5 | `@nexar/sessions`                                          | none (the `claude` CLI not logged in)  | Relay exited before work; replaced by an in-session subagent                                            |
+| 2026-10-02 | sessions-1 `@nexar/sessions` (subagent)                      | Sonnet 5.5 | Package, contracts additions, 67 tests                     | 175,088 tokens, 37 tool uses, 12.3 min | Accepted after review with one amendment (interrupted task state); `9206a47` on wip branch              |
+| 2026-10-02 | sessions-2 Desktop sessions (subagent)                       | Sonnet 5.5 | Channels, background turns, renderer, E2E                  | 256,103 tokens, 58 tool uses, 16.6 min | Accepted after review; `10a6c59`                                                                        |
+| 2026-10-02 | operating-1 `@nexar/operating` (subagent)                    | Sonnet 5.5 | Intent, router, context, correlation, service, 224 tests   | 181,314 tokens, 42 tool uses           | Accepted after review with amendments (review affinity, confirmLane intent, fallback reason); `660fbbf` |
+| 2026-10-02 | operating-2 Desktop wiring (subagent)                        | Sonnet 5.5 | OperatingService in Desktop, confirm card, E2E             | 221,086 tokens, 46 tool uses, 12.8 min | Accepted after review with one amendment (artifact description scoping); `59afa19`                      |
+| 2026-10-03 | 055a plane protocol + serve (subagent)                       | Sonnet 5.5 | `@nexar/plane-protocol`, `nexar plane serve`               | 283,460 tokens, 67 tool uses           | Accepted; `5c653c2`                                                                                     |
+| 2026-10-03 | 055b Desktop Code lane (subagent)                            | Sonnet 5.5 | bridge client, readiness, approvals, executeCode           | 466,740 tokens, 192 tool uses          | Accepted with Opus amendments (honest lanes, option refusal); `487b851`                                 |
+| 2026-10-03 | 055c Code surface (subagent, resumed after a rate limit)     | Sonnet 5.5 | Code UI, Settings → Code, fake-plane E2E                   | 259,535 tokens (resume)                | Accepted; `bc14f01`                                                                                     |
+| 2026-10-03 | 055d report-only plans (relay)                               | Sonnet 5.5 | ChangePlan/ReportPlan, repository-report, plane review     | $2.339                                 | Accepted with clone self-cleanup; `f5c1304`                                                             |
+| 2026-10-03 | 055e Desktop review turns (relay)                            | Sonnet 5.5 | review on the Code lane, review panel, E2E                 | $1.429                                 | Accepted; `41fd1a9`                                                                                     |
+| 2026-10-03 | 056a OpenWorker adapter (relay)                              | Sonnet 5.5 | supervisor, session client, policy, fake server            | $1.177                                 | Accepted with upstream contract fixes (event envelope, interactive requests); `4a2b13b`                 |
+| 2026-10-03 | 056b Cowork lane wiring (relay, resumed after a usage limit) | Sonnet 5.5 | executeCowork, CoworkService, provider opt-in              | $1.002 + $3.654                        | Accepted with version-executable fix; `7453e7f`                                                         |
+| 2026-10-03 | 056c Cowork Desktop state (relay)                            | Sonnet 5.5 | banner, lane line, opt-in toggle, E2E                      | $0.848                                 | Accepted with re-probe and dispose race fix; `221aca4`                                                  |
+| 2026-10-03 | 053 AI behavior (relay)                                      | Sonnet 5.5 | settings, Cowork/Code profiles, implementation-plan        | $5.503                                 | Accepted; relay ended before its gate, Opus ran gates and fixed lint/E2E; `7494a9b`                     |
+| 2026-10-03 | Integrated Operating Layer E2E (relay)                       | Sonnet 5.5 | one-session Cowork → review → change E2E                   | $0.254                                 | Accepted; `f6f885a`                                                                                     |
+
+The in-session subagent reports tokens, not cost; no dollar figure is estimated.
+
+Codex continuation (2026-10-02): NXR-052b used bounded discovery/storage/UI subtasks and an
+independent config/secret-boundary review. The primary session owns integration, validation and
+commits. Codex account status after the natural reset reported 49% of the five-hour window used and
+72% of the weekly window used; two reset credits remain unused. Dollar cost and per-agent token
+usage are unavailable and are not estimated. No paid provider generation was used for these checks.
+
+NXR-052c continuation used bounded official-endpoint research, fake-HTTP coverage, a UI/E2E subtask,
+and the primary agent for contracts, host/main integration and review. Account status during final
+validation reported 79% of the five-hour allowance and 77% of the weekly allowance used; two reset
+credits remain unused. No dollar or per-agent token figures are exposed. The next major subsystem
+is deferred to continuation while the completed unit is checked, pushed and handed off.
+Final local validation reported 89% of the five-hour allowance and 78% of the weekly allowance used.

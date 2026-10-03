@@ -61,7 +61,8 @@ describe('nexar clients (in-process, offline)', () => {
     const stored = await readFile(file(), 'utf8');
     expect(stored).not.toContain(token);
     expect(stored).toContain(hashToken(token));
-    expect((await stat(file())).mode & 0o777).toBe(0o600);
+    // Windows chmod cannot express owner-only POSIX permission bits.
+    if (process.platform !== 'win32') expect((await stat(file())).mode & 0o777).toBe(0o600);
 
     const registry = await ClientRegistry.open(file());
     expect(registry.authenticate(token).clientId).toBe('openworker');

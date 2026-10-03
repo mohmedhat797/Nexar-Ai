@@ -9,11 +9,20 @@ import type {
   ExecutionResult,
   ResourceDescriptor,
   ResourceState,
+  SecretResolver,
 } from '@nexar/contracts';
 import type { ApprovalGate, ApprovalStore } from '@nexar/approvals';
 import { executeAcp } from './acp/run.js';
-import { buildBaseEnv, buildDshEnv, credentialEnvName } from './env.js';
+import {
+  assertKeystoreCredentialStored,
+  buildBaseEnv,
+  buildDshEnv,
+  credentialVariable,
+  resolveOwnCredential,
+} from './env.js';
 import { RunGuard } from './guard.js';
+import { piAiProviderVariable } from './overlay.js';
+import type { PiAiProviders } from './overlay.js';
 import { parseRuntimeOptions } from './options.js';
 import { DEEPSEEK_HARNESS_ADAPTER_ID, DSH_PINNED_VERSION } from './resource.js';
 import { mapFailure } from './failure.js';
@@ -39,6 +48,11 @@ export interface DeepSeekHarnessAdapterOptions {
   readonly stateDir?: string;
   /** Environment the allowlist is applied to. Default `process.env`. */
   readonly env?: NodeJS.ProcessEnv;
+  /**
+   * Resolves `keystore` credential references (injected by the host). Without it a keystore
+   * reference counts as not stored; the environment is never consulted for it.
+   */
+  readonly resolveSecret?: SecretResolver;
   readonly initializeTimeoutMs?: number;
   readonly defaultTimeoutMs?: number;
   readonly now?: () => Date;
@@ -61,6 +75,7 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
   private readonly binary: BinarySpec;
   private readonly stateDir: string | undefined;
   private readonly env: NodeJS.ProcessEnv;
+  private readonly resolveSecret: SecretResolver | undefined;
   private readonly initializeTimeoutMs: number;
   private readonly defaultTimeoutMs: number;
   private readonly now: () => Date;
@@ -70,6 +85,7 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
     this.binary = normalizeBinary(options.binary);
     this.stateDir = options.stateDir;
     this.env = options.env ?? process.env;
+    this.resolveSecret = options.resolveSecret;
     this.initializeTimeoutMs = options.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS;
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
     this.now = options.now ?? (() => new Date());
@@ -111,6 +127,7 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
         binary: this.binary,
         stateDir: this.stateDir ?? join(process.cwd(), DEFAULT_STATE_SUBDIR),
         env: this.env,
+        resolveSecret: this.resolveSecret,
         approvals: this.approvals,
         initializeTimeoutMs: this.initializeTimeoutMs,
         defaultTimeoutMs: this.defaultTimeoutMs,
@@ -120,9 +137,11 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
     const cwd = task.input.workingDirectory ?? process.cwd();
     const stateDir = this.stateDir ?? join(cwd, DEFAULT_STATE_SUBDIR);
     const timeoutMs = runtime.timeoutMs ?? this.defaultTimeoutMs;
+    assertKeystoreCredentialStored(resource, this.credentialSources());
     const env = buildDshEnv(this.env, resource, {
       stateDir,
       piAiProviders: runtime.piAiProviders,
+      resolveSecret: this.resolveSecret,
     });
     const secrets = secretValues(env, resource, runtime.piAiProviders);
     const emit = context.onEvent ?? (() => undefined);
@@ -230,10 +249,15 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
 
   private probeAuth(resource: ResourceDescriptor): AuthState {
     if (resource.auth.mode === 'none') return 'not-required';
-    const name = credentialEnvName(resource);
-    if (name === undefined) return 'unknown';
-    const value = this.env[name];
+    if (credentialVariable(resource) === undefined) return 'unknown';
+    const value = resolveOwnCredential(resource, this.credentialSources());
     return value !== undefined && value !== '' ? 'authenticated' : 'unauthenticated';
+  }
+
+  private credentialSources(): { env: NodeJS.ProcessEnv; resolveSecret?: SecretResolver } {
+    return this.resolveSecret === undefined
+      ? { env: this.env }
+      : { env: this.env, resolveSecret: this.resolveSecret };
   }
 }
 
@@ -247,11 +271,11 @@ async function requestShutdown(proc: RuntimeProcess): Promise<void> {
 function secretValues(
   env: Readonly<Record<string, string>>,
   resource: ResourceDescriptor,
-  piAiProviders: Readonly<Record<string, { apiKeyEnv: string }>> | undefined,
+  piAiProviders: PiAiProviders | undefined,
 ): string[] {
   const names = [
-    credentialEnvName(resource),
-    ...Object.values(piAiProviders ?? {}).map((p) => p.apiKeyEnv),
+    credentialVariable(resource)?.name,
+    ...Object.values(piAiProviders ?? {}).map((p) => piAiProviderVariable(p).name),
   ];
   return names.flatMap((name) => {
     const value = name === undefined ? undefined : env[name];

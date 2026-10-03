@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { lstat, open } from 'node:fs/promises';
 import { measured, unavailable } from '@nexar/contracts';
 import type { Measured, NexarErrorCode, UsageReport } from '@nexar/contracts';
 
@@ -47,9 +47,22 @@ const STATUSES: readonly string[] = [
 export async function readBoundedFile(path: string, maxBytes: number): Promise<string | undefined> {
   let handle;
   try {
+    // Windows does not enforce O_NOFOLLOW. Compare file identities before reading the handle.
+    const before = await lstat(path, { bigint: true });
+    if (!before.isFile() || before.size > BigInt(maxBytes)) return undefined;
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const info = await handle.stat();
-    if (!info.isFile() || info.size > maxBytes) return undefined;
+    const info = await handle.stat({ bigint: true });
+    const after = await lstat(path, { bigint: true });
+    if (
+      !info.isFile() ||
+      info.size > BigInt(maxBytes) ||
+      !after.isFile() ||
+      before.dev !== info.dev ||
+      before.ino !== info.ino ||
+      after.dev !== info.dev ||
+      after.ino !== info.ino
+    )
+      return undefined;
     return await handle.readFile({ encoding: 'utf8' });
   } catch {
     return undefined;

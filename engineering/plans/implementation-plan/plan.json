@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "implementation-plan",
+  "displayName": "Implementation plan",
+  "description": "One resource reads a private read-only checkout and returns an implementation plan. No patch, gates, approval or commit.",
+  "mode": "report",
+  "lanes": [
+    {
+      "id": "report",
+      "role": "report",
+      "access": "read-only",
+      "taskKind": "coding",
+      "capabilities": ["coding", "code-review"],
+      "system": "plan.system.md",
+      "brief": "plan.md"
+    }
+  ]
+}

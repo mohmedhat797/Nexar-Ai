@@ -1,6 +1,7 @@
 import { isNexarError } from '@nexar/contracts';
 import type { NexarError } from '@nexar/contracts';
 import { describe, expect, it } from 'vitest';
+import { resolve } from 'node:path';
 import {
   DEFAULT_ALLOW_HOSTS,
   checkRelayPin,
@@ -47,7 +48,7 @@ describe('readSettings', () => {
   it('applies defaults', () => {
     expect(readSettings(withOptions(valid))).toEqual({
       relay: 'codex',
-      relayPath: '/opt/ds/relay.mjs',
+      relayPath: resolve('/opt/ds/relay.mjs'),
       relaySha256: SHA,
       nodePath: 'node',
       timeout: '30m',
@@ -77,7 +78,7 @@ describe('readSettings', () => {
       effort: 'high',
       timeout: '1h30m',
       timeoutMs: 90 * 60 * 1000,
-      codexHome: '/home/o/.codex',
+      codexHome: resolve('/home/o/.codex'),
       allowHosts: ['api.openai.com'],
     });
   });

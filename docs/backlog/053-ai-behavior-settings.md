@@ -32,8 +32,8 @@ Each setting has a documented, tested mapping to Claude Code, Codex, DSH and pi-
 
 ## Acceptance criteria
 
-- [ ] Changing a setting changes the arguments or options the adapter sends (verified with fake runtimes).
-- [ ] Locked rules are displayed and cannot be altered through the bridge.
+- [x] Changing a setting changes the arguments or options the adapter sends (verified with fake runtimes).
+- [x] Locked rules are displayed and cannot be altered through the bridge.
 
 ## Testing expectations
 
@@ -42,3 +42,10 @@ Adapter contract tests per setting; bridge validation tests.
 ## Security considerations
 
 Settings can only narrow permissions relative to the sandbox and approval rules.
+
+## Status (2026-10-03)
+
+Implemented per the v1 support matrix in ADR-021 (amendment 2026-10-03), `7494a9b`: Cowork read
+only / drafts only / ask before every write; Code plan / auto-edit; preferred resource per mode as an
+NRC owner preference. "Ask before edits", "Full auto" and per-mode reasoning effort are rejected with
+a reason (not supported yet). Offline-tested (unit + E2E); live runs pending with the lanes.

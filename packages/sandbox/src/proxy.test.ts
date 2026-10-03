@@ -68,7 +68,8 @@ function exchange(socketPath: string, request: string, until?: RegExp): Promise<
 const connectRequest = (target: string, tail = ''): string =>
   `CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n${tail}`;
 
-describe('startEgressProxy', () => {
+// ADR-018: the egress proxy uses a POSIX Unix socket inside the Linux/WSL engineering plane.
+describe.skipIf(process.platform === 'win32')('startEgressProxy', () => {
   it('listens only on a 0600 unix socket and removes it on close', async () => {
     const p = await start();
     expect(p.address()).toBe(join(dir, 'p.sock'));

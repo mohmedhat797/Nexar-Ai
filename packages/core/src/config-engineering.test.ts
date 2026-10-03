@@ -47,7 +47,7 @@ describe('project engineering settings', () => {
   it('applies every default and resolves the repository against the FIRST root', () => {
     const parsed = parseConfig(config({}), 'test', { baseDir: '/base' });
     expect(parsed.projects[0]?.engineering).toEqual({
-      repository: '/base/work',
+      repository: resolve('/base/work'),
       baseBranch: 'main',
       setup: [],
       setupAllowHosts: [],
@@ -148,7 +148,7 @@ describe('global engineering settings', () => {
     );
     expect(parsed.engineering).toEqual({
       worktreesDir: join(homedir(), '.local/share/nexar/worktrees'),
-      toolchainPaths: ['/opt/node22', '/base/tools'],
+      toolchainPaths: [resolve('/opt/node22'), resolve('/base/tools')],
       author: { name: 'Bot', email: 'bot@example.invalid' },
       approvalTtlMs: 60_000,
     });

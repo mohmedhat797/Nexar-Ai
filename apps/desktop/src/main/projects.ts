@@ -61,58 +61,47 @@ async function addProject(ctx: CallContext): Promise<ProjectDto | null> {
     throw new NexarError('VALIDATION_ERROR', 'The selected folder is not accessible');
   }
 
-  const previousText = await config.readText();
-  const { project, added } = await config.update((raw) => {
-    const projects = Array.isArray(raw['projects']) ? (raw['projects'] as unknown[]) : [];
-    const entries = projects.filter(
-      (p): p is { id: string; displayName: string; roots: string[] } =>
-        typeof p === 'object' && p !== null,
-    );
-    const existing = entries.find((p) => p.roots[0] === root);
-    if (existing !== undefined) {
-      return {
-        added: false,
-        project: { id: existing.id, name: existing.displayName, root },
-      };
-    }
-    const id = slugForFolder(basename(root), new Set(entries.map((p) => p.id)));
-    const name = basename(root) || 'Project';
-    raw['projects'] = [...projects, { id, displayName: name, roots: [root] }];
-    return { added: true, project: { id, name, root } };
-  });
-  if (added) {
-    try {
-      await engine.reload();
-    } catch (error) {
-      // A project that does not load must not leave the app unable to start.
-      await config.restoreText(previousText);
-      await engine.reload().catch(() => undefined);
-      throw error;
-    }
-  }
+  const { project } = await config.update(
+    (raw) => {
+      const projects = Array.isArray(raw['projects']) ? (raw['projects'] as unknown[]) : [];
+      const entries = projects.filter(
+        (p): p is { id: string; displayName: string; roots: string[] } =>
+          typeof p === 'object' && p !== null,
+      );
+      const existing = entries.find((p) => p.roots[0] === root);
+      if (existing !== undefined) {
+        return {
+          added: false,
+          project: { id: existing.id, name: existing.displayName, root },
+        };
+      }
+      const id = slugForFolder(basename(root), new Set(entries.map((p) => p.id)));
+      const name = basename(root) || 'Project';
+      raw['projects'] = [...projects, { id, displayName: name, roots: [root] }];
+      return { added: true, project: { id, name, root } };
+    },
+    async ({ added }) => {
+      if (added) await engine.reload();
+    },
+  );
   return project;
 }
 
 async function removeProject(ctx: CallContext, id: string): Promise<{ removed: boolean }> {
   const { config, engine } = ctx.deps;
-  const previousText = await config.readText();
-  const removed = await config.update((raw) => {
-    const projects = Array.isArray(raw['projects']) ? (raw['projects'] as unknown[]) : [];
-    const kept = projects.filter(
-      (p) => !(typeof p === 'object' && p !== null && (p as { id?: unknown }).id === id),
-    );
-    raw['projects'] = kept;
-    return kept.length !== projects.length;
-  });
-  if (removed) {
-    try {
-      await engine.reload();
-    } catch (error) {
-      await config.restoreText(previousText);
-      await engine.reload().catch(() => undefined);
-      throw error;
-    }
-  }
+  const removed = await config.update(
+    (raw) => {
+      const projects = Array.isArray(raw['projects']) ? (raw['projects'] as unknown[]) : [];
+      const kept = projects.filter(
+        (p) => !(typeof p === 'object' && p !== null && (p as { id?: unknown }).id === id),
+      );
+      raw['projects'] = kept;
+      return kept.length !== projects.length;
+    },
+    async (changed) => {
+      if (changed) await engine.reload();
+    },
+  );
   return { removed };
 }
 

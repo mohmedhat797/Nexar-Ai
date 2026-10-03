@@ -75,9 +75,12 @@ describe('LocalArtifactStore', () => {
       sha256: createHash('sha256').update('# SOW\n').digest('hex'),
     });
     expect(await readFile(path, 'utf8')).toBe('# SOW\n');
-    expect(await mode(path)).toBe(0o600);
-    for (const d of ['.nexar', join('.nexar', 'artifacts'), taskDir]) {
-      expect(await mode(join(root, d))).toBe(0o700);
+    // Windows permissions are ACL-based; Node's mode bits do not represent them.
+    if (process.platform !== 'win32') {
+      expect(await mode(path)).toBe(0o600);
+      for (const d of ['.nexar', join('.nexar', 'artifacts'), taskDir]) {
+        expect(await mode(join(root, d))).toBe(0o700);
+      }
     }
   });
 
@@ -99,7 +102,7 @@ describe('LocalArtifactStore', () => {
     await store.store(input());
     const ignore = join(root, '.nexar', '.gitignore');
     expect(await readFile(ignore, 'utf8')).toBe('*\n');
-    expect(await mode(ignore)).toBe(0o600);
+    if (process.platform !== 'win32') expect(await mode(ignore)).toBe(0o600);
 
     await rm(join(root, '.nexar'), { recursive: true });
     await mkdir(join(root, '.nexar'));
@@ -128,33 +131,66 @@ describe('LocalArtifactStore', () => {
 
   it('fails after 99 names', async () => {
     const store = await makeStore();
-    for (let i = 0; i < 99; i++) await store.store(input());
+    const directory = join(root, taskDir);
+    await mkdir(directory, { recursive: true });
+    await Promise.all(
+      Array.from({ length: 99 }, (_, index) =>
+        writeFile(
+          join(directory, index === 0 ? 'sow.md' : `sow-${String(index + 1)}.md`),
+          'original',
+        ),
+      ),
+    );
     await expect(store.store(input())).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
-    expect(await readdir(join(root, taskDir))).toHaveLength(99);
+    expect(await readdir(directory)).toHaveLength(99);
+    expect(await readFile(join(directory, 'sow.md'), 'utf8')).toBe('original');
   });
 
-  it('does not follow a pre-existing symlink at the target name', async () => {
+  async function createFileSymlink(target: string, path: string): Promise<boolean> {
+    try {
+      await symlink(target, path, 'file');
+      return true;
+    } catch (error) {
+      // File links require Developer Mode/admin rights on Windows; junction coverage stays active.
+      if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  const directoryLink = process.platform === 'win32' ? 'junction' : 'dir';
+
+  it('does not follow a pre-existing symlink at the target name', async (context) => {
     const store = await makeStore();
     const target = join(outside, 'victim.txt');
     await writeFile(target, 'original');
     await mkdir(join(root, taskDir), { recursive: true });
-    await symlink(target, join(root, taskDir, 'sow.md'));
+    if (!(await createFileSymlink(target, join(root, taskDir, 'sow.md')))) {
+      context.skip('Windows file symlink privilege is unavailable');
+      return;
+    }
     const ref = await store.store(input());
     expect(fileURLToPath(ref.uri)).toBe(join(root, taskDir, 'sow-2.md'));
     expect(await readFile(target, 'utf8')).toBe('original');
   });
 
-  it('does not follow a dangling symlink at the target name', async () => {
+  it('does not follow a dangling symlink at the target name', async (context) => {
     const store = await makeStore();
     const target = join(outside, 'not-yet');
     await mkdir(join(root, taskDir), { recursive: true });
-    await symlink(target, join(root, taskDir, 'sow.md'));
-    await store.store(input());
+    if (!(await createFileSymlink(target, join(root, taskDir, 'sow.md')))) {
+      context.skip('Windows file symlink privilege is unavailable');
+      return;
+    }
+    const ref = await store.store(input());
     await expect(lstat(target)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(fileURLToPath(ref.uri)).toBe(join(root, taskDir, 'sow-2.md'));
+    expect((await lstat(join(root, taskDir, 'sow.md'))).isSymbolicLink()).toBe(true);
   });
 
   it('rejects a symlinked .nexar pointing outside and writes nothing there', async () => {
-    await symlink(outside, join(root, '.nexar'));
+    await symlink(outside, join(root, '.nexar'), directoryLink);
     const store = await makeStore();
     await expect(store.store(input())).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
     expect(await readdir(outside)).toEqual([]);
@@ -162,7 +198,7 @@ describe('LocalArtifactStore', () => {
 
   it('rejects a symlinked task directory pointing outside and writes nothing there', async () => {
     await mkdir(join(root, '.nexar', 'artifacts'), { recursive: true });
-    await symlink(outside, join(root, taskDir));
+    await symlink(outside, join(root, taskDir), directoryLink);
     const store = await makeStore();
     await expect(store.store(input())).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
     expect(await readdir(outside)).toEqual([]);
@@ -170,7 +206,7 @@ describe('LocalArtifactStore', () => {
 
   it('rejects a symlinked drafts directory pointing outside', async () => {
     await mkdir(join(root, taskDir), { recursive: true });
-    await symlink(outside, join(root, taskDir, 'drafts'));
+    await symlink(outside, join(root, taskDir, 'drafts'), directoryLink);
     const store = await makeStore();
     await expect(store.store(input({ draft: true }))).rejects.toMatchObject({
       code: 'POLICY_REJECTED',
@@ -229,7 +265,7 @@ describe('LocalArtifactStore', () => {
     });
 
     it('rejects a custom directory that is a symlink out of the root', async () => {
-      await symlink(outside, join(root, 'out'));
+      await symlink(outside, join(root, 'out'), directoryLink);
       const store = await makeStore('out');
       await expect(store.store(input())).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
       expect(await readdir(outside)).toEqual([]);
@@ -274,22 +310,33 @@ describe('LocalArtifactStore', () => {
       });
     });
 
-    it('ignores symlinks, directories and other tasks', async () => {
+    it('ignores directories and other tasks', async () => {
       const store = await makeStore();
       await store.store(input());
       await store.store(input({ taskId: taskId('other') }));
-      const secret = join(outside, 'secret.md');
-      await writeFile(secret, 'secret');
-      await symlink(secret, join(root, taskDir, 'link.md'));
       await mkdir(join(root, taskDir, 'subdir'));
       const refs = await store.list({ projectId: PID, taskId: TID });
       expect(refs.map((r) => r.label)).toEqual([join(taskDir, 'sow.md')]);
     });
 
+    it('ignores file symlinks', async (context) => {
+      const store = await makeStore();
+      await store.store(input());
+      const secret = join(outside, 'secret.md');
+      await writeFile(secret, 'secret');
+      if (!(await createFileSymlink(secret, join(root, taskDir, 'link.md')))) {
+        context.skip('Windows file symlink privilege is unavailable');
+        return;
+      }
+      expect((await store.list({ projectId: PID, taskId: TID })).map((r) => r.label)).toEqual([
+        join(taskDir, 'sow.md'),
+      ]);
+    });
+
     it('rejects a task directory symlinked outside the project', async () => {
       await mkdir(join(root, '.nexar', 'artifacts'), { recursive: true });
       await writeFile(join(outside, 'x.md'), 'x');
-      await symlink(outside, join(root, taskDir));
+      await symlink(outside, join(root, taskDir), directoryLink);
       const store = await makeStore();
       await expect(store.list({ projectId: PID, taskId: TID })).rejects.toMatchObject({
         code: 'POLICY_REJECTED',

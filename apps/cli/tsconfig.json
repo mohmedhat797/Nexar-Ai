@@ -7,6 +7,7 @@
   "include": ["src/**/*.ts"],
   "exclude": ["**/*.test.ts", "dist"],
   "references": [
+    { "path": "../../packages/process" },
     {
       "path": "../../packages/access"
     },
@@ -27,6 +28,9 @@
     },
     {
       "path": "../../packages/engineering"
+    },
+    {
+      "path": "../../packages/plane-protocol"
     },
     {
       "path": "../../packages/projects"
