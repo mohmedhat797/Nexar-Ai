@@ -107,6 +107,9 @@ importers:
       '@nexar/host':
         specifier: workspace:*
         version: link:../../packages/host
+      '@nexar/integration-openworker':
+        specifier: workspace:*
+        version: link:../../integrations/openworker
       '@nexar/operating':
         specifier: workspace:*
         version: link:../../packages/operating

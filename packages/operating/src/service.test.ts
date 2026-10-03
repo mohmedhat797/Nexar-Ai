@@ -223,7 +223,7 @@ describe('OperatingService', () => {
       expect(t1?.lane).toMatchObject({
         requestedLane: 'cowork',
         effectiveLane: 'direct',
-        fallbackReason: 'orchestrator-unavailable',
+        fallbackReason: 'openworker-unavailable',
       });
       expect(session.activeTurnId).toBeNull();
       expect(h.service.executions()).toBe(0);
@@ -1135,6 +1135,129 @@ describe('OperatingService', () => {
       const session = await h.session(s.id);
       expect(session.mode).toBe('cowork');
       expect(session.turns[0]?.lane).toMatchObject({ confirmed: true, effectiveLane: 'code' });
+    });
+  });
+
+  describe('cowork lane', () => {
+    function coworkHarness() {
+      return harness().then((h) => {
+        const requests: DirectRequest[] = [];
+        const executeCowork: NonNullable<OperatingPorts['executeCowork']> = async (request) => {
+          requests.push(request);
+          await request.onTask('task-cw');
+          return {
+            taskId: 'task-cw',
+            text: 'cowork answer',
+            artifacts: [{ uri: 'file:///projects/p/draft.md', label: 'draft' }],
+            resourceId: 'res-1',
+            policyId: 'deterministic@1',
+          };
+        };
+        h.availability.cowork = true;
+        return { h, requests, executeCowork, service: h.makeService({ executeCowork }) };
+      });
+    }
+
+    it('runs a cowork-lane turn through executeCowork with a depth 1 openworker correlation', async () => {
+      const { h, requests, service } = await coworkHarness();
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      expect(requests).toHaveLength(1);
+      expect(h.requests).toHaveLength(0);
+      expect(requests[0]?.correlation).toMatchObject({
+        depth: 1,
+        chain: ['nexar', 'openworker'],
+        currentOrchestrator: 'openworker',
+        correlationId: requests[0]?.turnId,
+      });
+      const turn = (await h.session(s.id)).turns[0];
+      expect(turn).toMatchObject({
+        state: 'succeeded',
+        lane: { requestedLane: 'cowork', effectiveLane: 'cowork' },
+        outcome: { text: 'cowork answer' },
+        tasks: [{ taskId: 'task-cw', state: 'succeeded', resourceId: 'res-1' }],
+      });
+      expect(turn?.lane?.fallbackReason).toBeUndefined();
+      expect(turn?.artifacts).toHaveLength(1);
+    });
+
+    it('falls back to direct with openworker-unavailable when the lane is unavailable', async () => {
+      const { h, requests, service } = await coworkHarness();
+      h.availability.cowork = false;
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      expect(requests).toHaveLength(0);
+      expect(h.requests).toHaveLength(1);
+      expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
+        effectiveLane: 'direct',
+        fallbackReason: 'openworker-unavailable',
+      });
+    });
+
+    it('falls back when there is no Cowork executor even if the lane reports available', async () => {
+      const { h, requests } = await coworkHarness();
+      const s = await h.newSession('cowork');
+      await h.makeService().submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Summarize this.',
+      });
+      await h.makeService().whenIdle();
+      expect(requests).toHaveLength(0);
+      expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
+        effectiveLane: 'direct',
+        fallbackReason: 'openworker-unavailable',
+      });
+    });
+
+    it('aborts a cowork run on cancel', async () => {
+      const h = await harness();
+      h.availability.cowork = true;
+      let started!: () => void;
+      const ready = new Promise<void>((resolve) => (started = resolve));
+      const service = h.makeService({
+        executeCowork: async (request, signal) => {
+          await request.onTask('task-cw');
+          started();
+          await new Promise((_, reject) =>
+            signal.addEventListener('abort', () =>
+              reject(new NexarError('EXECUTION_CANCELLED', 'aborted')),
+            ),
+          );
+          throw new Error('unreachable');
+        },
+      });
+      const s = await h.newSession('cowork');
+      const { turn } = await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'a long job',
+      });
+      await ready;
+      expect(service.cancel(s.id, turn.id)).toBe(true);
+      await service.whenIdle();
+      expect((await h.session(s.id)).turns[0]).toMatchObject({
+        state: 'cancelled',
+        tasks: [{ state: 'cancelled' }],
+      });
+    });
+
+    it('records a fixed error code when the cowork run fails', async () => {
+      const h = await harness();
+      h.availability.cowork = true;
+      const service = h.makeService({
+        executeCowork: () =>
+          Promise.reject(new NexarError('EXECUTION_TIMEOUT', 'OpenWorker did not finish in time')),
+      });
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'a job' });
+      await service.whenIdle();
+      expect((await h.session(s.id)).turns[0]).toMatchObject({
+        state: 'failed',
+        outcome: { error: { code: 'EXECUTION_TIMEOUT' } },
+      });
     });
   });
 });

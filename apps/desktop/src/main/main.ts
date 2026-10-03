@@ -7,6 +7,7 @@ import { checkProviderCredential, createNativeSubscriptions } from '@nexar/host'
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
 import { CodePlane } from './code-plane.js';
+import { CoworkService, createScriptSpawn } from './cowork.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
@@ -22,6 +23,7 @@ import {
 } from './plane-connection.js';
 import { ensurePrivateStateDirectory, PrivateStateError } from './private-state.js';
 import { SettingsStore } from './settings-store.js';
+import { newTask } from './tasks.js';
 import {
   bundlePaths,
   createMainWindow,
@@ -114,6 +116,7 @@ async function start(): Promise<void> {
     clipboard,
     config,
     engine,
+    settings,
     checkKey: (provider) =>
       checkProviderCredential(provider, { resolveSecret: keys.resolveSecret }),
   });
@@ -170,6 +173,39 @@ async function start(): Promise<void> {
   // Non-blocking: the lane reports "still being checked" until the first probe finishes.
   void codePlane.refresh();
 
+  // The Cowork lane (ADR-026): one supervised, private OpenWorker per process, started on first need
+  // (or at launch when the owner already allowed a provider). Under the test-only
+  // `NEXAR_DESKTOP_USER_DATA` override OpenWorker is never launched unless the fake named by
+  // `NEXAR_DESKTOP_TEST_OPENWORKER` is given. Neither variable is ever set in production.
+  const testOpenWorker = process.env['NEXAR_DESKTOP_TEST_OPENWORKER'];
+  const underTestOverride = userDataOverride !== undefined && userDataOverride !== '';
+  const cowork = new CoworkService({
+    settings,
+    engine,
+    keys,
+    logger,
+    stateDir: join(runtimePath, 'openworker'),
+    disabled: underTestOverride && !(testOpenWorker !== undefined && isAbsolute(testOpenWorker)),
+    ...(underTestOverride && testOpenWorker !== undefined && isAbsolute(testOpenWorker)
+      ? { spawn: createScriptSpawn(testOpenWorker) }
+      : {}),
+    createTask: (request, excludedResourceIds) =>
+      newTask(
+        engine,
+        {
+          projectId: request.projectId,
+          kind: request.kind,
+          prompt: request.prompt,
+          preferredResourceIds: request.preferredResourceIds,
+          maxCostUsd: request.maxCostUsd,
+          excludedResourceIds,
+        },
+        request.turnId,
+        { sessionId: request.sessionId, turnId: request.turnId },
+      ),
+  });
+  app.on('before-quit', () => void cowork.dispose());
+  void cowork.warm();
   const bridge = createBridge({
     engine,
     config,
@@ -185,6 +221,7 @@ async function start(): Promise<void> {
     decider: decider(),
     sessions,
     codePlane,
+    cowork,
     // A turn outlives the call that started it; every live window hears about it.
     broadcastSession: (event) => {
       for (const window of BrowserWindow.getAllWindows()) {

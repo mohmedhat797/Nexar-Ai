@@ -15,6 +15,7 @@ export const CHANNELS = {
   providersSaveKeyFromClipboard: 'providers:saveKeyFromClipboard',
   providersRemoveKey: 'providers:removeKey',
   providersCheckKey: 'providers:checkKey',
+  providersSetOpenWorkerAccess: 'providers:setOpenWorkerAccess',
   projectsList: 'projects:list',
   projectsAdd: 'projects:add',
   projectsRemove: 'projects:remove',
@@ -44,6 +45,8 @@ export const CHANNELS = {
   codeRefresh: 'code:refresh',
   codeSetPlaneProject: 'code:setPlaneProject',
   codeDiff: 'code:diff',
+  coworkStatus: 'cowork:status',
+  coworkRefresh: 'cowork:refresh',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];

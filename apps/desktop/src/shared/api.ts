@@ -190,6 +190,21 @@ export interface CodeDiffDto {
   readonly files: readonly string[];
 }
 
+/** The Cowork lane (supervised OpenWorker, ADR-026). Fixed texts and a version only. */
+export const COWORK_STATES = [
+  'ready',
+  'openworker-missing',
+  'unsupported-version',
+  'startup-failed',
+  'configuration-missing',
+  'checking',
+] as const;
+export interface CoworkStatusDto {
+  readonly state: (typeof COWORK_STATES)[number];
+  readonly reason: string;
+  readonly version?: string;
+}
+
 export interface WorkflowDto {
   readonly id: string;
   readonly displayName: string;
@@ -349,6 +364,11 @@ export interface NexarApi {
   saveProviderKeyFromClipboard(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   removeProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   checkProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
+  /** Owner opt-in: lets OpenWorker use this provider's saved key (never moves the key). */
+  setOpenWorkerAccess(args: {
+    provider: ApiProviderId;
+    allowed: boolean;
+  }): Promise<BridgeResult<ProviderRow>>;
   listProjects(): Promise<BridgeResult<readonly ProjectDto[]>>;
   /** Opens the native folder dialog in the main process; null when cancelled. */
   addProject(): Promise<BridgeResult<ProjectDto | null>>;
@@ -403,6 +423,9 @@ export interface NexarApi {
     planeProject: string | null;
   }): Promise<BridgeResult<PlaneStatusDto>>;
   getCodeDiff(args: { sessionId: string; turnId: string }): Promise<BridgeResult<CodeDiffDto>>;
+  coworkStatus(): Promise<BridgeResult<CoworkStatusDto>>;
+  /** Re-probes OpenWorker now (otherwise the status is cached for a minute). */
+  refreshCowork(): Promise<BridgeResult<CoworkStatusDto>>;
   /** Subscribes to task progress; returns the unsubscribe function. */
   onTaskEvent(callback: (event: TaskEvent) => void): () => void;
   /** Subscribes to Operating Session changes; returns the unsubscribe function. */

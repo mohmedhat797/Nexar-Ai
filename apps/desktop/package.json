@@ -20,6 +20,7 @@
     "@nexar/contracts": "workspace:*",
     "@nexar/core": "workspace:*",
     "@nexar/host": "workspace:*",
+    "@nexar/integration-openworker": "workspace:*",
     "@nexar/operating": "workspace:*",
     "@nexar/plane-protocol": "workspace:*",
     "@nexar/process": "workspace:*",

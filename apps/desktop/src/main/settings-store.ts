@@ -1,8 +1,10 @@
 import { readFile } from 'node:fs/promises';
+import { isAbsolute, win32 } from 'node:path';
 import { z } from 'zod';
 import { NexarError } from '@nexar/contracts';
 import { DENSITIES, MODES, THEMES, type DesktopSettings } from '../shared/api.js';
 import { PLANE_PROJECT_PATTERN } from '../shared/plane.js';
+import { API_PROVIDER_IDS } from '../shared/providers.js';
 import { writeFileAtomic } from './atomic-write.js';
 
 export const DEFAULT_SETTINGS: DesktopSettings = {
@@ -65,11 +67,55 @@ export const DEFAULT_CODE_PLANE: CodePlaneConfig = {
   projects: {},
 };
 
+// ---- Cowork lane (ADR-026) --------------------------------------------------------------------
+
+const BARE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export const DEFAULT_OPENWORKER_EXECUTABLE = 'openworker-server';
+/** `openworker version` (the CLI entry point); `openworker-server` takes server flags only. */
+export const DEFAULT_OPENWORKER_VERSION_EXECUTABLE = 'openworker';
+
+/** An absolute path (either platform) or a bare command name; never a relative path or a NUL. */
+export function validExecutable(value: string): boolean {
+  if (value.length === 0 || value.length > 1024 || value.includes('\0')) return false;
+  return BARE_COMMAND.test(value) || isAbsolute(value) || win32.isAbsolute(value);
+}
+
+const CoworkSchema = z.strictObject({
+  executable: z.string().refine(validExecutable, 'invalid executable').optional(),
+  /** Upstream's version command is the separate `openworker` CLI, not the server binary. */
+  versionExecutable: z.string().refine(validExecutable, 'invalid executable').optional(),
+  allowedProviders: z
+    .array(z.enum(API_PROVIDER_IDS))
+    .max(API_PROVIDER_IDS.length)
+    .default([])
+    .transform((list) => [...new Set(list)]),
+});
+
+/** Owner configuration of the Cowork lane; only `allowedProviders` is ever written by the app. */
+export interface CoworkConfig {
+  readonly executable?: string | undefined;
+  readonly versionExecutable?: string | undefined;
+  readonly allowedProviders: readonly string[];
+}
+
+/** A damaged `cowork` section fails closed (lane unavailable) and is preserved verbatim. */
+export type CoworkConfigResult =
+  { readonly valid: true; readonly value: CoworkConfig } | { readonly valid: false };
+
+const DEFAULT_COWORK: CoworkConfig = { allowedProviders: [] };
+
+function parseCowork(raw: unknown): CoworkConfigResult {
+  if (raw === undefined) return { valid: true, value: DEFAULT_COWORK };
+  const parsed = CoworkSchema.safeParse(raw);
+  return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
+}
 interface Loaded {
   readonly appearance: DesktopSettings;
   /** The raw `codePlane` value of the file (kept verbatim when invalid), or `undefined`. */
   readonly codePlaneRaw: unknown;
   readonly codePlane: CodePlaneConfigResult;
+  readonly coworkRaw: unknown;
+  readonly cowork: CoworkConfigResult;
 }
 
 function parseCodePlane(raw: unknown): CodePlaneConfigResult {
@@ -94,18 +140,26 @@ export class SettingsStore {
     if (this.current !== undefined) return this.current;
     let appearance: DesktopSettings = DEFAULT_SETTINGS;
     let codePlaneRaw: unknown;
+    let coworkRaw: unknown;
     try {
       const file = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
       if (typeof file === 'object' && file !== null && !Array.isArray(file)) {
-        const { codePlane, ...rest } = file as Record<string, unknown>;
+        const { codePlane, cowork, ...rest } = file as Record<string, unknown>;
         const parsed = AppearanceSchema.safeParse(rest);
         if (parsed.success) appearance = parsed.data;
         codePlaneRaw = Object.hasOwn(file, 'codePlane') ? codePlane : undefined;
+        coworkRaw = Object.hasOwn(file, 'cowork') ? cowork : undefined;
       }
     } catch {
       // Missing or unreadable: defaults.
     }
-    this.current = { appearance, codePlaneRaw, codePlane: parseCodePlane(codePlaneRaw) };
+    this.current = {
+      appearance,
+      codePlaneRaw,
+      codePlane: parseCodePlane(codePlaneRaw),
+      coworkRaw,
+      cowork: parseCowork(coworkRaw),
+    };
     return this.current;
   }
 
@@ -114,9 +168,13 @@ export class SettingsStore {
       next.codePlane.valid && next.codePlaneRaw === undefined
         ? {}
         : { codePlane: next.codePlane.valid ? next.codePlane.value : next.codePlaneRaw };
+    const coworkSection =
+      next.cowork.valid && next.coworkRaw === undefined
+        ? {}
+        : { cowork: next.cowork.valid ? next.cowork.value : next.coworkRaw };
     await writeFileAtomic(
       this.path,
-      JSON.stringify({ ...next.appearance, ...section }, null, 2) + '\n',
+      JSON.stringify({ ...next.appearance, ...section, ...coworkSection }, null, 2) + '\n',
     );
     this.current = next;
   }
@@ -180,6 +238,34 @@ export class SettingsStore {
         codePlaneRaw: value,
         codePlane: { valid: true, value },
       });
+      return value;
+    });
+  }
+
+  /** Main-process only: the validated Cowork configuration. */
+  async getCowork(): Promise<CoworkConfigResult> {
+    return (await this.load()).cowork;
+  }
+
+  /**
+   * Allows (or revokes) OpenWorker's use of one provider's key. Refused while the section is
+   * damaged. The key itself is never moved or copied.
+   */
+  setOpenWorkerAccess(provider: string, allowed: boolean): Promise<CoworkConfig> {
+    return this.serialized(async () => {
+      const loaded = await this.load();
+      if (!loaded.cowork.valid) {
+        throw new NexarError('CONFIGURATION_ERROR', 'The Cowork settings are not valid');
+      }
+      if (!(API_PROVIDER_IDS as readonly string[]).includes(provider)) {
+        throw new NexarError('VALIDATION_ERROR', 'Invalid provider');
+      }
+      const rest = loaded.cowork.value.allowedProviders.filter((p) => p !== provider);
+      const value: CoworkConfig = {
+        ...loaded.cowork.value,
+        allowedProviders: allowed ? [...rest, provider] : rest,
+      };
+      await this.write({ ...loaded, coworkRaw: value, cowork: { valid: true, value } });
       return value;
     });
   }

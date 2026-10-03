@@ -13,6 +13,7 @@ import type { Project } from '@nexar/projects';
 import type { ArtifactDto, MeasuredNumber, TaskResult } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
 import { toArtifactDto } from './artifacts.js';
+import type { EngineHost } from './engine-host.js';
 import {
   ProjectIdSchema,
   RequestIdSchema,
@@ -82,6 +83,8 @@ export interface TaskArgs {
   readonly prompt: string;
   readonly preferredResourceIds?: readonly string[] | undefined;
   readonly maxCostUsd?: number | undefined;
+  /** Set by Nexar only (never from a request): the Cowork lane excludes resources OpenWorker cannot use. */
+  readonly excludedResourceIds?: readonly string[] | undefined;
 }
 
 /** Operating Session lineage (ADR-024 section 2); set by Nexar, never taken from a request. */
@@ -97,7 +100,17 @@ export function createTask(
   requestId: string | undefined,
   lineage?: TaskLineage,
 ): NexarTask {
-  const { nexar } = ctx.deps.engine.composition().runtime;
+  return newTask(ctx.deps.engine, args, requestId, lineage);
+}
+
+/** createTask over the engine alone, for callers that have no call context. */
+export function newTask(
+  engine: EngineHost,
+  args: TaskArgs,
+  requestId: string | undefined,
+  lineage?: TaskLineage,
+): NexarTask {
+  const { nexar } = engine.composition().runtime;
   const preferred = args.preferredResourceIds ?? [];
   return nexar.createTask({
     kind: args.kind,
@@ -113,6 +126,9 @@ export function createTask(
       capabilities: [],
       ...(preferred.length === 0 ? {} : { preferredResourceIds: preferred.map(resourceId) }),
       ...(args.maxCostUsd === undefined ? {} : { maxCostUsd: args.maxCostUsd }),
+      ...(args.excludedResourceIds === undefined || args.excludedResourceIds.length === 0
+        ? {}
+        : { excludedResourceIds: args.excludedResourceIds.map(resourceId) }),
     },
   });
 }

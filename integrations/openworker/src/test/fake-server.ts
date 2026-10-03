@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
@@ -27,6 +28,8 @@ export interface FakeServerOptions {
   readonly startDelayMs?: number;
   readonly neverReady?: boolean;
   readonly failProviders?: boolean;
+  /** Writes draft.md into the turn workspace when its write permission is allowed. */
+  readonly writeDraft?: boolean;
   readonly onRecord?: (entry: { readonly kind: string; readonly body: unknown }) => void;
 }
 
@@ -218,6 +221,8 @@ export class FakeOpenWorkerServer {
         } else if (opcode === 1) {
           const frame = JSON.parse(payload.toString('utf8')) as Frame;
           this.frames.push(frame);
+          if (frame['type'] === 'user_message')
+            this.#options.onRecord?.({ kind: 'user_message', body: frame });
           const index = this.#waiters.findIndex((waiter) => waiter.type === frame['type']);
           if (index >= 0) this.#waiters.splice(index, 1)[0]!.resolve(frame);
           else if (frame['type'] === 'user_message') void this.#turn(socket, send, workspace);
@@ -280,7 +285,10 @@ export class FakeOpenWorkerServer {
       category: 'file',
       target: join(workspace, 'draft.md'),
     });
-    await this.#next('approval');
+    const approval = await this.#next('approval');
+    if (this.#options.writeDraft === true && approval['decision'] === 'allow') {
+      writeFileSync(join(workspace, 'draft.md'), 'DRAFT-CONTENT');
+    }
     send({ type: 'tool_started', name: 'write_file', arguments: { content: 'SECRET-ARGUMENT' } });
     send({ type: 'tool_finished', name: 'write_file' });
     send({

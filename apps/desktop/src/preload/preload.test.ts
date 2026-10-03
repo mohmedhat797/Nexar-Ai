@@ -22,6 +22,8 @@ const row = {
   lastFour: '7391',
   usableBy: ['pi', 'deepseek-harness'],
   modelCount: 2,
+  openWorkerSupported: true,
+  openWorkerAllowed: false,
 };
 const SECRET = 'sk-nexar-preload-sentinel-secret-7391';
 beforeEach(() => {

@@ -3,6 +3,7 @@ import type { NexarApi, SessionEvent, TaskEvent } from '../shared/api.js';
 import { CHANNELS, SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { z } from 'zod';
 import {
+  OpenWorkerAccessArgsSchema,
   ProviderArgsSchema,
   ProviderListSchema,
   ProviderRowSchema,
@@ -117,6 +118,13 @@ const api: NexarApi = {
     invokeProvider(CHANNELS.providersRemoveKey, { provider }, ProviderRowSchema),
   checkProviderKey: (provider) =>
     invokeProvider(CHANNELS.providersCheckKey, { provider }, ProviderRowSchema),
+  setOpenWorkerAccess: (args) =>
+    invokeProvider(
+      CHANNELS.providersSetOpenWorkerAccess,
+      args,
+      ProviderRowSchema,
+      OpenWorkerAccessArgsSchema,
+    ),
   listProjects: () => invoke(CHANNELS.projectsList, {}),
   addProject: () => invoke(CHANNELS.projectsAdd, {}),
   removeProject: (id) => invoke(CHANNELS.projectsRemove, { id }),
@@ -146,6 +154,8 @@ const api: NexarApi = {
   refreshCode: (args) => invoke(CHANNELS.codeRefresh, args),
   setPlaneProject: (args) => invoke(CHANNELS.codeSetPlaneProject, args),
   getCodeDiff: (args) => invoke(CHANNELS.codeDiff, args),
+  coworkStatus: () => invoke(CHANNELS.coworkStatus, {}),
+  refreshCowork: () => invoke(CHANNELS.coworkRefresh, {}),
   onTaskEvent(callback) {
     // The IPC event object (and its sender) is never handed to the page.
     const listener = (_event: unknown, payload: TaskEvent): void => callback(payload);

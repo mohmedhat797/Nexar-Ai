@@ -10,7 +10,7 @@ import type {
   TurnEngineering,
 } from '@nexar/sessions';
 import { buildContext } from './context.js';
-import { rootCorrelation } from './correlation.js';
+import { delegate, rootCorrelation } from './correlation.js';
 import type { OperatingCorrelation } from './correlation.js';
 import { classifyIntent } from './intent.js';
 import { confirmLane, decideLane } from './router.js';
@@ -47,6 +47,11 @@ export interface DirectResult {
   readonly policyId?: string;
   readonly fallback?: boolean;
 }
+
+/** A Cowork turn (ADR-026): the same request as a direct one; its correlation is already delegated. */
+export type CoworkRequest = DirectRequest;
+
+export type CoworkResult = Omit<DirectResult, 'fallback'>;
 
 /** The longest goal the engineering plane accepts (ADR-025: same bound as the runner). */
 export const MAX_CODE_GOAL_CHARS = 20_000;
@@ -105,6 +110,11 @@ export interface OperatingPorts {
   readonly executeDirect: (request: DirectRequest, signal: AbortSignal) => Promise<DirectResult>;
   /** The Code lane (ADR-025). Without it a `code` effective lane executes through `executeDirect`. */
   readonly executeCode?: (request: CodeRequest, signal: AbortSignal) => Promise<CodeResult>;
+  /**
+   * The Cowork lane (ADR-026). Without it a `cowork` effective lane is unavailable: the turn runs
+   * through `executeDirect`, recorded as such with `openworker-unavailable`.
+   */
+  readonly executeCowork?: (request: CoworkRequest, signal: AbortSignal) => Promise<CoworkResult>;
   /** A safe display name for an artifact of the session's own project, or undefined to drop it. */
   readonly describeArtifact?: (ref: ArtifactRef, projectId: string) => string | undefined;
   readonly onTurnChanged?: (sessionId: string, turnId: string) => void;
@@ -288,7 +298,9 @@ export class OperatingService {
 
   private availability(projectId: string): { readonly cowork: boolean; readonly code: boolean } {
     return {
-      cowork: this.ports.lanes.available('cowork', projectId),
+      // Same rule as the Code lane: no executor, no lane.
+      cowork:
+        this.ports.lanes.available('cowork', projectId) && this.ports.executeCowork !== undefined,
       // Without a Code executor the lane cannot run anything: report it unavailable, so engineering
       // writes are refused instead of silently executing direct.
       code: this.ports.executeCode !== undefined && this.ports.lanes.available('code', projectId),
@@ -382,6 +394,14 @@ export class OperatingService {
    * writes (`coding`) are never rewritten: without the lane they stay refused.
    */
   private honest(decision: LaneDecision, kind: TaskKind): LaneDecision {
+    // Cowork work is read/draft: an unavailable OpenWorker falls back to direct, recorded as such.
+    if (
+      decision.requestedLane === 'cowork' &&
+      decision.effectiveLane === 'direct' &&
+      decision.fallbackReason === 'orchestrator-unavailable'
+    ) {
+      return { ...decision, fallbackReason: 'openworker-unavailable' };
+    }
     if (decision.effectiveLane !== 'code' || kind === 'coding') return decision;
     const supported =
       kind === 'review' &&
@@ -403,9 +423,9 @@ export class OperatingService {
    * `coding`/`review` turns whose effective lane is `code` run through `executeCode` (the WSL2
    * engineering plane, ADR-025). Every other turn executes through `executeDirect`. That includes
    * `general`/`analysis`/... turns that merely inherit the `code` lane from the session mode: they
-   * must never become engineering writes. A `cowork` effective lane still uses `executeDirect`
-   * until the OpenWorker lane (NXR-056) exists: nothing here claims an orchestrator ran when it did
-   * not.
+   * must never become engineering writes. A `cowork` effective lane runs through `executeCowork`
+   * (the supervised OpenWorker, ADR-026) with a depth 1 `openworker` correlation; nothing here
+   * claims an orchestrator ran when it did not.
    */
   private async execute(
     sessionId: string,
@@ -541,23 +561,26 @@ export class OperatingService {
         return;
       }
 
-      const result = await this.ports.executeDirect(
-        {
-          sessionId,
-          turnId,
-          projectId: session.projectId,
-          kind,
-          prompt,
-          correlation: rootCorrelation(sessionId, turnId),
-          ...(options.preferredResourceIds === undefined
-            ? {}
-            : { preferredResourceIds: options.preferredResourceIds }),
-          ...(options.maxCostUsd === undefined ? {} : { maxCostUsd: options.maxCostUsd }),
-          onTask: link,
-          onProgress,
-        },
-        controller.signal,
-      );
+      const executeCowork = this.ports.executeCowork;
+      const viaCowork = turn.lane?.effectiveLane === 'cowork' && executeCowork !== undefined;
+      const root = rootCorrelation(sessionId, turnId);
+      const request: DirectRequest = {
+        sessionId,
+        turnId,
+        projectId: session.projectId,
+        kind,
+        prompt,
+        correlation: viaCowork ? delegate(root, 'openworker') : root,
+        ...(options.preferredResourceIds === undefined
+          ? {}
+          : { preferredResourceIds: options.preferredResourceIds }),
+        ...(options.maxCostUsd === undefined ? {} : { maxCostUsd: options.maxCostUsd }),
+        onTask: link,
+        onProgress,
+      };
+      const result: DirectResult = viaCowork
+        ? await executeCowork(request, controller.signal)
+        : await this.ports.executeDirect(request, controller.signal);
 
       await link(result.taskId);
       if (result.artifacts.length > 0) {

@@ -29,6 +29,8 @@ export {
 export type {
   CodeRequest,
   CodeResult,
+  CoworkRequest,
+  CoworkResult,
   DirectRequest,
   DirectResult,
   OperatingPorts,
