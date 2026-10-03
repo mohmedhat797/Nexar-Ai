@@ -174,8 +174,12 @@ export function EngineeringPanel({
     eng === undefined
       ? (STATE_STATUS[turn.state] ?? turn.state)
       : ENGINEERING_STATUS_LABEL[eng.status];
+  // A review is read-only: a report (shown as the turn result), never files, gates or an approval.
+  const report = eng?.status === 'reported' || turn.intent?.kind === 'review';
   const canShowDiff =
-    approval !== undefined || eng?.status === 'committed' || eng?.status === 'not-accepted';
+    !report &&
+    (approval !== undefined || eng?.status === 'committed' || eng?.status === 'not-accepted');
+  const resources = eng?.lanes ?? [];
 
   const decide = (decision: 'approve' | 'deny'): void => {
     if (approval === undefined) return;
@@ -198,8 +202,12 @@ export function EngineeringPanel({
   };
 
   return (
-    <section className="card eng-panel" data-testid="engineering-panel" aria-label="Engineering">
-      <h2>Engineering</h2>
+    <section
+      className="card eng-panel"
+      data-testid="engineering-panel"
+      aria-label={report ? 'Repository review' : 'Engineering'}
+    >
+      <h2>{report ? 'Repository review' : 'Engineering'}</h2>
       <dl className="facts">
         <Row label="Goal" testId="eng-goal">
           {clipGoal(turn.text)}
@@ -225,36 +233,53 @@ export function EngineeringPanel({
         <Row label="Status" testId="eng-status">
           {status}
         </Row>
-        {files !== undefined && (
+        {report && (
+          <Row label="Plan" testId="eng-plan">
+            Repository report
+          </Row>
+        )}
+        {resources.length > 0 && (
+          <Row label="Resources" testId="eng-resources">
+            {resources.map((lane) => `${lane.role}: ${lane.resourceId}`).join(', ')}
+          </Row>
+        )}
+        {!report && files !== undefined && (
           <Row label="Files changed" testId="eng-files">
             {String(files)}
           </Row>
         )}
-        {gates !== undefined && (
+        {!report && gates !== undefined && (
           <Row label="Gates passed" testId="eng-gates">
             {String(gates)}
           </Row>
         )}
-        {verdict !== undefined && (
+        {!report && verdict !== undefined && (
           <Row label="Review verdict" testId="eng-verdict">
             {verdict}
           </Row>
         )}
-        <Row label="Approval" testId="eng-approval">
-          {APPROVAL_LABEL[state]}
-        </Row>
-        {branch !== undefined && (
+        {!report && (
+          <Row label="Approval" testId="eng-approval">
+            {APPROVAL_LABEL[state]}
+          </Row>
+        )}
+        {!report && branch !== undefined && (
           <Row label="Branch" testId="eng-branch">
             {branch}
           </Row>
         )}
-        {eng?.commit !== undefined && (
+        {!report && eng?.commit !== undefined && (
           <Row label="Commit" testId="eng-commit">
             {shortSha(eng.commit)}
           </Row>
         )}
       </dl>
-      {state === 'pending' && approval !== undefined && (
+      {report && eng?.status === 'reported' && (
+        <p className="small muted" data-testid="eng-report-note">
+          The report is shown above as this turn’s result.
+        </p>
+      )}
+      {!report && state === 'pending' && approval !== undefined && (
         <div className="eng-approve" data-testid="eng-approve">
           <div className="row">
             <button

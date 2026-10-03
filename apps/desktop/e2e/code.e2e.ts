@@ -152,6 +152,75 @@ describe('Nexar Desktop Code lane', () => {
     await harness.close(app);
   });
 
+  it('runs a confirmed review on the plane and keeps the report and panel after a relaunch', async () => {
+    const userData = harness.newUserData('review-plane');
+    const planeEnv = { NEXAR_DESKTOP_TEST_PLANE: FAKE_PLANE };
+    let { app, page } = await harness.launch(userData, planeEnv);
+    await addProject(app, page, harness.projectDir);
+
+    // Map the project from Code mode, then work in a Cowork conversation.
+    await page.getByTestId('mode-code').click();
+    const banner = page.getByTestId('code-banner');
+    await expect
+      .poll(() => banner.getAttribute('data-state').catch(() => null), POLL)
+      .toBe('project-unmapped');
+    await page.getByTestId('plane-project-input').fill('plane-proj');
+    await page.getByTestId('plane-project-save').click();
+    await expect
+      .poll(() => banner.getAttribute('data-state').catch(() => null), POLL)
+      .toBe('ready');
+
+    await page.getByTestId('mode-cowork').click();
+    await page.getByTestId('nav-chat').click();
+    await page.getByTestId('new-conversation').click();
+    await page
+      .getByLabel('Message')
+      .fill('Now verify whether the repository implementation supports this proposal.');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await isVisible(page.getByTestId('lane-confirm'));
+    await page.getByRole('button', { name: 'Run in code lane' }).click();
+
+    const turn = page.getByTestId('turn').first();
+    await expect.poll(() => turn.getAttribute('data-state'), POLL).toBe('succeeded');
+    const expectReview = async (): Promise<void> => {
+      await hasText(page.getByTestId('result-text'), 'The repository implementation supports');
+      const panel = page.getByTestId('engineering-panel');
+      await hasText(panel, 'Repository review');
+      await hasText(page.getByTestId('eng-status'), 'Reported');
+      await hasText(page.getByTestId('eng-plan'), 'Repository report');
+      await hasText(page.getByTestId('eng-resources'), 'report: dsh:deepseek');
+      await hasText(page.getByTestId('lane-effective'), 'Lane: code');
+      for (const id of [
+        'show-diff',
+        'eng-files',
+        'eng-gates',
+        'eng-verdict',
+        'eng-approval',
+        'eng-branch',
+        'eng-commit',
+        'approve-commit',
+        'deny-commit',
+      ]) {
+        expect(await page.getByTestId(id).count()).toBe(0);
+      }
+    };
+    await expectReview();
+    expect(await page.getByTestId('lane-fallback').count()).toBe(0);
+
+    await page.getByTestId('nav-approvals').click();
+    await isVisible(page.getByTestId('approvals-empty'));
+    expect(await page.getByTestId('approval-card').count()).toBe(0);
+    await page.getByTestId('nav-chat').click();
+
+    // --- relaunch: the report and the panel are still there ---
+    await harness.close(app);
+    ({ app, page } = await harness.launch(userData, planeEnv));
+    await expect.poll(() => page.getByTestId('turn').count(), POLL).toBe(1);
+    await expectReview();
+
+    await harness.close(app);
+  });
+
   it('shows why the Code lane cannot run and refuses an engineering request', async () => {
     const userData = harness.newUserData('without-plane');
     const { app, page } = await harness.launch(userData);

@@ -12,7 +12,7 @@ import {
   type ProgressEvent,
   type RunOutcome,
 } from '@nexar/plane-protocol';
-import type { TurnEngineering } from '@nexar/sessions';
+import { MAX_OUTCOME_CHARS, type TurnEngineering } from '@nexar/sessions';
 import type {
   ApprovalDto,
   CodeDiffDto,
@@ -71,6 +71,8 @@ export const DEFAULT_TIMINGS: PlaneTimings = {
 export const MAX_STORED_DIFFS = 16;
 /** Concurrent plane processes for runs. */
 export const MAX_ACTIVE_RUNS = 4;
+/** The plan the plane always runs for a review intent (ADR-025 amendment). */
+const REPORT_PLAN = 'repository-report';
 const MAX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FINGERPRINT_PREFIX = 12;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
@@ -174,7 +176,7 @@ export function progressLine(event: ProgressEvent): {
   }
 }
 
-const OUTCOME_LINES: Readonly<Record<TurnEngineering['status'], string>> = {
+const OUTCOME_LINES: Readonly<Record<Exclude<TurnEngineering['status'], 'reported'>, string>> = {
   committed: 'The engineering changes were committed.',
   'not-accepted': 'The engineering changes were not accepted. Nothing was committed.',
   failed: 'The engineering run did not complete. Nothing was committed.',
@@ -182,7 +184,10 @@ const OUTCOME_LINES: Readonly<Record<TurnEngineering['status'], string>> = {
 };
 
 /** The fixed-format summary stored as the turn text: scalars only, never diff content. */
-function summaryText(engineering: TurnEngineering, reason: string | undefined): string {
+function summaryText(
+  engineering: TurnEngineering & { readonly status: keyof typeof OUTCOME_LINES },
+  reason: string | undefined,
+): string {
   const lines = [OUTCOME_LINES[engineering.status]];
   if (reason !== undefined && IDENTIFIER.test(reason)) lines.push(`Reason: ${reason}`);
   if (engineering.branch !== undefined) lines.push(`Branch: ${plain(engineering.branch)}`);
@@ -235,6 +240,7 @@ export class CodePlane {
   private readonly runs = new Map<string, RunContext>();
   private readonly pending = new Map<string, PendingApproval>();
   private readonly diffs = new Map<string, CodeDiffDto>();
+  private reportAdvertised = false;
   private disposed = false;
 
   constructor(private readonly options: CodePlaneOptions) {
@@ -360,7 +366,16 @@ export class CodePlane {
     }
   }
 
+  /**
+   * Whether read-only review turns can run on the plane: it advertised `repository-report` at its
+   * last handshake and is ready. Unknown (never probed, or not ready) is `false`.
+   */
+  supportsReport(): boolean {
+    return this.cached?.status.state === 'ready' && this.reportAdvertised;
+  }
+
   private statusFromReady(ready: Extract<PlaneFrame, { type: 'ready' }>): PlaneStatus {
+    this.reportAdvertised = ready.readiness.plans.includes(REPORT_PLAN);
     const state = stateFromReadiness(ready.readiness);
     return this.statusOf(state, {
       planeVersion: plain(ready.planeVersion),
@@ -749,17 +764,29 @@ export class CodePlane {
         'INTEGRATION_UNAVAILABLE',
         'The engineering run ended without an outcome',
       );
-    // Desktop does not ask for report runs yet (next unit); a `reported` outcome is unexpected.
+    const lanes = outcome.lanes;
+    const laneFields =
+      lanes === undefined || lanes.length === 0
+        ? {}
+        : { lanes: lanes.map(({ role, resourceId }) => ({ role, resourceId })) };
     const status = outcome.status;
     if (status === 'reported') {
-      throw new NexarError(
-        'INTEGRATION_UNAVAILABLE',
-        'The engineering plane sent an invalid message',
-      );
+      // Only a review run may end `reported`, and it must carry the report.
+      if (request.intent !== 'review' || outcome.report === undefined) {
+        throw new NexarError('INTERNAL_ERROR', 'The engineering plane sent an unexpected outcome');
+      }
+      const { text, truncated } = boundReport(outcome.report.text);
+      return {
+        taskId: outcome.taskId,
+        text,
+        ...(truncated || outcome.report.truncated ? { textTruncated: true } : {}),
+        engineering: { planeTaskId: outcome.taskId, status, ...laneFields },
+      };
     }
-    const engineering: TurnEngineering = {
+    const engineering = {
       planeTaskId: outcome.taskId,
       status,
+      ...laneFields,
       ...(outcome.branch === undefined ? {} : { branch: outcome.branch }),
       ...(outcome.commit === undefined ? {} : { commit: outcome.commit }),
       ...(summary === undefined
@@ -807,6 +834,15 @@ export class CodePlane {
     this.disposed = true;
     for (const run of this.runs.values()) void run.conn.kill();
   }
+}
+
+/** The report as the turn text: never longer than the turn outcome limit, not split mid-pair. */
+function boundReport(text: string): { readonly text: string; readonly truncated: boolean } {
+  if (text.length <= MAX_OUTCOME_CHARS) return { text, truncated: false };
+  let end = MAX_OUTCOME_CHARS;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return { text: text.slice(0, end), truncated: true };
 }
 
 function codeOf(error: unknown): string {

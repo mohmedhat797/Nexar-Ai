@@ -90,6 +90,15 @@ describe('session records', () => {
       r['activeTurnId'] = null;
     });
     expect(parseSession(stored).turns[0]?.outcome?.engineering).toEqual(engineering);
+    const reported = {
+      planeTaskId: 'task_1',
+      status: 'reported',
+      lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+    };
+    const storedReport = edit((r) => {
+      turnOf(r)['outcome'] = { text: 'x', engineering: reported };
+    });
+    expect(parseSession(storedReport).turns[0]?.outcome?.engineering).toEqual(reported);
     for (const bad of [
       { ...engineering, status: 'bogus' },
       { ...engineering, extra: 1 },
@@ -97,6 +106,8 @@ describe('session records', () => {
       { ...engineering, commit: 'zz' },
       { ...engineering, files: -2 },
       { ...engineering, approvalId: 'apr_x' },
+      { ...engineering, lanes: [{ role: 'r', resourceId: 'x', extra: 1 }] },
+      { ...engineering, lanes: Array.from({ length: 17 }, () => ({ role: 'r', resourceId: 'x' })) },
     ]) {
       expectCorrupt(
         edit((r) => {

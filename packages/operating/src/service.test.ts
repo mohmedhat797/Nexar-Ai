@@ -923,6 +923,41 @@ describe('OperatingService', () => {
       expect(requests[0]?.intent).toBe('review');
     });
 
+    it('ends a reported review as succeeded with the report text and its truncation flag', async () => {
+      const { h, service } = await codeHarness(async (request) => {
+        await request.onTask('task_9');
+        return {
+          taskId: 'task_9',
+          text: '# Report',
+          textTruncated: true,
+          engineering: {
+            planeTaskId: 'task_9',
+            status: 'reported' as const,
+            lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+          },
+        };
+      });
+      const s = await h.newSession('code');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Review the code in this repository.',
+      });
+      await service.whenIdle();
+      const stored = (await h.session(s.id)).turns[0];
+      expect(stored?.state).toBe('succeeded');
+      expect(stored?.tasks[0]?.state).toBe('succeeded');
+      expect(stored?.outcome).toMatchObject({
+        text: '# Report',
+        textTruncated: true,
+        engineering: {
+          status: 'reported',
+          lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+        },
+      });
+      expect(stored?.outcome?.error).toBeUndefined();
+    });
+
     it('never turns a non-engineering turn into an engineering write', async () => {
       const { h, service, requests } = await codeHarness();
       const s = await h.newSession('code');

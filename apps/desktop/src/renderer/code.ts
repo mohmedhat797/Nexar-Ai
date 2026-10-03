@@ -25,7 +25,7 @@ export const COMMIT_NOTE =
 /** Fallback texts for a turn that ran with Nexar direct execution instead of the Code lane. */
 const FALLBACK_TEXT: Readonly<Record<string, string>> = {
   'code-report-unavailable':
-    'Read-only repository review runs with Nexar direct execution until report-only engineering plans exist.',
+    'Read-only repository review ran with Nexar direct execution: the engineering plane has no report-only plan.',
   'code-engineering-only':
     'Only engineering requests run on the engineering plane; this one ran with Nexar direct execution.',
 };
@@ -121,6 +121,7 @@ export function pendingFor(
 
 export const ENGINEERING_STATUS_LABEL = {
   committed: 'Committed',
+  reported: 'Reported',
   'not-accepted': 'Not accepted',
   failed: 'Failed',
   cancelled: 'Cancelled',

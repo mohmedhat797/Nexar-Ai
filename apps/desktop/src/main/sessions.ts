@@ -143,6 +143,14 @@ function toEngineeringDto(e: TurnEngineering): TurnEngineeringDto {
   return {
     planeTaskId: e.planeTaskId,
     status: e.status,
+    ...(e.lanes === undefined
+      ? {}
+      : {
+          lanes: e.lanes.map((lane) => ({
+            role: plainText(lane.role),
+            resourceId: plainText(lane.resourceId),
+          })),
+        }),
     ...(e.branch === undefined ? {} : { branch: plainText(e.branch) }),
     ...(e.commit === undefined ? {} : { commit: e.commit }),
     ...(e.files === undefined ? {} : { files: e.files }),

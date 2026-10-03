@@ -290,7 +290,9 @@ export interface TurnDto {
 
 export interface TurnEngineeringDto {
   readonly planeTaskId: string;
-  readonly status: 'committed' | 'not-accepted' | 'failed' | 'cancelled';
+  readonly status: 'committed' | 'reported' | 'not-accepted' | 'failed' | 'cancelled';
+  /** Lane role to the resource id that served it (change and report runs). */
+  readonly lanes?: readonly { readonly role: string; readonly resourceId: string }[];
   readonly branch?: string;
   readonly commit?: string;
   readonly files?: number;

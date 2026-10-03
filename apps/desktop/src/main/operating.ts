@@ -93,8 +93,10 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
       // project. Nexar never reports a lane as available when it cannot run it.
       available: (lane, projectId) => lane === 'code' && (codePlane?.available(projectId) ?? false),
       reason: (lane, projectId) => (lane === 'code' ? codePlane?.reason(projectId) : undefined),
-      // Report-only plans do not exist yet: read-only review turns run direct, recorded as such.
-      supports: (lane, kind) => !(lane === 'code' && kind === 'review'),
+      // A read-only review turn runs on the plane only when it advertises the report-only plan
+      // (false while unknown); otherwise it runs direct, recorded as such.
+      supports: (lane, kind) =>
+        !(lane === 'code' && kind === 'review') || (codePlane?.supportsReport() ?? false),
     },
     executeDirect,
     ...(codePlane === undefined

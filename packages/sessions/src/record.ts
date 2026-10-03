@@ -10,6 +10,7 @@ import {
 import {
   MAX_APPROVALS_PER_TURN,
   MAX_ARTIFACTS_PER_TURN,
+  MAX_ENGINEERING_LANES,
   MAX_ERROR_MESSAGE_CHARS,
   MAX_OUTCOME_CHARS,
   MAX_TASKS_PER_TURN,
@@ -114,7 +115,11 @@ const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
 const engineeringSchema = z.strictObject({
   planeTaskId: z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/),
-  status: z.enum(['committed', 'not-accepted', 'failed', 'cancelled']),
+  status: z.enum(['committed', 'reported', 'not-accepted', 'failed', 'cancelled']),
+  lanes: z
+    .array(z.strictObject({ role: label(64), resourceId: label(128) }))
+    .max(MAX_ENGINEERING_LANES)
+    .optional(),
   branch: label(200).optional(),
   commit: z
     .string()

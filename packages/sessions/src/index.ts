@@ -21,6 +21,7 @@ export {
 export {
   MAX_APPROVALS_PER_TURN,
   MAX_ARTIFACTS_PER_TURN,
+  MAX_ENGINEERING_LANES,
   MAX_ERROR_MESSAGE_CHARS,
   MAX_LIST,
   MAX_OUTCOME_CHARS,
@@ -68,6 +69,7 @@ export type {
   SessionSummary,
   Turn,
   TurnEngineering,
+  TurnEngineeringLane,
   TurnEngineeringStatus,
   TurnIntent,
   TurnOutcome,

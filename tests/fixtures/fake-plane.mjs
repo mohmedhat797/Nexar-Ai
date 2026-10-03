@@ -9,7 +9,10 @@
 //     no-projects | malformed | oversized
 //   NEXAR_FAKE_PLANE_RUN       behaviour of a `run` (default `commit`):
 //     commit | approve | not-accepted | failed | cancel-wait | ignore-cancel | crash | hang-run |
-//     error-run | garbage | oversized-run
+//     error-run | garbage | oversized-run | reported (a coding run that wrongly ends `reported`)
+//   NEXAR_FAKE_PLANE_NO_REPORT `1` does not advertise `repository-report` and refuses reviews
+//   NEXAR_FAKE_PLANE_REPORT    `big` makes the report large; `truncated` flags it truncated
+//   NEXAR_FAKE_PLANE_LANES     `1` makes a committed outcome list its lanes
 //   NEXAR_FAKE_PLANE_PROJECTS  comma separated plane project ids (default `plane-proj`)
 //   NEXAR_FAKE_PLANE_DIFF      `big` makes the diff large and truncated
 //   NEXAR_FAKE_PLANE_LOG       when set, a JSON-lines log of the frames received and of the
@@ -20,6 +23,7 @@ const scenario = process.env.NEXAR_FAKE_PLANE_SCENARIO ?? 'healthy';
 const runBehavior = process.env.NEXAR_FAKE_PLANE_RUN ?? 'commit';
 const projects = (process.env.NEXAR_FAKE_PLANE_PROJECTS ?? 'plane-proj').split(',').filter(Boolean);
 const logPath = process.env.NEXAR_FAKE_PLANE_LOG;
+const reportPlan = process.env.NEXAR_FAKE_PLANE_NO_REPORT !== '1';
 
 const TASK_ID = 'task_fake_1';
 const APPROVAL_ID = `apr_${'f'.repeat(32)}`;
@@ -41,7 +45,7 @@ function readiness() {
     automount: 'disabled',
     interop: 'disabled',
     kernel: '5.15.0-fake-WSL2',
-    plans: ['implement-review'],
+    plans: reportPlan ? ['implement-review', 'repository-report'] : ['implement-review'],
     projects,
   };
   switch (scenario) {
@@ -87,6 +91,27 @@ function summary() {
   };
 }
 
+function runReport(runId) {
+  send({
+    type: 'progress',
+    runId,
+    event: { type: 'lane.started', lane: 'report', role: 'report', round: 1 },
+  });
+  send({ type: 'progress', runId, event: { type: 'step', step: 'lane.completed', detail: {} } });
+  const big = process.env.NEXAR_FAKE_PLANE_REPORT === 'big';
+  completed(runId, {
+    taskId: TASK_ID,
+    status: 'reported',
+    report: {
+      text: big
+        ? `# Repository review\n${'finding\n'.repeat(8_000)}`
+        : '# Repository review\n\nThe repository implementation supports this proposal.\n\n- src/index.ts: entry point wires the proposal.\n',
+      truncated: process.env.NEXAR_FAKE_PLANE_REPORT === 'truncated',
+    },
+    lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+  });
+}
+
 function handleRun(frame) {
   if (activeRun !== undefined) {
     send({
@@ -97,18 +122,23 @@ function handleRun(frame) {
     });
     return;
   }
-  if (frame.intent === 'review') {
+  if (frame.intent === 'review' && !reportPlan) {
     send({
       type: 'error',
       runId: frame.runId,
       code: 'POLICY_REJECTED',
-      message: 'Report-only engineering plans are not available yet',
+      message: 'Report-only engineering plans are not available',
     });
     return;
   }
   const runId = frame.runId;
   activeRun = { runId };
   send({ type: 'progress', runId, event: { type: 'step', step: 'task.started', detail: {} } });
+  if (frame.intent === 'review' || runBehavior === 'reported') {
+    // `reported` makes a coding run end reported too: a protocol violation Desktop must refuse.
+    runReport(runId);
+    return;
+  }
   switch (runBehavior) {
     case 'commit':
       knownTask = true;
@@ -127,6 +157,14 @@ function handleRun(frame) {
         status: 'committed',
         branch: 'nexar/task-fake-1',
         commit: COMMIT,
+        ...(process.env.NEXAR_FAKE_PLANE_LANES === '1'
+          ? {
+              lanes: [
+                { role: 'implementation', resourceId: 'dsh:deepseek' },
+                { role: 'review', resourceId: 'claude-code:sonnet' },
+              ],
+            }
+          : {}),
       });
       break;
     case 'approve': {

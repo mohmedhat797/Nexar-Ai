@@ -74,6 +74,8 @@ export interface CodeResult {
   readonly taskId: string;
   /** A short fixed-format summary built by the port: never diff content, paths or prompts. */
   readonly text: string;
+  /** The text was cut at a bound (a report run only). */
+  readonly textTruncated?: boolean;
   readonly engineering: TurnEngineering;
 }
 
@@ -513,13 +515,15 @@ export class OperatingService {
         await link(result.taskId);
         const { engineering } = result;
         const cancelled = controller.signal.aborted || engineering.status === 'cancelled';
-        const committed = !cancelled && engineering.status === 'committed';
-        const state = cancelled ? 'cancelled' : committed ? 'succeeded' : 'failed';
+        const succeeded =
+          !cancelled && (engineering.status === 'committed' || engineering.status === 'reported');
+        const state = cancelled ? 'cancelled' : succeeded ? 'succeeded' : 'failed';
         await store.updateTask(sessionId, turnId, result.taskId, { state });
         await store.completeTurn(sessionId, turnId, {
           state,
           outcome: {
             text: result.text,
+            ...(result.textTruncated === true ? { textTruncated: true } : {}),
             engineering,
             ...(state !== 'failed'
               ? {}

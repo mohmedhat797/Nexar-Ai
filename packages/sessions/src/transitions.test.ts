@@ -439,7 +439,27 @@ describe('completeTurn', () => {
       expect(turn.outcome?.engineering).toEqual(engineering);
     });
 
+    it('stores a reported outcome with its lanes and no change scalars', () => {
+      const reported = {
+        planeTaskId: 'task_1',
+        status: 'reported' as const,
+        lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+      };
+      const { turn } = completeTurn(
+        running(),
+        T1,
+        { state: 'succeeded', outcome: { text: 'r', engineering: reported } },
+        T_2,
+      );
+      expect(turn.outcome?.engineering).toEqual(reported);
+    });
+
     it.each([
+      { lanes: Array.from({ length: 17 }, () => ({ role: 'r', resourceId: 'x' })) },
+      { lanes: [{ role: '', resourceId: 'x' }] },
+      { lanes: [{ role: 'r', resourceId: 'x'.repeat(129) }] },
+      { lanes: [{ role: 'r'.repeat(65), resourceId: 'x' }] },
+      { lanes: 'nope' },
       { planeTaskId: '../etc' },
       { planeTaskId: '' },
       { status: 'weird' },

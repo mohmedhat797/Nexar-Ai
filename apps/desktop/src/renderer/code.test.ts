@@ -56,7 +56,7 @@ describe('fallbackText', () => {
         fallbackReason: 'code-report-unavailable',
       }),
     ).toBe(
-      'Read-only repository review runs with Nexar direct execution until report-only engineering plans exist.',
+      'Read-only repository review ran with Nexar direct execution: the engineering plane has no report-only plan.',
     );
     expect(
       fallbackText({

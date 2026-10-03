@@ -415,8 +415,71 @@ describe('run', () => {
     expect(result.text).toMatch(/Reason: (gate\.failed|setup\.failed)/);
   });
 
-  it('surfaces the plane refusing a review as a typed error with a fixed message', async () => {
+  it('passes the lanes of a change run through', async () => {
+    const { plane: p } = plane(fakeLauncher({ NEXAR_FAKE_PLANE_LANES: '1' }));
+    const result = await p.run(codeRequest().request, new AbortController().signal);
+    expect(result.engineering.lanes).toEqual([
+      { role: 'implementation', resourceId: 'dsh:deepseek' },
+      { role: 'review', resourceId: 'claude-code:sonnet' },
+    ]);
+  });
+
+  it('runs a review: the report is the text, lanes pass through and no diff is requested', async () => {
     const { plane: p } = plane(fakeLauncher());
+    const rec = codeRequest({ intent: 'review' });
+    const result = await p.run(rec.request, new AbortController().signal);
+    expect(result.engineering).toEqual({
+      planeTaskId: 'task_fake_1',
+      status: 'reported',
+      lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+    });
+    expect(result.text).toContain('# Repository review');
+    expect(result.textTruncated).toBeUndefined();
+    expect(p.pendingApprovals()).toEqual([]);
+    expect(p.diff(SESSION, TURN)).toBeUndefined();
+    expect(await received()).toEqual(['initialize', 'run', 'shutdown']);
+    expect(rec.tasks).toEqual(['task_fake_1']);
+  });
+
+  it('keeps a report within the turn outcome limit and carries the truncation flag', async () => {
+    const big = plane(fakeLauncher({ NEXAR_FAKE_PLANE_REPORT: 'big' }));
+    const result = await big.plane.run(
+      codeRequest({ intent: 'review' }).request,
+      new AbortController().signal,
+    );
+    expect(result.text.length).toBeLessThanOrEqual(64 * 1024);
+    const cut = plane(fakeLauncher({ NEXAR_FAKE_PLANE_REPORT: 'truncated' }));
+    const flagged = await cut.plane.run(
+      codeRequest({ intent: 'review' }).request,
+      new AbortController().signal,
+    );
+    expect(flagged.textTruncated).toBe(true);
+  });
+
+  it('treats a reported outcome for a coding run as a protocol violation', async () => {
+    const { plane: p } = plane(fakeLauncher({ NEXAR_FAKE_PLANE_RUN: 'reported' }));
+    await expect(p.run(codeRequest().request, new AbortController().signal)).rejects.toMatchObject({
+      code: 'INTERNAL_ERROR',
+      message: 'The engineering plane sent an unexpected outcome',
+    });
+    expect(await received()).not.toContain('diff');
+  });
+
+  it('advertises report support only for a ready plane that lists repository-report', async () => {
+    const without = plane(fakeLauncher({ NEXAR_FAKE_PLANE_NO_REPORT: '1' }));
+    expect(without.plane.supportsReport()).toBe(false); // unknown before the first probe
+    await without.plane.refresh();
+    expect(without.plane.supportsReport()).toBe(false);
+    const withPlan = plane(fakeLauncher());
+    await withPlan.plane.refresh();
+    expect(withPlan.plane.supportsReport()).toBe(true);
+    const broken = plane(fakeLauncher({ NEXAR_FAKE_PLANE_SCENARIO: 'sandbox-unavailable' }));
+    await broken.plane.refresh();
+    expect(broken.plane.supportsReport()).toBe(false);
+  });
+
+  it('surfaces the plane refusing a review as a typed error with a fixed message', async () => {
+    const { plane: p } = plane(fakeLauncher({ NEXAR_FAKE_PLANE_NO_REPORT: '1' }));
     await expect(
       p.run(codeRequest({ intent: 'review' }).request, new AbortController().signal),
     ).rejects.toMatchObject({

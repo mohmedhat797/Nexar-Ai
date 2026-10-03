@@ -511,9 +511,10 @@ describe('Code lane through sessions', () => {
       .toBe(true);
   });
 
-  it('runs a review turn direct, recorded as such, while report-only plans do not exist', async () => {
-    const { call, codePlane } = await withPlane();
+  it('runs a review turn direct, recorded as such, when the plane has no report plan', async () => {
+    const { call, codePlane, launcher } = await withPlane({ NEXAR_FAKE_PLANE_NO_REPORT: '1' });
     await codePlane.refresh();
+    const before = launcher.launches;
     const session = await createSession(call, 'code');
     const sent = await submit(call, session.id, 'Review the code in this repository.');
     expect(sent).toMatchObject({ ok: true, value: { action: 'run' } });
@@ -525,6 +526,55 @@ describe('Code lane through sessions', () => {
       fallbackReason: 'code-report-unavailable',
     });
     expect(turn.outcome?.engineering).toBeUndefined();
+    expect(launcher.launches).toBe(before); // the plane was never launched for the run
+  });
+
+  it('runs a review turn on the plane when it advertises the report plan', async () => {
+    const { call, codePlane } = await withPlane();
+    await codePlane.refresh();
+    expect(codePlane.supportsReport()).toBe(true);
+    const session = await createSession(call, 'code');
+    const sent = await submit(call, session.id, 'Review the code in this repository.');
+    expect(sent).toMatchObject({ ok: true, value: { action: 'run' } });
+    const turn = turnOf(await settled(call, session.id));
+    expect(turn.state).toBe('succeeded');
+    expect(turn.lane).toMatchObject({ requestedLane: 'code', effectiveLane: 'code' });
+    expect(turn.lane?.fallbackReason).toBeUndefined();
+    expect(turn.tasks).toEqual([{ taskId: 'task_fake_1', state: 'succeeded' }]);
+    expect(turn.outcome?.text).toContain('The repository implementation supports this proposal.');
+    expect(turn.outcome?.engineering).toEqual({
+      planeTaskId: 'task_fake_1',
+      status: 'reported',
+      lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+    });
+    expect(await listApprovals(call)).toEqual([]);
+    expect(await h.engine.approvals().list()).toEqual([]);
+    expect(await call(CHANNELS.codeDiff, { sessionId: session.id, turnId: turn.id })).toMatchObject(
+      { ok: false, error: { code: 'VALIDATION_ERROR' } },
+    );
+  });
+
+  it('bounds a large report to the turn outcome limit and flags it', async () => {
+    const { call, codePlane } = await withPlane({ NEXAR_FAKE_PLANE_REPORT: 'big' });
+    await codePlane.refresh();
+    const session = await createSession(call, 'code');
+    await submit(call, session.id, 'Review the code in this repository.');
+    const turn = turnOf(await settled(call, session.id));
+    expect(turn.state).toBe('succeeded');
+    expect(turn.outcome?.engineering?.status).toBe('reported');
+    expect(turn.outcome?.text?.length ?? 0).toBeLessThanOrEqual(64 * 1024);
+  });
+
+  it('fails a coding turn the plane wrongly ends reported', async () => {
+    const { call, codePlane } = await withPlane({ NEXAR_FAKE_PLANE_RUN: 'reported' });
+    await codePlane.refresh();
+    const session = await createSession(call, 'code');
+    await submit(call, session.id, 'Please implement the retry logic.');
+    const turn = turnOf(await settled(call, session.id));
+    expect(turn.state).toBe('failed');
+    expect(turn.outcome?.error?.code).toBe('INTERNAL_ERROR');
+    expect(turn.outcome?.engineering).toBeUndefined();
+    expect(turn.outcome?.text).toBeUndefined();
   });
 
   it('fails the turn when the plane process crashes mid-run', async () => {

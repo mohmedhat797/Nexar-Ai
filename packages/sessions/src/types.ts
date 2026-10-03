@@ -60,7 +60,14 @@ export interface ContextManifest {
   readonly hash: string;
 }
 
-export type TurnEngineeringStatus = 'committed' | 'not-accepted' | 'failed' | 'cancelled';
+export type TurnEngineeringStatus =
+  'committed' | 'reported' | 'not-accepted' | 'failed' | 'cancelled';
+
+/** One lane execution of an engineering run: a role and the resource that served it. */
+export interface TurnEngineeringLane {
+  readonly role: string;
+  readonly resourceId: string;
+}
 
 /**
  * What the engineering plane reported for a Code-lane turn (ADR-025 section 7): ids and scalars
@@ -69,6 +76,7 @@ export type TurnEngineeringStatus = 'committed' | 'not-accepted' | 'failed' | 'c
 export interface TurnEngineering {
   readonly planeTaskId: string;
   readonly status: TurnEngineeringStatus;
+  readonly lanes?: readonly TurnEngineeringLane[];
   readonly branch?: string;
   readonly commit?: string;
   readonly files?: number;

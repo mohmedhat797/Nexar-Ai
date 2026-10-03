@@ -10,6 +10,7 @@ import {
 import {
   MAX_APPROVALS_PER_TURN,
   MAX_ARTIFACTS_PER_TURN,
+  MAX_ENGINEERING_LANES,
   MAX_ERROR_MESSAGE_CHARS,
   MAX_OUTCOME_CHARS,
   MAX_TASKS_PER_TURN,
@@ -343,6 +344,7 @@ const PLANE_TASK_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const COMMIT_ID = /^[0-9a-f]{40,64}$/;
 const ENGINEERING_STATUSES: readonly string[] = [
   'committed',
+  'reported',
   'not-accepted',
   'failed',
   'cancelled',
@@ -364,6 +366,25 @@ function boundEngineering(value: TurnEngineering): TurnEngineering {
     planeTaskId: value.planeTaskId,
     status: value.status,
   };
+  if (value.lanes !== undefined) {
+    if (!Array.isArray(value.lanes) || value.lanes.length > MAX_ENGINEERING_LANES) {
+      throw invalid('engineering');
+    }
+    out.lanes = value.lanes.map((lane: { role?: unknown; resourceId?: unknown }) => {
+      const { role, resourceId } = lane;
+      if (
+        typeof role !== 'string' ||
+        role.length < 1 ||
+        role.length > 64 ||
+        typeof resourceId !== 'string' ||
+        resourceId.length < 1 ||
+        resourceId.length > 128
+      ) {
+        throw invalid('engineering');
+      }
+      return { role, resourceId };
+    });
+  }
   if (value.branch !== undefined) {
     if (typeof value.branch !== 'string' || value.branch.length < 1 || value.branch.length > 200) {
       throw invalid('engineering');
