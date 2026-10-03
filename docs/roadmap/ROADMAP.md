@@ -39,7 +39,7 @@ Not planned before a security review: an HTTP (network) MCP transport, and DOCX/
 
 ## v0.3 — Engineering Machine _(delivered)_
 
-Delivered: sandboxed, multi-agent engineering tasks (bubblewrap sandbox, private worktrees, lane plans, gates, review, owner-approved local commits), Codex, DSH ACP and Delegate Skills relay adapters, and an experimental Antigravity adapter ([ADR-018](../adr/018-engineering-execution-plane.md), [ADR-019](../adr/019-engineering-lanes-and-resources.md); NXR-020 to NXR-024; [v0.3 report](../devlog/v0.3-engineering-machine-report.md)). Verified live with two end-to-end runs; WSL2-specific checks and Antigravity remain owner-run follow-ups.
+Delivered: sandboxed, multi-agent engineering tasks (bubblewrap sandbox, private worktrees, lane plans, gates, review, owner-approved local commits), Codex, DSH ACP and Delegate Skills relay adapters, and an experimental Antigravity adapter ([ADR-018](../adr/018-engineering-execution-plane.md), [ADR-019](../adr/019-engineering-lanes-and-resources.md); NXR-020 to NXR-024; [v0.3 report](../devlog/v0.3-engineering-machine-report.md)). Verified live with two end-to-end runs; WSL2 checks A1–A6 passed on the owner machine on 2026-10-03 (NXR-055); Antigravity remains an owner-run follow-up.
 
 Original scope:
 
@@ -65,7 +65,7 @@ The NRC gained an explainable, quota-, cost- and history-aware policy, `resource
 Report: [`docs/devlog/v0.4-resource-intelligence-report.md`](../devlog/v0.4-resource-intelligence-report.md) ·
 next: [`v0.5-readiness.md`](v0.5-readiness.md).
 
-## v0.5 — Nexar Desktop _(in progress: phase 1 done)_
+## v0.5 — Nexar Desktop _(in progress: Operating Layer merged; NXR-054 remaining)_
 
 A desktop app on the owner's laptop, Windows first ([ADR-021](../adr/021-nexar-desktop.md)), that works
 on project folders like Claude Cowork or the Codex app, with Nexar's engine underneath. Owner-approved
@@ -87,6 +87,9 @@ themes, AI behavior settings, providers and scheduled tasks.
   the Operating Router picks the lane (Cowork/OpenWorker, Code/DSH or direct), the NRC picks the
   resource. Order: Windows gate → sessions → providers → Code → Cowork → AI behavior → integrated E2E;
   scheduled tasks (NXR-054) follow.
+- **State (2026-10-04):** NXR-051/052/053/055/056/057/058 merged (PR #36). NXR-055 is owner
+  live-validated; live validation of NXR-056, NXR-053, NXR-052 and the installer (NXR-051) remains.
+  Current state: [`project-current-state.md`](../devlog/project-current-state.md).
 
 ## v0.7 — Memory & Personal Context
 

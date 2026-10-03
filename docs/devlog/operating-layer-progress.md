@@ -1,5 +1,9 @@
 # Operating Layer continuation
 
+> **Current state lives in [`project-current-state.md`](project-current-state.md)** (2026-10-04).
+> The sections below are the Operating Layer handoff history; where they disagree, the
+> current-state file wins.
+
 Branch: `feat/nexar-operating-layer` · Baseline: `9eaf725` (Desktop foundation, PR #35 merged).
 Date: 2026-10-03.
 
@@ -123,16 +127,8 @@ OpenWorker), ADR-021 behavior amendment. Acceptance matrices: backlog 055, 056, 
 
 ## NEXT EXACT TASK
 
-1. Fix the open NXR-055 finding: engineering commit subjects come from the context@1 header
-   (`nexar: Session policy: …`) instead of the owner's request (needs an additive plane `run` field
-   or equivalent; keep `nexar-plane/1` back-compatible).
-2. Remaining owner live validation: OpenWorker 0.3.x + one Cowork turn (NXR-056), AI behavior
-   profiles on the real lanes (NXR-053), installer acceptance (NXR-051).
-3. NXR-059: turn-scoped delegation so OpenWorker can call Nexar services inside a Cowork turn
-   (correlation depth limit, same-turn return, ADR-015 scoped short-lived client token).
-4. Behavior v2: per-edit plane approvals ("Ask before edits"), full-auto network profile, per-turn
-   reasoning effort — each needs its own protocol/adapter work before the UI option is enabled.
-5. Only after the live Operating Layer flow passes: NXR-054 scheduled tasks. Mobile stays deferred.
+Superseded: see [`project-current-state.md`](project-current-state.md#next-exact-task). The NXR-055
+commit-subject finding was fixed and re-validated live (`2dbb070`); PR #36 was merged into `main`.
 
 ## BLOCKERS
 
@@ -142,21 +138,17 @@ OpenWorker), ADR-021 behavior amendment. Acceptance matrices: backlog 055, 056, 
 
 - A pending confirmation's run options (preferred resources, cost ceiling) live in memory; after a
   restart the owner can only decline it (`CONFLICT confirmation-expired`) and resend.
-- In Code mode the Desktop chat area still shows the Code placeholder (existing E2E); revisit with
-  NXR-055.
 - `sessions:list` reads at most 200 sessions across projects before filtering; a reused process id
   can make a stale sessions lease look live (fails closed); a non-`CONFLICT` lease failure stops
   startup; a turn whose completion writes all fail stays `running` until the next restart.
-- The `claude` CLI on this machine is not logged in, so the `claude-delegate` relay cannot run;
-  Sonnet work used in-session Sonnet subagents in disposable worktrees.
 - Windows descendants of an exited leader need a Job Object for containment. Write-capable
   engineering still requires WSL2/bubblewrap, with no native fallback.
 - External config state-directory overrides still need their own ACL audit. Windows artifact storage
   requires hard-link support.
 - Provider keys, OpenWorker reverse supervision and installer execution are not validated live.
-- Linux CI: closing the Desktop app during the read-only Cowork E2E once did not finish within
-  20 s; the E2E harness now bounds `close` and logs it (`8949339`). Root cause open.
-- The plane source is a git bundle of `8949339`: update it with a new bundle and `pnpm build`
+- Linux CI close hang: fixed (`934db0f`, Desktop ends a starting OpenWorker before quitting); no
+  `did not finish` line in CI run `37153390661`.
+- The plane source is a git bundle of `2dbb070`: update it with a new bundle and `pnpm build`
   inside `nexar-plane` after source changes that affect the plane.
 
 ## OWNER ACTION
