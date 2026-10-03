@@ -7,6 +7,8 @@
   "include": ["src/**/*.ts"],
   "exclude": ["**/*.test.ts", "dist"],
   "references": [
+    { "path": "../../packages/approvals" },
+    { "path": "../../packages/process" },
     {
       "path": "../../packages/artifacts"
     },

@@ -269,6 +269,9 @@ importers:
 
   integrations/openworker:
     dependencies:
+      '@nexar/approvals':
+        specifier: workspace:*
+        version: link:../../packages/approvals
       '@nexar/artifacts':
         specifier: workspace:*
         version: link:../../packages/artifacts
@@ -278,6 +281,9 @@ importers:
       '@nexar/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@nexar/process':
+        specifier: workspace:*
+        version: link:../../packages/process
       '@nexar/projects':
         specifier: workspace:*
         version: link:../../packages/projects
