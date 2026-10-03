@@ -466,33 +466,40 @@ function readPid(harnessInstance: Harness): number {
   }
 }
 
-describe('execute: timeout and abort kill the process group and dispose', () => {
-  it('timeout -> EXECUTION_TIMEOUT, grandchild dies, launch disposed', async () => {
-    h = harness({ mode: 'hang' });
-    const { launcher, ctx } = sandboxed(h);
-    const err = await rejection(
-      h.adapter.execute({ task: task(), resource: optedIn({ timeoutMs: 400 }) }, ctx),
-    );
-    expect(err.code).toBe('EXECUTION_TIMEOUT');
-    expect(launcher.disposed.count).toBe(1);
-    const pid = readPid(h);
-    await waitFor(() => (isAlive(pid) ? undefined : true));
-  });
+// Each case spawns the fake runtime and its grandchild, kills the tree with taskkill (bounded at
+// 5 s on Windows) and waits up to 5 s each for the grandchild to appear and to die: the suite's
+// own bounds exceed the 5 s default on a loaded Windows runner. Assertions are unchanged.
+describe(
+  'execute: timeout and abort kill the process group and dispose',
+  { timeout: process.platform === 'win32' ? 20_000 : 5_000 },
+  () => {
+    it('timeout -> EXECUTION_TIMEOUT, grandchild dies, launch disposed', async () => {
+      h = harness({ mode: 'hang' });
+      const { launcher, ctx } = sandboxed(h);
+      const err = await rejection(
+        h.adapter.execute({ task: task(), resource: optedIn({ timeoutMs: 400 }) }, ctx),
+      );
+      expect(err.code).toBe('EXECUTION_TIMEOUT');
+      expect(launcher.disposed.count).toBe(1);
+      const pid = readPid(h);
+      await waitFor(() => (isAlive(pid) ? undefined : true));
+    });
 
-  it('abort -> EXECUTION_CANCELLED, grandchild dies, launch disposed', async () => {
-    const hh = harness({ mode: 'hang' });
-    h = hh;
-    const ac = new AbortController();
-    const { launcher, ctx } = sandboxed(hh, ac.signal);
-    const run = rejection(hh.adapter.execute({ task: task(), resource: optedIn() }, ctx));
-    await waitFor(() => (Number.isNaN(readPid(hh)) ? undefined : true));
-    const pid = readPid(hh);
-    ac.abort();
-    expect((await run).code).toBe('EXECUTION_CANCELLED');
-    expect(launcher.disposed.count).toBe(1);
-    await waitFor(() => (isAlive(pid) ? undefined : true));
-  });
-});
+    it('abort -> EXECUTION_CANCELLED, grandchild dies, launch disposed', async () => {
+      const hh = harness({ mode: 'hang' });
+      h = hh;
+      const ac = new AbortController();
+      const { launcher, ctx } = sandboxed(hh, ac.signal);
+      const run = rejection(hh.adapter.execute({ task: task(), resource: optedIn() }, ctx));
+      await waitFor(() => (Number.isNaN(readPid(hh)) ? undefined : true));
+      const pid = readPid(hh);
+      ac.abort();
+      expect((await run).code).toBe('EXECUTION_CANCELLED');
+      expect(launcher.disposed.count).toBe(1);
+      await waitFor(() => (isAlive(pid) ? undefined : true));
+    });
+  },
+);
 
 describe('probe', () => {
   it('runs only `--version` then `models`, never -p/--print or a prompt, signed in -> authenticated', async () => {
