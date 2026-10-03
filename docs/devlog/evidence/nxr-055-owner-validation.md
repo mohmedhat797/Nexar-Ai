@@ -59,11 +59,27 @@ packages come from `main` and installed normally.
    under Task "Auto" fell through to `analysis` and ran direct (honestly recorded:
    "Only engineering requests run on the engineering plane"). `review.repository` now includes the
    verb "review"; the live runs used the explicit Task kind.
-2. **Commit subject (fixed after validation, not yet re-validated live):** the plane goal is the
-   whole context@1 prompt, so `commitSubject()` took its first line:
-   `nexar: Session policy: mode=code; lane=code; project=…`. The commit was correct. The `run`
-   frame now carries an optional one-line `title` from the owner's request; the commit subject and
-   approval summary derive from it (ADR-025 amendment "run title for the commit subject").
+2. **Commit subject (fixed, re-validated live):** the plane goal is the whole context@1 prompt,
+   so `commitSubject()` took its first line: `nexar: Session policy: mode=code; lane=code; project=…`
+   (commit `e15a379`). The `run` frame now carries an optional one-line `title` from the owner's
+   request; the commit subject and approval summary derive from it (ADR-025 amendment "run title
+   for the commit subject"). See the re-validation below.
 3. **Not exercised live:** DSH (no DeepSeek key, paid opt-in), Codex (sign-in not completed), review
    diversity across different resources (Claude Code reviewed its own change, allowed by
    `reviewDiversity: preferred`).
+
+## Re-validation of finding 2 (2026-10-03)
+
+Plane rebuilt from a git bundle of PR #36 head `2dbb070` (fast-forward in `/home/nexar/src/Nexar-Ai`,
+offline `pnpm install`, `tsc -b`); `nexar sandbox selftest` passed. Desktop source build at
+`2dbb070`, driven with owner-authorized Computer Use in the same conversation.
+
+| Step | Evidence | Status |
+| --- | --- | --- |
+| Plane ready | "Ready · Engineering plane ready · Plane version 0.1.0" | PASS |
+| Engineering write | Task kind `coding`, request "Add a one-line comment at the top of src/slugify.js describing the module."; task `eng-1f7eaaa66d22`, plan `implement-review`, lanes `feature` and `review` on `claude-code`; patch 1 file; gate passed; review `approve` | PASS |
+| Approval summary | `nexar: Add a one-line comment at the top of src/slugify.js describing the modul (1 files, review approve) → nexar/eng-1f7eaaa66d22`; fingerprint `448d921d4563` | PASS |
+| Desktop approval | Approve → "Yes, approve"; approval `apr_c7b5…83a4` consumed | PASS |
+| Commit subject | `47e5d43`: `nexar: Add a one-line comment at the top of src/slugify.js describing the modul` (72-character cap), author `Nexar <nexar@localhost>`, trailers unchanged, no `Session policy` text in the message | PASS |
+| Owner repository | `main @ 40f02fb` unchanged, clean, no remote | PASS |
+
