@@ -441,6 +441,36 @@ describe('run', () => {
     expect(rec.tasks).toEqual(['task_fake_1']);
   });
 
+  it('runs a plan: a plan intent frame, a reported outcome, no approval and no diff', async () => {
+    const { plane: p } = plane(fakeLauncher());
+    const rec = codeRequest({ intent: 'plan' });
+    const result = await p.run(rec.request, new AbortController().signal);
+    expect(result.engineering).toEqual({
+      planeTaskId: 'task_fake_1',
+      status: 'reported',
+      lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+    });
+    expect(result.text).toContain('# Implementation plan');
+    expect(p.pendingApprovals()).toEqual([]);
+    expect(p.diff(SESSION, TURN)).toBeUndefined();
+    const frames = await received();
+    expect(frames).toEqual(['initialize', 'run', 'shutdown']);
+    const run = (await readLog()).find((e) => e.event === 'frame' && e.type === 'run');
+    expect(run?.frame).toMatchObject({ type: 'run', intent: 'plan' });
+  });
+
+  it('advertises plan support only for a ready plane that lists implementation-plan', async () => {
+    const without = plane(fakeLauncher({ NEXAR_FAKE_PLANE_NO_PLAN: '1' }));
+    expect(without.plane.supportsPlan()).toBe(false); // unknown before the first probe
+    await without.plane.refresh();
+    expect(without.plane.supportsPlan()).toBe(false);
+    const withPlan = plane(fakeLauncher());
+    await withPlan.plane.refresh();
+    expect(withPlan.plane.supportsPlan()).toBe(true);
+    const broken = plane(fakeLauncher({ NEXAR_FAKE_PLANE_SCENARIO: 'sandbox-unavailable' }));
+    await broken.plane.refresh();
+    expect(broken.plane.supportsPlan()).toBe(false);
+  });
   it('keeps a report within the turn outcome limit and carries the truncation flag', async () => {
     const big = plane(fakeLauncher({ NEXAR_FAKE_PLANE_REPORT: 'big' }));
     const result = await big.plane.run(

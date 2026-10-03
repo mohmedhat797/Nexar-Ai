@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryApprovalStore } from '@nexar/approvals';
-import { COWORK_RULES, decidePermission, recordCoworkDecision } from './policy.js';
+import { COWORK_RULES, decidePermission, isWriteTool, recordCoworkDecision } from './policy.js';
 
 const posix = { scratchRoot: '/data/scratch/t1', platform: 'linux' as const };
 const win = { scratchRoot: 'C:\\Scratch\\T1', platform: 'win32' as const };
@@ -21,6 +21,19 @@ describe('decidePermission', () => {
     });
   });
 
+  it.each([
+    ['write_file', '/data/scratch/t1/out.md'],
+    ['apply_patch', 'out.md'],
+    ['run_shell', 'echo hi'],
+    ['read_file', '/data/scratch/t1/out.md'],
+  ])('denies everything in read only mode: %s', (name, target) => {
+    expect(decidePermission({ name, target }, { ...posix, readOnly: true })).toEqual({
+      decision: 'deny',
+      ruleId: COWORK_RULES.readOnly,
+    });
+    expect(isWriteTool('write_file')).toBe(true);
+    expect(isWriteTool('run_shell')).toBe(false);
+  });
   it.each([
     ['/data/scratch/t1/../t2/out.md', posix],
     ['../out.md', posix],

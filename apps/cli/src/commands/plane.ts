@@ -43,6 +43,8 @@ const APPROVAL_LOOKUP_SLACK_MS = 5_000;
 const MIN_DIFF_BYTES = 1024;
 /** The plan every `review` intent runs (ADR-025 amendment); the request never names it. */
 const REPORT_PLAN_ID = 'repository-report';
+/** The plan every `plan` intent runs (NXR-053); forced like the report plan. */
+const IMPLEMENTATION_PLAN_ID = 'implementation-plan';
 
 /** The fixed text per code: nothing from an error, a goal, a path or a record is ever echoed. */
 const MESSAGES: Readonly<Partial<Record<NexarErrorCode, string>>> = {
@@ -109,7 +111,7 @@ function progressEvent(event: EngineeringProgress): ProgressEvent {
 
 interface ActiveRun {
   readonly runId: string;
-  /** A report run (intent `review`): it never has an approval to announce. */
+  /** A report run (intent `review` or `plan`): it never has an approval to announce. */
   readonly report: boolean;
   readonly controller: AbortController;
   settled: boolean;
@@ -229,10 +231,12 @@ async function serve(ctx: CommandContext): Promise<number> {
       if (active === run) active = undefined;
     };
     try {
-      // A review always runs the report plan: the frame's planId can never route it to a change plan.
+      // A review or plan always runs its report plan: the frame's planId can never route it to a
+      // change plan.
       let planId = frame.planId;
       if (run.report) {
-        if (!(await planIds(ctx.io, ctx.seams)).includes(REPORT_PLAN_ID)) {
+        const forced = frame.intent === 'plan' ? IMPLEMENTATION_PLAN_ID : REPORT_PLAN_ID;
+        if (!(await planIds(ctx.io, ctx.seams)).includes(forced)) {
           finish();
           sendError(
             'POLICY_REJECTED',
@@ -241,7 +245,7 @@ async function serve(ctx: CommandContext): Promise<number> {
           );
           return;
         }
-        planId = REPORT_PLAN_ID;
+        planId = forced;
       }
       const { composition } = await getEngine();
       const project = composition.runtime.projects.get(toProjectId(frame.planeProject));
@@ -286,7 +290,7 @@ async function serve(ctx: CommandContext): Promise<number> {
     }
     const run: ActiveRun = {
       runId: frame.runId,
-      report: frame.intent === 'review',
+      report: frame.intent !== 'coding',
       controller: new AbortController(),
       settled: false,
       done: Promise.resolve(),

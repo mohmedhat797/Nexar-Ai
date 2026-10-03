@@ -4,6 +4,15 @@ import { z } from 'zod';
 import { NexarError } from '@nexar/contracts';
 import { DENSITIES, MODES, THEMES, type DesktopSettings } from '../shared/api.js';
 import { PLANE_PROJECT_PATTERN } from '../shared/plane.js';
+import {
+  BEHAVIOR_RESOURCE_PATTERN,
+  CODE_PERMISSIONS,
+  COWORK_PERMISSIONS,
+  DEFAULT_CODE_PERMISSION,
+  DEFAULT_COWORK_PERMISSION,
+  type BehaviorPatch,
+  type BehaviorSettings,
+} from '../shared/behavior.js';
 import { API_PROVIDER_IDS } from '../shared/providers.js';
 import { writeFileAtomic } from './atomic-write.js';
 
@@ -109,8 +118,84 @@ function parseCowork(raw: unknown): CoworkConfigResult {
   const parsed = CoworkSchema.safeParse(raw);
   return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
 }
+// ---- AI behavior (NXR-053) --------------------------------------------------------------------
+
+const ResourceIdSchema = z.string().regex(BEHAVIOR_RESOURCE_PATTERN);
+const BehaviorSchema = z
+  .strictObject({
+    cowork: z
+      .strictObject({
+        permission: z.enum(COWORK_PERMISSIONS).default(DEFAULT_COWORK_PERMISSION),
+        preferredResourceId: ResourceIdSchema.optional(),
+      })
+      .optional(),
+    code: z
+      .strictObject({
+        permission: z.enum(CODE_PERMISSIONS).default(DEFAULT_CODE_PERMISSION),
+        preferredResourceId: ResourceIdSchema.optional(),
+      })
+      .optional(),
+  })
+  .transform((value): BehaviorSettings => ({
+    cowork: value.cowork ?? { permission: DEFAULT_COWORK_PERMISSION },
+    code: value.code ?? { permission: DEFAULT_CODE_PERMISSION },
+  }));
+
+/** What a ehavior:set call may carry: any subset of known values, nothing else. */
+export const BehaviorPatchSchema = z.strictObject({
+  cowork: z
+    .strictObject({
+      permission: z.enum(COWORK_PERMISSIONS).optional(),
+      preferredResourceId: ResourceIdSchema.nullable().optional(),
+    })
+    .optional(),
+  code: z
+    .strictObject({
+      permission: z.enum(CODE_PERMISSIONS).optional(),
+      preferredResourceId: ResourceIdSchema.nullable().optional(),
+    })
+    .optional(),
+});
+
+export const DEFAULT_BEHAVIOR: BehaviorSettings = {
+  cowork: { permission: DEFAULT_COWORK_PERMISSION },
+  code: { permission: DEFAULT_CODE_PERMISSION },
+};
+
+/** A damaged ehavior section fails closed (no turn starts on it) and is preserved verbatim. */
+export type BehaviorResult =
+  { readonly valid: true; readonly value: BehaviorSettings } | { readonly valid: false };
+
+function parseBehavior(raw: unknown): BehaviorResult {
+  if (raw === undefined) return { valid: true, value: DEFAULT_BEHAVIOR };
+  const parsed = BehaviorSchema.safeParse(raw);
+  return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
+}
+
+function mergeBehavior(current: BehaviorSettings, patch: BehaviorPatch): BehaviorSettings {
+  const preferred = (
+    now: string | undefined,
+    next: string | null | undefined,
+  ): { preferredResourceId?: string } => {
+    const value = next === undefined ? now : (next ?? undefined);
+    return value === undefined ? {} : { preferredResourceId: value };
+  };
+  return {
+    cowork: {
+      permission: patch.cowork?.permission ?? current.cowork.permission,
+      ...preferred(current.cowork.preferredResourceId, patch.cowork?.preferredResourceId),
+    },
+    code: {
+      permission: patch.code?.permission ?? current.code.permission,
+      ...preferred(current.code.preferredResourceId, patch.code?.preferredResourceId),
+    },
+  };
+}
+
 interface Loaded {
   readonly appearance: DesktopSettings;
+  readonly behaviorRaw: unknown;
+  readonly behavior: BehaviorResult;
   /** The raw `codePlane` value of the file (kept verbatim when invalid), or `undefined`. */
   readonly codePlaneRaw: unknown;
   readonly codePlane: CodePlaneConfigResult;
@@ -141,14 +226,16 @@ export class SettingsStore {
     let appearance: DesktopSettings = DEFAULT_SETTINGS;
     let codePlaneRaw: unknown;
     let coworkRaw: unknown;
+    let behaviorRaw: unknown;
     try {
       const file = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
       if (typeof file === 'object' && file !== null && !Array.isArray(file)) {
-        const { codePlane, cowork, ...rest } = file as Record<string, unknown>;
+        const { codePlane, cowork, behavior, ...rest } = file as Record<string, unknown>;
         const parsed = AppearanceSchema.safeParse(rest);
         if (parsed.success) appearance = parsed.data;
         codePlaneRaw = Object.hasOwn(file, 'codePlane') ? codePlane : undefined;
         coworkRaw = Object.hasOwn(file, 'cowork') ? cowork : undefined;
+        behaviorRaw = Object.hasOwn(file, 'behavior') ? behavior : undefined;
       }
     } catch {
       // Missing or unreadable: defaults.
@@ -159,6 +246,8 @@ export class SettingsStore {
       codePlane: parseCodePlane(codePlaneRaw),
       coworkRaw,
       cowork: parseCowork(coworkRaw),
+      behaviorRaw,
+      behavior: parseBehavior(behaviorRaw),
     };
     return this.current;
   }
@@ -172,9 +261,17 @@ export class SettingsStore {
       next.cowork.valid && next.coworkRaw === undefined
         ? {}
         : { cowork: next.cowork.valid ? next.cowork.value : next.coworkRaw };
+    const behaviorSection =
+      next.behavior.valid && next.behaviorRaw === undefined
+        ? {}
+        : { behavior: next.behavior.valid ? next.behavior.value : next.behaviorRaw };
     await writeFileAtomic(
       this.path,
-      JSON.stringify({ ...next.appearance, ...section, ...coworkSection }, null, 2) + '\n',
+      JSON.stringify(
+        { ...next.appearance, ...section, ...coworkSection, ...behaviorSection },
+        null,
+        2,
+      ) + '\n',
     );
     this.current = next;
   }
@@ -238,6 +335,24 @@ export class SettingsStore {
         codePlaneRaw: value,
         codePlane: { valid: true, value },
       });
+      return value;
+    });
+  }
+
+  /** Main-process only: the validated AI behavior settings. */
+  async getBehavior(): Promise<BehaviorResult> {
+    return (await this.load()).behavior;
+  }
+
+  /** Applies a validated patch. Refused while the section is damaged: guessing would overwrite it. */
+  setBehavior(patch: BehaviorPatch): Promise<BehaviorSettings> {
+    return this.serialized(async () => {
+      const loaded = await this.load();
+      if (!loaded.behavior.valid) {
+        throw new NexarError('CONFIGURATION_ERROR', 'The AI behavior settings are not valid');
+      }
+      const value = BehaviorSchema.parse(mergeBehavior(loaded.behavior.value, patch));
+      await this.write({ ...loaded, behaviorRaw: value, behavior: { valid: true, value } });
       return value;
     });
   }

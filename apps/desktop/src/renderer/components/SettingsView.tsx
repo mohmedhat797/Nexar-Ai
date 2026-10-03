@@ -4,11 +4,13 @@ import {
   THEMES,
   type DesktopSettings,
   type ProjectDto,
+  type ResourceRow,
   type ThemeId,
 } from '../../shared/api.js';
 import { THEME_LABELS, THEME_TOKENS } from '../theme.js';
 import { useCodeStatus } from '../useCodeStatus.js';
 import { useCoworkStatus } from '../useCoworkStatus.js';
+import { BehaviorSettings } from './BehaviorSettings.js';
 import { PlaneFacts, PlaneProjectForm } from './CodeStatus.js';
 import { COWORK_EXECUTABLE_NOTE, CoworkFacts } from './CoworkStatus.js';
 import { ProvidersView } from './ProvidersView.js';
@@ -91,25 +93,6 @@ function Appearance({
           </button>
         ))}
       </div>
-    </div>
-  );
-}
-
-function ComingSoon({
-  title,
-  ticket,
-  text,
-}: {
-  title: string;
-  ticket: string;
-  text: string;
-}): ReactElement {
-  return (
-    <div className="empty-inline">
-      <h2>{title}</h2>
-      <p className="muted">
-        Coming in the next phase ({ticket}). {text}
-      </p>
     </div>
   );
 }
@@ -225,10 +208,12 @@ function CoworkSettings(): ReactElement {
 export function SettingsView({
   settings,
   projects,
+  resources,
   onChange,
 }: {
   settings: DesktopSettings;
   projects: readonly ProjectDto[];
+  resources: readonly ResourceRow[];
   onChange: (patch: Partial<DesktopSettings>) => void;
 }): ReactElement {
   const [tab, setTab] = useState<Tab>('appearance');
@@ -252,13 +237,7 @@ export function SettingsView({
         ))}
       </div>
       {tab === 'appearance' && <Appearance settings={settings} onChange={onChange} />}
-      {tab === 'behavior' && (
-        <ComingSoon
-          title="AI behavior"
-          ticket="NXR-053"
-          text="Default agent, model, reasoning effort and permission mode per mode."
-        />
-      )}
+      {tab === 'behavior' && <BehaviorSettings resources={resources} />}
       {tab === 'code' && <CodeSettings projects={projects} />}
       {tab === 'cowork' && <CoworkSettings />}
       {tab === 'providers' && <ProvidersView />}

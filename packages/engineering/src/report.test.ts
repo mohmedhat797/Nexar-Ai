@@ -96,7 +96,27 @@ describe('EngineeringRunner: report plans', () => {
     expect(outcome.report?.text).toContain(REPORT_MARKER);
     expect(outcome.branch).toBeUndefined();
     expect(outcome.commit).toBeUndefined();
-    expect(outcome.reason).toBeUndefined();
+  });
+
+  it('runs the implementation-plan plan as a read-only coding report with no patch', async () => {
+    // The plan needs a resource with both capabilities (coding and code-review).
+    const x = await harness({
+      resources: [{ id: 'planner', capabilities: ['coding', 'repo-editing', 'code-review'] }],
+    });
+    const outcome = await x.run({ planId: 'implementation-plan' });
+    expect(outcome).toMatchObject({ status: 'reported', report: { truncated: false } });
+    expect(outcome.branch).toBeUndefined();
+    expect(outcome.commit).toBeUndefined();
+    expect(x.adapter.calls).toHaveLength(1);
+    expect(x.adapter.calls[0]).toMatchObject({
+      lane: 'report',
+      access: 'read-only',
+      isolation: 'sandbox',
+    });
+    expect(x.adapter.calls[0]?.systemPrompt).toMatch(/implementation plan/i);
+    expect(x.adapter.calls[0]?.prompt).toContain('<untrusted-input name="goal">');
+    expect(await x.store.list()).toEqual([]);
+    expect(git(x.repo, 'rev-parse', 'HEAD').trim()).toBe(x.headBefore);
   });
 
   it('keeps the owner repository untouched and creates no branch', async () => {

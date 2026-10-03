@@ -554,6 +554,74 @@ describe('Code lane through sessions', () => {
     );
   });
 
+  describe('Plan profile (NXR-053)', () => {
+    const goal = 'Implement the missing part.';
+
+    it('runs an engineering write as the plan intent: reported, no approval, no diff', async () => {
+      const log = join(h.projectDir, '..', 'plane-plan.log');
+      const { call, codePlane } = await withPlane({ NEXAR_FAKE_PLANE_LOG: log });
+      await h.deps.settings.setBehavior({ code: { permission: 'plan' } });
+      await codePlane.refresh();
+      expect(codePlane.supportsPlan()).toBe(true);
+      const session = await createSession(call, 'code');
+      const sent = await submit(call, session.id, goal);
+      expect(sent).toMatchObject({ ok: true, value: { action: 'run' } });
+      const turn = turnOf(await settled(call, session.id));
+
+      expect(turn.state).toBe('succeeded');
+      expect(turn.lane).toMatchObject({ requestedLane: 'code', effectiveLane: 'code' });
+      expect(turn.outcome?.text).toContain('# Implementation plan');
+      expect(turn.outcome?.engineering).toEqual({
+        planeTaskId: 'task_fake_1',
+        status: 'reported',
+        lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+      });
+      expect(await listApprovals(call)).toEqual([]);
+      expect(await h.engine.approvals().list()).toEqual([]);
+      expect(
+        await call(CHANNELS.codeDiff, { sessionId: session.id, turnId: turn.id }),
+      ).toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } });
+
+      const runs = (await readFile(log, 'utf8'))
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { event: string; type?: string; frame?: unknown })
+        .filter((entry) => entry.event === 'frame' && entry.type === 'run');
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.frame).toMatchObject({ type: 'run', intent: 'plan' });
+    });
+
+    it('refuses the turn with the reason, never running a change, when the plane has no plan', async () => {
+      const log = join(h.projectDir, '..', 'plane-noplan.log');
+      const { call, codePlane } = await withPlane({
+        NEXAR_FAKE_PLANE_NO_PLAN: '1',
+        NEXAR_FAKE_PLANE_LOG: log,
+      });
+      await h.deps.settings.setBehavior({ code: { permission: 'plan' } });
+      await codePlane.refresh();
+      expect(codePlane.supportsPlan()).toBe(false);
+      const session = await createSession(call, 'code');
+      const sent = await submit(call, session.id, goal);
+      expect(sent).toMatchObject({ ok: true, value: { action: 'refuse' } });
+      const turn = turnOf(await settled(call, session.id));
+      expect(turn.state).toBe('failed');
+      expect(turn.outcome?.error?.message).toContain('implementation-plan');
+      expect(turn.outcome?.error?.message).toContain('No change run was started');
+      const text = await readFile(log, 'utf8');
+      expect(text).not.toContain('"type":"run"'); // no run frame of any intent
+    });
+
+    it('keeps auto-edit as the change run: a coding intent frame', async () => {
+      const log = join(h.projectDir, '..', 'plane-auto.log');
+      const { call, codePlane } = await withPlane({ NEXAR_FAKE_PLANE_LOG: log });
+      await codePlane.refresh();
+      const session = await createSession(call, 'code');
+      await submit(call, session.id, goal);
+      const turn = turnOf(await settled(call, session.id));
+      expect(turn.outcome?.engineering?.status).toBe('committed');
+      expect(await readFile(log, 'utf8')).toContain('"intent":"coding"');
+    });
+  });
   it('bounds a large report to the turn outcome limit and flags it', async () => {
     const { call, codePlane } = await withPlane({ NEXAR_FAKE_PLANE_REPORT: 'big' });
     await codePlane.refresh();

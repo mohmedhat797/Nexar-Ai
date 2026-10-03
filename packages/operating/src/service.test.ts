@@ -7,7 +7,14 @@ import { FileSessionStore } from '@nexar/sessions';
 import type { OperatingMode, OperatingSession } from '@nexar/sessions';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_CODE_GOAL_CHARS, MAX_CONCURRENT_TURNS, OperatingService } from './service.js';
-import type { CodeRequest, DirectRequest, OperatingPorts } from './service.js';
+import { PLAN_UNSUPPORTED_REFUSAL } from './service.js';
+import type {
+  BehaviorProfile,
+  CodeRequest,
+  CoworkRequest,
+  DirectRequest,
+  OperatingPorts,
+} from './service.js';
 
 let root: string;
 
@@ -99,7 +106,7 @@ async function harness(execute?: Execute): Promise<Harness> {
         sessionId: request.sessionId,
         turnId: request.turnId,
         projectId: request.projectId,
-        kind: request.intent,
+        kind: request.intent === 'plan' ? 'coding' : request.intent,
         prompt: request.goal,
         correlation: request.correlation,
         onTask: request.onTask,
@@ -1257,6 +1264,199 @@ describe('OperatingService', () => {
       expect((await h.session(s.id)).turns[0]).toMatchObject({
         state: 'failed',
         outcome: { error: { code: 'EXECUTION_TIMEOUT' } },
+      });
+    });
+  });
+
+  describe('AI behavior settings (NXR-053)', () => {
+    const profile = (over: {
+      preferred?: string[];
+      cowork?: BehaviorProfile['cowork']['permission'];
+      code?: BehaviorProfile['code']['permission'];
+    }): BehaviorProfile => ({
+      ...(over.preferred === undefined ? {} : { preferredResourceIds: over.preferred }),
+      cowork: { permission: over.cowork ?? 'drafts-only' },
+      code: { permission: over.code ?? 'auto-edit' },
+    });
+
+    it('passes the per-mode preferred resource when the turn names none', async () => {
+      const h = await harness();
+      const modes: string[] = [];
+      const service = h.makeService({
+        behavior: (mode) => {
+          modes.push(mode);
+          return Promise.resolve(profile({ preferred: mode === 'cowork' ? ['res-a'] : ['res-b'] }));
+        },
+      });
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      expect(modes).toEqual(['cowork']);
+      expect(h.requests[0]?.preferredResourceIds).toEqual(['res-a']);
+    });
+
+    it('lets an explicit turn preference win over the owner preference', async () => {
+      const h = await harness();
+      const service = h.makeService({
+        behavior: () => Promise.resolve(profile({ preferred: ['res-a'] })),
+      });
+      const s = await h.newSession('cowork');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Summarize this.',
+        preferredResourceIds: ['res-explicit'],
+      });
+      await service.whenIdle();
+      expect(h.requests[0]?.preferredResourceIds).toEqual(['res-explicit']);
+    });
+
+    it('sends no preference when the owner set none and the turn names none', async () => {
+      const h = await harness();
+      const service = h.makeService({ behavior: () => Promise.resolve(profile({})) });
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      expect(h.requests[0]).not.toHaveProperty('preferredResourceIds');
+    });
+
+    it('does not start a turn when the behavior settings cannot be read', async () => {
+      const h = await harness();
+      const service = h.makeService({
+        behavior: () => Promise.reject(new NexarError('CONFIGURATION_ERROR', 'invalid')),
+      });
+      const s = await h.newSession('cowork');
+      await expect(
+        service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'hi' }),
+      ).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
+      expect((await h.session(s.id)).turns).toHaveLength(0);
+    });
+
+    it('hands the Cowork permission to the Cowork lane and marks direct turns read only', async () => {
+      const h = await harness();
+      h.availability.cowork = true;
+      const cowork: CoworkRequest[] = [];
+      const service = h.makeService({
+        behavior: () => Promise.resolve(profile({ cowork: 'read-only' })),
+        executeCowork: async (request) => {
+          cowork.push(request);
+          await request.onTask('task-cw');
+          return { taskId: 'task-cw', text: 'ok', artifacts: [] };
+        },
+      });
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      expect(cowork[0]?.permission).toBe('read-only');
+
+      // The lane is unavailable: the direct fallback inside a Cowork session stores no draft.
+      h.availability.cowork = false;
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'And this.' });
+      await service.whenIdle();
+      expect(h.requests.at(-1)).toMatchObject({ readOnly: true });
+    });
+
+    it('keeps drafts-only and ask-before-write direct turns writable', async () => {
+      const h = await harness();
+      for (const cowork of ['drafts-only', 'ask-before-write'] as const) {
+        const service = h.makeService({ behavior: () => Promise.resolve(profile({ cowork })) });
+        const s = await h.newSession('cowork');
+        await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize.' });
+        await service.whenIdle();
+        expect(h.requests.at(-1)).not.toHaveProperty('readOnly');
+      }
+    });
+
+    describe('code plan profile', () => {
+      async function planHarness(supportsPlan: boolean) {
+        const h = await harness();
+        h.availability.code = true;
+        const requests: CodeRequest[] = [];
+        const service = h.makeService({
+          lanes: { available: (lane) => h.availability[lane], supportsPlan: () => supportsPlan },
+          behavior: () => Promise.resolve(profile({ code: 'plan' })),
+          executeCode: async (request) => {
+            requests.push(request);
+            await request.onTask('task_9');
+            return {
+              taskId: 'task_9',
+              text: '# Plan',
+              engineering: { planeTaskId: 'task_9', status: 'reported' as const },
+            };
+          },
+        });
+        return { h, service, requests };
+      }
+
+      it('runs an engineering write as the plan intent and ends reported', async () => {
+        const { h, service, requests } = await planHarness(true);
+        const s = await h.newSession('code');
+        await service.submit({
+          sessionId: s.id,
+          submissionKey: nextKey(),
+          text: 'Please implement the retry logic.',
+        });
+        await service.whenIdle();
+        expect(requests.map((r) => r.intent)).toEqual(['plan']);
+        const turn = (await h.session(s.id)).turns[0];
+        expect(turn).toMatchObject({
+          state: 'succeeded',
+          outcome: { text: '# Plan', engineering: { status: 'reported' } },
+        });
+        expect(turn?.approvalIds ?? []).toEqual([]);
+      });
+
+      it('refuses with the fixed reason when the plane has no plan, never running a change', async () => {
+        const { h, service, requests } = await planHarness(false);
+        const s = await h.newSession('code');
+        const { action, turn } = await service.submit({
+          sessionId: s.id,
+          submissionKey: nextKey(),
+          text: 'Please implement the retry logic.',
+        });
+        expect(action).toBe('refuse');
+        expect(turn.outcome?.error?.message).toBe(PLAN_UNSUPPORTED_REFUSAL);
+        await service.whenIdle();
+        expect(requests).toHaveLength(0);
+        expect(h.requests).toHaveLength(0);
+      });
+
+      it('still runs a review as a review', async () => {
+        const { h, service, requests } = await planHarness(false);
+        const s = await h.newSession('code');
+        await service.submit({
+          sessionId: s.id,
+          submissionKey: nextKey(),
+          text: 'Review the code in this repository.',
+        });
+        await service.whenIdle();
+        expect(requests.map((r) => r.intent)).toEqual(['review']);
+      });
+
+      it('keeps auto-edit as the change intent', async () => {
+        const h = await harness();
+        h.availability.code = true;
+        const requests: CodeRequest[] = [];
+        const service = h.makeService({
+          behavior: () => Promise.resolve(profile({ code: 'auto-edit' })),
+          executeCode: async (request) => {
+            requests.push(request);
+            await request.onTask('task_9');
+            return {
+              taskId: 'task_9',
+              text: 'Committed',
+              engineering: { planeTaskId: 'task_9', status: 'committed' as const },
+            };
+          },
+        });
+        const s = await h.newSession('code');
+        await service.submit({
+          sessionId: s.id,
+          submissionKey: nextKey(),
+          text: 'Please implement the retry logic.',
+        });
+        await service.whenIdle();
+        expect(requests.map((r) => r.intent)).toEqual(['coding']);
       });
     });
   });

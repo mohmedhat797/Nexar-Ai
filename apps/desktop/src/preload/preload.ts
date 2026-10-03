@@ -87,6 +87,8 @@ const api: NexarApi = {
   appInfo: () => invoke(CHANNELS.appInfo, {}),
   getSettings: () => invoke(CHANNELS.settingsGet, {}),
   setSettings: (args) => invoke(CHANNELS.settingsSet, args),
+  getBehavior: () => invoke(CHANNELS.behaviorGet, {}),
+  setBehavior: (args) => invoke(CHANNELS.behaviorSet, args),
   listProviders: () =>
     invokeProvider(CHANNELS.providersList, {}, ProviderListSchema, z.strictObject({})),
   listSubscriptions: () =>

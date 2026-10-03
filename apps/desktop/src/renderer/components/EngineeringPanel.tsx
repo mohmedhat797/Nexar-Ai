@@ -176,6 +176,8 @@ export function EngineeringPanel({
       : ENGINEERING_STATUS_LABEL[eng.status];
   // A review is read-only: a report (shown as the turn result), never files, gates or an approval.
   const report = eng?.status === 'reported' || turn.intent?.kind === 'review';
+  // A reported coding turn is the Plan profile's implementation plan (NXR-053), not a review.
+  const plan = report && turn.intent?.kind === 'coding';
   const canShowDiff =
     !report &&
     (approval !== undefined || eng?.status === 'committed' || eng?.status === 'not-accepted');
@@ -205,9 +207,9 @@ export function EngineeringPanel({
     <section
       className="card eng-panel"
       data-testid="engineering-panel"
-      aria-label={report ? 'Repository review' : 'Engineering'}
+      aria-label={plan ? 'Implementation plan' : report ? 'Repository review' : 'Engineering'}
     >
-      <h2>{report ? 'Repository review' : 'Engineering'}</h2>
+      <h2>{plan ? 'Implementation plan' : report ? 'Repository review' : 'Engineering'}</h2>
       <dl className="facts">
         <Row label="Goal" testId="eng-goal">
           {clipGoal(turn.text)}
@@ -235,7 +237,7 @@ export function EngineeringPanel({
         </Row>
         {report && (
           <Row label="Plan" testId="eng-plan">
-            Repository report
+            {plan ? 'Implementation plan' : 'Repository report'}
           </Row>
         )}
         {resources.length > 0 && (
@@ -276,7 +278,9 @@ export function EngineeringPanel({
       </dl>
       {report && eng?.status === 'reported' && (
         <p className="small muted" data-testid="eng-report-note">
-          The report is shown above as this turn’s result.
+          {plan
+            ? 'The plan is shown above as this turn’s result. Nothing was changed.'
+            : 'The report is shown above as this turn’s result.'}
         </p>
       )}
       {!report && state === 'pending' && approval !== undefined && (

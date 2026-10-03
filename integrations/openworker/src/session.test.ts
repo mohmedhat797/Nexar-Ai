@@ -75,6 +75,43 @@ describe('runCoworkTurn', () => {
     ]);
   });
 
+  it('sends the requested session mode (discuss) instead of interactive', async () => {
+    await run('normal', { mode: 'discuss', decide: () => 'deny' });
+    expect(server.frames[0]).toEqual({ type: 'set_mode', mode: 'discuss' });
+  });
+
+  it('waits for an asynchronous decision before answering the permission', async () => {
+    let release: (value: 'allow' | 'deny') => void = () => undefined;
+    const waiting = new Promise<'allow' | 'deny'>((resolve) => {
+      release = resolve;
+    });
+    let asked = 0;
+    server.scenario = 'normal';
+    const built = request({
+      decide: () => {
+        asked += 1;
+        return asked === 1 ? waiting : 'deny';
+      },
+    });
+    const pending = runCoworkTurn(client, built.request);
+    while (asked === 0) await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(server.frames.some((f) => f['type'] === 'approval')).toBe(false);
+    release('allow');
+    expect((await pending).outcome).toBe('completed');
+    expect(server.frames.filter((f) => f['type'] === 'approval')[0]).toEqual({
+      type: 'approval',
+      decision: 'allow',
+    });
+  });
+
+  it('denies when the decision rejects or throws', async () => {
+    await run('normal', { decide: () => Promise.reject(new Error('nope')) });
+    expect(server.frames.filter((f) => f['type'] === 'approval')).toEqual([
+      { type: 'approval', decision: 'deny' },
+      { type: 'approval', decision: 'deny' },
+    ]);
+  });
   it('attaches the project read-only and opens the session in the scratch workspace', async () => {
     await run('normal', { persona: 'cowork' });
     expect(server.roots).toEqual([

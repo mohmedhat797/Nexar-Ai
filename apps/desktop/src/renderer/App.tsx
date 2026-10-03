@@ -166,7 +166,14 @@ export function App(): ReactElement {
   const main = ((): ReactElement => {
     switch (view) {
       case 'settings':
-        return <SettingsView settings={settings} projects={projects} onChange={changeSettings} />;
+        return (
+          <SettingsView
+            settings={settings}
+            projects={projects}
+            resources={resources}
+            onChange={changeSettings}
+          />
+        );
       case 'resources':
         return (
           <ResourcesView

@@ -221,8 +221,8 @@ export class FakeOpenWorkerServer {
         } else if (opcode === 1) {
           const frame = JSON.parse(payload.toString('utf8')) as Frame;
           this.frames.push(frame);
-          if (frame['type'] === 'user_message')
-            this.#options.onRecord?.({ kind: 'user_message', body: frame });
+          if (frame['type'] === 'user_message' || frame['type'] === 'set_mode')
+            this.#options.onRecord?.({ kind: String(frame['type']), body: frame });
           const index = this.#waiters.findIndex((waiter) => waiter.type === frame['type']);
           if (index >= 0) this.#waiters.splice(index, 1)[0]!.resolve(frame);
           else if (frame['type'] === 'user_message') void this.#turn(socket, send, workspace);

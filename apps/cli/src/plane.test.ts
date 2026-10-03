@@ -648,6 +648,29 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
         expect(inputs[0]?.planId).toBe('repository-report');
       });
 
+      it('maps a plan intent to implementation-plan, whatever plan the frame names', async () => {
+        start(scriptedRunner(reported), {
+          plane: planeSeams(['implement-review', 'repository-report', 'implementation-plan']),
+        });
+        await handshake();
+        expect(framesOf('ready')[0]?.readiness.plans).toContain('implementation-plan');
+        input.frame(runFrame({ intent: 'plan', planId: 'implement-review' }));
+        await waitFor(() => framesOf('completed').length === 1, 'completed');
+        expect(inputs[0]?.planId).toBe('implementation-plan');
+        expect(framesOf('completed')[0]?.outcome.status).toBe('reported');
+        expect(framesOf('approval-required')).toEqual([]);
+      });
+
+      it('rejects a plan intent when the catalog has no implementation-plan', async () => {
+        // The report plan alone is not a substitute: a plan intent never falls back to it.
+        start(scriptedRunner(reported), withReportPlan);
+        await handshake();
+        input.frame(runFrame({ intent: 'plan' }));
+        await waitFor(() => framesOf('error').length === 1, 'error');
+        expect(framesOf('error')[0]).toMatchObject({ code: 'POLICY_REJECTED', runId: RUN });
+        expect(runnerCalls).toBe(0);
+      });
+
       it('never announces an approval for a report run and refuses decide for anything', async () => {
         start(scriptedRunner(reported, [awaiting]), withReportPlan);
         await handshake();

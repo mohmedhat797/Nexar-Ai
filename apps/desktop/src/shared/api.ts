@@ -2,6 +2,15 @@ import type { QuotaAssessment, RouteDecision } from '@nexar/contracts';
 import type { ApiProviderId, ProviderRow } from './providers.js';
 export type { ApiProviderId, ProviderRow } from './providers.js';
 import type { SubscriptionRuntimeId } from '@nexar/contracts';
+import type { BehaviorPatch, BehaviorView } from './behavior.js';
+export type {
+  BehaviorPatch,
+  BehaviorSettings,
+  BehaviorView,
+  CodePermissionId,
+  CoworkPermissionId,
+  UnsupportedOption,
+} from './behavior.js';
 import type { SubscriptionRow } from './subscriptions.js';
 export type { SubscriptionRow } from './subscriptions.js';
 import type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
@@ -423,6 +432,8 @@ export interface NexarApi {
     planeProject: string | null;
   }): Promise<BridgeResult<PlaneStatusDto>>;
   getCodeDiff(args: { sessionId: string; turnId: string }): Promise<BridgeResult<CodeDiffDto>>;
+  getBehavior(): Promise<BridgeResult<BehaviorView>>;
+  setBehavior(patch: BehaviorPatch): Promise<BridgeResult<BehaviorView>>;
   coworkStatus(): Promise<BridgeResult<CoworkStatusDto>>;
   /** Re-probes OpenWorker now (otherwise the status is cached for a minute). */
   refreshCowork(): Promise<BridgeResult<CoworkStatusDto>>;

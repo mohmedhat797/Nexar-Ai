@@ -17,6 +17,7 @@ import type {
 } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
 import { ALL_CHANNELS } from './bridge.js';
+import { SettingsStore } from './settings-store.js';
 import { createHarness, addProject, seed, type Harness } from './test-harness.js';
 
 async function fileSymlink(target: string, path: string, context: TestContext): Promise<void> {
@@ -57,6 +58,15 @@ describe('schemas', () => {
       [CHANNELS.settingsSet, { theme: 'neon' }],
       [CHANNELS.settingsSet, { density: 3 }],
       [CHANNELS.settingsSet, { mode: 'other' }],
+      [CHANNELS.behaviorSet, { code: { permission: 'full-auto' } }],
+      [CHANNELS.behaviorSet, { code: { permission: 'ask-before-edits' } }],
+      [CHANNELS.behaviorSet, { cowork: { permission: 'plan' } }],
+      [CHANNELS.behaviorSet, { cowork: { permission: 'read-only', network: true } }],
+      [CHANNELS.behaviorSet, { lockedRules: [] }],
+      [CHANNELS.behaviorSet, { unsupported: [] }],
+      [CHANNELS.behaviorSet, { code: { preferredResourceId: '../etc' } }],
+      [CHANNELS.behaviorSet, { code: { preferredResourceId: 7 } }],
+      [CHANNELS.behaviorSet, { sandbox: 'off' }],
       [CHANNELS.projectsRemove, { id: 7 }],
       [CHANNELS.projectsFiles, { projectId: 'p', dir: 5 }],
       [CHANNELS.projectsReadFile, { projectId: 'p', path: '' }],
@@ -634,6 +644,111 @@ describe('error mapping', () => {
       });
     } finally {
       await broken.cleanup();
+    }
+  });
+});
+
+describe('AI behavior channels (NXR-053)', () => {
+  interface View {
+    settings: unknown;
+    lockedRules: string[];
+    unsupported: { mode: string; id: string; reason: string }[];
+    reasoningEffort: string;
+  }
+
+  it('returns the defaults, the locked rules and the unsupported options with reasons', async () => {
+    const result = await h.call<View>(CHANNELS.behaviorGet);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.settings).toEqual({
+      cowork: { permission: 'drafts-only' },
+      code: { permission: 'auto-edit' },
+    });
+    expect(result.value.lockedRules.join(' ')).toMatch(/sandbox/);
+    expect(result.value.lockedRules.join(' ')).toMatch(/never commit or push/);
+    expect(result.value.unsupported.map((o) => `${o.mode}:${o.id}`)).toEqual([
+      'code:ask-before-edits',
+      'code:full-auto',
+    ]);
+    expect(result.value.unsupported.every((o) => /Not supported yet/.test(o.reason))).toBe(true);
+    expect(result.value.reasoningEffort).toMatch(/not supported yet/);
+  });
+
+  it('applies a patch, persists it and never changes the locked rules or unsupported list', async () => {
+    const before = await h.call<View>(CHANNELS.behaviorGet);
+    const set = await h.call<View>(CHANNELS.behaviorSet, {
+      cowork: { permission: 'read-only', preferredResourceId: 'local-echo' },
+      code: { permission: 'plan' },
+    });
+    expect(set.ok && set.value.settings).toEqual({
+      cowork: { permission: 'read-only', preferredResourceId: 'local-echo' },
+      code: { permission: 'plan' },
+    });
+    if (before.ok && set.ok) {
+      expect(set.value.lockedRules).toEqual(before.value.lockedRules);
+      expect(set.value.unsupported).toEqual(before.value.unsupported);
+    }
+    const file = JSON.parse(
+      await readFile(join(h.userData, 'desktop-settings.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(file['behavior']).toEqual({
+      cowork: { permission: 'read-only', preferredResourceId: 'local-echo' },
+      code: { permission: 'plan' },
+    });
+    const cleared = await h.call<View>(CHANNELS.behaviorSet, {
+      cowork: { preferredResourceId: null },
+    });
+    expect(cleared.ok && cleared.value.settings).toEqual({
+      cowork: { permission: 'read-only' },
+      code: { permission: 'plan' },
+    });
+  });
+
+  it('accepts an empty patch and rejects a resource that is not in the registry', async () => {
+    expect((await h.call(CHANNELS.behaviorSet, {})).ok).toBe(true);
+    const unknown = await h.call(CHANNELS.behaviorSet, {
+      code: { preferredResourceId: 'not-a-resource' },
+    });
+    expect(unknown).toEqual({
+      ok: false,
+      error: { code: 'VALIDATION_ERROR', message: 'Unknown resource' },
+    });
+    const state = await h.call<View>(CHANNELS.behaviorGet);
+    expect(state.ok && state.value.settings).toEqual({
+      cowork: { permission: 'drafts-only' },
+      code: { permission: 'auto-edit' },
+    });
+  });
+
+  it('fails closed on a damaged behavior section without rewriting it', async () => {
+    const path = join(h.userData, 'desktop-settings.json');
+    await writeFile(
+      path,
+      JSON.stringify({
+        theme: 'light',
+        density: 'comfortable',
+        mode: 'cowork',
+        behavior: { code: { permission: 'full-auto' } },
+      }),
+    );
+    const damaged = await createHarness({ settings: new SettingsStore(path) });
+    try {
+      for (const result of [
+        await damaged.call(CHANNELS.behaviorGet),
+        await damaged.call(CHANNELS.behaviorSet, { code: { permission: 'plan' } }),
+      ]) {
+        expect(result).toEqual({
+          ok: false,
+          error: { code: 'CONFIGURATION_ERROR', message: 'The AI behavior settings are not valid' },
+        });
+      }
+      expect((JSON.parse(await readFile(path, 'utf8')) as { behavior?: unknown }).behavior).toEqual(
+        {
+          code: { permission: 'full-auto' },
+        },
+      );
+    } finally {
+      await damaged.cleanup();
     }
   });
 });

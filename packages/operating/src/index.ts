@@ -25,10 +25,14 @@ export {
   MAX_CODE_GOAL_CHARS,
   MAX_CONCURRENT_TURNS,
   OperatingService,
+  PLAN_UNSUPPORTED_REFUSAL,
 } from './service.js';
 export type {
+  BehaviorProfile,
+  CodePermission,
   CodeRequest,
   CodeResult,
+  CoworkPermission,
   CoworkRequest,
   CoworkResult,
   DirectRequest,

@@ -73,6 +73,8 @@ export const MAX_STORED_DIFFS = 16;
 export const MAX_ACTIVE_RUNS = 4;
 /** The plan the plane always runs for a review intent (ADR-025 amendment). */
 const REPORT_PLAN = 'repository-report';
+/** The plan the plane runs for a plan intent (NXR-053): a report-only implementation plan. */
+const IMPLEMENTATION_PLAN = 'implementation-plan';
 const MAX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FINGERPRINT_PREFIX = 12;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
@@ -241,6 +243,7 @@ export class CodePlane {
   private readonly pending = new Map<string, PendingApproval>();
   private readonly diffs = new Map<string, CodeDiffDto>();
   private reportAdvertised = false;
+  private planAdvertised = false;
   private disposed = false;
 
   constructor(private readonly options: CodePlaneOptions) {
@@ -374,8 +377,17 @@ export class CodePlane {
     return this.cached?.status.state === 'ready' && this.reportAdvertised;
   }
 
+  /**
+   * Whether the Code lane can run the Plan profile: the plane advertised implementation-plan at
+   * its last handshake and is ready. Unknown is `false`: the turn is then refused, never run as a change.
+   */
+  supportsPlan(): boolean {
+    return this.cached?.status.state === 'ready' && this.planAdvertised;
+  }
+
   private statusFromReady(ready: Extract<PlaneFrame, { type: 'ready' }>): PlaneStatus {
     this.reportAdvertised = ready.readiness.plans.includes(REPORT_PLAN);
+    this.planAdvertised = ready.readiness.plans.includes(IMPLEMENTATION_PLAN);
     const state = stateFromReadiness(ready.readiness);
     return this.statusOf(state, {
       planeVersion: plain(ready.planeVersion),
@@ -771,8 +783,8 @@ export class CodePlane {
         : { lanes: lanes.map(({ role, resourceId }) => ({ role, resourceId })) };
     const status = outcome.status;
     if (status === 'reported') {
-      // Only a review run may end `reported`, and it must carry the report.
-      if (request.intent !== 'review' || outcome.report === undefined) {
+      // Only a review or plan run may end `reported`, and it must carry the report.
+      if (request.intent === 'coding' || outcome.report === undefined) {
         throw new NexarError('INTERNAL_ERROR', 'The engineering plane sent an unexpected outcome');
       }
       const { text, truncated } = boundReport(outcome.report.text);

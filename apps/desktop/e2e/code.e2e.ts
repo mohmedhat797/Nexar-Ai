@@ -221,6 +221,78 @@ describe('Nexar Desktop Code lane', () => {
     await harness.close(app);
   });
 
+  it('runs the Plan profile: an implementation plan with no approval and no change', async () => {
+    const userData = harness.newUserData('plan-profile');
+    const planeEnv = { NEXAR_DESKTOP_TEST_PLANE: FAKE_PLANE };
+    let { app, page } = await harness.launch(userData, planeEnv);
+    await addProject(app, page, harness.projectDir);
+
+    await page.getByTestId('mode-code').click();
+    const banner = page.getByTestId('code-banner');
+    await expect
+      .poll(() => banner.getAttribute('data-state').catch(() => null), POLL)
+      .toBe('project-unmapped');
+    await page.getByTestId('plane-project-input').fill('plane-proj');
+    await page.getByTestId('plane-project-save').click();
+    await expect
+      .poll(() => banner.getAttribute('data-state').catch(() => null), POLL)
+      .toBe('ready');
+
+    // --- Settings -> AI behavior: Code -> Plan; unsupported options are shown disabled ---
+    await page.getByTestId('nav-settings').click();
+    await page.getByRole('tab', { name: 'AI behavior' }).click();
+    await isVisible(page.getByTestId('behavior-settings'));
+    expect(await page.getByTestId('behavior-code-auto-edit').isChecked()).toBe(true);
+    for (const id of ['ask-before-edits', 'full-auto']) {
+      expect(await page.getByTestId(`behavior-code-${id}`).isDisabled()).toBe(true);
+    }
+    await hasText(page.getByTestId('behavior-code'), 'Not supported yet');
+    await hasText(page.getByTestId('behavior-effort'), 'not supported yet');
+    await hasText(page.getByTestId('behavior-locked'), 'Every write runs inside the sandbox.');
+    await page.getByTestId('behavior-code-plan').click(); // controlled input: state follows main's reply (polled below)
+    await expect.poll(() => page.getByTestId('behavior-code-plan').isChecked(), POLL).toBe(true);
+
+    // --- an engineering request becomes an implementation plan ---
+    await page.getByTestId('nav-chat').click();
+    await page.getByTestId('new-conversation').click();
+    await page.getByLabel('Message').fill('Implement the missing part.');
+    await page.getByRole('button', { name: 'Send' }).click();
+    const turn = page.getByTestId('turn').first();
+    await expect.poll(() => turn.getAttribute('data-state'), POLL).toBe('succeeded');
+    const expectPlan = async (): Promise<void> => {
+      await hasText(page.getByTestId('result-text'), 'Implementation plan');
+      await hasText(page.getByTestId('result-text'), 'Files to touch');
+      await hasText(page.getByTestId('engineering-panel'), 'Implementation plan');
+      await hasText(page.getByTestId('eng-status'), 'Reported');
+      await hasText(page.getByTestId('eng-plan'), 'Implementation plan');
+      await hasText(page.getByTestId('lane-effective'), 'Lane: code');
+      for (const id of [
+        'show-diff',
+        'eng-approval',
+        'eng-branch',
+        'eng-commit',
+        'approve-commit',
+      ]) {
+        expect(await page.getByTestId(id).count()).toBe(0);
+      }
+    };
+    await expectPlan();
+
+    await page.getByTestId('nav-approvals').click();
+    await isVisible(page.getByTestId('approvals-empty'));
+    expect(await page.getByTestId('approval-card').count()).toBe(0);
+
+    // --- relaunch: the choice and the plan are still there ---
+    await harness.close(app);
+    ({ app, page } = await harness.launch(userData, planeEnv));
+    await expect.poll(() => page.getByTestId('turn').count(), POLL).toBe(1);
+    await expectPlan();
+    await page.getByTestId('nav-settings').click();
+    await page.getByRole('tab', { name: 'AI behavior' }).click();
+    await expect.poll(() => page.getByTestId('behavior-code-plan').isChecked(), POLL).toBe(true);
+
+    await harness.close(app);
+  });
   it('shows why the Code lane cannot run and refuses an engineering request', async () => {
     const userData = harness.newUserData('without-plane');
     const { app, page } = await harness.launch(userData);

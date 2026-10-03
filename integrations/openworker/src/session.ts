@@ -44,7 +44,16 @@ export interface CoworkTurnRequest {
   readonly timeoutMs?: number;
   /** Constant identifiers only: an event type, optionally `:<tool name>`. */
   readonly onProgress: (identifier: string) => void;
-  readonly decide: (request: PermissionRequest) => 'allow' | 'deny';
+  /**
+   * Answers a permission request; may wait (an owner approval). A rejection or throw denies. The
+   * turn's timeout and abort still end the wait.
+   */
+  readonly decide: (request: PermissionRequest) => 'allow' | 'deny' | Promise<'allow' | 'deny'>;
+  /**
+   * The upstream session mode: interactive (default) or discuss (no tool use, read-only talk).
+   * Nexar's policy still denies every write in discuss.
+   */
+  readonly mode?: 'discuss' | 'interactive';
 }
 
 export interface CoworkTurnResult {
@@ -147,7 +156,7 @@ export async function runCoworkTurn(
         case 'ready':
           if (started) return;
           started = true;
-          send({ type: 'set_mode', mode: 'interactive' });
+          send({ type: 'set_mode', mode: request.mode ?? 'interactive' });
           send({
             type: 'user_message',
             text: request.prompt,
@@ -161,18 +170,28 @@ export async function runCoworkTurn(
           if (++decisions > MAX_DECISIONS) return fail(COWORK_ERROR_CODES.tooManyPermissions, true);
           const category = frame['category'];
           const target = frame['target'];
-          let decision: 'allow' | 'deny' = 'deny';
-          try {
-            decision = request.decide({
-              name,
-              ...(typeof category === 'string' ? { category } : {}),
-              ...(typeof target === 'string' ? { target } : {}),
-            });
-          } catch {
-            /* Fail closed. */
-          }
-          send({ type: 'approval', decision: APPROVAL_DECISION[decision] });
-          progress(`permission_required:${IDENTIFIER.test(name) ? name : 'unknown'}`);
+          const permission = {
+            name,
+            ...(typeof category === 'string' ? { category } : {}),
+            ...(typeof target === 'string' ? { target } : {}),
+          };
+          const label = IDENTIFIER.test(name) ? name : 'unknown';
+          // Fail closed: a throw or a rejection is a denial; an answer after the turn ended is dropped.
+          const answer = new Promise<'allow' | 'deny'>((done) => {
+            try {
+              Promise.resolve(request.decide(permission)).then(
+                (value) => done(value === 'allow' ? 'allow' : 'deny'),
+                () => done('deny'),
+              );
+            } catch {
+              done('deny');
+            }
+          });
+          void answer.then((decision) => {
+            if (settled) return;
+            send({ type: 'approval', decision: APPROVAL_DECISION[decision] });
+            progress(`permission_required:${label}`);
+          });
           return;
         }
         case 'assistant_delta': {

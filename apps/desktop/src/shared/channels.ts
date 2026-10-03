@@ -3,6 +3,8 @@ export const CHANNELS = {
   appInfo: 'app:info',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
+  behaviorGet: 'behavior:get',
+  behaviorSet: 'behavior:set',
   providersList: 'providers:list',
   endpointsList: 'providers:listLocalEndpoints',
   endpointsSave: 'providers:saveLocalEndpoint',

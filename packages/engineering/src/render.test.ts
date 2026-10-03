@@ -96,6 +96,7 @@ describe('shipped templates', () => {
       '_shared',
       'implement-review',
       'implement-test-review',
+      'implementation-plan',
       'plan-implement-review',
       'repository-report',
     ]);

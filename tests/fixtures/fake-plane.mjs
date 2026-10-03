@@ -11,6 +11,7 @@
 //     commit | approve | not-accepted | failed | cancel-wait | ignore-cancel | crash | hang-run |
 //     error-run | garbage | oversized-run | reported (a coding run that wrongly ends `reported`)
 //   NEXAR_FAKE_PLANE_NO_REPORT `1` does not advertise `repository-report` and refuses reviews
+//   NEXAR_FAKE_PLANE_NO_PLAN   `1` does not advertise `implementation-plan` and refuses `plan` intents
 //   NEXAR_FAKE_PLANE_REPORT    `big` makes the report large; `truncated` flags it truncated
 //   NEXAR_FAKE_PLANE_LANES     `1` makes a committed outcome list its lanes
 //   NEXAR_FAKE_PLANE_PROJECTS  comma separated plane project ids (default `plane-proj`)
@@ -24,6 +25,7 @@ const runBehavior = process.env.NEXAR_FAKE_PLANE_RUN ?? 'commit';
 const projects = (process.env.NEXAR_FAKE_PLANE_PROJECTS ?? 'plane-proj').split(',').filter(Boolean);
 const logPath = process.env.NEXAR_FAKE_PLANE_LOG;
 const reportPlan = process.env.NEXAR_FAKE_PLANE_NO_REPORT !== '1';
+const planPlan = process.env.NEXAR_FAKE_PLANE_NO_PLAN !== '1';
 
 const TASK_ID = 'task_fake_1';
 const APPROVAL_ID = `apr_${'f'.repeat(32)}`;
@@ -45,7 +47,11 @@ function readiness() {
     automount: 'disabled',
     interop: 'disabled',
     kernel: '5.15.0-fake-WSL2',
-    plans: reportPlan ? ['implement-review', 'repository-report'] : ['implement-review'],
+    plans: [
+      'implement-review',
+      ...(reportPlan ? ['repository-report'] : []),
+      ...(planPlan ? ['implementation-plan'] : []),
+    ],
     projects,
   };
   switch (scenario) {
@@ -91,7 +97,7 @@ function summary() {
   };
 }
 
-function runReport(runId) {
+function runReport(runId, plan = false) {
   send({
     type: 'progress',
     runId,
@@ -103,9 +109,11 @@ function runReport(runId) {
     taskId: TASK_ID,
     status: 'reported',
     report: {
-      text: big
-        ? `# Repository review\n${'finding\n'.repeat(8_000)}`
-        : '# Repository review\n\nThe repository implementation supports this proposal.\n\n- src/index.ts: entry point wires the proposal.\n',
+      text: plan
+        ? '# Implementation plan\n\n## Steps\n\n1. Add the missing part.\n\n## Files to touch\n\n- src/index.ts\n\n## Risks\n\n- None known.\n\n## Tests\n\n- Add a unit test.\n'
+        : big
+          ? `# Repository review\n${'finding\n'.repeat(8_000)}`
+          : '# Repository review\n\nThe repository implementation supports this proposal.\n\n- src/index.ts: entry point wires the proposal.\n',
       truncated: process.env.NEXAR_FAKE_PLANE_REPORT === 'truncated',
     },
     lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
@@ -131,12 +139,21 @@ function handleRun(frame) {
     });
     return;
   }
+  if (frame.intent === 'plan' && !planPlan) {
+    send({
+      type: 'error',
+      runId: frame.runId,
+      code: 'POLICY_REJECTED',
+      message: 'Report-only engineering plans are not available',
+    });
+    return;
+  }
   const runId = frame.runId;
   activeRun = { runId };
   send({ type: 'progress', runId, event: { type: 'step', step: 'task.started', detail: {} } });
-  if (frame.intent === 'review' || runBehavior === 'reported') {
+  if (frame.intent === 'review' || frame.intent === 'plan' || runBehavior === 'reported') {
     // `reported` makes a coding run end reported too: a protocol violation Desktop must refuse.
-    runReport(runId);
+    runReport(runId, frame.intent === 'plan');
     return;
   }
   switch (runBehavior) {

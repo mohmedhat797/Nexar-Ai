@@ -414,6 +414,42 @@ describe('sessions: turns', () => {
     }
   });
 
+  it('stores no draft for a direct turn in a Cowork session when Cowork is read only', async () => {
+    await h.deps.settings.setBehavior({ cowork: { permission: 'read-only' } });
+    const session = await create(h, { projectId });
+    expect((await submit(h, session.id, 'say hello read only')).ok).toBe(true);
+    const turn = (await settled(h, session.id)).turns[0];
+    expect(turn?.state).toBe('succeeded');
+    expect(turn?.outcome?.text).toContain('say hello read only');
+    expect(turn?.artifacts).toEqual([]);
+  });
+
+  it('passes the owner preferred resource of the session mode to the routed task', async () => {
+    await h.deps.settings.setBehavior({ cowork: { preferredResourceId: 'local-echo' } });
+    const gated = gatedEngine(h);
+    try {
+      const session = await create(gated.harness, { projectId });
+      gated.release();
+      expect((await submit(gated.harness, session.id, 'say hello preferred')).ok).toBe(true);
+      await settled(gated.harness, session.id);
+      expect(gated.tasks).toHaveLength(1);
+      expect(gated.tasks[0]?.requirements.preferredResourceIds).toEqual(['local-echo']);
+
+      // An explicit turn preference wins over the owner's.
+      const second = await create(gated.harness, { projectId });
+      const explicit = await gated.harness.call(CHANNELS.sessionsSubmitTurn, {
+        sessionId: second.id,
+        submissionKey: 'b'.repeat(32),
+        text: 'say hello explicit',
+        preferredResourceIds: ['other-resource'],
+      });
+      expect(explicit.ok).toBe(true);
+      await settled(gated.harness, second.id);
+      expect(gated.tasks[1]?.requirements.preferredResourceIds).toEqual(['other-resource']);
+    } finally {
+      gated.release();
+    }
+  });
   it('returns the existing turn for a repeated key and starts exactly one task', async () => {
     const gated = gatedEngine(h);
     const harness = gated.harness;

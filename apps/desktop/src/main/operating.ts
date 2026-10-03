@@ -10,6 +10,7 @@ import { NexarError, projectId, type ArtifactRef } from '@nexar/contracts';
 import type { Project } from '@nexar/projects';
 import { toArtifactDto } from './artifacts.js';
 import type { BridgeDeps, CallContext, JobRegistry } from './channel.js';
+import { behaviorProfile } from './behavior.js';
 import { createTask, progressLine, storeDraftRef } from './tasks.js';
 
 /** A path inside a project (relative, never `..`); anything else is dropped. */
@@ -69,7 +70,8 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
       },
     });
 
-    const ref = await storeDraftRef(ctx, project, outcome);
+    // Read only Cowork stores no draft artifact, also for a direct turn in a Cowork session.
+    const ref = request.readOnly === true ? undefined : await storeDraftRef(ctx, project, outcome);
     const { decision } = outcome;
     return {
       taskId: task.id,
@@ -112,7 +114,10 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
       // (false while unknown); otherwise it runs direct, recorded as such.
       supports: (lane, kind) =>
         !(lane === 'code' && kind === 'review') || (codePlane?.supportsReport() ?? false),
+      // The Plan profile needs the plane's report-only implementation plan.
+      supportsPlan: () => codePlane?.supportsPlan() ?? false,
     },
+    behavior: (mode) => behaviorProfile(deps.settings, mode),
     executeDirect,
     ...(codePlane === undefined
       ? {}

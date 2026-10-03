@@ -447,6 +447,130 @@ describe('Cowork lane', () => {
   });
 });
 
+describe('Cowork AI behavior (NXR-053)', () => {
+  const modes = async (): Promise<unknown[]> =>
+    (await records()).filter((r) => r['kind'] === 'set_mode').map((r) => r['body']);
+
+  it('drafts only (the default) keeps the scratch write allowed and sends interactive mode', async () => {
+    const { cowork, call } = await setup();
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    const turn = await settled(sessionId);
+    expect(turn.artifacts).toHaveLength(1);
+    expect(await modes()).toEqual([{ type: 'set_mode', mode: 'interactive' }]);
+    expect((await engine.approvals().list()).some((r) => r.actionType === 'cowork.write')).toBe(
+      false,
+    );
+  });
+
+  it('read only: discuss mode, every write denied by policy, no draft imported', async () => {
+    const { cowork, call } = await setup();
+    await h.deps.settings.setBehavior({ cowork: { permission: 'read-only' } });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    const turn = await settled(sessionId);
+
+    expect(turn).toMatchObject({ state: 'succeeded', outcome: { text: 'Cowork done' } });
+    expect(turn.artifacts).toHaveLength(0);
+    expect(await modes()).toEqual([{ type: 'set_mode', mode: 'discuss' }]);
+    const taskId = turn.tasks[0]?.taskId as string;
+    const policy = (await engine.approvals().list()).filter(
+      (r) => r.actionType === 'cowork.tool-call',
+    );
+    expect(policy.map((r) => r.summary).sort()).toEqual([
+      'Cowork run_shell: denied by policy',
+      'Cowork write_file: denied by policy',
+    ]);
+    expect(policy.every((r) => r.metadata?.['ruleId'] === 'cowork.read-only.deny')).toBe(true);
+    await expect(
+      readFile(join(h.projectDir, '.nexar', 'artifacts', taskId, 'drafts', 'draft.md')),
+    ).rejects.toThrow();
+  });
+
+  it('ask before write: a scratch write waits for an owner approval, then the draft is imported', async () => {
+    const { cowork, call } = await setup({
+      timings: { approvalPollMs: 20, approvalTtlMs: 20_000 },
+    });
+    await h.deps.settings.setBehavior({ cowork: { permission: 'ask-before-write' } });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+
+    const pending = await expect
+      .poll(
+        async () =>
+          (await engine.approvals().list({ status: 'pending' })).filter(
+            (r) => r.actionType === 'cowork.write',
+          ),
+        { timeout: 20_000 },
+      )
+      .toHaveLength(1)
+      .then(async () =>
+        (await engine.approvals().list({ status: 'pending' })).filter(
+          (r) => r.actionType === 'cowork.write',
+        ),
+      );
+    const request = pending[0];
+    expect(request).toMatchObject({
+      risk: 'low',
+      summary: 'Cowork wants to write the draft file draft.md',
+    });
+    // Still waiting: nothing is imported and the turn is running.
+    expect((await h.sessionStore.get(sessionId))?.activeTurnId).not.toBeNull();
+
+    const approved = await call(CHANNELS.approvalsApprove, { id: request?.id });
+    expect(approved.ok).toBe(true);
+    const turn = await settled(sessionId);
+    expect(turn.state).toBe('succeeded');
+    expect(turn.artifacts).toHaveLength(1);
+    const taskId = turn.tasks[0]?.taskId as string;
+    expect(
+      await readFile(
+        join(h.projectDir, '.nexar', 'artifacts', taskId, 'drafts', 'draft.md'),
+        'utf8',
+      ),
+    ).toBe('DRAFT-CONTENT');
+    // The approval was single use; the shell request was still denied by policy.
+    const all = await engine.approvals().list();
+    expect(all.find((r) => r.id === request?.id)?.status).toBe('consumed');
+    expect(all.filter((r) => r.actionType === 'cowork.tool-call').map((r) => r.summary)).toEqual([
+      'Cowork run_shell: denied by policy',
+    ]);
+  });
+
+  it('ask before write: a denial denies the write and no draft is imported', async () => {
+    const { cowork, call } = await setup({
+      timings: { approvalPollMs: 20, approvalTtlMs: 20_000 },
+    });
+    await h.deps.settings.setBehavior({ cowork: { permission: 'ask-before-write' } });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    await expect
+      .poll(async () => (await engine.approvals().list({ status: 'pending' })).length, {
+        timeout: 20_000,
+      })
+      .toBe(1);
+    const [request] = await engine.approvals().list({ status: 'pending' });
+    expect((await call(CHANNELS.approvalsDeny, { id: request?.id })).ok).toBe(true);
+    const turn = await settled(sessionId);
+    expect(turn.state).toBe('succeeded');
+    expect(turn.artifacts).toHaveLength(0);
+    expect((await engine.approvals().list()).find((r) => r.id === request?.id)?.status).toBe(
+      'denied',
+    );
+  });
+
+  it('ask before write: an expired approval denies the write', async () => {
+    const { cowork, call } = await setup({ timings: { approvalPollMs: 20, approvalTtlMs: 300 } });
+    await h.deps.settings.setBehavior({ cowork: { permission: 'ask-before-write' } });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    const turn = await settled(sessionId);
+    expect(turn.state).toBe('succeeded');
+    expect(turn.artifacts).toHaveLength(0);
+    const write = (await engine.approvals().list()).find((r) => r.actionType === 'cowork.write');
+    expect(write?.status).toBe('expired');
+  });
+});
 describe('providers:setOpenWorkerAccess', () => {
   it('lists support and opt-in flags and toggles access without touching keys', async () => {
     const { call } = await setup({ allowed: [] });

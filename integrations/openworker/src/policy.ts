@@ -19,6 +19,7 @@ export const COWORK_RULES = {
   toolNotAllowed: 'cowork.tool-not-allowed.deny',
   targetMissing: 'cowork.target-missing.deny',
   targetOutsideScratch: 'cowork.target-outside-scratch.deny',
+  readOnly: 'cowork.read-only.deny',
 } as const;
 
 const WRITE_TOOLS: ReadonlySet<string> = new Set([
@@ -27,6 +28,11 @@ const WRITE_TOOLS: ReadonlySet<string> = new Set([
   'apply_patch',
   'apply_unified_diff',
 ]);
+
+/** True for the tools that write files; the owner's ask-before-write setting asks for these only. */
+export function isWriteTool(name: string): boolean {
+  return WRITE_TOOLS.has(name);
+}
 
 /** True when `target` (absolute, or relative to the scratch root) lies strictly inside it. */
 function insideScratch(scratchRoot: string, target: string, platform: NodeJS.Platform): boolean {
@@ -52,8 +58,14 @@ function insideScratch(scratchRoot: string, target: string, platform: NodeJS.Pla
  */
 export function decidePermission(
   request: PermissionRequest,
-  options: { readonly scratchRoot: string; readonly platform?: NodeJS.Platform },
+  options: {
+    readonly scratchRoot: string;
+    readonly platform?: NodeJS.Platform;
+    /** Read only Cowork (NXR-053): every request is denied, whatever the tool. */
+    readonly readOnly?: boolean;
+  },
 ): PermissionDecision {
+  if (options.readOnly === true) return { decision: 'deny', ruleId: COWORK_RULES.readOnly };
   if (!WRITE_TOOLS.has(request.name)) {
     return { decision: 'deny', ruleId: COWORK_RULES.toolNotAllowed };
   }

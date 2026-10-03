@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { extname, join } from 'node:path';
+import { ApprovalGate } from '@nexar/approvals';
 import { LocalArtifactStore, type ArtifactMediaType } from '@nexar/artifacts';
 import {
   NexarError,
@@ -15,6 +16,7 @@ import {
   OpenWorkerSupervisor,
   collectDrafts,
   decidePermission,
+  isWriteTool,
   openWorkerProviderFor,
   recordCoworkDecision,
   runCoworkTurn,
@@ -54,13 +56,26 @@ export interface CoworkTimings {
   /** Upper bound on one OpenWorker turn. */
   readonly turnTimeoutMs: number;
   readonly startupTimeoutMs: number;
+  /** How long an ask-before-write approval stays pending before it expires (denied). */
+  readonly approvalTtlMs: number;
+  readonly approvalPollMs: number;
 }
 
 export const DEFAULT_COWORK_TIMINGS: CoworkTimings = {
   cacheMs: 60_000,
   turnTimeoutMs: 10 * 60_000,
   startupTimeoutMs: 30_000,
+  approvalTtlMs: 2 * 60_000,
+  approvalPollMs: 250,
 };
+
+const MAX_APPROVAL_LABEL_CHARS = 80;
+
+/** A model-chosen file name as a short, single-line label (no control characters). */
+function writeLabel(target: string | undefined): string {
+  const name = (target ?? '').split(/[\\/]/).filter(Boolean).at(-1) ?? 'a file';
+  return name.replace(/[\p{Cc}\p{Cf}]/gu, ' ').slice(0, MAX_APPROVAL_LABEL_CHARS);
+}
 
 /** Concurrent Cowork turns in this process. */
 export const MAX_ACTIVE_COWORK_TURNS = 4;
@@ -357,6 +372,7 @@ export class CoworkService {
       throw new NexarError('VALIDATION_ERROR', 'The conversation project is no longer available');
     }
 
+    const readOnly = request.permission === 'read-only';
     request.onProgress('status', 'Routing the task');
     const usable = await this.usable();
     const excluded = await this.excluded();
@@ -407,9 +423,20 @@ export class CoworkService {
         projectRoot: root,
         signal: controller.signal,
         timeoutMs: this.timings.turnTimeoutMs,
+        // Read only: the upstream session itself is put in discuss mode, and policy denies anyway.
+        mode: readOnly ? 'discuss' : 'interactive',
         onProgress: (identifier) => request.onProgress('progress', `Cowork: ${identifier}`),
         decide: (permission) => {
-          const outcome = decidePermission(permission, { scratchRoot });
+          const outcome = decidePermission(permission, { scratchRoot, readOnly });
+          // Ask before every write: a scratch write the policy would allow waits for the owner.
+          // Everything else stays decided by policy; settings only narrow.
+          if (
+            request.permission === 'ask-before-write' &&
+            outcome.decision === 'allow' &&
+            isWriteTool(permission.name)
+          ) {
+            return this.askOwner(request, task, permission, controller.signal);
+          }
           recordings.push(
             recordCoworkDecision(
               this.options.engine.approvals(),
@@ -441,7 +468,8 @@ export class CoworkService {
         throw new NexarError(code, message);
       }
 
-      const artifacts = await this.importDrafts(request, task, scratchRoot);
+      // Read only Cowork imports no draft, whatever the scratch folder holds.
+      const artifacts = readOnly ? [] : await this.importDrafts(request, task, scratchRoot);
       return {
         taskId: task.id,
         text: turn.text,
@@ -457,6 +485,52 @@ export class CoworkService {
           () => undefined,
         );
       }
+    }
+  }
+
+  /**
+   * One owner approval for one scratch write (action cowork.write, fingerprint over session, turn,
+   * tool and target; single use; short TTL). Anything but an approval (denial, expiry, cancel, a
+   * store failure) is a denial.
+   */
+  private async askOwner(
+    request: CoworkRequest,
+    task: NexarTask,
+    permission: { readonly name: string; readonly target?: string },
+    signal: AbortSignal,
+  ): Promise<'allow' | 'deny'> {
+    const label = writeLabel(permission.target);
+    const action = {
+      type: 'cowork.write',
+      target: label,
+      parameters: {
+        sessionId: request.sessionId,
+        turnId: request.turnId,
+        tool: permission.name,
+        target: permission.target ?? null,
+      },
+    };
+    try {
+      const gate = new ApprovalGate({
+        mode: 'store',
+        store: this.options.engine.approvals(),
+        pollIntervalMs: this.timings.approvalPollMs,
+        defaultTtlMs: this.timings.approvalTtlMs,
+        logger: this.options.logger,
+      });
+      const grant = await gate.request(action, {
+        summary: `Cowork wants to write the draft file ${label}`,
+        risk: 'low',
+        taskId: task.id,
+        projectId: request.projectId,
+        ttlMs: this.timings.approvalTtlMs,
+        signal,
+      });
+      await grant.consume(action);
+      return 'allow';
+    } catch (error) {
+      this.options.logger.info('cowork write not approved', { code: codeOf(error) });
+      return 'deny';
     }
   }
 

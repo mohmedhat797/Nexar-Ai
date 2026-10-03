@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  DEFAULT_BEHAVIOR,
   DEFAULT_CODE_PLANE,
   MAX_PLANE_PROJECTS,
   SettingsStore,
@@ -168,5 +169,100 @@ describe('Code plane settings', () => {
       theme: 'sand',
       codePlane: { distro: 'bad distro' },
     });
+  });
+});
+
+describe('AI behavior settings (NXR-053)', () => {
+  const behaviorOf = async (section: unknown) => {
+    await writeFile(path, JSON.stringify({ ...base, behavior: section }));
+    return new SettingsStore(path).getBehavior();
+  };
+
+  it('defaults to drafts only and auto-edit when the file or the section is missing', async () => {
+    expect(await new SettingsStore(path).getBehavior()).toEqual({
+      valid: true,
+      value: DEFAULT_BEHAVIOR,
+    });
+    expect(DEFAULT_BEHAVIOR).toEqual({
+      cowork: { permission: 'drafts-only' },
+      code: { permission: 'auto-edit' },
+    });
+    expect(await behaviorOf({})).toEqual({ valid: true, value: DEFAULT_BEHAVIOR });
+    expect(await behaviorOf({ code: { permission: 'plan' } })).toEqual({
+      valid: true,
+      value: { ...DEFAULT_BEHAVIOR, code: { permission: 'plan' } },
+    });
+  });
+
+  it('accepts the supported permissions and a preferred resource', async () => {
+    expect(
+      await behaviorOf({
+        cowork: { permission: 'ask-before-write', preferredResourceId: 'local-echo' },
+        code: { permission: 'plan', preferredResourceId: 'dsh:deepseek' },
+      }),
+    ).toEqual({
+      valid: true,
+      value: {
+        cowork: { permission: 'ask-before-write', preferredResourceId: 'local-echo' },
+        code: { permission: 'plan', preferredResourceId: 'dsh:deepseek' },
+      },
+    });
+  });
+
+  it.each([
+    ['full-auto', { code: { permission: 'full-auto' } }],
+    ['ask-before-edits', { code: { permission: 'ask-before-edits' } }],
+    ['a cowork value under code', { code: { permission: 'read-only' } }],
+    ['a code value under cowork', { cowork: { permission: 'plan' } }],
+    ['an extra top-level key', { network: 'open' }],
+    ['an extra key in a mode', { code: { permission: 'plan', network: true } }],
+    ['a bad resource id', { cowork: { preferredResourceId: '../etc' } }],
+    ['a non-object', 'plan'],
+    ['an array', []],
+    ['null', null],
+  ])('a damaged section fails closed: %s', async (_name, section) => {
+    expect(await behaviorOf(section)).toEqual({ valid: false });
+  });
+
+  it('keeps a damaged section verbatim, refuses to patch it and still saves appearance', async () => {
+    const damaged = { code: { permission: 'full-auto' } };
+    await writeFile(path, JSON.stringify({ ...base, behavior: damaged }));
+    const store = new SettingsStore(path);
+    await expect(store.setBehavior({ code: { permission: 'plan' } })).rejects.toMatchObject({
+      code: 'CONFIGURATION_ERROR',
+    });
+    await store.set({ theme: 'dark' });
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
+      theme: 'dark',
+      behavior: damaged,
+    });
+  });
+
+  it('merges patches, clears a preferred resource with null and leaves other sections alone', async () => {
+    await writeFile(
+      path,
+      JSON.stringify({ ...base, codePlane: { projects: { a: 'plane-a' } }, cowork: {} }),
+    );
+    const store = new SettingsStore(path);
+    expect(await store.setBehavior({ cowork: { preferredResourceId: 'local-echo' } })).toEqual({
+      cowork: { permission: 'drafts-only', preferredResourceId: 'local-echo' },
+      code: { permission: 'auto-edit' },
+    });
+    expect(await store.setBehavior({ code: { permission: 'plan' } })).toEqual({
+      cowork: { permission: 'drafts-only', preferredResourceId: 'local-echo' },
+      code: { permission: 'plan' },
+    });
+    expect(await store.setBehavior({ cowork: { preferredResourceId: null } })).toEqual({
+      cowork: { permission: 'drafts-only' },
+      code: { permission: 'plan' },
+    });
+    const file = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+    expect(file['behavior']).toEqual({
+      cowork: { permission: 'drafts-only' },
+      code: { permission: 'plan' },
+    });
+    expect(file['codePlane']).toMatchObject({ projects: { a: 'plane-a' } });
+    // A new store sees the persisted value.
+    expect(await new SettingsStore(path).getBehavior()).toMatchObject({ valid: true });
   });
 });

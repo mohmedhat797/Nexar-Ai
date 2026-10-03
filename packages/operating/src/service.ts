@@ -25,6 +25,10 @@ import type { LaneOutcome } from './router.js';
 /** Maximum turns executing at once in one service. */
 export const MAX_CONCURRENT_TURNS = 16;
 
+/** Shown when the Plan profile is on but the plane does not advertise the implementation plan. */
+export const PLAN_UNSUPPORTED_REFUSAL =
+  'Plan mode needs the engineering plane to offer the implementation-plan plan, and this plane does not. No change run was started.';
+
 export interface DirectRequest {
   readonly sessionId: string;
   readonly turnId: string;
@@ -34,6 +38,8 @@ export interface DirectRequest {
   readonly correlation: OperatingCorrelation;
   readonly preferredResourceIds?: readonly string[];
   readonly maxCostUsd?: number;
+  /** The owner's Cowork permission is read only: the turn must not store a draft artifact. */
+  readonly readOnly?: boolean;
   /** Called once with the created task id before execution starts. */
   readonly onTask: (taskId: string) => Promise<void>;
   readonly onProgress: (type: 'status' | 'progress', message: string) => void;
@@ -48,8 +54,26 @@ export interface DirectResult {
   readonly fallback?: boolean;
 }
 
+/** Cowork permission from the owner's AI behavior settings (NXR-053); it only ever narrows. */
+export type CoworkPermission = 'read-only' | 'drafts-only' | 'ask-before-write';
+/** Code permission: `plan` runs the report-only implementation plan instead of a change plan. */
+export type CodePermission = 'plan' | 'auto-edit';
+
+/** What the owner's AI behavior settings say for the session's mode, resolved by the host port. */
+export interface BehaviorProfile {
+  /** The owner's preferred resource for the session's mode; an explicit turn preference wins. */
+  readonly preferredResourceIds?: readonly string[];
+  readonly cowork: { readonly permission: CoworkPermission };
+  readonly code: { readonly permission: CodePermission };
+}
+
+const DEFAULT_BEHAVIOR: BehaviorProfile = {
+  cowork: { permission: 'drafts-only' },
+  code: { permission: 'auto-edit' },
+};
+
 /** A Cowork turn (ADR-026): the same request as a direct one; its correlation is already delegated. */
-export type CoworkRequest = DirectRequest;
+export type CoworkRequest = DirectRequest & { readonly permission: CoworkPermission };
 
 export type CoworkResult = Omit<DirectResult, 'fallback'>;
 
@@ -64,7 +88,7 @@ export interface CodeRequest {
   readonly sessionId: string;
   readonly turnId: string;
   readonly projectId: string;
-  readonly intent: 'coding' | 'review';
+  readonly intent: 'coding' | 'review' | 'plan';
   /** The context@1 prompt, or the turn's own text when the prompt is over 20,000 characters. */
   readonly goal: string;
   readonly correlation: OperatingCorrelation;
@@ -106,7 +130,14 @@ export interface OperatingPorts {
     reason?(lane: 'cowork' | 'code', projectId: string): string | undefined;
     /** Whether an available lane can run this intent (default: yes). */
     supports?(lane: 'cowork' | 'code', kind: TaskKind): boolean;
+    /** Whether the Code lane can run the report-only implementation plan (default: no). */
+    supportsPlan?(): boolean;
   };
+  /**
+   * The owner's AI behavior for the session's mode (NXR-053). It may throw (damaged settings):
+   * the turn is then not started. Without it the defaults apply (drafts only, auto-edit).
+   */
+  readonly behavior?: (mode: OperatingSession['mode']) => Promise<BehaviorProfile>;
   readonly executeDirect: (request: DirectRequest, signal: AbortSignal) => Promise<DirectResult>;
   /** The Code lane (ADR-025). Without it a `code` effective lane executes through `executeDirect`. */
   readonly executeCode?: (request: CodeRequest, signal: AbortSignal) => Promise<CodeResult>;
@@ -146,6 +177,7 @@ export interface SubmitTurnResult {
 interface RunOptions {
   readonly preferredResourceIds?: readonly string[] | undefined;
   readonly maxCostUsd?: number | undefined;
+  readonly behavior: BehaviorProfile;
 }
 
 function reject(code: 'VALIDATION_ERROR' | 'CONFLICT' | 'POLICY_REJECTED', reason: string) {
@@ -187,14 +219,13 @@ export class OperatingService {
       text: input.text,
       ...(input.explicitKind === undefined ? {} : { explicitKind: input.explicitKind }),
     });
-    const outcome = decideLane({
-      mode: session.mode,
-      intent,
-      available: this.availability(session.projectId),
-    });
+    const behavior = await this.profile(session.mode);
+    const available = this.availability(session.projectId, intent.kind, behavior);
+    const outcome = decideLane({ mode: session.mode, intent, available });
     const options: RunOptions = {
       preferredResourceIds: input.preferredResourceIds,
       maxCostUsd: input.maxCostUsd,
+      behavior,
     };
 
     const runs = outcome.action === 'run';
@@ -215,7 +246,13 @@ export class OperatingService {
         return { turn, created: true, action: 'confirm' };
       }
       if (outcome.action === 'refuse') {
-        const failed = await this.failRefused(input.sessionId, turn.id, outcome, session.projectId);
+        const failed = await this.failRefused(
+          input.sessionId,
+          turn.id,
+          outcome,
+          session.projectId,
+          this.planRefusal(session.projectId, intent.kind, behavior),
+        );
         return { turn: failed, created: true, action: 'refuse' };
       }
       this.changed(input.sessionId, turn.id);
@@ -252,9 +289,12 @@ export class OperatingService {
     const options = this.pending.get(k);
     if (options === undefined) throw reject('CONFLICT', 'confirmation-expired');
 
-    const outcome = confirmLane(turn.lane, this.availability(session.projectId), {
-      kind: turn.intent?.kind ?? 'general',
-    });
+    const kind = turn.intent?.kind ?? 'general';
+    const outcome = confirmLane(
+      turn.lane,
+      this.availability(session.projectId, kind, options.behavior),
+      { kind },
+    );
     const runs = outcome.action === 'run';
     if (runs) this.reserve();
     try {
@@ -271,7 +311,13 @@ export class OperatingService {
       this.pending.delete(k);
       this.changed(sessionId, turnId);
       if (outcome.action === 'refuse') {
-        return this.failRefused(sessionId, turnId, outcome, session.projectId);
+        return this.failRefused(
+          sessionId,
+          turnId,
+          outcome,
+          session.projectId,
+          this.planRefusal(session.projectId, kind, options.behavior),
+        );
       }
       this.start(sessionId, turnId, options);
       return resolved;
@@ -296,19 +342,54 @@ export class OperatingService {
     return session;
   }
 
-  private availability(projectId: string): { readonly cowork: boolean; readonly code: boolean } {
+  /** The owner's behavior for a mode; a damaged settings section propagates and refuses the turn. */
+  private profile(mode: OperatingSession['mode']): Promise<BehaviorProfile> {
+    return this.ports.behavior === undefined
+      ? Promise.resolve(DEFAULT_BEHAVIOR)
+      : this.ports.behavior(mode);
+  }
+
+  /** Plan profile: an engineering write may only run as the plan, so the plane must offer it. */
+  private planBlocked(projectId: string, kind: TaskKind, behavior: BehaviorProfile): boolean {
+    return (
+      kind === 'coding' &&
+      behavior.code.permission === 'plan' &&
+      this.ports.executeCode !== undefined &&
+      this.ports.lanes.available('code', projectId) &&
+      !(this.ports.lanes.supportsPlan?.() ?? false)
+    );
+  }
+
+  private planRefusal(
+    projectId: string,
+    kind: TaskKind,
+    behavior: BehaviorProfile,
+  ): string | undefined {
+    return this.planBlocked(projectId, kind, behavior) ? PLAN_UNSUPPORTED_REFUSAL : undefined;
+  }
+
+  private availability(
+    projectId: string,
+    kind: TaskKind,
+    behavior: BehaviorProfile,
+  ): { readonly cowork: boolean; readonly code: boolean } {
     return {
       // Same rule as the Code lane: no executor, no lane.
       cowork:
         this.ports.lanes.available('cowork', projectId) && this.ports.executeCowork !== undefined,
       // Without a Code executor the lane cannot run anything: report it unavailable, so engineering
       // writes are refused instead of silently executing direct.
-      code: this.ports.executeCode !== undefined && this.ports.lanes.available('code', projectId),
+      // Plan profile: an engineering write never runs as a change; without the plan it is refused.
+      code:
+        this.ports.executeCode !== undefined &&
+        this.ports.lanes.available('code', projectId) &&
+        !this.planBlocked(projectId, kind, behavior),
     };
   }
 
   /** The router's refusal plus the fixed reason, when the lanes port has one (never user text). */
-  private refusalMessage(base: string, projectId: string): string {
+  private refusalMessage(base: string, projectId: string, override?: string): string {
+    if (override !== undefined) return override;
     let reason: string | undefined;
     try {
       reason = this.ports.lanes.reason?.('code', projectId);
@@ -346,6 +427,7 @@ export class OperatingService {
     turnId: string,
     outcome: LaneOutcome,
     projectId: string,
+    override?: string,
   ): Promise<Turn> {
     const refusal = outcome.refusal ?? {
       code: 'SANDBOX_UNAVAILABLE' as const,
@@ -354,7 +436,10 @@ export class OperatingService {
     const { turn } = await this.ports.store.completeTurn(sessionId, turnId, {
       state: 'failed',
       outcome: {
-        error: { code: refusal.code, message: this.refusalMessage(refusal.message, projectId) },
+        error: {
+          code: refusal.code,
+          message: this.refusalMessage(refusal.message, projectId, override),
+        },
       },
     });
     this.changed(sessionId, turnId);
@@ -449,7 +534,15 @@ export class OperatingService {
           describe === undefined ? undefined : (ref) => describe(ref, session.projectId),
       });
       const kind = turn.intent?.kind ?? 'general';
-      const codeIntent = kind === 'coding' ? 'coding' : kind === 'review' ? 'review' : undefined;
+      const { behavior } = options;
+      const codeIntent =
+        kind === 'coding'
+          ? behavior.code.permission === 'plan'
+            ? 'plan'
+            : 'coding'
+          : kind === 'review'
+            ? 'review'
+            : undefined;
       const executeCode = this.ports.executeCode;
       const viaCode =
         turn.lane?.effectiveLane === 'code' &&
@@ -564,6 +657,11 @@ export class OperatingService {
       const executeCowork = this.ports.executeCowork;
       const viaCowork = turn.lane?.effectiveLane === 'cowork' && executeCowork !== undefined;
       const root = rootCorrelation(sessionId, turnId);
+      // The owner's per-mode preference applies when the turn names none (NRC filters still run).
+      const preferred =
+        (options.preferredResourceIds?.length ?? 0) > 0
+          ? options.preferredResourceIds
+          : behavior.preferredResourceIds;
       const request: DirectRequest = {
         sessionId,
         turnId,
@@ -571,15 +669,22 @@ export class OperatingService {
         kind,
         prompt,
         correlation: viaCowork ? delegate(root, 'openworker') : root,
-        ...(options.preferredResourceIds === undefined
+        ...(preferred === undefined || preferred.length === 0
           ? {}
-          : { preferredResourceIds: options.preferredResourceIds }),
+          : { preferredResourceIds: preferred }),
         ...(options.maxCostUsd === undefined ? {} : { maxCostUsd: options.maxCostUsd }),
+        // Read only Cowork stores no draft, also for a direct turn inside a Cowork session.
+        ...(behavior.cowork.permission === 'read-only' && (viaCowork || session.mode === 'cowork')
+          ? { readOnly: true }
+          : {}),
         onTask: link,
         onProgress,
       };
       const result: DirectResult = viaCowork
-        ? await executeCowork(request, controller.signal)
+        ? await executeCowork(
+            { ...request, permission: behavior.cowork.permission },
+            controller.signal,
+          )
         : await this.ports.executeDirect(request, controller.signal);
 
       await link(result.taskId);

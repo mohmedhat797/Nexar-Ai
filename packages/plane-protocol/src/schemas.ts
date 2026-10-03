@@ -55,7 +55,7 @@ export const runFrameSchema = z.strictObject({
   runId,
   planeProject: id(PROJECT_ID_PATTERN),
   goal: z.string().min(1).max(MAX_GOAL_CHARS),
-  intent: z.enum(['coding', 'review']),
+  intent: z.enum(['coding', 'review', 'plan']),
   planId: id(PLAN_ID_PATTERN).optional(),
   lineage: lineageSchema,
 });

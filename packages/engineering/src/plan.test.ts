@@ -9,11 +9,12 @@ import { PlanCatalog } from './plan.js';
 const SHIPPED = fileURLToPath(new URL('../../../engineering/plans', import.meta.url));
 
 describe('PlanCatalog (shipped plans)', () => {
-  it('loads the four plans with the documented lane order', async () => {
+  it('loads the five plans with the documented lane order', async () => {
     const catalog = await PlanCatalog.load(SHIPPED);
     expect(catalog.list().map((p) => p.id)).toEqual([
       'implement-review',
       'implement-test-review',
+      'implementation-plan',
       'plan-implement-review',
       'repository-report',
     ]);
@@ -30,6 +31,7 @@ describe('PlanCatalog (shipped plans)', () => {
       'review:read-only',
     ]);
     expect(roles('repository-report')).toEqual(['report:read-only']);
+    expect(roles('implementation-plan')).toEqual(['report:read-only']);
   });
 
   it('defaults to change mode; the shipped report plan is mode report', async () => {
@@ -46,8 +48,28 @@ describe('PlanCatalog (shipped plans)', () => {
     for (const plan of catalog.list()) {
       if (plan.mode === 'change') expect(plan.debugging.system).toMatch(/debugging lane/);
       expect(plan.lanes.every((l) => !l.system.includes('{{'))).toBe(true);
-      expect(plan.lanes.at(-1)?.capabilities).toEqual(['code-review']);
+      expect(plan.lanes.at(-1)?.capabilities).toEqual(
+        plan.id === 'implementation-plan' ? ['coding', 'code-review'] : ['code-review'],
+      );
     }
+  });
+
+  it('ships a read-only implementation-plan report plan for coding goals', async () => {
+    const plan = (await PlanCatalog.load(SHIPPED)).require('implementation-plan');
+    expect(plan.mode).toBe('report');
+    expect(plan.lanes).toHaveLength(1);
+    expect(plan.lanes[0]).toMatchObject({
+      role: 'report',
+      access: 'read-only',
+      taskKind: 'coding',
+      capabilities: ['coding', 'code-review'],
+    });
+    expect(plan.lanes[0]?.system).toMatch(/never modify/i);
+    expect(plan.lanes[0]?.system).toMatch(/implementation plan/i);
+    expect(plan.lanes[0]?.system).toMatch(/Files to touch/);
+    expect(plan.lanes[0]?.brief.nodes.some((n) => n.kind === 'var' && n.name === 'goal')).toBe(
+      true,
+    );
   });
 
   it('keeps the report lane untrusted-input wrapping and read-only instructions', async () => {

@@ -4,6 +4,7 @@ import type { BridgeResult } from '../shared/api.js';
 import { CHANNELS, type ChannelName } from '../shared/channels.js';
 import { approvalChannels } from './approvals.js';
 import { artifactChannels } from './artifacts.js';
+import { behaviorChannels } from './behavior.js';
 import { codeChannels } from './code.js';
 import { coworkChannels } from './cowork.js';
 import {
@@ -64,6 +65,7 @@ export function createBridge(deps: BridgeDeps): Bridge {
     ...sessionChannels,
     ...codeChannels,
     ...coworkChannels,
+    ...behaviorChannels,
   };
   const jobs = new JobRegistry();
   const operating = createOperating(deps, jobs);

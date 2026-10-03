@@ -57,6 +57,7 @@ const desktopValid: readonly [string, unknown][] = [
   ['run', run],
   ['run with a plan', { ...run, planId: 'implement-review' }],
   ['run intent review', { ...run, intent: 'review' }],
+  ['run intent plan', { ...run, intent: 'plan' }],
   ['run depth 2', { ...run, lineage: { ...lineage, depth: 2 } }],
   ['cancel', { type: 'cancel', runId: RUN }],
   ['decide approve', { type: 'decide', approvalId: APPROVAL, decision: 'approve' }],
