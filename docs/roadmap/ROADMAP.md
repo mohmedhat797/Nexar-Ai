@@ -91,6 +91,16 @@ themes, AI behavior settings, providers and scheduled tasks.
   live-validated; live validation of NXR-056, NXR-053, NXR-052 and the installer (NXR-051) remains.
   Current state: [`project-current-state.md`](../devlog/project-current-state.md).
 
+## v0.6 — Resource orchestration _(planned; architecture accepted 2026-10-04)_
+
+Nexar owns providers, connections and resources; OpenWorker (Cowork) and DSH (Code) orchestrate; the
+NRC allocates resources across the whole work graph and revalidates each unit
+([ADR-027](../adr/027-resource-orchestration-architecture.md),
+[plan](../architecture/resource-orchestration-plan.md)). Units NXR-059 to NXR-066: provider
+connections and resource normalization, the Resource Strategy Planner, the Engine Resource Bridge,
+OpenWorker → Nexar delegation and control resource, DSH as the Code orchestrator, Providers UX, and
+offline plus owner live acceptance. Scheduled tasks (NXR-054) follow this milestone.
+
 ## v0.7 — Memory & Personal Context
 
 Persistent project and personal context: retrieval over documents and past work, preference memory,

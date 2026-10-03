@@ -78,6 +78,22 @@ Phases of [ADR-021](../adr/021-nexar-desktop.md); see also ADR-022 and ADR-023.
 | [NXR-057](057-persistent-operating-sessions.md) | Persistent Operating Sessions                           | v0.5      | operating-layer, sessions, desktop | Done                                     |
 | [NXR-058](058-operating-intent-and-lanes.md)    | Operating intent and lane orchestration                 | v0.5      | operating-layer, routing, desktop  | Done (lanes: NXR-055/056)                |
 
+## v0.6 — Resource orchestration
+
+[ADR-027](../adr/027-resource-orchestration-architecture.md) · [plan](../architecture/resource-orchestration-plan.md).
+Order: NXR-060 → 061 → 062 → 059 → 063 → 064 → 065 → 066. NXR-054 waits for NXR-066.
+
+| Id                                                   | Title                                                        | Milestone | Labels                                 | Status  |
+| ---------------------------------------------------- | ------------------------------------------------------------ | --------- | -------------------------------------- | ------- |
+| [NXR-059](059-openworker-nexar-delegation.md)        | OpenWorker → Nexar turn-scoped delegation                    | v0.6      | operating-layer, openworker, security  | Planned |
+| [NXR-060](060-provider-connections-and-resources.md) | Provider connections and resource normalization              | v0.6      | resources, desktop, routing            | Planned |
+| [NXR-061](061-resource-strategy-planner.md)          | Resource Strategy Planner (`strategy@1`)                     | v0.6      | resource-intelligence, routing         | Planned |
+| [NXR-062](062-engine-resource-bridge.md)             | Engine Resource Bridge                                       | v0.6      | operating-layer, routing, security     | Planned |
+| [NXR-063](063-openworker-control-resource.md)        | OpenWorker control resource                                  | v0.6      | openworker, routing                    | Planned |
+| [NXR-064](064-dsh-code-orchestration.md)             | DSH as the Code orchestrator inside the engineering envelope | v0.6      | engineering, deepseek-harness, routing | Planned |
+| [NXR-065](065-providers-ux-consolidation.md)         | Providers UX consolidation                                   | v0.6      | desktop, providers                     | Planned |
+| [NXR-066](066-resource-orchestration-acceptance.md)  | Resource orchestration E2E and live acceptance               | v0.6      | testing, acceptance                    | Planned |
+
 ## Nexar Mobile (deferred)
 
 Deferred by the owner until after the Operating Layer, Memory and Automation milestones.

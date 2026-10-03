@@ -18,18 +18,18 @@ Update this file at every milestone checkpoint.
 
 ## Milestones
 
-| Milestone                             | State                         | Notes                                                                                                                                                                                                           |
-| ------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| v0.1 Foundation                       | DONE                          | Engine, NRC `deterministic@1`, adapters, telemetry. Follow-ups NXR-001..005 listed in the backlog.                                                                                                              |
-| v0.2 Personal Work                    | DONE                          | Projects, artifacts, approvals, MCP Work Bridge, workflows (NXR-010..016). NXR-017 export formats planned.                                                                                                      |
-| v0.3 Engineering Machine              | DONE                          | Sandbox, worktrees, lanes, gates, review, owner-approved commits; Codex, DSH ACP, Delegate Skills, experimental Antigravity. WSL A1–A6 passed on the owner machine 2026-10-03. Follow-ups NXR-025..029 planned. |
-| v0.4 Resource Intelligence            | DONE                          | `resource-intelligence@1`, quota, cost, history, discovery (NXR-030..034).                                                                                                                                      |
-| v0.5 Desktop foundation (NXR-050)     | DONE                          | Electron shell, host, validated bridge, projects, Cowork chat.                                                                                                                                                  |
-| v0.5 Operating Layer                  | MERGED; partly live-validated | See the table below.                                                                                                                                                                                            |
-| NXR-054 Scheduled tasks               | NOT STARTED                   | Planned; starts after the live Operating Layer flow passes.                                                                                                                                                     |
-| NXR-059 OpenWorker → Nexar delegation | NOT STARTED                   | Named in ADR-026 and the handoff; no backlog file yet.                                                                                                                                                          |
-| v0.7 Memory, v0.8 Automation          | NOT STARTED                   | Roadmap.                                                                                                                                                                                                        |
-| Nexar Mobile / control plane          | DEFERRED                      | Owner decision 2026-10-02.                                                                                                                                                                                      |
+| Milestone                                  | State                              | Notes                                                                                                                                                                                                           |
+| ------------------------------------------ | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v0.1 Foundation                            | DONE                               | Engine, NRC `deterministic@1`, adapters, telemetry. Follow-ups NXR-001..005 listed in the backlog.                                                                                                              |
+| v0.2 Personal Work                         | DONE                               | Projects, artifacts, approvals, MCP Work Bridge, workflows (NXR-010..016). NXR-017 export formats planned.                                                                                                      |
+| v0.3 Engineering Machine                   | DONE                               | Sandbox, worktrees, lanes, gates, review, owner-approved commits; Codex, DSH ACP, Delegate Skills, experimental Antigravity. WSL A1–A6 passed on the owner machine 2026-10-03. Follow-ups NXR-025..029 planned. |
+| v0.4 Resource Intelligence                 | DONE                               | `resource-intelligence@1`, quota, cost, history, discovery (NXR-030..034).                                                                                                                                      |
+| v0.5 Desktop foundation (NXR-050)          | DONE                               | Electron shell, host, validated bridge, projects, Cowork chat.                                                                                                                                                  |
+| v0.5 Operating Layer                       | MERGED; partly live-validated      | See the table below.                                                                                                                                                                                            |
+| NXR-054 Scheduled tasks                    | NOT STARTED                        | Waits for v0.6 live acceptance (NXR-066).                                                                                                                                                                       |
+| v0.6 Resource orchestration (NXR-059..066) | ARCHITECTURE ACCEPTED, NOT STARTED | [ADR-027](../adr/027-resource-orchestration-architecture.md), [plan](../architecture/resource-orchestration-plan.md); branch `feat/nexar-resource-orchestration`                                                |
+| v0.7 Memory, v0.8 Automation               | NOT STARTED                        | Roadmap.                                                                                                                                                                                                        |
+| Nexar Mobile / control plane               | DEFERRED                           | Owner decision 2026-10-02.                                                                                                                                                                                      |
 
 ## Acceptance and live validation (v0.5)
 
@@ -85,10 +85,20 @@ daemon (owner deferral), Memory (v0.7), Automation (v0.8).
 | `934db0f` | Fix: end a starting OpenWorker before Desktop quits                          |
 | `2737b7c` | E2E budget for slow cold starts, bounded cleanup                             |
 
+## Architecture correction (2026-10-04)
+
+The owner's core requirement is that Nexar uses their subscriptions (Claude, ChatGPT/Codex, Google),
+API keys and local models across Cowork and Code. The audit found that Cowork could not use
+subscriptions (ADR-026 §4), that DSH was only a lane resource, and that Desktop Auto routed to the
+`local-echo` test double even with an authenticated Claude Code. ADR-027 corrects the architecture;
+the previous next task (install OpenWorker and give it an API key) is **superseded** because it would
+validate the old coupling. OpenWorker's `openai-codex` provider was verified to emulate the Codex
+CLI's OAuth client and is not an accepted route.
+
 ## NEXT EXACT TASK
 
-**NXR-056 owner live validation:** install OpenWorker 0.3.x on the owner's Windows machine following
-upstream instructions, allow one provider for OpenWorker in Settings → Providers, run one real Cowork
-turn that produces a draft in the project, and record the result in
-[`056-cowork-openworker-agent.md`](../backlog/056-cowork-openworker-agent.md). This completes the
-live Operating Layer flow that gates NXR-054.
+**NXR-060 — Provider connections and resource normalization** on `feat/nexar-resource-orchestration`
+([backlog](../backlog/060-provider-connections-and-resources.md)): `ProviderConnection` contract,
+`metadata.connection` on every resource source, probe-backed native subscription resources,
+`agent-loop-control:<engine>` capability, and the first-run Desktop config without the `local-echo`
+default (with a one-time migration). Then NXR-061 → 062 → 059 → 063 → 064 → 065 → 066.
