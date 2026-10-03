@@ -8,7 +8,7 @@ import {
   type Locator,
   type Page,
 } from 'playwright-core';
-import { expect } from 'vitest';
+import { expect, onTestFailed } from 'vitest';
 
 /*
  * Launch helpers shared by the Code-lane scenarios: the same robustness as the main desktop
@@ -93,6 +93,12 @@ export async function createHarness(): Promise<Harness> {
     };
     app.process().stdout?.on('data', capture);
     app.process().stderr?.on('data', capture);
+    // A step without its own timeout (close, evaluate) only surfaces as the test timeout: print
+    // this launch's startup trace and output so the failing run says where the app stopped.
+    const launched = output;
+    onTestFailed(() => {
+      process.stderr.write(`desktop e2e failed; app output:\n${launched.join('').slice(-8000)}\n`);
+    });
     try {
       // A freshly packaged app is cold-started under antivirus scanning on CI runners.
       const page = await app.firstWindow({ timeout: EXECUTABLE ? 90_000 : 30_000 });
@@ -110,7 +116,15 @@ export async function createHarness(): Promise<Harness> {
 
   const close: Harness['close'] = async (app) => {
     const child = app.process();
-    await app.close();
+    // Bounded like `dispose`: an app that will not close is ended below instead of hanging the test.
+    const closed = await Promise.race([
+      app.close().then(
+        () => true,
+        () => true,
+      ),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 20_000)),
+    ]);
+    if (!closed) process.stderr.write('desktop e2e: app.close() did not finish within 20 s\n');
     apps.splice(apps.indexOf(app), 1);
     const deadline = Date.now() + 20_000;
     while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
