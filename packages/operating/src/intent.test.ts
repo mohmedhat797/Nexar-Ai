@@ -211,6 +211,9 @@ describe('intent-rules@1', () => {
         'audit the repo',
         'inspect the source code of the parser',
         'assess whether the implementation is complete',
+        // The owner's live NXR-055 review request (it used to fall through to analysis).
+        'Review this repository and summarize its structure, major modules, and any obvious implementation risks. Do not modify files.',
+        'review the codebase',
       ]) {
         expect(rules(text).kind, text).toBe('review');
       }

@@ -45,12 +45,12 @@ export const INTENT_RULES: readonly IntentRule[] = [
     ),
   },
   {
-    // Checking a repository against something (a proposal, a spec) is engineering analysis: it
-    // needs the code, so it has `code` affinity, but it is read-only (not an engineering write).
+    // Reviewing or checking a repository (alone or against a proposal, a spec) is engineering
+    // analysis: it needs the code, so it has `code` affinity, but it is read-only (not a write).
     id: 'review.repository',
     kind: 'review',
     pattern:
-      /\b(?:verify|check|assess|audit|inspect)\b[^.?!\n]{0,80}?\b(?:repository|repo|codebase|implementation|source\s+code)\b/i,
+      /\b(?:review|verify|check|assess|audit|inspect)\b[^.?!\n]{0,80}?\b(?:repository|repo|codebase|implementation|source\s+code)\b/i,
   },
   {
     id: 'meeting.prepare',
