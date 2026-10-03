@@ -31,8 +31,9 @@ From the Windows app the owner can start a coding session on a repository, see t
 
 ## Acceptance criteria
 
-- [ ] An end-to-end engineering task from the Windows app ends in a `nexar/<task>` commit after approval
-      (offline fake-plane E2E passes; owner live run pending).
+- [x] An end-to-end engineering task from the Windows app ends in a `nexar/<task>` commit after approval
+      (offline fake-plane E2E passes; owner live run passed 2026-10-03: `nexar/eng-7b64bb1aff49`,
+      commit `e15a379`, no push).
 - [x] Without WSL2 the app explains what is missing.
 
 ## Testing expectations
@@ -45,24 +46,27 @@ The bridge carries ids, codes and diffs for display only; no credentials cross i
 
 ## Status (2026-10-03)
 
-**Implementation complete, offline-tested and CI-validated (run `37126853300` at `3f30513`: Linux,
-Windows, secret scan). Owner live validation pending:** no `nexar-plane` distro exists on the owner
-machine yet, so A1–A6 and the real engineering/report E2Es have not run.
+**Implemented, offline-tested, CI-validated and owner live-validated.** On the owner's Windows
+machine a dedicated hardened `nexar-plane` distro passed A1–A5 (A6 recorded); Nexar Desktop reached
+it over `wsl.exe`, mapped a project by id, ran a real report-only review (`reported`, no patch,
+approval or commit) and a real engineering change (Claude Code lanes, gate passed, review approve,
+Desktop approval, local commit on `nexar/<task>`, no push), and cancelled a third run cleanly. See the
+[owner validation evidence](../devlog/evidence/nxr-055-owner-validation.md). Not exercised live: DSH (no DeepSeek key), Codex (not signed in), cross-resource review.
 
-| Criterion                                                              | Implementation                                                                                | Offline / CI evidence                                                                           | Live    |
-| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------- |
-| Windows → WSL stdio bridge, no listener, no shell                      | `apps/desktop/src/main/{code-plane,plane-connection}.ts` (`487b851`)                          | `code-plane.test.ts` (fixed args, `SystemRoot`-only env)                                        | pending |
-| Strict versioned protocol                                              | `@nexar/plane-protocol` `nexar-plane/1` (`5c653c2`, additive report fields `f5c1304`)         | `schemas.test.ts`, `codec.test.ts`, back-compat tests                                           | pending |
-| Plane entrypoint                                                       | `nexar plane serve --stdio`                                                                   | `apps/cli/src/plane.test.ts`                                                                    | pending |
-| Readiness with actionable reasons                                      | `CodePlane.probe` states + Code banner / Settings → Code (`bc14f01`)                          | `code-plane.test.ts`, `code.e2e.ts` (no-plane scenario)                                         | pending |
-| Id-only project mapping                                                | `code:setPlaneProject`, owner-edited distro/command                                           | `code.test.ts` schema negatives, E2E                                                            | pending |
-| Engineering write execution → gates → review → approval → local commit | existing `EngineeringRunner` via the plane; plane approvals in Approvals                      | fake-plane `code.e2e.ts` (approve → branch + commit)                                            | pending |
-| Report-only review execution                                           | `ChangePlan \| ReportPlan`, `repository-report` (`f5c1304`), Desktop review turns (`41fd1a9`) | `report.test.ts` (read-only lanes, no harvest/approval/commit), `code.e2e.ts` review + relaunch | pending |
-| Cancellation                                                           | turn → `cancel` frame → runner abort → tree cleanup                                           | `code.test.ts`, `code-plane.test.ts`                                                            | pending |
-| Restart without replay                                                 | ADR-024 interruption; diffs in memory only                                                    | `code.e2e.ts` relaunch scenarios                                                                | n/a     |
-| Bounded diff                                                           | 256 KiB plane cap, verified against the patch record                                          | `plane.test.ts`, `code.e2e.ts`                                                                  | pending |
-| No native Windows write fallback; honest lanes                         | `honest()` lane records; Code lane unavailable without the plane                              | `service.test.ts`, `code.e2e.ts` refusal                                                        | n/a     |
-| No credentials across the bridge; no push                              | SystemRoot-only env; plane uses its own credential mounts; no push path                       | `code-plane.test.ts`; ADR-018/019 controls unchanged                                            | pending |
+| Criterion                                                              | Implementation                                                                                | Offline / CI evidence                                                                           | Live   |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------ |
+| Windows → WSL stdio bridge, no listener, no shell                      | `apps/desktop/src/main/{code-plane,plane-connection}.ts` (`487b851`)                          | `code-plane.test.ts` (fixed args, `SystemRoot`-only env)                                        | passed |
+| Strict versioned protocol                                              | `@nexar/plane-protocol` `nexar-plane/1` (`5c653c2`, additive report fields `f5c1304`)         | `schemas.test.ts`, `codec.test.ts`, back-compat tests                                           | passed |
+| Plane entrypoint                                                       | `nexar plane serve --stdio`                                                                   | `apps/cli/src/plane.test.ts`                                                                    | passed |
+| Readiness with actionable reasons                                      | `CodePlane.probe` states + Code banner / Settings → Code (`bc14f01`)                          | `code-plane.test.ts`, `code.e2e.ts` (no-plane scenario)                                         | passed |
+| Id-only project mapping                                                | `code:setPlaneProject`, owner-edited distro/command                                           | `code.test.ts` schema negatives, E2E                                                            | passed |
+| Engineering write execution → gates → review → approval → local commit | existing `EngineeringRunner` via the plane; plane approvals in Approvals                      | fake-plane `code.e2e.ts` (approve → branch + commit)                                            | passed |
+| Report-only review execution                                           | `ChangePlan \| ReportPlan`, `repository-report` (`f5c1304`), Desktop review turns (`41fd1a9`) | `report.test.ts` (read-only lanes, no harvest/approval/commit), `code.e2e.ts` review + relaunch | passed |
+| Cancellation                                                           | turn → `cancel` frame → runner abort → tree cleanup                                           | `code.test.ts`, `code-plane.test.ts`                                                            | passed |
+| Restart without replay                                                 | ADR-024 interruption; diffs in memory only                                                    | `code.e2e.ts` relaunch scenarios                                                                | n/a    |
+| Bounded diff                                                           | 256 KiB plane cap, verified against the patch record                                          | `plane.test.ts`, `code.e2e.ts`                                                                  | passed |
+| No native Windows write fallback; honest lanes                         | `honest()` lane records; Code lane unavailable without the plane                              | `service.test.ts`, `code.e2e.ts` refusal                                                        | n/a    |
+| No credentials across the bridge; no push                              | SystemRoot-only env; plane uses its own credential mounts; no push path                       | `code-plane.test.ts`; ADR-018/019 controls unchanged                                            | passed |
 
 Owner steps (runbook [`wsl2-engineering-plane.md`](../integration/wsl2-engineering-plane.md)): create
 the `nexar-plane` distro, harden `wsl.conf`, install `bubblewrap socat git`, Node ≥ 22.19 and pnpm,

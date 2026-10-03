@@ -125,12 +125,22 @@ the plane rather than working around it.
 
 ## Status
 
-The mechanics were verified on Linux with bwrap 0.9, in the development container used for v0.3.
-The WSL-specific steps (`wsl.conf`, interop, AppArmor) come from Microsoft's documentation and **have
-not yet been run on the owner's machine**. Record the results of section 7 in an issue when you run
-them.
+**Owner acceptance (2026-10-03):** A1–A5 passed and A6 was recorded on the owner's Windows machine
+(WSL 2.7.14, kernel `6.18.33.2-microsoft-standard-WSL2`, Ubuntu 24.04.5, bwrap 0.9.0), followed by a
+real Desktop review, engineering change, approval and local commit. Evidence:
+[`nxr-055-owner-validation.md`](../devlog/evidence/nxr-055-owner-validation.md).
 
-**Release decision (2026-10-01):** the owner deferred checks A1–A6 and released v0.3 without them.
-Their state is **deferred, not passed**. Until they are recorded, treat every WSL-specific guarantee
-in ADR-018 (hardened `wsl.conf`, interop unreachable, AppArmor handling) as unverified on the
-owner's machine. The Linux sandbox mechanics are verified.
+Notes from that run:
+
+- `wsl --install -d Ubuntu-24.04 --name nexar-plane --no-launch` creates the distro without the
+  interactive first-user prompt; create `nexar` as root afterwards.
+- The first boot creates empty `/mnt/c` (and other drive) mount points before hardening. After the
+  hardened restart, check they are unmounted and empty and remove them (`rmdir`) so A2 reports "No
+  such file or directory". Never mount them again.
+- Desktop launches the plane with a fixed command and a minimal environment, so the owner-installed
+  `/usr/local/bin/nexar` launcher should set `NEXAR_CONFIG_PATH` (if unset) to the plane config.
+- A private repository can be brought in as a `git bundle` over `wsl.exe` stdin: no Git host
+  credential enters the plane and the clone has no pushable remote.
+
+The Linux sandbox mechanics were first verified with bwrap 0.9 in the v0.3 development container. The
+owner deferred A1–A6 for the v0.3 release (2026-10-01); this run closes that deferral.

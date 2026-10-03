@@ -8,6 +8,25 @@ exactly. Git history was recovered without changing source files; the feature br
 
 ## LAST COMPLETED
 
+**NXR-055 owner validation (2026-10-03, Claude Code, Computer Use)** — evidence:
+[`nxr-055-owner-validation.md`](evidence/nxr-055-owner-validation.md).
+
+- A1: PASS (`nexar doctor`: functional bwrap probe, hardened `wsl.conf`)
+- A2: PASS (`ls /mnt/c`: No such file or directory)
+- A3: PASS (`cmd.exe`: command not found)
+- A4: PASS (`ok`)
+- A5: PASS (`nexar sandbox selftest` 7/7)
+- A6: recorded (`6.18.33.2-microsoft-standard-WSL2`)
+- REAL REPORT E2E: PASS (`eng-be46d6ee399c`, `repository-report`, `reported`, Claude Code; no patch,
+  approval or commit)
+- REAL WRITE E2E: PASS (`eng-7b64bb1aff49`, feature + review on Claude Code, gate passed, review
+  approve, approved in Desktop Approvals)
+- COMMIT: `e15a379` on `nexar/eng-7b64bb1aff49` (1 file, `README.md`)
+- NO-PUSH CHECK: PASS (the plane repository has no remote; only `main` and the result branch)
+- Cancellation smoke check: PASS (`eng-bd56538a05aa` cancelled, nothing committed, no process left)
+
+Earlier checkpoints:
+
 NXR-052e checkpoint adds keyless Local / Custom endpoint address-entry, edit/remove/rediscovery,
 cached candidate model counts, strict public-URL main/preload IPC and serialized reload/rollback.
 OpenAI-compatible discovery and execution now share one `/v1` API base for root, API-base, tenant
@@ -89,27 +108,31 @@ flow is implemented and proven offline in one persistent session
 confirmation → report-only engineering plan; implementation → Code lane → engineering change →
 owner-approved Nexar commit; everything survives a relaunch. Live runs are pending (below).
 
-| Item                                   | State                                                                                                         |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| NXR-051 Windows foundation             | implemented, CI-validated; owner installer acceptance pending                                                 |
-| NXR-052 Providers                      | implemented, CI-validated; real provider keys/sign-in live-unverified                                         |
-| NXR-055 Code lane (WSL plane)          | implemented, offline-tested (fake plane), CI-validated; A1–A6 and real runs pending (no `nexar-plane` distro) |
-| NXR-056 Cowork lane (OpenWorker)       | implemented, offline-tested (fake OpenWorker); live run pending (OpenWorker not installed)                    |
-| NXR-053 AI behavior                    | implemented per the ADR-021 v1 matrix; live runs pending with the lanes                                       |
-| NXR-057/058 Sessions, intent and lanes | done                                                                                                          |
-| NXR-054 Scheduled tasks, Mobile        | deferred (not started)                                                                                        |
+| Item                                   | State                                                                                                 |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| NXR-051 Windows foundation             | implemented, CI-validated; owner installer acceptance pending                                         |
+| NXR-052 Providers                      | implemented, CI-validated; real provider keys/sign-in live-unverified                                 |
+| NXR-055 Code lane (WSL plane)          | implemented, CI-validated, **owner live-validated** (A1–A6, real review + change + approval + commit) |
+| NXR-056 Cowork lane (OpenWorker)       | implemented, offline-tested (fake OpenWorker); live run pending (OpenWorker not installed)            |
+| NXR-053 AI behavior                    | implemented per the ADR-021 v1 matrix; live runs pending with the lanes                               |
+| NXR-057/058 Sessions, intent and lanes | done                                                                                                  |
+| NXR-054 Scheduled tasks, Mobile        | deferred (not started)                                                                                |
 
 Key decisions: ADR-024 (sessions, lanes), ADR-025 (+ report-only amendment), ADR-026 (supervised
 OpenWorker), ADR-021 behavior amendment. Acceptance matrices: backlog 055, 056, 053.
 
 ## NEXT EXACT TASK
 
-1. Owner live validation (see OWNER ACTION), then record results in the backlog matrices.
-2. NXR-059: turn-scoped delegation so OpenWorker can call Nexar services inside a Cowork turn
+1. Fix the open NXR-055 finding: engineering commit subjects come from the context@1 header
+   (`nexar: Session policy: …`) instead of the owner's request (needs an additive plane `run` field
+   or equivalent; keep `nexar-plane/1` back-compatible).
+2. Remaining owner live validation: OpenWorker 0.3.x + one Cowork turn (NXR-056), AI behavior
+   profiles on the real lanes (NXR-053), installer acceptance (NXR-051).
+3. NXR-059: turn-scoped delegation so OpenWorker can call Nexar services inside a Cowork turn
    (correlation depth limit, same-turn return, ADR-015 scoped short-lived client token).
-3. Behavior v2: per-edit plane approvals ("Ask before edits"), full-auto network profile, per-turn
+4. Behavior v2: per-edit plane approvals ("Ask before edits"), full-auto network profile, per-turn
    reasoning effort — each needs its own protocol/adapter work before the UI option is enabled.
-4. Only after the live Operating Layer flow passes: NXR-054 scheduled tasks. Mobile stays deferred.
+5. Only after the live Operating Layer flow passes: NXR-054 scheduled tasks. Mobile stays deferred.
 
 ## BLOCKERS
 
@@ -130,15 +153,17 @@ OpenWorker), ADR-021 behavior amendment. Acceptance matrices: backlog 055, 056, 
   engineering still requires WSL2/bubblewrap, with no native fallback.
 - External config state-directory overrides still need their own ACL audit. Windows artifact storage
   requires hard-link support.
-- WSL A1–A6, provider keys, OpenWorker reverse supervision and installer execution are not validated.
+- Provider keys, OpenWorker reverse supervision and installer execution are not validated live.
+- Linux CI: closing the Desktop app during the read-only Cowork E2E once did not finish within
+  20 s; the E2E harness now bounds `close` and logs it (`8949339`). Root cause open.
+- The plane source is a git bundle of `8949339`: update it with a new bundle and `pnpm build`
+  inside `nexar-plane` after source changes that affect the plane.
 
 ## OWNER ACTION
 
-- **Engineering plane:** create the hardened `nexar-plane` WSL2 distro per
-  [`wsl2-engineering-plane.md`](../integration/wsl2-engineering-plane.md) (Ubuntu 24.04,
-  `nexar` user without sudo, hardened `wsl.conf`, `bubblewrap socat git`, Node ≥ 22.19 + pnpm,
-  Nexar at `/usr/local/bin/nexar`, one engineering project), run A1–A6, map the Desktop project in
-  Settings → Code, then one small review and one small change (no push).
+- **Engineering plane:** done (2026-10-03). Optional: finish `codex login --device-auth` inside
+  `nexar-plane` for cross-resource review; add a DeepSeek key reference only if DSH model runs are
+  wanted (paid).
 - **OpenWorker:** install OpenWorker 0.3.x per upstream instructions (set `cowork.executable` /
   `cowork.versionExecutable` in `desktop-settings.json` if not on `PATH`), allow one provider for
   OpenWorker in Settings → Providers, run one small Cowork turn.
@@ -148,7 +173,7 @@ OpenWorker), ADR-021 behavior amendment. Acceptance matrices: backlog 055, 056, 
 ## LIVE TESTS PENDING
 
 Claude Code/Codex browser sign-in; installed Codex/Antigravity semantic versions; real provider key
-checks/DeepSeek execution; installed Windows Desktop Cowork task with Claude Code; WSL A1–A6 and one engineering E2E; synthetic
+checks/DeepSeek execution; installed Windows Desktop Cowork task with Claude Code; synthetic
 OpenWorker Cowork E2E. Subscription tests remain opt-in. NXR-054 scheduled work and Mobile stay deferred.
 
 ## Checkpoint history
