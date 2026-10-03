@@ -316,6 +316,21 @@ export function ProvidersView(): ReactElement {
     }
   }
 
+  async function setOpenWorkerAccess(provider: ApiProviderId, allowed: boolean): Promise<void> {
+    const name = PROVIDER_LABELS[provider];
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await call(nexar.setOpenWorkerAccess({ provider, allowed }));
+      setRows((current) => current.map((row) => (row.provider === provider ? updated : row)));
+      setStatus(`${name}: OpenWorker access ${allowed ? 'allowed' : 'not allowed'}.`);
+    } catch (failure) {
+      setError(errorText(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="stack">
       <SubscriptionsView />
@@ -376,6 +391,25 @@ export function ProvidersView(): ReactElement {
                           .map((runtime) => (runtime === 'pi' ? 'pi-ai' : 'DeepSeek Harness'))
                           .join(', ')}
                   </p>
+                  {row.openWorkerSupported ? (
+                    <label className="field-inline small">
+                      <input
+                        type="checkbox"
+                        data-testid={`openworker-access-${row.provider}`}
+                        checked={row.openWorkerAllowed}
+                        disabled={busy}
+                        onChange={(e) => void setOpenWorkerAccess(row.provider, e.target.checked)}
+                      />
+                      <span>Allow OpenWorker to use this key</span>
+                    </label>
+                  ) : (
+                    <p
+                      className="muted small"
+                      data-testid={`openworker-unsupported-${row.provider}`}
+                    >
+                      Not available to OpenWorker
+                    </p>
+                  )}
                 </div>
                 <div className="row">
                   <button

@@ -2,7 +2,7 @@ import { useState, type ReactElement } from 'react';
 import type { ApprovalDto, SelectedDecision, TurnDto } from '../../shared/api.js';
 import { call, errorText, nexar } from '../bridge.js';
 import { ArtifactCard } from './ArtifactCard.js';
-import { fallbackText, isCodeTurn, isRefusedTurn } from '../code.js';
+import { fallbackText, isCodeTurn, isCoworkTurn, isRefusedTurn } from '../code.js';
 import { EngineeringPanel } from './EngineeringPanel.js';
 import { CandidateList } from './RoutingCard.js';
 
@@ -78,9 +78,16 @@ function LaneLine({ turn }: { turn: TurnDto }): ReactElement | null {
     return null;
   }
   const notice = fallbackText(lane);
+  const resource = turn.tasks.find((t) => t.resourceId !== undefined)?.resourceId;
   return (
     <div className="lane-line small muted" data-testid="lane-line">
       <span data-testid="lane-effective">Lane: {lane.effectiveLane}</span>
+      {isCoworkTurn(turn) && (
+        <span data-testid="lane-orchestrator">
+          {' '}
+          · Orchestrated by OpenWorker{resource === undefined ? '' : ` using ${resource}`}
+        </span>
+      )}
       {notice !== null && <span data-testid="lane-fallback"> · {notice}</span>}
     </div>
   );

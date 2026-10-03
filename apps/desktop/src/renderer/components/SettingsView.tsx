@@ -8,15 +8,18 @@ import {
 } from '../../shared/api.js';
 import { THEME_LABELS, THEME_TOKENS } from '../theme.js';
 import { useCodeStatus } from '../useCodeStatus.js';
+import { useCoworkStatus } from '../useCoworkStatus.js';
 import { PlaneFacts, PlaneProjectForm } from './CodeStatus.js';
+import { COWORK_EXECUTABLE_NOTE, CoworkFacts } from './CoworkStatus.js';
 import { ProvidersView } from './ProvidersView.js';
 
-type Tab = 'appearance' | 'behavior' | 'code' | 'providers';
+type Tab = 'appearance' | 'behavior' | 'code' | 'cowork' | 'providers';
 
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'behavior', label: 'AI behavior' },
   { id: 'code', label: 'Code' },
+  { id: 'cowork', label: 'Cowork' },
   { id: 'providers', label: 'Providers' },
 ];
 
@@ -185,6 +188,40 @@ function CodeSettings({ projects }: { projects: readonly ProjectDto[] }): ReactE
   );
 }
 
+/** OpenWorker's state (read-only) for the Cowork lane. */
+function CoworkSettings(): ReactElement {
+  const cowork = useCoworkStatus(true);
+  return (
+    <div className="stack" data-testid="cowork-settings">
+      <h2>Cowork</h2>
+      <p className="muted" data-testid="cowork-note">
+        {COWORK_EXECUTABLE_NOTE}
+      </p>
+      {cowork.status === null ? (
+        <p className="muted">{cowork.error ?? 'Checking OpenWorker…'}</p>
+      ) : (
+        <CoworkFacts status={cowork.status} />
+      )}
+      <div className="row">
+        <button
+          type="button"
+          className="btn"
+          disabled={cowork.loading}
+          data-testid="cowork-settings-refresh"
+          onClick={cowork.refresh}
+        >
+          Refresh
+        </button>
+        {cowork.error !== null && cowork.status !== null && (
+          <span className="small bad-text" role="alert">
+            {cowork.error}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsView({
   settings,
   projects,
@@ -223,6 +260,7 @@ export function SettingsView({
         />
       )}
       {tab === 'code' && <CodeSettings projects={projects} />}
+      {tab === 'cowork' && <CoworkSettings />}
       {tab === 'providers' && <ProvidersView />}
     </section>
   );

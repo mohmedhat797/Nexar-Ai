@@ -3,8 +3,10 @@ import type { Mode, ProjectDto, ResourceRow, SessionDto } from '../../shared/api
 import type { SendArgs } from '../useSessions.js';
 import { pendingFor } from '../code.js';
 import { useCodeStatus } from '../useCodeStatus.js';
+import { useCoworkStatus } from '../useCoworkStatus.js';
 import { usePlaneApprovals } from '../usePlaneApprovals.js';
 import { CodeBanner } from './CodeStatus.js';
+import { CoworkBanner } from './CoworkStatus.js';
 import { Icon } from './Icon.js';
 import { SessionTurnView } from './SessionTurnView.js';
 
@@ -153,6 +155,8 @@ export function ChatView({
   // The Code banner belongs to Code conversations, and to the mode new conversations will use.
   const codeView = (session?.mode ?? mode) === 'code' || mode === 'code';
   const code = useCodeStatus(project.id, codeView);
+  const coworkView = (session?.mode ?? mode) === 'cowork' || mode === 'cowork';
+  const cowork = useCoworkStatus(coworkView);
   const planeApprovals = usePlaneApprovals(session);
   const approvalsChanged = (): void => {
     planeApprovals.reload();
@@ -199,6 +203,7 @@ export function ChatView({
           </button>
         </div>
       </header>
+      {coworkView && <CoworkBanner cowork={cowork} />}
       {codeView && <CodeBanner code={code} />}
       <div className="messages">
         {error !== null && (

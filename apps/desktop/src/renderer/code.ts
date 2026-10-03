@@ -24,6 +24,7 @@ export const COMMIT_NOTE =
 
 /** Fallback texts for a turn that ran with Nexar direct execution instead of the Code lane. */
 const FALLBACK_TEXT: Readonly<Record<string, string>> = {
+  'openworker-unavailable': 'OpenWorker unavailable. Using Nexar direct execution.',
   'code-report-unavailable':
     'Read-only repository review ran with Nexar direct execution: the engineering plane has no report-only plan.',
   'code-engineering-only':
@@ -54,6 +55,12 @@ export function isCodeTurn(turn: TurnDto): boolean {
   if (turn.outcome?.engineering !== undefined) return true;
   if (turn.state === 'pending-confirmation' || turn.state === 'declined') return false;
   return turn.lane?.effectiveLane === 'code' && !isRefusedTurn(turn);
+}
+
+/** Whether a turn ran on the Cowork lane (orchestrated by OpenWorker). */
+export function isCoworkTurn(turn: TurnDto): boolean {
+  if (turn.state === 'pending-confirmation' || turn.state === 'declined') return false;
+  return turn.lane?.effectiveLane === 'cowork';
 }
 
 export function shortSha(commit: string): string {

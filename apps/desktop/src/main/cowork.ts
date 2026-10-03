@@ -257,6 +257,11 @@ export class CoworkService {
       };
     }
     const started: OpenWorkerStatus = await this.supervisor.value.start();
+    if (this.disposed) {
+      // Disposed while starting: never leave a server running behind a closed app.
+      await this.supervisor.value.stop();
+      return MISSING_STATUS;
+    }
     if (started.state !== 'ready') return this.fixed(started.state, started.version);
     if ((await this.usable()).length === 0) {
       return {
@@ -500,6 +505,8 @@ export class CoworkService {
   async dispose(): Promise<void> {
     this.disposed = true;
     for (const controller of this.active) controller.abort();
+    // A probe already in flight may still be starting a server: let it settle, then stop it.
+    await this.inflight?.catch(() => undefined);
     await this.supervisor?.value.stop();
   }
 }

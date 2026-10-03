@@ -56,7 +56,12 @@ export async function createHarness(): Promise<Harness> {
     );
     // Never inherit a plane selection from the caller's shell.
     for (const name of Object.keys(env)) {
-      if (name.startsWith('NEXAR_FAKE_PLANE_') || name === 'NEXAR_DESKTOP_TEST_PLANE') {
+      if (
+        name.startsWith('NEXAR_FAKE_PLANE_') ||
+        name === 'NEXAR_DESKTOP_TEST_PLANE' ||
+        name.startsWith('NEXAR_FAKE_OPENWORKER_') ||
+        name === 'NEXAR_DESKTOP_TEST_OPENWORKER'
+      ) {
         delete env[name];
       }
     }

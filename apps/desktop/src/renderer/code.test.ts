@@ -10,6 +10,7 @@ import {
   diffLines,
   fallbackText,
   isCodeTurn,
+  isCoworkTurn,
   isRefusedTurn,
   pendingFor,
   shortSha,
@@ -88,6 +89,28 @@ describe('fallbackText', () => {
       fallbackText({ requestedLane: 'code', effectiveLane: 'direct', fallbackReason: '<b>x</b>' }),
     ).toBeNull();
     expect(fallbackText({ requestedLane: 'code', effectiveLane: 'code' })).toBeNull();
+  });
+});
+
+describe('Cowork lane texts', () => {
+  it('words the openworker-unavailable fallback', () => {
+    expect(
+      fallbackText({
+        requestedLane: 'cowork',
+        effectiveLane: 'direct',
+        fallbackReason: 'openworker-unavailable',
+      }),
+    ).toBe('OpenWorker unavailable. Using Nexar direct execution.');
+  });
+
+  it('marks only a started or finished cowork-lane turn', () => {
+    const lane = { requestedLane: 'cowork', effectiveLane: 'cowork' } as const;
+    expect(isCoworkTurn(turn({ state: 'succeeded', lane }))).toBe(true);
+    expect(isCoworkTurn(turn({ state: 'pending-confirmation', lane }))).toBe(false);
+    expect(isCoworkTurn(turn({ state: 'declined', lane }))).toBe(false);
+    expect(isCoworkTurn(turn({ lane: { requestedLane: 'cowork', effectiveLane: 'direct' } }))).toBe(
+      false,
+    );
   });
 });
 

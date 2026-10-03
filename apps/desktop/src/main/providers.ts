@@ -12,7 +12,7 @@ import {
   type ProviderRow,
 } from '../shared/providers.js';
 import { CHANNELS } from '../shared/channels.js';
-import { NoArgs, defineChannel, type ChannelDefinition } from './channel.js';
+import { NoArgs, defineChannel, type CallContext, type ChannelDefinition } from './channel.js';
 import type { ConfigStore, RawConfig } from './config-store.js';
 import type { DesktopKeyStore } from './desktop-key-store.js';
 import type { EngineHost } from './engine-host.js';
@@ -233,6 +233,11 @@ function requireProviders(service: ProviderService | undefined): ProviderService
   return service;
 }
 
+/** Key or OpenWorker-access changes can change Cowork availability: re-probe in the background. */
+function coworkChanged(ctx: CallContext): void {
+  void ctx.deps.cowork?.refresh().catch(() => undefined);
+}
+
 export const providerChannels: Readonly<Record<string, ChannelDefinition>> = {
   [CHANNELS.providersCheckKey]: defineChannel(ProviderArgsSchema, async (args, ctx) =>
     ProviderRowSchema.parse(await requireProviders(ctx.deps.providers).check(args.provider)),
@@ -240,19 +245,28 @@ export const providerChannels: Readonly<Record<string, ChannelDefinition>> = {
   [CHANNELS.providersList]: defineChannel(NoArgs, async (_args, ctx) =>
     ProviderListSchema.parse(await requireProviders(ctx.deps.providers).list()),
   ),
-  [CHANNELS.providersSaveKeyFromClipboard]: defineChannel(ProviderArgsSchema, async (args, ctx) =>
-    ProviderRowSchema.parse(
+  [CHANNELS.providersSaveKeyFromClipboard]: defineChannel(ProviderArgsSchema, async (args, ctx) => {
+    const row = ProviderRowSchema.parse(
       await requireProviders(ctx.deps.providers).saveFromClipboard(args.provider),
-    ),
-  ),
+    );
+    coworkChanged(ctx);
+    return row;
+  }),
   [CHANNELS.providersSetOpenWorkerAccess]: defineChannel(
     OpenWorkerAccessArgsSchema,
-    async (args, ctx) =>
-      ProviderRowSchema.parse(
+    async (args, ctx) => {
+      const row = ProviderRowSchema.parse(
         await requireProviders(ctx.deps.providers).setOpenWorkerAccess(args.provider, args.allowed),
-      ),
+      );
+      coworkChanged(ctx);
+      return row;
+    },
   ),
-  [CHANNELS.providersRemoveKey]: defineChannel(ProviderArgsSchema, async (args, ctx) =>
-    ProviderRowSchema.parse(await requireProviders(ctx.deps.providers).remove(args.provider)),
-  ),
+  [CHANNELS.providersRemoveKey]: defineChannel(ProviderArgsSchema, async (args, ctx) => {
+    const row = ProviderRowSchema.parse(
+      await requireProviders(ctx.deps.providers).remove(args.provider),
+    );
+    coworkChanged(ctx);
+    return row;
+  }),
 };
