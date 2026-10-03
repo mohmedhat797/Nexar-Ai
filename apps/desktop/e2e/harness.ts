@@ -100,8 +100,9 @@ export async function createHarness(): Promise<Harness> {
       process.stderr.write(`desktop e2e failed; app output:\n${launched.join('').slice(-8000)}\n`);
     });
     try {
-      // A freshly packaged app is cold-started under antivirus scanning on CI runners.
-      const page = await app.firstWindow({ timeout: EXECUTABLE ? 90_000 : 30_000 });
+      // Cold starts run under antivirus scanning on CI runners: a packaged or source build can take
+      // well over 30 s before its first window (Windows: engine-config alone has taken 15 s).
+      const page = await app.firstWindow({ timeout: 90_000 });
       await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 60_000 });
       return { app, page };
     } catch (error) {

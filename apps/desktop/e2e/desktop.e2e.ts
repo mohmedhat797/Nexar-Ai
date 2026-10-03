@@ -65,8 +65,9 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
   app.process().stdout?.on('data', capture);
   app.process().stderr?.on('data', capture);
   try {
-    // A freshly packaged app is cold-started under antivirus scanning on CI runners.
-    const page = await app.firstWindow({ timeout: EXECUTABLE ? 90_000 : 30_000 });
+    // Cold starts run under antivirus scanning on CI runners: a packaged or source build can take
+    // well over 30 s before its first window (Windows: engine-config alone has taken 15 s).
+    const page = await app.firstWindow({ timeout: 90_000 });
     await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 60_000 });
     return { app, page };
   } catch (error) {
@@ -84,7 +85,15 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
 /** Closes the app and waits until its process has exited before the state is reused. */
 async function close(app: ElectronApplication): Promise<void> {
   const child = app.process();
-  await app.close();
+  // Bounded like the shared harness: an app that will not close is ended below instead of hanging.
+  const closed = await Promise.race([
+    app.close().then(
+      () => true,
+      () => true,
+    ),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 20_000)),
+  ]);
+  if (!closed) process.stderr.write('desktop e2e: app.close() did not finish within 20 s\n');
   apps.splice(apps.indexOf(app), 1);
   const deadline = Date.now() + 20_000;
   while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
@@ -102,7 +111,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await Promise.all(apps.map((a) => a.close().catch(() => undefined)));
+  await Promise.all([...apps].map((a) => close(a)));
   // A just-ended app can briefly hold browser files on Windows; the async rm retries (bounded).
   await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
