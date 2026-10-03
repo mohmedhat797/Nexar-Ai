@@ -170,12 +170,29 @@ real provider execution remains **live-unverified** and owner acceptance pending
 | 052d | Claude Code / Codex native browser sign-in, status probes                             | fake runtime tests, Provider E2E | real sign-in unverified; Antigravity unsupported |
 | 052e | keyless owner-listed local / custom servers                                           | strict URL IPC tests             | real servers unverified                          |
 
+**NXR-055 progress (2026-10-03, Claude Code):** ADR-025 (`de07fe4`) defines the Code-lane bridge.
+`5c653c2` adds `@nexar/plane-protocol` (`nexar-plane/1`) and `nexar plane serve --stdio` inside WSL.
+`487b851` connects Desktop: shell-free `wsl.exe` client (SystemRoot-only env), readiness states with
+fixed reasons, id-only project mapping, plane approvals in the Approvals view, bounded diffs, and an
+`executeCode` port. Lane records are honest: only engineering intents the plane supports run on the
+Code lane; other Code-mode turns and `review` turns (until report-only plans exist) record `direct`
+with a reason; without a Code executor engineering writes are refused; Code-lane runs with a cost
+ceiling or resource preference are refused, not silently dropped. `4f78ed6` moved Chromium runtime
+data to `%LOCALAPPDATA%\Nexar\Runtime` (the state ACL guard scaled per entry and would eventually fail
+startup); `9aa35ec` made the E2E wait for app exit between relaunches (CI green at `9aa35ec`).
+
 ## NEXT EXACT TASK
 
-NXR-055 — Code mode through the WSL2 engineering plane (design first, then bridge, Code lane,
-Desktop surface, offline E2E; A1–A6 and one real engineering E2E only on the owner machine).
-Then NXR-056 Cowork/OpenWorker, NXR-053 behavior profiles, and the integrated Operating Layer E2E.
-NXR-054 and Mobile stay deferred.
+1. NXR-055c: replace the Code placeholder with the engineering surface (status banner, per-turn
+   engineering panel, diff view, plane approval buttons), Settings → Code tab, offline Electron E2E
+   with `tests/fixtures/fake-plane.mjs` (in progress in a disposable worktree; not on the branch).
+2. Report-only engineering plans so `review` turns can run on the plane (runner change).
+3. Owner machine: create the hardened `nexar-plane` distro per
+   [`wsl2-engineering-plane.md`](../integration/wsl2-engineering-plane.md), run A1–A6, map one
+   project, and one small real engineering E2E. Not possible without the owner: no `nexar-plane`
+   distro exists on this machine.
+4. Then NXR-056 Cowork/OpenWorker, NXR-053 behavior profiles, the integrated Operating Layer E2E.
+   NXR-054 and Mobile stay deferred.
 
 ## BLOCKERS
 
