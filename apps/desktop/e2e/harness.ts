@@ -128,15 +128,16 @@ export async function createHarness(): Promise<Harness> {
     dispose: async () => {
       // An app that will not close must not hang teardown: give it 15 s, then end its process.
       await Promise.all(
-        apps.map((a) =>
-          Promise.race([
+        apps.map((a) => {
+          // Take the process handle first: it is unavailable once the app connection closes.
+          const child = a.process();
+          return Promise.race([
             a.close().catch(() => undefined),
             new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
           ]).then(() => {
-            const child = a.process();
             if (child.exitCode === null && child.signalCode === null) child.kill();
-          }),
-        ),
+          });
+        }),
       );
       await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },

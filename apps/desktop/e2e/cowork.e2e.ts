@@ -97,7 +97,8 @@ describe('Nexar Desktop Cowork lane', () => {
     await row.getByRole('button', { name: 'Save DeepSeek API key from clipboard' }).click();
     await hasText(row, 'ending in Z4k2');
     await expect.poll(() => access.isDisabled(), POLL).toBe(false);
-    await access.check();
+    // A controlled checkbox: it reflects main's answer after the IPC round trip, so click and poll.
+    await access.click();
     await expect.poll(() => access.isChecked(), POLL).toBe(true);
     await hasText(page.getByTestId('provider-status'), 'OpenWorker access allowed');
     expect(await page.locator('body').innerText()).not.toContain(SENTINEL);
