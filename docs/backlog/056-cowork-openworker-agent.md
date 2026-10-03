@@ -1,6 +1,6 @@
 # NXR-056: Cowork through the OpenWorker agent
 
-**Milestone:** v0.5 — Nexar Desktop · **Labels:** desktop, openworker · **Depends on:** NXR-050
+**Milestone:** v0.5 — Nexar Desktop · **Labels:** desktop, openworker · **Depends on:** NXR-050 · **ADR:** [ADR-026](../adr/026-cowork-lane-supervised-openworker.md)
 
 ## Summary
 
