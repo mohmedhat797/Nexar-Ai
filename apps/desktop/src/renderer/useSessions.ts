@@ -62,6 +62,9 @@ export function useSessions(projectId: string | null, mode: Mode): Sessions {
   const projectRef = useRef(projectId);
   const selectedRef = useRef<string | null>(null);
   const keyRef = useRef<{ sessionId: string; text: string; key: string } | null>(null);
+  // The conversation being created, or created but not rendered yet: a send right after "New
+  // conversation" joins it instead of creating a second one (and losing the turn from view).
+  const pendingRef = useRef<Promise<SessionDto> | null>(null);
 
   const refreshList = useCallback(async (): Promise<void> => {
     const pid = projectRef.current;
@@ -88,6 +91,7 @@ export function useSessions(projectId: string | null, mode: Mode): Sessions {
 
   const choose = useCallback(
     (id: string | null): void => {
+      pendingRef.current = null;
       selectedRef.current = id;
       setSelectedId(id);
       setSession(null);
@@ -147,24 +151,41 @@ export function useSessions(projectId: string | null, mode: Mode): Sessions {
     return () => clearInterval(timer);
   }, [active, selectedId, loadSession]);
 
+  const startSession = useCallback(
+    (pid: string): Promise<SessionDto> => {
+      const pending = call(nexar.createSession({ projectId: pid, mode })).then((created) => {
+        if (projectRef.current === pid) {
+          selectedRef.current = created.id;
+          setSelectedId(created.id);
+          setSession(created);
+          setProgress({});
+        }
+        return created;
+      });
+      pendingRef.current = pending;
+      pending.catch(() => {
+        if (pendingRef.current === pending) pendingRef.current = null;
+      });
+      return pending;
+    },
+    [mode],
+  );
+
   const create = useCallback(async (): Promise<void> => {
     const pid = projectRef.current;
     if (pid === null) return;
     // An empty conversation of another mode is not reused: new ones start in the chosen mode.
     if (session !== null && session.turnCount === 0 && session.mode === mode) return;
     try {
-      const created = await call(nexar.createSession({ projectId: pid, mode }));
+      if (session === null && pendingRef.current !== null) await pendingRef.current;
+      else await startSession(pid);
       if (projectRef.current !== pid) return;
-      selectedRef.current = created.id;
-      setSelectedId(created.id);
-      setSession(created);
-      setProgress({});
       setError(null);
       await refreshList();
     } catch (e) {
       setError(errorText(e));
     }
-  }, [mode, session, refreshList]);
+  }, [mode, session, startSession, refreshList]);
 
   const send = useCallback(
     async (args: SendArgs): Promise<void> => {
@@ -172,13 +193,7 @@ export function useSessions(projectId: string | null, mode: Mode): Sessions {
       if (pid === null) return;
       setSubmitting(true);
       try {
-        let current = session;
-        if (current === null) {
-          current = await call(nexar.createSession({ projectId: pid, mode }));
-          selectedRef.current = current.id;
-          setSelectedId(current.id);
-          setSession(current);
-        }
+        const current = session ?? (await (pendingRef.current ?? startSession(pid)));
         const sessionId = current.id;
         // One key per user action: a retry of the same text in the same conversation reuses it.
         const pending = keyRef.current;
@@ -214,7 +229,7 @@ export function useSessions(projectId: string | null, mode: Mode): Sessions {
         setSubmitting(false);
       }
     },
-    [session, mode, loadSession, refreshList],
+    [session, startSession, loadSession, refreshList],
   );
 
   const cancel = useCallback((turnId: string): void => {
