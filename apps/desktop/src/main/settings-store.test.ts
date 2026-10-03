@@ -17,7 +17,7 @@ beforeEach(async () => {
   path = join(dir, 'desktop-settings.json');
 });
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+  await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 const base = { theme: 'light', density: 'comfortable', mode: 'cowork' };
@@ -140,11 +140,20 @@ describe('Code plane settings', () => {
     await expect(store.setPlaneProject('__proto__', 'x')).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
-    for (let i = 0; i < MAX_PLANE_PROJECTS; i += 1)
-      await store.setPlaneProject(`p${String(i)}`, 'x');
-    await expect(store.setPlaneProject('one-too-many', 'x')).rejects.toMatchObject({
+    // Seed the file at the limit (one write per mapping is slow on loaded Windows runners).
+    const full = Object.fromEntries(
+      Array.from({ length: MAX_PLANE_PROJECTS }, (_unused, i) => [`p${String(i)}`, 'x']),
+    );
+    await writeFile(
+      path,
+      JSON.stringify({ ...base, codePlane: { ...DEFAULT_CODE_PLANE, projects: full } }),
+    );
+    const atLimit = new SettingsStore(path);
+    await expect(atLimit.setPlaneProject('one-too-many', 'x')).rejects.toMatchObject({
       code: 'POLICY_REJECTED',
     });
+    // Replacing an existing mapping at the limit is still allowed.
+    await atLimit.setPlaneProject('p0', 'y');
   });
 
   it('refuses to edit a damaged section', async () => {
