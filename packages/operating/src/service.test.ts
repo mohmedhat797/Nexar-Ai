@@ -905,6 +905,9 @@ describe('OperatingService', () => {
       });
       expect(requests[0]?.goal).toContain('Please implement the retry logic.');
       expect(requests[0]?.goal).toContain('<untrusted-input name="request">');
+      // The title source is the owner's own request, never the context@1 header.
+      expect(requests[0]?.goal.startsWith('Session policy:')).toBe(true);
+      expect(requests[0]?.turnText).toBe('Please implement the retry logic.');
 
       const stored = (await h.session(s.id)).turns[0];
       expect(stored).toMatchObject({

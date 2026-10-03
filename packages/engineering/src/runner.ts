@@ -24,6 +24,8 @@ import type { PlanCatalog } from './plan.js';
 import { isEngineeringLineage, readEngineeringRecord } from './record.js';
 
 export const MAX_GOAL_CHARS = 20_000;
+/** Bound of the optional task title (same as the plane protocol's `run.title`). */
+export const MAX_TITLE_CHARS = 200;
 export const DEFAULT_PLAN_ID = 'implement-review';
 const DEFAULT_APPROVAL_TTL_MS = 30 * 60 * 1000;
 
@@ -83,6 +85,16 @@ export class EngineeringRunner {
         `The goal is longer than ${String(MAX_GOAL_CHARS)} characters`,
       );
     }
+    const { title } = input;
+    if (
+      title !== undefined &&
+      (typeof title !== 'string' ||
+        title.trim() === '' ||
+        title.includes('\0') ||
+        title.length > MAX_TITLE_CHARS)
+    ) {
+      throw new NexarError('VALIDATION_ERROR', 'The title is not valid');
+    }
     if (input.lineage !== undefined && !isEngineeringLineage(input.lineage)) {
       throw new NexarError('VALIDATION_ERROR', 'The lineage is not valid');
     }
@@ -126,6 +138,7 @@ export class EngineeringRunner {
         settings,
         repository,
         goal,
+        ...(title === undefined ? {} : { title }),
         baseBranch: input.baseBranch ?? settings.baseBranch,
         ...(input.lineage === undefined
           ? {}

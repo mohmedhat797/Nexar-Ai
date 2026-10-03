@@ -54,6 +54,11 @@ export interface EngineeringInput {
   readonly projectId: string;
   /** Owner text; untrusted data for every lane. At most 20 000 characters. */
   readonly goal: string;
+  /**
+   * The owner's request as one line (at most 200 characters). The commit subject and the approval
+   * summary derive from it; without it they use the goal's first line.
+   */
+  readonly title?: string;
   /** Default `implement-review`. */
   readonly planId?: string;
   /** Overrides the project's `baseBranch`. */
@@ -134,6 +139,7 @@ export interface ExecutionTarget {
   /** Canonical, contained path of the owner's repository. */
   readonly repository: string;
   readonly goal: string;
+  readonly title?: string;
   readonly baseBranch: string;
   readonly lineage?: EngineeringLineage;
 }
@@ -185,9 +191,12 @@ const sha256 = (data: string | Uint8Array): string =>
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
 
-/** First line of the goal as a safe commit subject (at most 72 characters). */
-export function commitSubject(goal: string): string {
-  const first = goal.split(/\r?\n/)[0] ?? '';
+/**
+ * First line of the text (the task title, else the goal) as a safe commit subject (at most 72
+ * characters).
+ */
+export function commitSubject(text: string): string {
+  const first = text.split(/\r?\n/)[0] ?? '';
   const clean = first.replace(CONTROL_CHARS, ' ').replace(/\s+/g, ' ').trim().slice(0, 72).trim();
   return `nexar: ${clean === '' ? 'engineering task' : clean}`;
 }
@@ -910,7 +919,7 @@ export class EngineeringExecution {
       baseCommit: worktree.baseCommit,
       harvest,
       branch: this.branch,
-      message: commitSubject(this.target.goal),
+      message: commitSubject(this.target.title ?? this.target.goal),
       author: this.deps.author,
       trailers,
     });
@@ -931,7 +940,7 @@ export class EngineeringExecution {
     const { project, taskId } = this.target;
     try {
       return await this.deps.approvals.request(action, {
-        summary: `${commitSubject(this.target.goal)} (${String(accepted.harvest.entries.length)} files, review ${accepted.review.verdict}) → ${this.branch}`,
+        summary: `${commitSubject(this.target.title ?? this.target.goal)} (${String(accepted.harvest.entries.length)} files, review ${accepted.review.verdict}) → ${this.branch}`,
         risk: 'medium',
         taskId,
         projectId: project.id,

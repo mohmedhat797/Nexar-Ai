@@ -258,6 +258,8 @@ async function serve(ctx: CommandContext): Promise<number> {
         {
           projectId: frame.planeProject,
           goal: frame.goal,
+          // An older Desktop sends no title: the commit subject then falls back to the goal.
+          ...(frame.title === undefined ? {} : { title: frame.title }),
           ...(planId === undefined ? {} : { planId }),
           lineage: frame.lineage,
         },

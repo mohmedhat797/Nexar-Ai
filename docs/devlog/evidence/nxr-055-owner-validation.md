@@ -59,9 +59,11 @@ packages come from `main` and installed normally.
    under Task "Auto" fell through to `analysis` and ran direct (honestly recorded:
    "Only engineering requests run on the engineering plane"). `review.repository` now includes the
    verb "review"; the live runs used the explicit Task kind.
-2. **Commit subject (open):** the plane goal is the whole context@1 prompt, so `commitSubject()`
-   takes its first line: `nexar: Session policy: mode=code; lane=code; project=…`. The commit is
-   correct; the subject should come from the owner's request.
+2. **Commit subject (fixed after validation, not yet re-validated live):** the plane goal is the
+   whole context@1 prompt, so `commitSubject()` took its first line:
+   `nexar: Session policy: mode=code; lane=code; project=…`. The commit was correct. The `run`
+   frame now carries an optional one-line `title` from the owner's request; the commit subject and
+   approval summary derive from it (ADR-025 amendment "run title for the commit subject").
 3. **Not exercised live:** DSH (no DeepSeek key, paid opt-in), Codex (sign-in not completed), review
    diversity across different resources (Claude Code reviewed its own change, allowed by
    `reviewDiversity: preferred`).

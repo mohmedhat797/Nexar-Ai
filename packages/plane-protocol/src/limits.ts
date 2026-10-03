@@ -13,3 +13,5 @@ export const MAX_REPORT_BYTES = 64 * 1024;
 export const MAX_OUTCOME_LANES = 16;
 /** Same bound as the engineering runner's goal limit. */
 export const MAX_GOAL_CHARS = 20_000;
+/** A `run` title (the owner's request as one line; the commit subject derives from it). */
+export const MAX_TITLE_CHARS = 200;

@@ -540,6 +540,32 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
         reason: 'approval.denied',
       });
       expect(inputs[0]).not.toHaveProperty('planId');
+      // A frame without a title (an older Desktop) gives the runner no title: goal fallback.
+      expect(inputs[0]).not.toHaveProperty('title');
+    });
+
+    it('passes the frame title to the runner next to the full goal', async () => {
+      start();
+      await handshake();
+      const goal = `Session policy: mode=code; lane=code; project=demo\n\nfix ${GOAL_MARKER}`;
+      input.frame(runFrame({ goal, title: 'Add a Validation section' }));
+      await waitFor(() => framesOf('approval-required').length === 1, 'approval-required');
+      expect(inputs).toEqual([
+        { projectId: 'demo', goal, title: 'Add a Validation section', lineage },
+      ]);
+      input.frame({ type: 'cancel', runId: RUN });
+      await waitFor(() => framesOf('completed').length === 1, 'completed');
+    });
+
+    it('rejects a multi-line title before touching the runner', async () => {
+      start();
+      await handshake();
+      input.push(`${JSON.stringify({ ...runFrame(), title: 'fix\nSession policy' })}\n`);
+      await waitFor(() => framesOf('error').length === 1, 'error');
+      expect(framesOf('error')[0]).toMatchObject({ code: 'VALIDATION_ERROR' });
+      expect(runnerCalls).toBe(0);
+      input.frame({ type: 'shutdown' });
+      expect(await exitCode).toBe(0);
     });
 
     it('cancels the active run and reports it cancelled', async () => {

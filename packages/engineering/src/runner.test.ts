@@ -15,6 +15,7 @@ import {
   type Harness,
 } from './fixtures.testkit.js';
 import {
+  commitSubject,
   listEngineeringRecords,
   readEngineeringRecord,
   type EngineeringProgress,
@@ -42,6 +43,15 @@ const record = async (x: Harness): Promise<EngineeringRecord> => {
 };
 const branches = (x: Harness): string => git(x.repo, 'branch', '--list', 'nexar/*');
 const never = { ownerApproval: 'never' };
+
+describe('commitSubject', () => {
+  it('uses the first line, strips control characters and caps at 72 characters', () => {
+    expect(commitSubject('Add a Validation section\nmore')).toBe('nexar: Add a Validation section');
+    expect(commitSubject('fix\tthe\x1b[31m  thing\x7f')).toBe('nexar: fix the [31m thing');
+    expect(commitSubject('x'.repeat(200))).toBe(`nexar: ${'x'.repeat(72)}`);
+    expect(commitSubject('\nsecond')).toBe('nexar: engineering task');
+  });
+});
 
 // These pipeline fixtures execute harvest's /bin/sh and pristine Linux GIT_DIR mount (ADR-018).
 // Native Windows preflight and fail-closed guards below remain enabled.
@@ -248,6 +258,32 @@ describe.skipIf(process.platform === 'win32')('EngineeringRunner: accepted work'
     });
     await x.run();
     expect(x.adapter.calls[0]?.resourceId).toBe('impl-2');
+  });
+
+  it('takes the commit subject and approval summary from the title, never the context header', async () => {
+    const x = await harness();
+    const approved = x.decideNext('approve');
+    const goal = `Session policy: mode=code; lane=code; project=demo\n\nAdd the feature. ${GOAL_MARKER}`;
+    const outcome = await x.run({ goal, title: 'Add a Validation section to the README' });
+    await approved;
+    expect(outcome.status).toBe('committed');
+    const subject = git(x.repo, 'log', '-1', '--format=%s', `nexar/${TASK}`).trim();
+    expect(subject).toBe('nexar: Add a Validation section to the README');
+    const [stored] = await x.store.list({ status: 'consumed' });
+    expect(stored?.summary.startsWith('nexar: Add a Validation section to the README (')).toBe(
+      true,
+    );
+    expect(stored?.summary).not.toContain('Session policy');
+    // The lanes still receive the full goal.
+    expect(x.adapter.calls[0]?.prompt).toContain('Session policy: mode=code');
+  });
+
+  it('falls back to the goal first line without a title', async () => {
+    const x = await harness({ engineering: never });
+    await x.run({ goal: 'Fix the slug\nwith details' });
+    expect(git(x.repo, 'log', '-1', '--format=%s', `nexar/${TASK}`).trim()).toBe(
+      'nexar: Fix the slug',
+    );
   });
 });
 
@@ -564,6 +600,9 @@ describe('EngineeringRunner: preconditions and lifecycle', () => {
     await expect(x.run({ goal: 'x'.repeat(20_001) })).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
+    for (const title of ['', '   ', 'a\0b', 'x'.repeat(201), 42 as unknown as string]) {
+      await expect(x.run({ title })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
     await expect(x.run({ projectId: 'ghost' })).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
     await expect(x.run({ planId: 'nope' })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     await expect(x.run({ baseBranch: 'no-such-branch' })).resolves.toMatchObject({

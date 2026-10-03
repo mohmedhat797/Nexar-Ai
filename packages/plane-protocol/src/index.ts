@@ -9,6 +9,7 @@ export {
   MAX_GOAL_CHARS,
   MAX_OUTCOME_LANES,
   MAX_REPORT_BYTES,
+  MAX_TITLE_CHARS,
   PLANE_PROTOCOL,
 } from './limits.js';
 export * from './schemas.js';

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_DIFF_FILES,
+  MAX_TITLE_CHARS,
   PLANE_PROTOCOL,
   desktopFrameSchema,
   planeFrameSchema,
+  runTitle,
   type DesktopFrame,
   type PlaneFrame,
   type PlaneReadiness,
@@ -59,6 +61,8 @@ const desktopValid: readonly [string, unknown][] = [
   ['run intent review', { ...run, intent: 'review' }],
   ['run intent plan', { ...run, intent: 'plan' }],
   ['run depth 2', { ...run, lineage: { ...lineage, depth: 2 } }],
+  ['run with a title', { ...run, title: 'Add a Validation section to the README' }],
+  ['run with a unicode title', { ...run, title: 'Füge eine Prüfung hinzu 🚀' }],
   ['cancel', { type: 'cancel', runId: RUN }],
   ['decide approve', { type: 'decide', approvalId: APPROVAL, decision: 'approve' }],
   ['decide deny', { type: 'decide', approvalId: APPROVAL, decision: 'deny' }],
@@ -80,6 +84,19 @@ const desktopInvalid: readonly [string, unknown][] = [
   ['an upper-case project id', { ...run, planeProject: 'Demo' }],
   ['an empty goal', { ...run, goal: '' }],
   ['an oversize goal', { ...run, goal: 'x'.repeat(20_001) }],
+  ['an empty title', { ...run, title: '' }],
+  ['a blank title', { ...run, title: '   ' }],
+  ['a multi-line title', { ...run, title: 'fix\nSession policy: mode=code' }],
+  ['a title with a carriage return', { ...run, title: 'fix\rthe thing' }],
+  ['a title with a tab', { ...run, title: 'fix\tthe thing' }],
+  ['a title with a NUL', { ...run, title: 'fix\0' }],
+  ['a title with DEL', { ...run, title: 'fix\x7f' }],
+  ['a title with a line separator', { ...run, title: 'fix\u2028more' }],
+  ['a title with a paragraph separator', { ...run, title: 'fix\u2029more' }],
+  ['a title with a next-line character', { ...run, title: 'fix\u0085more' }],
+  ['an oversize title', { ...run, title: 'x'.repeat(MAX_TITLE_CHARS + 1) }],
+  ['a non-string title', { ...run, title: 42 }],
+  ['a null title', { ...run, title: null }],
   ['an unknown intent', { ...run, intent: 'write' }],
   ['a bad plan id', { ...run, planId: 'Implement Review' }],
   ['depth 3', { ...run, lineage: { ...lineage, depth: 3 } }],
@@ -315,6 +332,46 @@ describe('desktop to plane schemas', () => {
   });
   it('accepts a goal of exactly 20 000 characters', () => {
     expect(desktopFrameSchema.safeParse({ ...run, goal: 'x'.repeat(20_000) }).success).toBe(true);
+  });
+  it('accepts a title of exactly the bound', () => {
+    const title = 'x'.repeat(MAX_TITLE_CHARS);
+    expect(desktopFrameSchema.safeParse({ ...run, title }).success).toBe(true);
+  });
+  it('keeps a run frame without a title valid (an older Desktop)', () => {
+    const parsed = desktopFrameSchema.parse(run);
+    expect(parsed).toEqual(run);
+    expect('title' in parsed).toBe(false);
+  });
+});
+
+describe('runTitle', () => {
+  it('takes the first visible line of the owner text', () => {
+    expect(runTitle('Add a Validation section\nwith details')).toBe('Add a Validation section');
+    expect(runTitle('\n\n  \r\n  Fix the slug  \nmore')).toBe('Fix the slug');
+    expect(runTitle('one\u2028two')).toBe('one');
+  });
+  it('turns control characters into spaces and collapses whitespace', () => {
+    expect(runTitle('fix\tthe\0 \x1b[31m  thing\x7f')).toBe('fix the [31m thing');
+  });
+  it('returns undefined when there is no visible text', () => {
+    expect(runTitle('')).toBeUndefined();
+    expect(runTitle(' \n\t\r\n ')).toBeUndefined();
+  });
+  it('bounds the title without splitting a surrogate pair', () => {
+    expect(runTitle('x'.repeat(MAX_TITLE_CHARS + 50))).toBe('x'.repeat(MAX_TITLE_CHARS));
+    const emoji = runTitle(`${'x'.repeat(MAX_TITLE_CHARS - 1)}🚀`);
+    expect(emoji).toBe('x'.repeat(MAX_TITLE_CHARS - 1));
+  });
+  it.each([
+    'Add a retry',
+    `${'é'.repeat(150)} ${'🚀'.repeat(60)}`,
+    'a\u0085b',
+    '  padded   text  ',
+    `${'y'.repeat(MAX_TITLE_CHARS - 1)} z`,
+  ])('always produces a title the run frame accepts (%#)', (text) => {
+    const title = runTitle(text);
+    expect(title).toBeDefined();
+    expect(desktopFrameSchema.safeParse({ ...run, title }).success).toBe(true);
   });
 });
 

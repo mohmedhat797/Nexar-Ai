@@ -91,6 +91,11 @@ export interface CodeRequest {
   readonly intent: 'coding' | 'review' | 'plan';
   /** The context@1 prompt, or the turn's own text when the prompt is over 20,000 characters. */
   readonly goal: string;
+  /**
+   * The turn's own text (the owner's current request). The task title, and so the commit subject,
+   * derives from it, never from the context@1 header of `goal`.
+   */
+  readonly turnText: string;
   readonly correlation: OperatingCorrelation;
   /** Called with the plane's task id as soon as it is known (idempotent). */
   readonly onTask: (taskId: string) => Promise<void>;
@@ -609,6 +614,7 @@ export class OperatingService {
             projectId: session.projectId,
             intent: codeIntent,
             goal,
+            turnText: turn.text,
             correlation: rootCorrelation(sessionId, turnId),
             onTask: link,
             onProgress,

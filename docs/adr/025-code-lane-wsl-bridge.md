@@ -22,14 +22,14 @@ newline-delimited JSON, at most 1 MiB each, validated with strict schemas on bot
 carries frames only, logs go to stderr. Protocol id `nexar-plane/1`; an unknown version or frame type
 ends the connection with a clear error.
 
-| Desktop → plane                                      | Plane → Desktop                                    |
-| ---------------------------------------------------- | -------------------------------------------------- |
-| `initialize { protocol }`                            | `ready { protocol, planeVersion, readiness }`      |
-| `run { runId, planeProject, goal, intent, lineage }` | `progress { runId, … scalars }`                    |
-| `cancel { runId }`                                   | `approval-required { runId, approvalId, summary }` |
-| `decide { approvalId, decision }`                    | `completed { runId, outcome }`                     |
-| `diff { taskId }`                                    | `diff { taskId, text, truncated }`                 |
-| `shutdown {}`                                        | `error { runId?, code, message }`                  |
+| Desktop → plane                                              | Plane → Desktop                                    |
+| ------------------------------------------------------------ | -------------------------------------------------- |
+| `initialize { protocol }`                                    | `ready { protocol, planeVersion, readiness }`      |
+| `run { runId, planeProject, goal, title?, intent, lineage }` | `progress { runId, … scalars }`                    |
+| `cancel { runId }`                                           | `approval-required { runId, approvalId, summary }` |
+| `decide { approvalId, decision }`                            | `completed { runId, outcome }`                     |
+| `diff { taskId }`                                            | `diff { taskId, text, truncated }`                 |
+| `shutdown {}`                                                | `error { runId?, code, message }`                  |
 
 There is no generic command, path, environment or executable field anywhere in the protocol.
 
@@ -152,3 +152,23 @@ cases:
 - The plane maps `intent: "review"` to the shipped report plan (`repository-report`) and lists it
   in `ready.readiness.plans`; Desktop treats the Code lane as able to run reviews only when that
   plan is advertised, otherwise the honest direct fallback stays in place.
+
+## Amendment (2026-10-03): run title for the commit subject
+
+The NXR-055 owner validation (finding 2) committed with the subject
+`nexar: Session policy: mode=code; …`: the `run` goal is the whole context@1 prompt and the
+commit subject took its first line.
+
+- `run` gains an optional `title`: the owner's current request (the turn's own text) as one line,
+  at most 200 characters, no control character and no Unicode line or paragraph separator. It is
+  data only; no path, command or environment field is added.
+- Desktop derives it with `runTitle()` from `@nexar/plane-protocol` (first visible line, control
+  characters to spaces, whitespace collapsed, bounded) and still sends the full context@1 prompt as
+  `goal`; the lanes keep receiving the goal unchanged.
+- The plane passes it to the engineering task; the commit subject and the `engineering.commit`
+  approval summary derive from the title (control characters stripped, 72-character cap), and from
+  the goal's first line when it is absent. As before, only that subject reaches the commit and the
+  approval record; the engineering record and telemetry carry neither the title nor the goal.
+- Compatibility: a frame without `title` (an older Desktop) still validates and keeps the previous
+  behaviour. An older plane rejects a frame with `title` (strict schema) with a validation error and
+  starts nothing, so the plane is updated before or together with Desktop.

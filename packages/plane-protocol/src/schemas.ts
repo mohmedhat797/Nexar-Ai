@@ -5,6 +5,7 @@ import {
   MAX_GOAL_CHARS,
   MAX_OUTCOME_LANES,
   MAX_REPORT_BYTES,
+  MAX_TITLE_CHARS,
   PLANE_PROTOCOL,
 } from './limits.js';
 
@@ -25,6 +26,9 @@ export const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 export const PLAN_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 export const TASK_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+/** One line with visible text: no control character and no Unicode line or paragraph separator. */
+// eslint-disable-next-line no-control-regex
+export const RUN_TITLE_PATTERN = /^(?=.*\S)[^\x00-\x1f\x7f\u0085\u2028\u2029]+$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40,64}$/;
 
 const id = (pattern: RegExp): z.ZodString => z.string().regex(pattern);
@@ -55,10 +59,37 @@ export const runFrameSchema = z.strictObject({
   runId,
   planeProject: id(PROJECT_ID_PATTERN),
   goal: z.string().min(1).max(MAX_GOAL_CHARS),
+  /**
+   * The owner's request as one line (optional, additive): the commit subject derives from it, never
+   * from the goal's context header. Without it the plane falls back to the goal's first line.
+   */
+  title: z.string().max(MAX_TITLE_CHARS).regex(RUN_TITLE_PATTERN).optional(),
   intent: z.enum(['coding', 'review', 'plan']),
   planId: id(PLAN_ID_PATTERN).optional(),
   lineage: lineageSchema,
 });
+
+// eslint-disable-next-line no-control-regex
+const TITLE_UNSAFE = /[\x00-\x1f\x7f]/g;
+
+/**
+ * The first line of the owner's text with visible content, as a `run` title: control characters
+ * become spaces, whitespace collapses, cut to `MAX_TITLE_CHARS` without splitting a surrogate pair.
+ * `undefined` when the text has no visible line.
+ */
+export function runTitle(text: string): string | undefined {
+  for (const line of text.split(/[\n\r\u0085\u2028\u2029]/)) {
+    const clean = line.replace(TITLE_UNSAFE, ' ').replace(/\s+/g, ' ').trim();
+    if (clean === '') continue;
+    let title = '';
+    for (const char of clean) {
+      if (title.length + char.length > MAX_TITLE_CHARS) break;
+      title += char;
+    }
+    return title.trimEnd();
+  }
+  return undefined;
+}
 
 export const cancelFrameSchema = z.strictObject({ type: z.literal('cancel'), runId });
 

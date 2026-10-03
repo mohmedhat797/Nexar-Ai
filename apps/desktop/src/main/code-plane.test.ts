@@ -116,7 +116,7 @@ interface Recorded {
 
 function codeRequest(
   overrides: Partial<
-    Pick<CodeRequest, 'intent' | 'goal' | 'projectId' | 'turnId' | 'sessionId'>
+    Pick<CodeRequest, 'intent' | 'goal' | 'turnText' | 'projectId' | 'turnId' | 'sessionId'>
   > = {},
 ): Recorded {
   const tasks: string[] = [];
@@ -130,6 +130,7 @@ function codeRequest(
     projectId: overrides.projectId ?? DESKTOP_PROJECT,
     intent: overrides.intent ?? 'coding',
     goal: overrides.goal ?? 'Add a retry.',
+    turnText: overrides.turnText ?? 'Add a retry.',
     correlation: rootCorrelation(sessionId, turnId),
     onTask: (taskId) => {
       tasks.push(taskId);
@@ -381,22 +382,35 @@ describe('run', () => {
     await expect.poll(() => spawnedChildren().every((c) => c.exitCode !== null)).toBe(true);
   });
 
-  it('sends the run frame with ids only: project mapping, goal, intent and lineage', async () => {
+  it('sends the run frame with ids only: project mapping, goal, title, intent and lineage', async () => {
     const { plane: p } = plane(fakeLauncher());
-    await p.run(codeRequest({ goal: 'Do the thing' }).request, new AbortController().signal);
+    const goal = 'Session policy: mode=code; lane=code; project=demo\n\nDo the thing';
+    await p.run(
+      codeRequest({ goal, turnText: '\n  Do the thing\nwith care' }).request,
+      new AbortController().signal,
+    );
     const frames = (await readLog()).flatMap((e) => (e.frame === undefined ? [] : [e.frame]));
     expect(frames[0]).toEqual({ type: 'initialize', protocol: 'nexar-plane/1' });
     expect(frames[1]).toEqual({
       type: 'run',
       runId: `run_${'1'.padStart(32, '0')}`,
       planeProject: PLANE_PROJECT,
-      goal: 'Do the thing',
+      goal,
+      title: 'Do the thing',
       intent: 'coding',
       lineage: { sessionId: SESSION, turnId: TURN, correlationId: TURN, depth: 0 },
     });
     expect(Object.keys(frames[1] as object).sort()).toEqual(
-      ['goal', 'intent', 'lineage', 'planeProject', 'runId', 'type'].sort(),
+      ['goal', 'intent', 'lineage', 'planeProject', 'runId', 'title', 'type'].sort(),
     );
+  });
+
+  it('omits the title when the turn text has no visible line', async () => {
+    const { plane: p } = plane(fakeLauncher());
+    await p.run(codeRequest({ turnText: ' \n\t ' }).request, new AbortController().signal);
+    const frames = (await readLog()).flatMap((e) => (e.frame === undefined ? [] : [e.frame]));
+    expect(frames[1]).toMatchObject({ type: 'run', goal: 'Add a retry.' });
+    expect(frames[1]).not.toHaveProperty('title');
   });
 
   it.each([

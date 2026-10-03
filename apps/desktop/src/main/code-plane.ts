@@ -3,6 +3,7 @@ import { NexarError, isNexarError, type Logger, type NexarErrorCode } from '@nex
 import type { CodeRequest, CodeResult } from '@nexar/operating';
 import {
   PLANE_PROTOCOL,
+  runTitle,
   type ApprovalSummary,
   type DecidedFrame,
   type DesktopFrame,
@@ -623,11 +624,14 @@ export class CodePlane {
         throw new NexarError('SANDBOX_UNAVAILABLE', project.reason);
       }
 
+      // The commit subject derives from the owner's own request, never the context@1 header.
+      const title = runTitle(request.turnText);
       conn.send({
         type: 'run',
         runId: run.runId,
         planeProject,
         goal: request.goal,
+        ...(title === undefined ? {} : { title }),
         intent: request.intent,
         lineage: {
           sessionId: request.sessionId,
