@@ -150,7 +150,8 @@ export function useSessions(projectId: string | null, mode: Mode): Sessions {
   const create = useCallback(async (): Promise<void> => {
     const pid = projectRef.current;
     if (pid === null) return;
-    if (session !== null && session.turnCount === 0) return;
+    // An empty conversation of another mode is not reused: new ones start in the chosen mode.
+    if (session !== null && session.turnCount === 0 && session.mode === mode) return;
     try {
       const created = await call(nexar.createSession({ projectId: pid, mode }));
       if (projectRef.current !== pid) return;

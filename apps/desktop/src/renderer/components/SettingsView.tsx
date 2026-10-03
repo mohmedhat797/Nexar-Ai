@@ -1,13 +1,22 @@
 import { useState, type ReactElement } from 'react';
-import { DENSITIES, THEMES, type DesktopSettings, type ThemeId } from '../../shared/api.js';
+import {
+  DENSITIES,
+  THEMES,
+  type DesktopSettings,
+  type ProjectDto,
+  type ThemeId,
+} from '../../shared/api.js';
 import { THEME_LABELS, THEME_TOKENS } from '../theme.js';
+import { useCodeStatus } from '../useCodeStatus.js';
+import { PlaneFacts, PlaneProjectForm } from './CodeStatus.js';
 import { ProvidersView } from './ProvidersView.js';
 
-type Tab = 'appearance' | 'behavior' | 'providers';
+type Tab = 'appearance' | 'behavior' | 'code' | 'providers';
 
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'behavior', label: 'AI behavior' },
+  { id: 'code', label: 'Code' },
   { id: 'providers', label: 'Providers' },
 ];
 
@@ -102,11 +111,87 @@ function ComingSoon({
   );
 }
 
+/** One project's mapping to a plane project, with the lane's state for it. */
+function ProjectMapping({ project }: { project: ProjectDto }): ReactElement {
+  const code = useCodeStatus(project.id, true);
+  const { status } = code;
+  const mapped = status?.project?.planeProject;
+  return (
+    <li className="card stack" data-testid="plane-mapping">
+      <div className="row">
+        <span className="strong">{project.name}</span>
+        <span className="chip" data-testid="plane-mapping-state">
+          {status?.project?.state ?? code.error ?? 'checking'}
+        </span>
+      </div>
+      <div className="small muted" data-testid="plane-mapping-current">
+        {mapped === undefined ? 'Not mapped to a plane project' : `Plane project: ${mapped}`}
+      </div>
+      {status !== null && (
+        <PlaneProjectForm
+          key={mapped ?? ''}
+          current={mapped}
+          known={status.projects}
+          busy={code.loading}
+          onSave={code.setPlaneProject}
+        />
+      )}
+    </li>
+  );
+}
+
+/** The engineering plane's state (read-only) and the per-project mapping. */
+function CodeSettings({ projects }: { projects: readonly ProjectDto[] }): ReactElement {
+  const code = useCodeStatus(undefined, true);
+  return (
+    <div className="stack" data-testid="code-settings">
+      <h2>Engineering plane</h2>
+      <p className="muted">
+        The engineering plane runs in the <code>nexar-plane</code> WSL2 distro; its distro and
+        command are set in the owner&apos;s desktop settings file.
+      </p>
+      {code.status === null ? (
+        <p className="muted">{code.error ?? 'Checking the engineering plane…'}</p>
+      ) : (
+        <PlaneFacts status={code.status} />
+      )}
+      <div className="row">
+        <button
+          type="button"
+          className="btn"
+          disabled={code.loading}
+          data-testid="code-settings-refresh"
+          onClick={code.refresh}
+        >
+          Refresh
+        </button>
+        {code.error !== null && code.status !== null && (
+          <span className="small bad-text" role="alert">
+            {code.error}
+          </span>
+        )}
+      </div>
+      <h2>Projects</h2>
+      {projects.length === 0 ? (
+        <p className="muted">Open a project to map it to a plane project.</p>
+      ) : (
+        <ul className="stack plain-list">
+          {projects.map((p) => (
+            <ProjectMapping key={p.id} project={p} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function SettingsView({
   settings,
+  projects,
   onChange,
 }: {
   settings: DesktopSettings;
+  projects: readonly ProjectDto[];
   onChange: (patch: Partial<DesktopSettings>) => void;
 }): ReactElement {
   const [tab, setTab] = useState<Tab>('appearance');
@@ -137,6 +222,7 @@ export function SettingsView({
           text="Default agent, model, reasoning effort and permission mode per mode."
         />
       )}
+      {tab === 'code' && <CodeSettings projects={projects} />}
       {tab === 'providers' && <ProvidersView />}
     </section>
   );

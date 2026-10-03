@@ -200,10 +200,13 @@ describe('Nexar Desktop', () => {
     await page.getByTestId('nav-approvals').click();
     await isVisible(page.getByTestId('approvals-empty'));
 
-    // --- Code mode keeps the sidebar and shows the placeholder ---
+    // --- Code mode keeps the conversation and sidebar; without a plane the banner says why ---
     await page.getByTestId('nav-chat').click();
     await page.getByTestId('mode-code').click();
-    await hasText(page.getByTestId('code-placeholder'), 'NXR-055');
+    await hasText(page.getByTestId('code-banner-reason'), 'WSL is not available on this computer');
+    await isVisible(page.getByTestId('code-refresh'));
+    await isVisible(page.getByLabel('Message'));
+    expect(await page.getByTestId('code-placeholder').count()).toBe(0);
     await isVisible(page.getByTestId('nav-settings'));
 
     await close(app);

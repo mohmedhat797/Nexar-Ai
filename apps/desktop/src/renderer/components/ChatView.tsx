@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react';
 import type { Mode, ProjectDto, ResourceRow, SessionDto } from '../../shared/api.js';
 import type { SendArgs } from '../useSessions.js';
+import { pendingFor } from '../code.js';
+import { useCodeStatus } from '../useCodeStatus.js';
+import { usePlaneApprovals } from '../usePlaneApprovals.js';
+import { CodeBanner } from './CodeStatus.js';
 import { Icon } from './Icon.js';
 import { SessionTurnView } from './SessionTurnView.js';
 
@@ -112,6 +116,7 @@ function Composer({
 }
 
 export function ChatView({
+  mode,
   project,
   resources,
   session,
@@ -124,7 +129,10 @@ export function ChatView({
   onCancel,
   onConfirm,
   onSetMode,
+  onApprovalsChanged,
 }: {
+  /** The sidebar mode, used for new conversations. */
+  mode: Mode;
   project: ProjectDto;
   resources: readonly ResourceRow[];
   session: SessionDto | null;
@@ -137,9 +145,18 @@ export function ChatView({
   onCancel: (turnId: string) => void;
   onConfirm: (turnId: string, decision: 'confirm' | 'decline') => Promise<void>;
   onSetMode: (mode: Mode) => Promise<void>;
+  onApprovalsChanged: () => void;
 }): ReactElement {
   const endRef = useRef<HTMLDivElement>(null);
   const turns = session?.turns ?? [];
+  // The Code banner belongs to Code conversations, and to the mode new conversations will use.
+  const codeView = (session?.mode ?? mode) === 'code' || mode === 'code';
+  const code = useCodeStatus(project.id, codeView);
+  const planeApprovals = usePlaneApprovals(session);
+  const approvalsChanged = (): void => {
+    planeApprovals.reload();
+    onApprovalsChanged();
+  };
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: 'end' });
   }, [session, progress]);
@@ -181,6 +198,7 @@ export function ChatView({
           </button>
         </div>
       </header>
+      {codeView && <CodeBanner code={code} />}
       <div className="messages">
         {error !== null && (
           <div className="notice notice-bad" role="alert" data-testid="chat-error">
@@ -200,10 +218,13 @@ export function ChatView({
           <SessionTurnView
             key={t.id}
             projectId={project.id}
+            sessionId={session?.id ?? ''}
             turn={t}
             lines={progress[t.id] ?? []}
+            approval={pendingFor(planeApprovals.approvals, session?.id ?? '', t.id)}
             onCancel={onCancel}
             onConfirm={onConfirm}
+            onApprovalChanged={approvalsChanged}
           />
         ))}
         <div ref={endRef} />

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { ApprovalDto } from '../../shared/api.js';
 import { call, errorText, nexar } from '../bridge.js';
+import { COMMIT_NOTE } from '../code.js';
 
 function ApprovalCard({
   approval,
@@ -46,6 +47,11 @@ function ApprovalCard({
         Requested {approval.createdAt} · expires {approval.expiresAt}
         {approval.decidedAt !== undefined && ` · decided ${approval.decidedAt}`}
       </div>
+      {approval.source === 'plane' && (
+        <div className="small muted" data-testid="approval-plane-note">
+          {COMMIT_NOTE}
+        </div>
+      )}
       {error !== null && (
         <div className="bad-text small" role="alert">
           {error}

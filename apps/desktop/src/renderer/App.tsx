@@ -41,18 +41,6 @@ function EmptyProjects({ onAdd }: { onAdd: () => void }): ReactElement {
   );
 }
 
-function CodePlaceholder(): ReactElement {
-  return (
-    <section className="center-empty" data-testid="code-placeholder">
-      <h1>Code mode</h1>
-      <p className="muted">
-        Coding sessions arrive with NXR-055 (the WSL2 engineering plane). Until then, use Cowork for
-        documents and analysis.
-      </p>
-    </section>
-  );
-}
-
 export function App(): ReactElement {
   const [settings, setSettings] = useState<DesktopSettings>(DEFAULT_SETTINGS);
   const [ready, setReady] = useState(false);
@@ -175,13 +163,10 @@ export function App(): ReactElement {
     if (next === 'resources') loadResources(false);
   };
 
-  const inCode = settings.mode === 'code' && (view === 'chat' || view === 'workflows');
-
   const main = ((): ReactElement => {
-    if (inCode) return <CodePlaceholder />;
     switch (view) {
       case 'settings':
-        return <SettingsView settings={settings} onChange={changeSettings} />;
+        return <SettingsView settings={settings} projects={projects} onChange={changeSettings} />;
       case 'resources':
         return (
           <ResourcesView
@@ -207,6 +192,7 @@ export function App(): ReactElement {
           <EmptyProjects onAdd={addProject} />
         ) : (
           <ChatView
+            mode={settings.mode}
             project={project}
             resources={resources}
             session={sessions.session}
@@ -219,6 +205,7 @@ export function App(): ReactElement {
             onCancel={sessions.cancel}
             onConfirm={sessions.confirmLane}
             onSetMode={sessions.setMode}
+            onApprovalsChanged={loadPending}
           />
         );
     }
@@ -262,7 +249,7 @@ export function App(): ReactElement {
         )}
         {main}
       </main>
-      {view === 'chat' && !inCode && project !== null && filesOpen && (
+      {view === 'chat' && project !== null && filesOpen && (
         <FilesPanel projectId={project.id} refreshKey={filesRefresh} />
       )}
     </div>

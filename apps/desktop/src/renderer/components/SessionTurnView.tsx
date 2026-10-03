@@ -1,7 +1,9 @@
 import { useState, type ReactElement } from 'react';
-import type { SelectedDecision, TurnDto, TurnLaneDto } from '../../shared/api.js';
+import type { ApprovalDto, SelectedDecision, TurnDto } from '../../shared/api.js';
 import { call, errorText, nexar } from '../bridge.js';
 import { ArtifactCard } from './ArtifactCard.js';
+import { fallbackText, isCodeTurn, isRefusedTurn } from '../code.js';
+import { EngineeringPanel } from './EngineeringPanel.js';
 import { CandidateList } from './RoutingCard.js';
 
 const STATE_LABEL: Readonly<Record<string, string>> = {
@@ -69,33 +71,17 @@ function Routing({ projectId, turn }: { projectId: string; turn: TurnDto }): Rea
   );
 }
 
-/** The visible fallback line for an unavailable orchestrator; null when there is nothing to say. */
-export function fallbackNotice(lane: TurnLaneDto): string | null {
-  if (lane.fallbackReason !== 'orchestrator-unavailable') return null;
-  if (lane.requestedLane === 'cowork')
-    return 'OpenWorker unavailable. Using Nexar direct execution.';
-  if (lane.requestedLane === 'code') {
-    return 'Code lane (DeepSeek Harness) unavailable. Using Nexar direct execution.';
-  }
-  return null;
-}
-
-/** A turn Nexar refused before running anything (an engineering write without the Code lane). */
-export function isRefused(turn: TurnDto): boolean {
-  return turn.state === 'failed' && turn.outcome?.error?.code === 'SANDBOX_UNAVAILABLE';
-}
-
 function LaneLine({ turn }: { turn: TurnDto }): ReactElement | null {
   const { lane } = turn;
   // Nothing ran while a turn waits for confirmation or after it was declined.
   if (lane === undefined || turn.state === 'pending-confirmation' || turn.state === 'declined') {
     return null;
   }
-  const notice = fallbackNotice(lane);
+  const notice = fallbackText(lane);
   return (
     <div className="lane-line small muted" data-testid="lane-line">
       <span data-testid="lane-effective">Lane: {lane.effectiveLane}</span>
-      {notice !== null && <span data-testid="lane-fallback"> � {notice}</span>}
+      {notice !== null && <span data-testid="lane-fallback"> · {notice}</span>}
     </div>
   );
 }
@@ -153,20 +139,27 @@ function LaneConfirmation({
 /** One conversation turn: the owner's message and what came back, always as plain text. */
 export function SessionTurnView({
   projectId,
+  sessionId,
   turn,
   lines,
+  approval,
   onCancel,
   onConfirm,
+  onApprovalChanged,
 }: {
   projectId: string;
+  sessionId: string;
   turn: TurnDto;
   lines: readonly string[];
+  /** The plane approval waiting for this turn, if any. */
+  approval: ApprovalDto | undefined;
   onCancel: (turnId: string) => void;
   onConfirm: (turnId: string, decision: 'confirm' | 'decline') => Promise<void>;
+  onApprovalChanged: () => void;
 }): ReactElement {
   const label = STATE_LABEL[turn.state];
   const error = turn.outcome?.error;
-  const refused = isRefused(turn);
+  const refused = isRefusedTurn(turn);
   return (
     <article className="turn" data-testid="turn" data-state={turn.state}>
       <div className="bubble-user" data-testid="user-message">
@@ -175,6 +168,15 @@ export function SessionTurnView({
       <LaneConfirmation turn={turn} onConfirm={onConfirm} />
       <LaneLine turn={turn} />
       <Routing projectId={projectId} turn={turn} />
+      {isCodeTurn(turn) && (
+        <EngineeringPanel
+          sessionId={sessionId}
+          turn={turn}
+          lines={lines}
+          approval={approval}
+          onApprovalChanged={onApprovalChanged}
+        />
+      )}
       {turn.state === 'running' && (
         <div className="progress" aria-live="polite">
           {lines.map((line, i) => (

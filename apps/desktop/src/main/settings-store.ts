@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { NexarError } from '@nexar/contracts';
 import { DENSITIES, MODES, THEMES, type DesktopSettings } from '../shared/api.js';
+import { PLANE_PROJECT_PATTERN } from '../shared/plane.js';
 import { writeFileAtomic } from './atomic-write.js';
 
 export const DEFAULT_SETTINGS: DesktopSettings = {
@@ -29,8 +30,7 @@ export const DISTRO_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /** An absolute POSIX path inside the distro; `..` is refused below. */
 export const COMMAND_PATTERN = /^\/[A-Za-z0-9._/-]{1,255}$/;
 export const DESKTOP_PROJECT_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
-/** Same shape as the plane protocol's project id. */
-export const PLANE_PROJECT_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
+export { PLANE_PROJECT_PATTERN };
 export const MAX_PLANE_PROJECTS = 200;
 export const DEFAULT_PLANE_DISTRO = 'nexar-plane';
 export const DEFAULT_PLANE_COMMAND = '/usr/local/bin/nexar';
