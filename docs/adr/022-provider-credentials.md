@@ -130,3 +130,11 @@ discovered never means authenticated.
   status remains unknown and its login action is disabled; model metadata is not authentication.
   Default native CLI profiles remain separate from explicitly configured resources with other homes.
   See the [versioned research snapshot](../research/upstream/native-subscription-auth.md).
+
+## Amendment (2026-10-04): resource orchestration
+
+Connections are first-class ([ADR-027](027-resource-orchestration-architecture.md) §1–3): a provider may have a `subscription`, `api` and
+`local`/`custom` connection at once; each yields Nexar resources. "A subscription never powers pi-ai or
+DSH" stands; subscriptions reach Cowork and Code work through native agents selected by the NRC, via
+the Engine Resource Bridge. OpenWorker's `openai-codex` (emulated Codex-client OAuth) is not an
+accepted route.

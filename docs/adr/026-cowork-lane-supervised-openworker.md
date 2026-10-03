@@ -100,3 +100,10 @@ interrupted turns are never replayed.
 - **Pre-1.0 upstream API.** Pinned version range, contract tests against a fake server, version probe.
 - **Loopback listener of the child.** Per-launch random token, loopback only, Nexar the sole client,
   process tied to Desktop's lifetime.
+
+## Amendment (2026-10-04): resource orchestration
+
+§4 is superseded ([ADR-027](027-resource-orchestration-architecture.md) §7–8): the OpenWorker key now configures only the **control**
+model, NRC-selected among API connections the owner allowed for OpenWorker or local endpoints
+(`agent-loop-control:openworker`). Substantive units are delegated to Nexar (NXR-059) and may run on
+subscription agents. §5's "no MCP servers" becomes "only the turn-scoped Nexar bridge server".

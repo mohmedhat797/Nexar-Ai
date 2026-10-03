@@ -247,3 +247,9 @@ carry `sessionId` and `turnId`. The renderer never holds authoritative transcrip
 2. NXR-058: `@nexar/operating` intent rules, lane router, mismatch confirmation, context builder.
 3. NXR-052 providers, then NXR-055 Code lane (WSL2 bridge) and NXR-056 Cowork lane (OpenWorker), then
    NXR-053 behavior profiles and an integrated Operating Layer E2E.
+
+## Amendment (2026-10-04): resource orchestration
+
+Engine delegation (`nexar → openworker|dsh → nexar child`) uses the existing lineage and
+`MAX_DELEGATION_DEPTH = 2`; children create no turn ([ADR-027](027-resource-orchestration-architecture.md) §9). Fallback reasons gain
+`dsh-control-unavailable` (§12).

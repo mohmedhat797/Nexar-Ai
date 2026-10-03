@@ -354,3 +354,9 @@ These record how the build resolved details the decision above left open. None c
   stay `unknown`, never "0 used".
 - **Per-task flags.** `--max-cost` and `--require-known-quota` on `nexar route` and `nexar run` set
   `maxCostUsd` and `requireKnownQuota`.
+
+## Amendment (2026-10-04): resource orchestration
+
+`resource-intelligence@1` hard filters and factors are reused unchanged by the plan-level
+planner `strategy@1` ([ADR-027](027-resource-orchestration-architecture.md) §6); plan factors (diversity, reservation, budget, quality fit,
+balance) only reorder eligible candidates. `deterministic@1` is unchanged.

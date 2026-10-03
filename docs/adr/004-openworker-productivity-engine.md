@@ -59,3 +59,9 @@ depends on OpenWorker infrastructure.
 
 v0.2: Nexar MCP server (stdio first), bridge authentication, OpenWorker config recipe, contract tests
 pinned to an OpenWorker tag.
+
+## Amendment (2026-10-04): resource orchestration
+
+The heavy-work seam of decision 3 is realised as the Engine Resource Bridge ([ADR-027](027-resource-orchestration-architecture.md) §9,
+NXR-059/NXR-062): turn-scoped MCP tools `nexar.intelligence_submit`/`nexar.intelligence_status`.
+"Nexar as OpenWorker's model provider" (an OpenAI-compatible loopback gateway) stays deferred.
