@@ -2,6 +2,22 @@
 
 **Milestone:** v0.6 — Resource orchestration · **Labels:** providers, experimental, security · **Depends on:** NXR-062; owner enablement · **ADR:** [ADR-027](../adr/027-resource-orchestration-architecture.md) ([plan](../architecture/resource-orchestration-plan.md))
 
+## Decision (2026-10-05)
+
+ChatGPT goes first through OpenAI's **official** "Sign in with ChatGPT" token sharing
+([research](../research/upstream/chatgpt-sign-in-token-sharing.md), ADR-022 amendment 2026-10-05):
+an `official-account` connection whose access token calls the public Responses API. The
+experimental Codex-client route is not built. Claude (high terms risk) and Gemini remain experimental
+research items; Antigravity stays excluded.
+
+- **067a:** the connection: PKCE sign-in with the loopback callback in a supervised child, token
+  exchange/refresh/validation in main, key-store storage, connect/disconnect/status IPC, fake auth
+  server tests.
+- **067b:** the resources: model discovery per connection, `model-turn` resources through pi-ai's
+  Responses client with the connection's access token, error mapping, Providers UI, E2E against a
+  fake backend.
+- Plane (Code) sign-in is a follow-up.
+
 ## Objective
 
 Optional Nexar-owned adapters that give subscription connections `model-turn` (control-eligible), starting with ChatGPT, under the ADR-022 2026-10-04 policy.

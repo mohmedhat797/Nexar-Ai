@@ -27,6 +27,10 @@ property **`model-turn`**: a resource takes caller-supplied messages and JSON to
 one assistant turn whose tool calls the **caller** executes. DSH's own loop needs the same property
 through its LLM route.
 
+> **Update 2026-10-05:** ChatGPT has an official model-turn route — "Sign in with ChatGPT" token
+> sharing on the public Responses API ([research](chatgpt-sign-in-token-sharing.md)). It replaces the
+> experimental Codex-client route in the matrix below for Nexar.
+
 ## 2. Matrix
 
 | Resource | Auth: official | Auth: experimental client-compat | Single model-turn | Caller-supplied tools, calls returned unexecuted | Streaming | Continuity / private state | OpenWorker control | DSH control | Worker resource |

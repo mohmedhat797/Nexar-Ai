@@ -155,3 +155,16 @@ Routes a vendor's terms explicitly prohibit (Antigravity Additional Terms §6) a
 later owner ADR decides otherwise. "A subscription never powers pi-ai or DSH" now reads: never through
 extracted vendor tokens; a Nexar-owned experimental model adapter may serve as a control or work
 resource under this policy.
+
+## Amendment (2026-10-05): ChatGPT plan through official token sharing
+
+OpenAI documents "Sign in with ChatGPT" token sharing (`chatgpt.tokens.use.direct`) for open-source
+and local personal apps: a user access token that spends the owner's ChatGPT Plus/Pro plan on the
+public Responses API ([research](../research/upstream/chatgpt-sign-in-token-sharing.md)). Nexar
+supports it as an **`official-account`** connection (support `official`), not as experimental
+client-compat: Nexar's own PKCE sign-in (issued `client_id`, `agent_name_hint` "Nexar", a
+per-installation host id), tokens in the key store under the connection, refresh in main, the ID
+token validated against OpenAI's JWKS, plan use only when the granted scope includes
+`chatgpt.tokens.use.direct`. Desktop main still opens no listener: the loopback callback runs in a
+short-lived supervised child for one sign-in. The owner starts every sign-in; disconnecting deletes
+the tokens. The experimental Codex-client route for ChatGPT is not built.
