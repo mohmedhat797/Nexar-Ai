@@ -115,8 +115,10 @@ The NRC never decides workflow steps, tool sequences or engineering plans.
   well-known capability `model-turn` marks a resource that accepts caller-supplied messages and tool
   schemas and returns one assistant turn whose tool calls the caller executes.
 - **Engine control requirements.** Each engine declares its control requirements:
-  - OpenWorker: `model-turn` and `tool-use`.
-  - DSH: `model-turn` and `tool-use` plus plane locality (§9).
+  - OpenWorker: `model-turn`.
+  - DSH: `model-turn`, from plane resources (§9, §11).
+  - `model-turn` includes caller-executed tool calling by definition. `tool-use` keeps its existing
+    meaning (the resource runs tools itself; `automation` tasks require it).
 - **Subscriptions are not excluded by default.** A subscription resource is control-eligible exactly
   when a verified adapter gives it `model-turn`. As of the spike:
   - API models and tool-capable local models qualify.

@@ -75,10 +75,11 @@ the Artifact Store, telemetry.
   every source. `kind.access` and `auth.mode` stay authoritative for existing filters.
 - **Capabilities.** The new well-known capability is **`model-turn`**: the resource accepts
   caller-supplied messages and tool schemas and returns an assistant turn whose tool calls the caller
-  executes. Set it on pi-ai `model` resources whose model supports tools, and on experimental
+  executes. Set it on pi-ai catalog `model` resources, on local endpoints whose owner declares `toolCalling`, and on experimental
   subscription model adapters. Never set it on native CLI agents.
 - **Engine control requirements** are data:
-  `ENGINE_CONTROL_REQUIREMENTS = { openworker: ['model-turn','tool-use'], dsh: ['model-turn','tool-use'] }`.
+  `ENGINE_CONTROL_REQUIREMENTS = { openworker: ['model-turn'], dsh: ['model-turn'] }`. `tool-use` keeps
+  its meaning (the resource runs tools itself; `automation` tasks require it).
 - **Owner policy** extends the existing config:
   - per mode: `orchestration.<mode>.controlResource = { mode: auto|pinned, resourceId?, fallback: auto|none }`;
   - `resourcePolicy.experimental.enabled` (default `false`) plus a per-connection enable flag;

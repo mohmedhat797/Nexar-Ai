@@ -72,6 +72,8 @@ export interface DiscoveryConfig {
       readonly id: string;
       readonly kind: 'ollama' | 'openai-compatible';
       readonly baseUrl: string;
+      /** The owner declares the server supports tool calling (grants `model-turn`); default false. */
+      readonly toolCalling?: boolean;
     }[];
   };
 }
@@ -368,6 +370,7 @@ const DiscoverySchema = z.strictObject({
                   .string()
                   .url()
                   .refine((u) => /^https?:\/\//.test(u), 'must be an http(s) URL'),
+                toolCalling: z.boolean().optional(),
               }),
             )
             .max(32)
@@ -604,7 +607,8 @@ export function defaultConfig(): NexarConfig {
           id: 'local-echo',
           displayName: 'Local Echo',
           kind: { type: 'model', provider: 'nexar', model: 'echo', access: 'local' },
-          capabilities: [...KNOWN_CAPABILITIES],
+          // Echo takes no caller tool schemas, so it is not a model-turn resource.
+          capabilities: KNOWN_CAPABILITIES.filter((c) => c !== 'model-turn'),
           runtime: { adapter: 'echo', locality: 'local' },
           auth: { mode: 'none' },
           cost: { model: 'free' },
@@ -707,7 +711,9 @@ function resolveDiscovery(
       origin,
     );
   }
-  const endpoints = local?.endpoints ?? [];
+  const endpoints = (local?.endpoints ?? []).map(({ toolCalling, ...rest }) =>
+    toolCalling === undefined ? rest : { ...rest, toolCalling },
+  );
   if (new Set(endpoints.map((e) => e.id)).size !== endpoints.length) {
     throw configError('discovery.sources.localEndpoints.endpoints ids must be unique', origin);
   }

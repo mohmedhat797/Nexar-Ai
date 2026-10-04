@@ -38,6 +38,15 @@ export function deepseekHarnessResource(
     cost: { model: 'unknown' },
     dataLocality: 'third-party',
     tags: ['agent-runtime'],
+    metadata: {
+      connection: {
+        id: 'deepseek.api',
+        provider: 'deepseek',
+        method: 'api',
+        authClass: 'official-api',
+        support: 'official',
+      },
+    },
     ...overrides,
   };
 }

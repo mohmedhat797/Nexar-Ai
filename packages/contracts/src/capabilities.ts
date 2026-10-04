@@ -11,6 +11,11 @@ export const KNOWN_CAPABILITIES = [
   'long-context',
   'web-research',
   'vision',
+  /**
+   * Accepts caller-supplied messages and tool schemas and returns one assistant turn whose tool
+   * calls the caller executes (ADR-027 §6). Distinct from `tool-use`, where the resource runs tools.
+   */
+  'model-turn',
 ] as const;
 
 /** A capability Nexar ships with first-class knowledge of. */

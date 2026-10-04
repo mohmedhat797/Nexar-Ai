@@ -16,7 +16,13 @@ export const PI_CATALOG_SOURCE_ID = 'pi-catalog';
 const DEFAULT_MAX_MODELS = 50;
 const SLUG_LIMIT = 128;
 const LONG_CONTEXT_TOKENS = 200_000;
-const BASE_CAPABILITIES: readonly Capability[] = ['text-generation', 'reasoning', 'knowledge-work'];
+// pi-ai carries tool schemas for its catalog providers; the execution port comes with NXR-062.
+const BASE_CAPABILITIES: readonly Capability[] = [
+  'text-generation',
+  'reasoning',
+  'knowledge-work',
+  'model-turn',
+];
 
 /** Nexar-owned: the env var each allowlisted provider's key is conventionally read from. */
 export const PI_PROVIDER_CREDENTIAL_NAMES: Readonly<Record<string, string>> = Object.freeze({
@@ -91,7 +97,17 @@ function toDescriptor(
     },
     cost,
     limits: { contextWindowTokens: model.contextWindow, maxOutputTokens: model.maxTokens },
-    metadata: { rates: 'catalog' },
+    metadata: {
+      ...base.metadata,
+      rates: 'catalog',
+      connection: {
+        id: `${provider}.api`,
+        provider,
+        method: 'api',
+        authClass: 'official-api',
+        support: 'official',
+      },
+    },
   };
 }
 

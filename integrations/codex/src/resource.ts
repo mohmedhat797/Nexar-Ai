@@ -34,6 +34,15 @@ export function codexResource(overrides: Partial<ResourceDescriptor> = {}): Reso
     cost: { model: 'subscription' },
     dataLocality: 'third-party',
     tags: ['native-agent'],
+    metadata: {
+      connection: {
+        id: 'openai.subscription',
+        provider: 'openai',
+        method: 'subscription',
+        authClass: 'vendor-native',
+        support: 'official',
+      },
+    },
     ...overrides,
   };
 }
