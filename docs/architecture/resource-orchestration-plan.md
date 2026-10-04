@@ -1,243 +1,306 @@
 # Resource orchestration: architecture and implementation plan
 
-The decision is [ADR-027](../adr/027-resource-orchestration-architecture.md). Baseline: `main @
-76de2e1` (PR #36 merged), audited on 2026-10-04. Everything here was checked against source, not
-only ADRs.
+The decision is [ADR-027](../adr/027-resource-orchestration-architecture.md), revision 2. The
+compatibility evidence is in [`subscription-control-compatibility.md`](../research/upstream/subscription-control-compatibility.md).
+Baseline: `main @ 76de2e1` (PR #36 merged), audited on 2026-10-04 against source, not only ADRs.
 
 ## 1. Current-state audit (what the code does today)
 
-| Flow               | Implementation                                                                                                                                                                                                                                | Who chooses the resource                                                                                                 |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| API keys           | Desktop `providers.ts`: the key goes to the key store; the provider is added to `discovery.sources.piCatalog.providers`; pi-ai catalog models become `model` resources (adapter `pi`, `access: api`)                                          | NRC                                                                                                                      |
-| Subscriptions      | `@nexar/integration-*` native adapters (`claude-code`, `codex`, `antigravity`); Desktop `subscriptions.ts` starts vendor logins and runs probes; resources appear only through **CLI discovery** (`cli:<runtime>` stats the binary on `PATH`) | NRC                                                                                                                      |
-| Local / custom     | `local-endpoints.ts`: owner-listed endpoints, discovered models (`access: local`)                                                                                                                                                             | NRC                                                                                                                      |
-| Desktop Auto       | First-run config: `resources: [local-echo]`, `defaultResourceId: local-echo`, `resource-intelligence` with `preferences: authoritative`                                                                                                       | **echo wins**: on the owner machine Auto routed to `local-echo` while `claude-code` was discovered **and authenticated** |
-| Direct turn        | `OperatingService.executeDirect` → NRC → adapter                                                                                                                                                                                              | NRC                                                                                                                      |
-| Code turn          | Plane `run` → `EngineeringRunner` → lane plan → **NRC per lane** (`laneRole`, `lanePreferences`, review diversity through `excludedResourceIds`) → native or DSH adapter in the bwrap sandbox                                                 | NRC, per lane only; no plan-level view                                                                                   |
-| DSH                | Integration package with the SDK and ACP paths. An `agent` resource (`underlying: deepseek-official/deepseek-v4-flash`, `DEEPSEEK_API_KEY`); `piAiProviders` route other API providers. Nexar never uses DSH's planning or sub-agents         | NRC picks DSH like any lane resource                                                                                     |
-| Cowork turn        | `CoworkService`: NRC routes the turn among **pi model resources whose provider maps to OpenWorker and is owner-allowed**; that key is configured into the private `openworker-server`; one `provider:model` per turn                          | NRC chooses one model; **subscriptions excluded by design (ADR-026 §4)**                                                 |
-| OpenWorker → Nexar | ADR-004's MCP seam exists (`nexar mcp serve`: `submit_work`, `work_status`, `route`, `resources`, `workflows`; ADR-015 scopes), but the private server registers **no** MCP servers (ADR-026 §5)                                              | n/a                                                                                                                      |
-| Lineage            | `@nexar/operating` correlation: `rootCorrelation`, `delegate`, `childTask`, `MAX_DELEGATION_DEPTH = 2`, re-entry refused                                                                                                                      | —                                                                                                                        |
-| Cost and quota     | `CostProfile.subscription`, `CostClass: subscription-allowance`, `QuotaObservation` with provenance, reservations and allowances (ADR-020)                                                                                                    | NRC                                                                                                                      |
+| Flow               | Implementation                                                                                                                                                                                                    | Who chooses the resource                                                                                                 |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| API keys           | Desktop `providers.ts`: the key goes to the key store; the provider is added to `discovery.sources.piCatalog.providers`; pi-ai catalog models become `model` resources (adapter `pi`, `access: api`)              | NRC                                                                                                                      |
+| Subscriptions      | Native adapters (`claude-code`, `codex`, `antigravity`); Desktop `subscriptions.ts` starts vendor logins and probes; resources appear only through **CLI discovery** (`cli:<runtime>` stats the binary on `PATH`) | NRC                                                                                                                      |
+| Local / custom     | `local-endpoints.ts`: owner-listed endpoints, discovered models (`access: local`)                                                                                                                                 | NRC                                                                                                                      |
+| Desktop Auto       | First-run config: `resources: [local-echo]`, `defaultResourceId: local-echo`, `resource-intelligence` + `preferences: authoritative`                                                                              | **echo wins.** On the owner machine Auto routed to `local-echo` while `claude-code` was discovered **and authenticated** |
+| Direct turn        | `OperatingService.executeDirect` → NRC → adapter                                                                                                                                                                  | NRC                                                                                                                      |
+| Code turn          | Plane `run` → `EngineeringRunner` → lane plan → **NRC per lane** (`laneRole`, `lanePreferences`, review diversity) → adapter in bwrap. Plane resources are the plane's own (ADR-025)                              | NRC per lane; no plan-level view                                                                                         |
+| DSH                | SDK and ACP adapter; an `agent` resource with `DEEPSEEK_API_KEY` (`piAiProviders` for other keys). DSH's planning and sub-agents are unused                                                                       | NRC picks DSH like any lane resource                                                                                     |
+| Cowork turn        | `CoworkService`: NRC routes among **owner-allowed pi API resources that OpenWorker maps**; the key is configured into the private server; one `provider:model` per turn                                           | NRC, one model; **subscriptions excluded (ADR-026 §4)**                                                                  |
+| OpenWorker → Nexar | MCP server (`submit_work`, `work_status`, `route`, `resources`, `workflows`; ADR-015 scopes) exists, but the private server registers **no** MCP servers                                                          | n/a                                                                                                                      |
+| Lineage            | `@nexar/operating` correlation (`MAX_DELEGATION_DEPTH = 2`, re-entry refused)                                                                                                                                     | —                                                                                                                        |
+| Cost and quota     | `CostProfile.subscription`, `CostClass: subscription-allowance`, `QuotaObservation` with provenance, reservations, allowances                                                                                     | NRC                                                                                                                      |
 
 ## 2. Gap analysis
 
-| #   | Gap                                                                                                                         | Where an engine owns provider choice, or Nexar under-delivers | Unit                                                 |
-| --- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------- |
-| G1  | Auto routes to the echo test double in real Desktop configs                                                                 | `config-store.ts` `firstRunConfig`                            | NXR-060                                              |
-| G2  | No first-class connection; subscriptions exist only through PATH discovery; the provider UI is per method, not per provider | `providers.ts`, `subscriptions.ts`, registry                  | NXR-060, NXR-065                                     |
-| G3  | Cowork cannot use subscriptions; OpenWorker's single model does all the work                                                | ADR-026 §4, `cowork.ts`                                       | NXR-059, NXR-062, NXR-063                            |
-| G4  | No plan-level allocation (review diversity is decided reactively per lane; no plan budget or reservation awareness)         | `execution.ts` lane routing                                   | NXR-061                                              |
-| G5  | DSH is not an orchestrator; its control model is hard-wired to an API key                                                   | ADR-002, `deepseek-harness/resource.ts`                       | NXR-064                                              |
-| G6  | No engine-agnostic bridge for intelligence requests                                                                         | —                                                             | NXR-062                                              |
-| G7  | OpenWorker holds API keys in its private process (and possibly its private state)                                           | ADR-026 §4                                                    | NXR-063 (verify upstream at-rest handling; minimize) |
+| #   | Gap                                                                                                                                  | Unit             |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------- |
+| G1  | Auto routes to the echo test double in real Desktop configs                                                                          | NXR-060          |
+| G2  | No first-class connection or support class; subscriptions only through PATH discovery; no compatibility metadata                     | NXR-060          |
+| G3  | No plan-level allocation (diversity, reservations and budget decided per lane, reactively)                                           | NXR-061          |
+| G4  | No engine gateway: neither a control-model contract nor a work-unit bridge                                                           | NXR-062          |
+| G5  | Cowork can't delegate substantive units to Nexar                                                                                     | NXR-059          |
+| G6  | OpenWorker's control model is an API key OpenWorker holds directly (ADR-026 §4); no Nexar provider; no owner control-resource policy | NXR-063, NXR-065 |
+| G7  | DSH is not an orchestrator; its control is hard-wired to an API key                                                                  | NXR-064          |
+| G8  | No owner-enabled subscription model-turn adapter, so subscriptions can't drive control loops                                         | NXR-067          |
+| G9  | Providers UI organized by implementation; no orchestration-control settings                                                          | NXR-065          |
 
-Correct and kept: the key store, native auth probes, key checks, discovery merge, NRC hard filters,
-the WSL plane and sandbox, `EngineeringRunner` controls, the OpenWorker supervisor and policy
-approvals, Operating Sessions, the Artifact Store, telemetry.
+Kept as-is: the key store, native auth and probes, key checks, discovery merge, NRC hard filters, the
+WSL plane and sandbox, `EngineeringRunner`, the OpenWorker supervisor and policy approvals, sessions,
+the Artifact Store, telemetry.
 
 ## 3. Target architecture
 
 ```text
-                    Nexar Desktop (Operating Layer: sessions · intent · lane · policy)
-                         │                                   │
-                       Cowork                               Code
-                         │                                   │
-          OpenWorker (control model: NRC-selected      EngineeringRunner envelope (sandbox, gates,
-          API/local resource)                          review, approval, commit)
-                         │                                   │ lane plan = work graph
-             delegated units (MCP, turn-scoped)        DSH orchestrates inside lanes (control:
-                         │                             NRC-selected API/local) ── lane-scoped bridge
-                         └──────────────┬────────────────────┘
-                              Engine Resource Bridge (IntelligenceRequest)
-                                        │
-                     Resource Strategy Planner (WorkGraph or turn ledger) ── Stage 1
-                                        │
-                     NRC runtime revalidation (resource-intelligence@1) ── Stage 2
-                                        │
-                      Resource Registry = Resource Gateway (connections → resources)
-             ┌──────────────────────────┼───────────────────────────┐
-     subscription (native agents)   api (pi-ai)            local/custom (pi-ai)
-     Claude Code · Codex · agy      Anthropic · OpenAI ·   Ollama · LM Studio ·
-                                    Gemini · DeepSeek · …  vLLM · custom
+                          Nexar Desktop · Operating Layer (sessions · intent · context · policy)
+                               │                                      │
+                             Cowork                                  Code (WSL plane)
+                               │                                      │
+                          OpenWorker                       DSH inside EngineeringRunner envelope
+                       (workflow plan)                     (lane plan = engineering work graph)
+                               │                                      │
+                ┌──────────────┴──────────────┐        ┌──────────────┴──────────────┐
+         Control Model Gateway     Intelligence Bridge   Control Model Gateway  Intelligence Bridge
+         (NexarProvider, pinned    (NXR-059, per-unit)   (plane, pinned per     (plane, lane-scoped)
+          per engine turn)                                lane loop)
+                └──────────────┬──────────────┘        └──────────────┬──────────────┘
+                               └────────── Nexar Engine Gateway ──────┘
+                                                │
+                         Resource Strategy Planner (strategy@1: WorkGraph or turn ledger)
+                                                │
+                         NRC runtime revalidation (resource-intelligence@1 hard filters)
+                                                │
+                   Resource Registry (Desktop connections · plane connections, read-only in UI)
+          ┌──────────────────────────┬──────────┴──────────────┬───────────────────────────┐
+   subscription (vendor-native:   subscription (experimental   api (pi-ai):             local/custom (pi-ai):
+   Claude Code, Codex, agy: work  model adapters, NXR-067:     Anthropic, OpenAI,       Ollama, LM Studio,
+   resources)                     model-turn, owner-enabled)   Gemini, DeepSeek, …      vLLM, custom
 ```
 
-## 4. Contract migration design
+## 4. Contract migration design (additive; no existing field changes meaning)
 
-All changes are additive; no existing field changes meaning.
+- **`ProviderConnection`** (`@nexar/contracts`):
+  - `{ id, provider, method: subscription|api|local|custom, authClass: vendor-native|official-api|official-account|experimental-client-compat|none, support: official|experimental, enabled, status, machine: desktop|plane }`.
+  - No secrets.
+- **`ResourceDescriptor.metadata.connection`** = `{ id, provider, method, authClass, support }`, set by
+  every source. `kind.access` and `auth.mode` stay authoritative for existing filters.
+- **Capabilities.** The new well-known capability is **`model-turn`**: the resource accepts
+  caller-supplied messages and tool schemas and returns an assistant turn whose tool calls the caller
+  executes. Set it on pi-ai `model` resources whose model supports tools, and on experimental
+  subscription model adapters. Never set it on native CLI agents.
+- **Engine control requirements** are data:
+  `ENGINE_CONTROL_REQUIREMENTS = { openworker: ['model-turn','tool-use'], dsh: ['model-turn','tool-use'] }`.
+- **Owner policy** extends the existing config:
+  - per mode: `orchestration.<mode>.controlResource = { mode: auto|pinned, resourceId?, fallback: auto|none }`;
+  - `resourcePolicy.experimental.enabled` (default `false`) plus a per-connection enable flag;
+  - allowed lanes, preference tier and prefer-subscription, folded into the ADR-020 `preferences`
+    and `allowances` config.
+  - Every change bumps `configId`.
+- **New planning types:**
+  - **`QualityClass`** (`basic|standard|high`), an optional `TaskRequirements` field;
+  - **`WorkGraph`**, **`ResourceStrategy`** (reuses `RouteDecision`) and the turn ledger (NXR-061).
+- **Gateway types:**
+  - **`ControlTurnRequest` and `ControlTurnResult`** (NXR-062 A);
+  - **`IntelligenceRequest` and `IntelligenceResult`** (NXR-062 B).
+- **Unchanged:** `deterministic@1`.
 
-- **`ProviderConnection`** (new, `@nexar/contracts`):
-  - fields: `{ id, provider, method: 'subscription' | 'api' | 'local' | 'custom', status, adapterIds, label }`;
-  - the status never includes a secret.
-  - Desktop derives connections from the key store, subscription probes and local endpoints.
-- **`ResourceDescriptor`:**
-  - `metadata.connection = { id, provider, method }` is set by every source;
-  - a new well-known capability `agent-loop-control:<engine>` is added only to resources an engine
-    can legitimately use as its control model.
-- **`QualityClass`** (`basic | standard | high`) is an optional `TaskRequirements` field. Resource
-  quality comes from owner-declared tiers or tags; there are no vendor heuristics in code.
-- **`WorkGraph`** (new):
-  - `units[]`: `{ unitId, kind, laneRole?, requirements, dependsOn, reviewOf?, access }`;
-  - `budget`.
-- **`ResourceStrategy`** (new):
-  - `{ policy stamp, units: [{ unitId, decision: RouteDecision }], reasons[] }`;
-  - reuses `RouteDecision` and `CandidateAssessment`.
-- **`IntelligenceRequest` and `IntelligenceResult`** (new): see §7.
-- **Owner resource policy:** extends ADR-020 config (`preferences`, `reservations`, `allowances`)
-  with `allowedLanes`, `preferSubscription` and `privacy`. Every change bumps `configId`.
-- **`deterministic@1`** is untouched. The planner is `strategy@1` in the resource controller.
+## 5. Provider connections → resources (NXR-060)
 
-## 5. Provider Gateway design (NXR-060)
+- **Desktop sources:**
+  - vendor-native subscription source (probe-backed: Claude Code, Codex; Antigravity experimental);
+  - pi catalog (API);
+  - local endpoints.
+  - Each sets `metadata.connection`.
+- **Plane sources:** the same sources inside the plane. The plane reports its connections and
+  resources (ids, method, support, auth state; never secrets) in the `ready` readiness, as an additive
+  protocol field. Desktop shows them read-only under "Engineering plane".
+- **First-run Desktop config** has no `local-echo` and no `defaultResourceId: local-echo`. With
+  nothing eligible, Auto reports `NO_ELIGIBLE_RESOURCE` with reasons.
+- **Migration:** an existing config whose only configured resource is the untouched echo descriptor
+  and whose default is `local-echo` is upgraded once, with a backup. Echo remains for tests and the
+  CLI built-in default.
+- **States stay distinct and are never inferred from each other:** `installed`, `authenticated`,
+  `available`, `compatible`, `eligible`, `selected`.
 
-- **Connections become resources** through the existing sources:
-  - **Subscription:** the probe-backed native source registers `claude-code`, `codex` and
-    `antigravity` (experimental) when the runtime is installed. Auth comes from the existing free
-    probes. Discovered never means authenticated.
-  - **API:** the pi catalog source yields one resource per model, with
-    `metadata.connection.method = api`.
-  - **Local / custom:** the local-endpoints source.
-- **First-run Desktop config:**
-  - no `local-echo` and no `defaultResourceId: local-echo`;
-  - with no eligible resource, Auto reports `NO_ELIGIBLE_RESOURCE` with the reasons, as
-    `config/README.md` already prescribes.
-  - **Migration:** an existing Desktop config whose only configured resource is the untouched echo
-    descriptor and whose default is `local-echo` is upgraded once, with a backup. The echo stays
-    for tests and the CLI built-in default.
-- **One provider can have several connections.** They coexist without separate routers. All
-  resources go into one registry snapshot, and the NRC sees `kind.access` and `metadata.connection`.
+## 6. Resource Strategy Planner (NXR-061)
 
-## 6. Resource Strategy Planner design (NXR-061)
-
-- **API:** `planStrategy({ graph, snapshot, history, facts, constraints, policy }) →
-ResourceStrategy`. It is pure, takes an injected clock and never sees prompts.
+- **`planStrategy({ graph, snapshot, history, facts, constraints, policy }) → ResourceStrategy`.** It
+  is pure, uses an injected clock and never sees prompts.
 - **Algorithm:**
-  1. Evaluate every unit with the `resource-intelligence@1` hard filters (identical code path).
+  1. Run the `resource-intelligence@1` hard filters for every unit (identical code path).
   2. Greedy in topological order, highest quality class first. Each unit's score adds plan factors:
-     - `diversity`: a `reviewOf` unit penalizes the resource of the unit it reviews (hard when the
-       project policy is `required`);
-     - `reservation`: premium allowance is held for `high` units when known headroom is at or below
-       the threshold;
-     - `budget`: estimated cash cost against the remaining plan budget (unknown cost is handled by
-       `unknownUnderLimit`);
-     - `quality-fit`: a `basic` unit prefers `local-compute`, `free` or a cheaper class, and a `high`
-       unit prefers higher owner tiers;
-     - `balance`: units spread across subscriptions when ties remain.
-  3. Each unit keeps its ranked alternatives for Stage 2.
-- **Factors are explainable:** each one is a `ScoreFactor`, and each reason is a `RouteReason`
-  (`strategy.diversity`, `strategy.reserved`, …).
-- **Turn ledger:** for OpenWorker, `allocateNext(ledger, unit, snapshot)` applies the same factors to
-  one arriving unit and updates the ledger.
-- **Stage 2:** `revalidate(planned, snapshot)` re-runs the hard filters on the planned resource and
-  its alternatives at execution time.
-- **Code:** `EngineeringRunner` builds the `WorkGraph` from the lane plan (feature, tests,
-  review `reviewOf: feature`, rework units) and plans once before lanes start.
+     - diversity (`reviewOf`);
+     - reservation (premium allowance for `high` units);
+     - plan budget;
+     - quality fit;
+     - balance across subscriptions;
+     - support class (experimental only when owner policy allows, ranked after official);
+     - control compatibility for control units.
+  3. Each unit keeps its ranked alternatives.
+- **Turn ledger:** `allocateNext(ledger, unit, snapshot)` for dynamic engines.
+- **Revalidation:** `revalidate(planned, snapshot)` at execution time.
+- **Code:** `EngineeringRunner` builds the graph from the lane plan and plans it upfront.
+- **Explainability:** factors are `ScoreFactor`s and reasons are `RouteReason`s (`strategy.*`).
 
-## 7. Engine Resource Bridge and NXR-059
+## 7. Engine Gateway (NXR-062)
 
-- **`IntelligenceRequest`:**
-  - `{ lineage, unitId, requirements, qualityClass?, access: 'read-only' | 'draft', input: untrusted text (bounded), documentRefs?, timeoutMs, budgetUsd? }`.
-- **`IntelligenceResult`:**
-  - `{ unitId, outcome: 'succeeded' | 'failed' | 'cancelled', text?, draftRefs?, usage: Measured, decisionId, errorCode? }`.
-- **Core service** (`@nexar/core` or `@nexar/operating`): ledger allocation → revalidate → create a
-  child task (`childTask(correlation)`, no turn) → adapter execution with a draft-only workspace →
-  telemetry.
-- **OpenWorker transport (NXR-059):**
-  - At turn start, Desktop mints a turn-scoped client: ADR-015 scopes are limited to
-    `nexar.intelligence_submit`, `nexar.intelligence_status`, the session's project, `access ≤ draft`,
-    a TTL of the turn timeout, and a budget.
-  - It registers a stdio MCP server entry for the private OpenWorker (`POST /v1/mcp`). The token is
-    passed as a `${…}` reference resolved from the private server's environment, so there is no
-    literal token in `mcp.json`.
-  - It removes the entry and revokes the token at turn end.
-  - The tool contract is submit-and-poll, so each call returns under OpenWorker's 120 s limit.
-  - Policy: OpenWorker's MCP permission requests for exactly this server and tools are allowed by
-    Nexar policy and recorded. Everything else stays denied (ADR-026 §3).
-  - Recursion: the child's chain is `nexar, openworker`. A child never starts an engine, and the
-    bridge refuses `depth > MAX_DELEGATION_DEPTH`.
-- **DSH transport (NXR-064):** researched in a time-boxed spike:
-  - DSH's MCP client against a lane-local stdio relay, versus an ACP client capability;
-  - the bwrap profile keeps no network;
-  - the relay is a pre-opened file descriptor or stdio pipe owned by the launcher.
+Shared foundations: lineage (`childTask`, depth ≤ 2, re-entry refused), ADR-015 turn- or lane-scoped
+identity, budget, cancellation, timeout, and telemetry (ids, codes, `Measured` usage; no content).
 
-## 8. OpenWorker control-model solution (NXR-063)
+**A. Control Model Gateway**
 
-Preferred order, evaluated against upstream (`074ad3f`):
+- `ControlTurnRequest{ lineage, engine, controlDecisionId, messages, tools, settings }`
+  → `ControlTurnResult{ text?, toolCalls[{ id, name, arguments }], finishReason, usage, extras }`.
+- `selectControl(engine, mode, policy)` runs at an engine-turn boundary:
+  - **Auto:** the NRC over resources that meet `ENGINE_CONTROL_REQUIREMENTS[engine]`.
+  - **Pinned:** the owner's resource, unless it is unavailable or incompatible; then the `fallback`
+    setting applies.
+- It records `controlDecisionId` and pins the resource for the loop.
+- Model adapters implement one internal port, `ModelTurnPort.turn(request, signal)`:
+  - **pi-ai:** messages, tools, streaming and usage.
+  - **Experimental subscription adapters:** NXR-067.
+- `extras` are opaque and keyed by `controlDecisionId`. They are only ever passed back to the same
+  resource.
+- **Failure handling:**
+  1. a bounded retry on the same resource;
+  2. otherwise `control-resource-failed`;
+  3. with `fallback: auto`, restart the whole engine turn from canonical history on the next-ranked
+     resource;
+  4. never a mid-loop switch.
 
-1. **Official subscription route.** None exists: `openai-codex` emulates the Codex CLI's client, so it
-   is rejected.
-2. **Nexar-controlled provider seam (loopback gateway).** Deferred; needs a listener and a security
-   ADR, and does not unlock subscriptions.
-3. **Chosen: an NRC-selected control resource.** It is an `api` connection the owner allows for
-   OpenWorker, or a `local` endpoint mapped to OpenWorker's `ollama` provider or `openai`
-   `base_url`. It is selected with `agent-loop-control:openworker` plus `tool-use`, a small context
-   minimum and a latency preference.
-4. **None available.** The Cowork lane is unavailable with a precise reason ("OpenWorker needs a
-   control model: add a local model (free) or allow an API key"). Turns fall back to `direct`.
+**B. Intelligence Execution Bridge**
 
-Before any change, also verify how OpenWorker stores provider keys under its private state dir
-(G7). If they are persisted, prefer per-launch configuration and wipe the private state on exit.
+- `IntelligenceRequest{ lineage, unitId, requirements, qualityClass?, access: read-only|draft, input (untrusted, bounded), documentRefs?, timeoutMs, budgetUsd? }`
+  → `IntelligenceResult{ unitId, outcome, text?, draftRefs?, usage, decisionId, errorCode? }`.
+- Flow: ledger allocation → revalidation → child task (no turn) → work resource adapter with a
+  draft-only workspace → telemetry.
+- Transports:
+  - **OpenWorker:** a turn-scoped stdio MCP server with `nexar.intelligence_submit` and
+    `nexar.intelligence_status`, submit-and-poll under the 120 s tool limit (NXR-059).
+  - **DSH:** a lane-scoped relay (NXR-064).
 
-## 9. DSH control-model solution (NXR-064)
+## 8. OpenWorker NexarProvider (NXR-063)
 
-- DSH's control model is NRC-selected among DSH-compatible `api` connections (the pi-ai route with
-  a key) or `local` endpoints. Verifying the local base-URL route is part of the spike.
-- `DEEPSEEK_API_KEY` stops being a product prerequisite.
-- DSH's Claude Code and Codex sub-agent providers are **not** used as Nexar routes. Subscription
-  workers are Nexar native adapters, reached through the lane-scoped bridge.
-- With no DSH control resource, lanes run the NRC-selected native agent directly (the live-validated
-  NXR-055 path), recorded as `executor: native`.
+Upstream has no provider extension seam (registry `DESCRIPTORS` is hard-coded). Options, in order:
 
-## 10. Security analysis
+1. **Upstream provider-extension seam:** for example, entry-point-registered `ProviderClient`s.
+   Contribute it upstream. If accepted, `NexarProvider` is a small Python package speaking stdio to a
+   Nexar-supervised gateway process. No listener.
+2. **Supervised loopback gateway child (zero-patch):** OpenWorker's `openai` provider with
+   `base_url = http://127.0.0.1:<port>/v1` (Chat Completions), and `api_key` = a per-launch random
+   gateway token. **Security rationale** (required before shipping):
+   - **Process and binding:** a separate supervised child of Desktop main, not main itself
+     (ADR-021's "no listener in the app" stays true for main). It binds `127.0.0.1` only, on a free
+     port, and exits with its parent.
+   - **Authentication:** a per-launch 256-bit bearer, compared in constant time, held in memory
+     only. OpenWorker receives it through its provider API, the same path ADR-026 uses for keys
+     today.
+   - **Request surface:** only `POST /v1/chat/completions` and `GET /v1/models` (one alias,
+     `nexar/control`). It accepts only the pinned control decision of the current turn, with bounded
+     bodies, and has no CORS, no redirects, no upstream URL parameters and no request field that
+     selects a provider or secret.
+   - **Credentials:** API keys, local endpoints and experimental tokens are resolved inside the
+     gateway or main at call time and never leave them.
+   - **Threat comparison:** a local process that obtains the token can spend the owner's control
+     resource for the turn's lifetime. That is the same class of exposure ADR-026 already accepted
+     for API keys held by `openworker-server`, but narrower: one resource, one turn, no key material.
+   - **Gaps:** Chat Completions drops provider-private extras on OpenWorker's side. The gateway
+     keeps them server-side, keyed by tool-call id within the pinned decision. Streaming uses
+     server-sent events.
+3. **Minimal maintained patch** adding a `nexar` descriptor (stdio `ProviderClient`). Use it only if
+   options 1 and 2 are insufficient; pin it and contract-test it.
 
-| Threat                               | Mitigation                                                                                                                                                                     |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Engine escalates through the bridge  | Turn-scoped ADR-015 identity; tool, project and access scopes; budget; TTL; request fields can't widen scope; every call audited (field allowlist)                             |
-| Recursion or fan-out loop            | ADR-024 lineage; `MAX_DELEGATION_DEPTH = 2`; re-entry refused; per-turn unit cap; budget                                                                                       |
-| Secret leakage to engines            | Engines get only their control key (unchanged from ADR-026) and a scoped token; worker credentials stay in worker adapters; tokens by reference, never literal in engine files |
-| Prompt injection via delegated input | Input wrapped as untrusted (ADR-017); children are read-only or draft-only, with no outward executors, approvals or commits                                                    |
-| Sandbox breach via the DSH bridge    | Lane relay over a launcher-owned descriptor; no network; patch policy, gates, review and approval unchanged                                                                    |
-| Subscription terms                   | Only official CLIs run subscriptions; no token handling; emulated OAuth rejected                                                                                               |
-| Quota honesty                        | Unknown stays unknown; no scraping; subscriptions are `subscription-allowance`, never `$0`                                                                                     |
+Interim: direct OpenWorker provider configuration with an owner-allowed API key (ADR-026 §4)
+remains a recorded compatibility path until option 1 or 2 ships. OpenWorker's `openai-codex` auth
+store is never a Nexar connection. Before any change, verify OpenWorker's at-rest storage of keys and
+tokens in its private state; prefer per-launch configuration plus wiping the private state.
 
-## 11. Backlog decomposition and sequence
+## 9. DSH (NXR-064)
 
-| Order | Id      | Unit                                                                                                       | Depends on |
-| ----- | ------- | ---------------------------------------------------------------------------------------------------------- | ---------- |
-| 1     | NXR-060 | Provider connections and resource normalization; remove the echo default                                   | —          |
-| 2     | NXR-061 | Resource Strategy Planner (`strategy@1`), Stage 2 revalidation, Code lane-plan graph                       | 060        |
-| 3     | NXR-062 | Engine Resource Bridge core (`IntelligenceRequest`), fake resources                                        | 061        |
-| 4     | NXR-059 | OpenWorker → Nexar turn-scoped delegation (MCP transport, identity, policy)                                | 062        |
-| 5     | NXR-063 | OpenWorker control resource (NRC-selected API/local; key-at-rest check)                                    | 060, 059   |
-| 6     | NXR-064 | DSH as the Code orchestrator inside lanes: control resource, lane bridge spike, then implementation        | 061, 062   |
-| 7     | NXR-065 | Providers UX: provider cards × connection methods; advanced resource view; owner policy contract           | 060        |
-| 8     | NXR-066 | Offline E2Es: Cowork SOW strategy, Code regression, integrated three-turn flow; then owner live acceptance | all        |
+DSH runs in plane lanes (bwrap, no network). Time-boxed spike:
 
-NXR-054 (scheduled tasks), Memory, Automation, Mobile and the control plane stay deferred until
-NXR-066's live acceptance.
+- whether DSH's LLM route accepts an OpenAI-compatible base URL, so it can point at a plane-local
+  Control Model Gateway over a launcher-owned descriptor or socket relayed into the sandbox, like the
+  existing egress proxy;
+- whether its MCP client can reach a lane-local Intelligence Bridge relay.
 
-## 12. Testing plan
+Then implement:
 
-All tests run offline in CI:
+- control through the plane gateway (plane resources with `model-turn`, owner policy as for
+  Cowork);
+- work units through the bridge;
+- DSH sub-agent providers not used as Nexar routes;
+- without a compatible control resource, native-agent lanes (`executor: native`).
 
-- **Fakes:** fake native CLIs, pi `fauxProvider`, the fake OpenWorker (extended with MCP tool calls
-  and plan events), the fake plane and fake DSH.
-- **Planner invariants** (seeded, like ADR-020's):
-  - the planner never admits a candidate that the hard filters rejected;
-  - the same inputs produce the same strategy;
-  - with a known alternative, a review unit never shares the implementer's resource under
-    `required`;
-  - reservations hold for `high` units.
-- **Bridge:** scope widening, expiry, depth, re-entry, budget and cancellation negatives.
-- **Live tests** stay behind `NEXAR_LIVE_TESTS` and owner acceptance.
+The sandbox, patch policy, gates, review, approval and commit are unchanged.
 
-## 13. Live acceptance plan (NXR-066)
+## 10. Experimental subscription model adapters (NXR-067, optional, owner-enabled)
 
-1. **Providers:** Claude subscription and ChatGPT (Codex) subscription connected; one local model
-   (Ollama) or API key for engine control.
-2. **Cowork:** "Prepare an SOW for this project." OpenWorker orchestrates. At least one substantive
-   unit runs on a subscription agent through the bridge. The strategy is visible in the turn. Nexar
-   saves the artifact. No secret leaves its owner.
-3. **Code regression:** one small change. The strategy picks a subscription agent for `feature` and a
-   different resource for `review`. Sandbox, gates, approval and local commit; no push.
-4. **Integrated:** proposal → repository review → implementation, in one conversation, with no vendor
-   chosen by hand.
+- **ChatGPT first.** OpenWorker's `CodexProvider` is the reference design: a Responses-style backend
+  with encrypted reasoning items in `extras`. It uses Nexar's own PKCE login, an isolated token in
+  Nexar's key store under the connection, and refresh handled in main.
+- **Claude** only after re-verifying Anthropic's current terms on third-party subscription OAuth
+  (high risk).
+- **Gemini CLI** only after research.
+- **Antigravity** is excluded (terms §6).
+- **Per-adapter documentation:** vendor support status, breakage risk, account and terms risk, token
+  storage, refresh behaviour and backend assumptions.
+- **Behaviour:** disabled by default. History down-ranks unreliable adapters.
+
+## 11. Security analysis
+
+| Threat                               | Mitigation                                                                                                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Engine escalates through a gateway   | Turn- or lane-scoped ADR-015 identity; tool, project and access scopes; budget; TTL; request fields cannot widen scope; audited (field allowlist) |
+| Recursion or fan-out                 | Lineage depth ≤ 2; re-entry refused; per-turn unit cap; budget                                                                                    |
+| Secrets reach engines                | Engines see turns, results and usage only; credentials are resolved in main, the gateway or adapters at call time; tokens passed by reference     |
+| Loopback gateway abuse               | §8 option 2 rationale: loopback only, per-launch token, one alias, pinned decision, bounded bodies, child process, no listener in main            |
+| Experimental auth                    | Owner-enabled per connection; Nexar's own isolated login; never harvested; labelled; terms risk documented; Antigravity excluded                  |
+| Prompt injection via delegated input | Untrusted wrapping (ADR-017); children are read-only or draft-only; no outward executors, approvals or commits                                    |
+| Sandbox breach via DSH relays        | Launcher-owned descriptor or socket; no network; patch policy, gates, review and approval unchanged                                               |
+| Continuation-state corruption        | Control resource pinned per engine turn; extras scoped to the decision; restart from canonical history at clean boundaries only                   |
+| Quota honesty                        | Unknown stays unknown; no scraping; subscriptions are `subscription-allowance`, never `$0`                                                        |
+
+## 12. Sequence
+
+| Order | Id      | Unit                                                                                          | Depends on                 |
+| ----- | ------- | --------------------------------------------------------------------------------------------- | -------------------------- |
+| 1     | NXR-060 | Provider connections, compatibility metadata, resource normalization; remove the echo default | —                          |
+| 2     | NXR-061 | Resource Strategy Planner (`strategy@1`) and Stage 2 revalidation                             | 060                        |
+| 3     | NXR-062 | Engine Gateway: Control Model Gateway and Intelligence Execution Bridge cores                 | 061                        |
+| 4     | NXR-059 | OpenWorker → Nexar bounded work delegation (MCP transport)                                    | 062                        |
+| 5     | NXR-063 | OpenWorker NexarProvider and control-resource policy                                          | 062                        |
+| 6     | NXR-064 | DSH control and work through the plane's Engine Gateway                                       | 061, 062                   |
+| 7     | NXR-065 | Providers UX and orchestration-control settings                                               | 060, 063                   |
+| 8     | NXR-067 | Experimental subscription model adapters (optional; ChatGPT first)                            | 062, owner enablement      |
+| 9     | NXR-066 | Offline E2Es and owner live acceptance                                                        | 059–065 (067 when enabled) |
+
+NXR-054, Memory, Automation, Mobile and the control plane wait for NXR-066.
+
+## 13. Testing plan (offline, deterministic)
+
+- **Fakes:** native CLIs, pi `fauxProvider`, the fake OpenWorker (MCP tool calls, provider turns),
+  the fake plane, a fake DSH and a fake model-turn adapter (including extras).
+- **Control gateway:**
+  - provider-agnostic turns and tool-call normalization;
+  - streaming;
+  - extras round-trip on the same resource only;
+  - pinning, safe fallback and restart;
+  - cancellation and timeout;
+  - unsupported-resource rejection;
+  - the experimental policy gate;
+  - no secret in the engine's view.
+- **Intelligence bridge:**
+  - identity, scope-widening and depth rejection;
+  - budget;
+  - cancel propagation and timeout;
+  - the draft-only boundary;
+  - strategy and revalidation;
+  - telemetry.
+- **Planner:** seeded invariants (no re-admission, determinism, diversity under `required`,
+  reservations).
+- **Live:** behind `NEXAR_LIVE_TESTS` and owner acceptance only.
+
+## 14. Live acceptance (NXR-066)
+
+1. **Providers:** connected once. Desktop: Claude and ChatGPT subscriptions plus at least one
+   `model-turn` resource (API, local, or an owner-enabled experimental subscription adapter). The
+   plane: a signed-in subscription agent.
+2. **Cowork:** "Create a professional SOW using this project." OpenWorker orchestrates. Its control
+   loop goes through the Control Model Gateway on the NRC-selected control resource. At least one
+   substantive unit runs on a subscription agent through the bridge. The strategy is visible. Nexar
+   saves the artifact.
+3. **Code:** one small change. DSH orchestrates; or, if no DSH control resource exists, honest
+   `executor: native`. The strategy assigns `feature` and `review` to different resources.
+   Sandbox, gates, approval and local commit; no push.
+4. **Integrated:** proposal → repository review → implementation, in one conversation, with no
+   vendor chosen by hand.

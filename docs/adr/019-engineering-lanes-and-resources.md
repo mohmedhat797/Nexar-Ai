@@ -347,5 +347,5 @@ The Decision above stands. The implementation refined it as follows:
 ## Amendment (2026-10-04): resource orchestration
 
 Lane plans become the Code **work graph**: the planner allocates all lanes upfront (review
-diversity, reservations, plan budget) and each lane is revalidated before it runs ([ADR-027](027-resource-orchestration-architecture.md) §6). DSH may
-orchestrate inside planning/write lanes (§8).
+diversity, reservations, plan budget) and each lane is revalidated before it runs ([ADR-027](027-resource-orchestration-architecture.md) §10). DSH may
+orchestrate inside planning/write lanes (§9).

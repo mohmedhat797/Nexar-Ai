@@ -1,277 +1,264 @@
-# ADR-027: Nexar-owned resources, engine orchestration and plan-level resource strategy
+# ADR-027: Nexar-owned resources, Engine Gateway and plan-level resource strategy
 
-- **Status:** Accepted (architecture); implementation tracked in NXR-059 to NXR-066
+- **Status:** Accepted (architecture, revision 2); implementation tracked in NXR-059 to NXR-067
 - **Date:** 2026-10-04
 - **Amends:** ADR-002, ADR-003, ADR-004, ADR-005, ADR-019, ADR-020, ADR-022, ADR-024, ADR-026 (each
   carries a short amendment pointing here)
 - **Plan and audit:** [`docs/architecture/resource-orchestration-plan.md`](../architecture/resource-orchestration-plan.md)
+- **Compatibility spike:** [`subscription-control-compatibility.md`](../research/upstream/subscription-control-compatibility.md)
+
+Revision 2 (same day, before any implementation) replaces revision 1's assumptions that engines
+need a local model or API key and that one bridge serves both purposes. It adds the Engine Gateway
+(§7), configurable control resources (§8), connection support classes (§3) and the owner's
+authentication policy (ADR-022 amendment 2026-10-04).
+
+## Invariant
+
+> Nexar is the unified intelligence gateway. OpenWorker and DSH orchestrate work, but they do not
+> own the owner's provider universe. Engines consume Nexar through engine-compatible gateway
+> contracts. Nexar normalizes subscriptions, APIs and local resources into one registry, plans their
+> use across the job, and the NRC validates and routes execution according to owner policy.
+> Control resources and work resources are separate. Both come from the same registry. Either may be
+> subscription, API, local or custom when compatible, and both are owner-configurable or chosen by
+> NRC Auto.
 
 ## Context
 
-The owner connects subscriptions (Claude, ChatGPT/Codex, Google), API keys and local models once, and
-expects Nexar to decide how to use them across Cowork and Code. The v0.5 Operating Layer merged with
-three couplings that contradict this:
+The v0.5 Operating Layer merged with these couplings:
 
-1. **Cowork's model is limited to API keys.** ADR-026 §4 restricts OpenWorker to pi-ai model
-   resources whose key the owner allowed for OpenWorker. A Cowork turn can never use a
-   subscription-backed resource, not even for one substantive step.
-2. **DSH is a resource, not the Code engine.** ADR-002 models DSH as an `agent` resource that the
-   NRC may pick for a lane. Nexar's `EngineeringRunner` orchestrates lane plans. DSH's own planning
-   and sub-agents are never used.
-3. **Desktop's Auto routes to a test double.** The first-run Desktop config makes `local-echo` the
-   default resource. Under the `authoritative` preference mode it wins over a discovered,
-   authenticated Claude Code. The owner's subscription is ignored on Auto.
+- Cowork's single OpenWorker model was limited to owner-allowed API keys (ADR-026 §4).
+- DSH was only a lane resource needing `DEEPSEEK_API_KEY`.
+- Desktop's first-run config made the `local-echo` test double the default. Under `authoritative`
+  preferences, Auto ignored an authenticated Claude Code.
 
-Upstream facts that bound the design (verified against pinned sources; details in the plan):
+Upstream facts, from the spike:
 
-- **OpenWorker's control model.** OpenWorker's agent loop needs a model from its own provider
-  registry: provider API keys, `ollama` or an OpenAI-compatible `base_url`, or `openai-codex`.
-  `openai-codex` runs OpenWorker's own OAuth with the **Codex CLI's client id**
-  (`app_EMoamEEZ…`) against `chatgpt.com/backend-api/codex`. That is a third party emulating a
-  first-party client, so it is **not an accepted route** (ADR-022 §1).
-- **OpenWorker's MCP client.** OpenWorker can call stdio MCP servers registered at runtime, with a
-  hard 120 s per tool call. Nexar's MCP server already has `nexar.submit_work` plus
-  `nexar.work_status` (submit, then poll).
-- **DSH's control model.** DSH's agent loop needs a model through its provider route: DeepSeek, or
-  pi-ai providers with keys. Its Claude Code and Codex sub-agents reuse native logins through vendor
-  SDKs. ADR-022 already forbids subscriptions powering DSH.
-- **No vendor subscription is a model API.** Claude Code, Codex and Antigravity are agents. None of
-  them can serve as a raw chat-completions backend for another engine's tool-calling loop without
-  breaking vendor rules or emulating protocols.
+- **OpenWorker's provider contract is provider-agnostic.** The contract is `ProviderClient.complete(model, messages, tools) →
+AssistantTurn{text, tool_calls, usage, reasoning, extras}`. `TurnEngine` owns the loop. Its
+  `openai-codex` provider (present in pinned v0.3.0) drives the loop with a ChatGPT subscription,
+  through its own PKCE login using the Codex CLI's client id. OpenWorker has **no provider
+  extension seam**. Its `openai` provider with a custom `base_url` speaks Chat Completions.
+- **Native subscription CLIs are agents, not model-turn backends.** Claude Code, Codex, Antigravity
+  and Gemini CLI run their own loops and tools. They are **work resources**.
+- **Antigravity's terms rule it out.** Its Additional Terms §6 call third-party access with
+  Antigravity OAuth a breach.
+- **Code resources live in the plane.** Code runs in the WSL plane, which owns its own connections
+  (ADR-025: no credentials cross the bridge).
 
 ## Decision
 
-### 1. Nexar owns providers, connections and resources (Resource Gateway)
+### 1. Nexar owns providers, connections and resources
 
-The **Resource Gateway** is not a new process. It is the existing Resource Registry, fed by provider
-connections. It is the only place resources come from. OpenWorker, DSH, pi-ai and native agents never
-own a provider choice: they receive a Nexar-selected resource or a Nexar-configured connection.
+The Resource Registry is the single resource gateway, fed by provider connections. Engines,
+pi-ai and native agents never own a provider choice. They receive a Nexar-selected resource through
+an Engine Gateway contract (§7).
 
-### 2. Provider, connection, resource, adapter
+### 2. Terms
 
-| Term                     | Meaning                                                                                        | Example                                                                     |
-| ------------------------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| **Provider**             | A vendor or ecosystem                                                                          | Anthropic, OpenAI, Google, DeepSeek, Local                                  |
-| **Connection**           | One configured way Nexar reaches a provider; method `subscription`, `api`, `local` or `custom` | Anthropic + Claude subscription; Anthropic + API key                        |
-| **AI Resource**          | An executable capability derived from a connection (ADR-007 `ResourceDescriptor`)              | `claude-code` (subscription agent), `anthropic-api.claude-sonnet-…` (model) |
-| **Adapter**              | How Nexar executes a resource                                                                  | `claude-code`, `codex`, `antigravity`, `pi`, `deepseek-harness`             |
-| **Mode**                 | Owner-facing context                                                                           | Cowork, Code                                                                |
-| **Orchestration engine** | How work is decomposed                                                                         | Cowork → OpenWorker; Code → DSH inside Nexar's engineering envelope         |
+| Term                 | Meaning                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------- |
+| Provider             | Vendor or ecosystem (Anthropic, OpenAI, Google, DeepSeek, Local, …)                                     |
+| Connection           | One configured way to reach a provider. A provider may hold several at once                             |
+| AI Resource          | An executable capability derived from a connection (ADR-007 descriptor and state)                       |
+| Adapter              | How Nexar executes a resource (`claude-code`, `codex`, `antigravity`, `pi`, a gateway model adapter, …) |
+| Orchestration engine | How work is decomposed: Cowork → OpenWorker; Code → DSH inside Nexar's engineering envelope             |
+| Control resource     | Drives an engine's own model and tool loop (needs `model-turn`, §6)                                     |
+| Work resource        | Executes one bounded substantive unit (draft, review, implement, …)                                     |
 
-- A connection may yield many resources: an API key yields one model resource per catalog model.
-- A resource records its connection (`metadata.connection: { provider, method, id }`) next to the
-  existing fields. `kind.access` (`api | subscription | local`) and `auth.mode` stay authoritative
-  for routing.
-- Connection method is a **resource feature, not a separate router**.
+The NRC routes resources, never provider names.
 
-### 3. Connection classes
+### 3. Connections: method and support class
 
-| Method             | Execution                                                                                         | Authentication                                                           |
-| ------------------ | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `subscription`     | Native agent adapters only (Claude Code, Codex, Antigravity), through the vendor's official CLI   | Runtime-managed: the vendor's own login; Nexar probes status only        |
-| `api`              | pi-ai (`model` resources); also configured into OpenWorker or DSH as their **control** model (§7) | Encrypted key store (ADR-022), resolved in the trusted host at call time |
-| `local` / `custom` | pi-ai through OpenAI-compatible endpoints (Ollama, LM Studio, vLLM, custom)                       | None, or a key-store key                                                 |
+Each connection records three things (resource metadata `connection`; see the plan):
 
-A subscription option is shown only where an official runtime login exists. Unsupported routes are
-shown as `unsupported` with a reason, never faked.
+- **Method:** `subscription`, `api`, `local` or `custom`.
+- **Auth class:**
+  - `vendor-native`: the official runtime's own login;
+  - `official-api`: an API key;
+  - `official-account`: a documented OAuth or SDK account mechanism;
+  - `experimental-client-compat`;
+  - `none`.
+- **Support:** `official` or `experimental`.
 
-### 4. pi-ai and native adapters keep their roles
+Experimental connections are visible, labelled, disabled until the owner enables them, never
+preferred over stable ones unless owner policy says so, and down-ranked by history when unreliable.
+The **preference order** for a subscription is:
 
-- pi-ai (ADR-003) is the direct multi-provider execution adapter for API and local or custom models.
-  Its OAuth and subscription flows stay disabled.
-- Native agents (ADR-011) are the only subscription-backed execution path.
+1. vendor-native runtime;
+2. official account mechanism;
+3. experimental client-compat, owner-enabled only (ADR-022 amendment).
+
+### 4. Execution adapters keep their roles
+
+- pi-ai (ADR-003) runs `api` and `local`/`custom` model resources; its own OAuth flows stay disabled.
+- Native agents (ADR-011) run vendor-native subscription resources as work resources.
+- Experimental subscription model adapters (NXR-067) are Nexar-owned. They run Nexar's own isolated
+  login, keep tokens in Nexar's key store under that connection, and never read another
+  application's credentials.
 
 ### 5. Responsibility formula
 
 ```text
-Operating Layer  = what kind of work is this? (intent, lane, policy, context)      ADR-024
-OpenWorker / DSH = how is the work decomposed and orchestrated?                   ADR-026 / §8
-NRC              = who executes each intelligence unit? (strategy + runtime)      ADR-005/020, §6
+Operating Layer          what kind of work is this?                     ADR-024
+OpenWorker / DSH         how is the work decomposed and orchestrated?   ADR-026 / §9
+Resource Strategy        how are resources allocated across the job?    §10
+NRC runtime routing      is this resource still the right executor now? ADR-005/020
 ```
 
-The NRC never decomposes work. Engines never choose among Nexar resources by themselves.
+The NRC never decides workflow steps, tool sequences or engineering plans.
 
-### 6. Two-stage resource intelligence
+### 6. Compatibility is modelled, not inferred
 
-- **Stage 1, Resource Strategy Planner** (inside `@nexar/resource-controller`, pure and
-  deterministic):
-  - Input: a `WorkGraph` of work units. Each unit carries requirements (capabilities, quality class,
-    access, cost sensitivity, review-of relations), plus the snapshot, history, constraints and owner
-    policy.
-  - Output: a `ResourceStrategy`, which is one planned `RouteDecision` (selected plus ranked
-    alternatives plus reasons) per unit, plus plan-level reasons.
-  - Plan-level factors that per-task routing cannot see:
-    - review diversity decided upfront;
-    - reservation of premium allowance for high-judgment units;
-    - a cheaper or local resource for low-judgment units;
-    - one budget across the whole plan;
-    - balancing load across subscriptions.
-  - It reuses `resource-intelligence@1` candidate evaluation. The hard filters are identical, and a
-    plan factor can only reorder eligible candidates.
-- **Stage 2, runtime revalidation.** Immediately before a unit executes, the NRC re-checks the
-  planned resource: auth, availability, quota, cost, health and policy. If it fails, it falls to the
-  next ranked alternative and records `strategy.fallback` with the reason. The runtime check can only
-  narrow. It never selects a resource that the plan's hard filters rejected.
-- **Dynamic engines.** OpenWorker decides its steps while running, so it has no upfront graph. For
-  those, the planner keeps a **turn strategy ledger** (budget, reservations and diversity across the
-  turn's units) and allocates each delegated unit as it arrives. The ledger gives units the same
-  plan-level factors, but incrementally. A static plan, such as an engineering lane plan, is planned
-  whole.
-- An LLM may later propose unit requirements. It can never bypass hard filters, and routing works
-  without one.
+- **Separate states.** These six never imply each other: `installed`, `authenticated`,
+  `available`, `compatible`, `eligible`, `selected`.
+- **`model-turn` capability.** Compatibility is expressed with capabilities, an open set. The new
+  well-known capability `model-turn` marks a resource that accepts caller-supplied messages and tool
+  schemas and returns one assistant turn whose tool calls the caller executes.
+- **Engine control requirements.** Each engine declares its control requirements:
+  - OpenWorker: `model-turn` and `tool-use`.
+  - DSH: `model-turn` and `tool-use` plus plane locality (§9).
+- **Subscriptions are not excluded by default.** A subscription resource is control-eligible exactly
+  when a verified adapter gives it `model-turn`. As of the spike:
+  - API models and tool-capable local models qualify.
+  - Native CLIs do not.
+  - Experimental ChatGPT (and possibly Claude or Gemini) model adapters would, once built and
+    enabled.
 
-### 7. Orchestrator control resource versus worker resources
+### 7. Engine Gateway: two contracts
 
-Every engine run separates two things:
+They share infrastructure (lineage, identity, telemetry) and serve different purposes.
 
-- the **control resource**: the model driving the engine's own agent loop;
-- the **worker resources**: the models or agents doing substantive units.
+- **A. Control Model Gateway.** It drives an engine's loop.
+  - Request: `ControlTurnRequest{lineage, engine, controlDecisionId, messages, tools, settings}`.
+  - Result: `ControlTurnResult{text, toolCalls, finishReason, usage: Measured, extras}`.
+  - The gateway calls the pinned control resource's adapter and normalizes back to the engine's
+    shape.
+  - `extras` stay opaque, scoped to the decision, and are never forwarded to another resource.
+- **B. Intelligence Execution Bridge.** It executes bounded work units.
+  - Request: `IntelligenceRequest{lineage, unitId, requirements, input, access, timeout, budget}`.
+  - Result: `IntelligenceResult{text, draftRefs, usage, decisionId, errorCode}`.
+  - The resource is chosen by the strategy ledger and NRC revalidation.
+  - NXR-059 is this bridge's OpenWorker transport.
 
-Both are Nexar-selected:
+Engines receive results and usage, never provider secrets. An experimental adapter's tokens stay
+inside its connection boundary.
 
-- **Control selection.** The NRC selects the control resource with the engine-compatibility filter
-  `capability: agent-loop-control:<engine>`. Only connections the engine can use legitimately qualify:
-  - **OpenWorker:** an `api` connection whose provider maps to an OpenWorker provider, or a
-    `local`/`custom` endpoint (`ollama`, OpenAI-compatible `base_url`).
-  - **DSH:** the pi-ai or DeepSeek route with an API key, or a local endpoint.
-- **No subscription control.** No subscription can be a control resource: no official seam exists
-  (Context).
-- **Worker selection.** Worker units go through the Engine Resource Bridge (§9). There, any eligible
-  resource, subscription agents included, can be selected.
-- **When no control resource exists.** If the owner has no API or local control resource, the engine
-  is unavailable. The lane falls back honestly (§12) to Nexar-native execution on the
-  NRC-selected resource. The UI says why and how to enable the engine: add a local model (no cost) or
-  an API key.
-- **Pattern B deferred.** A Nexar loopback "model gateway" for engines is **not adopted**. It would
-  need a listener and a security ADR (ADR-021 §network). It would not unlock subscriptions (no vendor
-  allows it). It is a candidate only for keeping API keys out of engine processes later.
+### 8. Control resources: configurable, pinned, explicit fallback
 
-### 8. Engines
+- **Owner policy per mode** (Settings → AI Behavior / Orchestration):
+  `controlResource: { mode: auto | pinned, resourceId?, fallback: auto | none }`.
+  - **Auto:** the NRC evaluates only control-compatible resources for that engine.
+  - **Pinned:** honored unless the resource is unavailable or incompatible; then `fallback` applies.
+- **Pinning per engine turn.** The control resource is selected at an engine-turn boundary and pinned
+  for the whole loop. Nexar records the `controlDecisionId`, the resource, the boundary and any
+  fallback.
+- **Failure boundaries:**
+  1. Retry the same resource (bounded).
+  2. Otherwise the engine turn fails with `control-resource-failed`.
+  3. With `fallback: auto`, Nexar restarts the whole engine turn from the engine's canonical history
+     on the next-ranked compatible resource. This is safe because a Cowork turn's effects are confined
+     to its private scratch (ADR-026 §3), and a Code lane restarts from its worktree base.
+  4. Never switch resources mid-loop.
+- **Delegated work units route independently** (§7B, §10).
 
-- **Cowork → OpenWorker** stays the primary Cowork engine:
-  - OpenWorker contributes workflows, tools, files, MCP, approvals and artifact-oriented work.
-  - Its control model is the NRC-selected control resource (§7).
-  - Substantive steps are delegated to Nexar through the Engine Resource Bridge (NXR-059). This is how
-    a Cowork turn uses the Claude or ChatGPT subscription.
-- **Code → DSH inside Nexar's engineering envelope:**
-  - Nexar's `EngineeringRunner` keeps ownership of everything that makes Code safe:
-    - lane plans as the engineering work graph;
-    - the WSL sandbox;
-    - patch policy, gates, review and approval;
-    - the local commit.
-  - DSH becomes the **default orchestrator inside planning and write lanes** when a DSH control
-    resource exists. It runs its agent loop in the lane's sandbox. It reaches worker resources only
-    through a lane-scoped bridge, never through its own sub-agent provider registry (§9).
-  - Until that bridge is proven (NXR-064), lanes run the NRC-selected native agent directly, as
-    validated live in NXR-055. This is recorded as the lane's executor, not hidden.
+### 9. Engines
 
-### 9. Engine Resource Bridge
+- **Cowork → OpenWorker.**
+  - Its control loop uses a Nexar provider (§7A) when available. With no extension seam upstream,
+    the transport is chosen in NXR-063, in this order:
+    1. an upstream provider-extension seam (contributed);
+    2. a supervised loopback **gateway child** reached through OpenWorker's `openai` `base_url`;
+    3. a minimal maintained patch.
+  - Option 2 is the only zero-patch route. It requires the security rationale in the plan §8, which
+    holds this child to the same posture ADR-026 accepted for `openworker-server`. Desktop main
+    still opens no listener.
+  - Until NXR-063 lands, direct OpenWorker provider configuration (ADR-026 §4, API keys) remains a
+    temporary compatibility path, recorded as such.
+  - OpenWorker's own `openai-codex` (OpenWorker-owned auth) is not used as a Nexar connection.
+  - Substantive units are delegated through §7B (NXR-059).
+- **Code → DSH inside Nexar's engineering envelope.**
+  - `EngineeringRunner` keeps the sandbox, worktrees, lane plans as the work graph, patch policy,
+    gates, review, approval and local commit, with no push.
+  - DSH orchestrates planning and write lanes. Its control loop and its units go through the plane's
+    Engine Gateway, which serves plane resources (§11; NXR-064). DSH's own sub-agent providers are
+    not Nexar routes.
+- **Fallbacks are honest.**
+  - Without a compatible OpenWorker control resource: `requestedLane=cowork`,
+    `effectiveLane=direct`, `fallbackReason=openworker-control-unavailable`.
+  - Without a DSH control resource: the lane runs the NRC-selected native agent directly as
+    `executor: native`. The UI shows it.
 
-The Nexar-owned contract through which an engine requests intelligence:
-`IntelligenceRequest → IntelligenceResult`.
+### 10. Two-stage resource intelligence
 
-- **Request:**
-  - correlation lineage;
-  - unit id and requirements (no vendor names);
-  - an untrusted input payload, or document refs (references, not content, per ADR-017);
-  - access (`read-only`, or scratch-only for drafts);
-  - timeout and budget.
-- **Result:**
-  - text and draft refs;
-  - `Measured` usage;
-  - the `RouteDecision` id;
-  - an error code.
+- **Stage 1, `strategy@1`.** It plans a `WorkGraph`: a lane plan, or a turn ledger for dynamic
+  engines.
+  - It reuses `resource-intelligence@1` hard filters.
+  - Its plan factors only reorder eligible candidates. The factors are diversity, reservation,
+    budget, quality fit, balance, support class and control compatibility.
+- **Stage 2.** It revalidates each unit just before execution. On failure it falls back to a ranked
+  alternative and records `strategy.fallback`.
+- **Deterministic.** There is no mandatory LLM router. An LLM may only propose unit requirements.
 
-Implementation rules:
+### 11. Engineering plane resources
 
-- **One implementation, two transports.** It is implemented once in core: strategy ledger → NRC
-  runtime check → adapter. It is exposed through:
-  - **OpenWorker:** a turn-scoped stdio MCP entry (`nexar.intelligence_submit` and
-    `nexar.intelligence_status`). Submit-and-poll fits OpenWorker's 120 s tool limit.
-  - **DSH:** a lane-scoped channel (NXR-064 research decides between DSH's MCP client and an ACP
-    extension). It has no network inside the sandbox.
-- **Lineage.** Every request carries ADR-024 lineage: the same `rootSessionId`, `turnId` and
-  `correlationId`, and `depth + 1`. With `MAX_DELEGATION_DEPTH = 2`, nexar → engine → nexar-child
-  is the deepest chain. A child never calls an engine. A request whose chain already contains the
-  target engine is refused (fail closed).
-- **Identity.** Each request uses an ADR-015 client identity that is:
-  - minted per turn (or per lane);
-  - scoped to the bridge tools, the session's project, read-only or draft access and the turn's
-    budget;
-  - expired at turn end or after its TTL;
-  - non-escalating.
-- **What children can and cannot do.** Children create no conversation and no turn. They may not
-  write projects, approve, commit, push or reach outward executors.
+- **Plane connections.** The WSL plane is a separate engineering machine. Its connections
+  (subscriptions signed in inside the plane, plane API keys) produce plane resources.
+- **No credentials cross the bridge.** No credential crosses `wsl.exe` (ADR-025). Desktop shows
+  the plane's connections and resources read-only (ids, status, support) through the plane protocol
+  and labels them "Engineering plane".
+- **Signing in the plane.** Sign-in for the plane happens inside the plane, through vendor login or
+  a plane-side Nexar login for experimental adapters.
+- **"Configure once"** means once per machine boundary. Code and Cowork are planned with the same
+  strategy and policy.
 
-### 10. Security boundaries (unchanged invariants, restated)
+### 12. Cost, allowance and policy
 
-- No credential extraction, no token copying, no subscription-as-API.
-- No secret in config, renderer IPC, logs, telemetry or audit.
-- No new network listener.
-- Code writes only in the WSL2 bwrap sandbox, with no push and no native Windows write fallback.
-- Outward actions require approvals. OpenWorker cannot self-approve; its permission requests are
-  answered by Nexar policy (ADR-026 §3).
-- Engines receive only:
-  - **control:** the key of their selected control connection (OpenWorker: through its provider API
-    at launch, as today; DSH: through its explicit environment);
-  - **bridge:** their scoped token.
-- Workers' credentials stay with the worker adapters.
-
-### 11. Cost, allowance and owner policy
-
-- **Cost classes.** Subscription resources use `CostClass: subscription-allowance` with unknown
-  marginal cost, never `$0`. Allowance is `measured`, `estimated`, `owner-declared` or `unknown`
-  (ADR-020 §4). Nothing is scraped.
-- **Owner resource policy** is a generic contract and no vendor names are hard-coded. Its fields:
-  - allowed lanes (Cowork, Code, scheduled);
-  - preference tier (preferred, normal, fallback);
+- **Subscriptions are never `$0`.** They are `subscription-allowance`, with quota `measured`,
+  `estimated`, `owner-declared` or `unknown`.
+- **Owner policy is generic**, never vendor-hard-coded. It covers:
+  - allowed lanes;
+  - preference tier;
   - prefer-subscription;
-  - privacy permission;
-  - reservations: reserve headroom for named unit classes.
-- **Auto is the default.** Optional overrides: prefer subscriptions, prefer local, a provider only,
-  or a custom preference.
+  - privacy;
+  - reservations;
+  - experimental enablement;
+  - control resource per mode.
+- **Auto is the default.**
 
-### 12. Fallback
+### 13. Security boundaries
 
-A requested lane whose engine is unavailable (no engine, no control resource, version mismatch)
-runs `direct`:
+- No harvesting of other applications' credentials, cookies or keyrings.
+- No secret in config, renderer IPC, logs, telemetry or audit.
+- No listener in Desktop main. Any gateway child is supervised, loopback-only and token-bound, with
+  the rationale written first.
+- Code writes only in WSL bwrap, with no push and no native write fallback.
+- Approvals stay fail-closed. OpenWorker cannot self-approve.
+- Bridge identities are turn-scoped and non-escalating (ADR-015).
+- Lineage depth is at most 2.
 
-- It still routes intelligence through the NRC.
-- `fallbackReason` is recorded (`openworker-unavailable`, `dsh-control-unavailable`).
-- The UI shows it.
-- No engine is claimed to have run.
+### 14. Telemetry and validation
 
-### 13. Telemetry and history
-
-Strategy decisions, runtime revalidations and bridge executions emit structured records: ids,
-resource ids, reason codes, `Measured` usage, durations and outcomes. They never carry prompts,
-documents or code. The v0.4 history readers feed the planner. Learning stays out of scope;
-everything is deterministic and explainable.
-
-### 14. Live validation strategy
-
-Acceptance is proven offline first, with fakes for native agents, pi, OpenWorker and DSH. Then a
-small owner live run per area:
-
-- **Cowork:** one turn where OpenWorker (local or API control) delegates at least one substantive
-  unit to a subscription agent, and Nexar saves the artifact.
-- **Code regression:** one change where the plan-level strategy picks a subscription agent for
-  `feature` and a different resource for `review`.
-- **Integrated:** the three-turn Operating Layer flow.
+- **Telemetry.** Strategy decisions, control decisions (`controlDecisionId`), revalidations and
+  bridge executions are recorded as structured records with ids, codes and `Measured` usage, never
+  content. History feeds the planner.
+- **Validation.** Everything is validated offline with fakes. Owner live acceptance (NXR-066)
+  proves:
+  - providers are configured once;
+  - Auto routing works;
+  - OpenWorker genuinely orchestrates Cowork and DSH genuinely orchestrates Code;
+  - subscriptions are used where compatible;
+  - no vendor is chosen by hand.
 
 ## Consequences
 
-- **Cowork turns.** Cowork can use subscriptions for substantive work. OpenWorker still needs a
-  local or API control model. The owner is told this plainly, with "add a local model (free)" as the
-  zero-cost path.
-- **Code engine.** DSH becomes the Code engine without weakening any NXR-055 control. Until NXR-064
-  lands, Code honestly runs native-agent lanes.
-- **Planner placement.** The NRC gains a planner, not a second orchestrator. `deterministic@1`
-  stays byte-for-byte unchanged.
-- **Desktop default.** Desktop's first run no longer makes the echo test double the default resource
-  (NXR-060).
-- **Rejected alternatives:**
-  - OpenWorker's `openai-codex` (emulated first-party OAuth).
-  - DSH sub-agent providers on vendor SDK logins as a Nexar-selected route.
-  - A loopback model gateway (Pattern B).
-  - An LLM router that can bypass hard filters.
+- Subscriptions power work units now, and control loops wherever an adapter provides `model-turn`.
+- Experimental routes are possible but opt-in, labelled and isolated. The owner carries documented
+  terms risk; Antigravity is excluded.
+- A loopback gateway child may be added under the plan's security rationale. Desktop main still
+  opens no listener.
+- **Rejected:**
+  - harvesting another application's tokens;
+  - reusing OpenWorker's auth store as a Nexar connection;
+  - switching control resources mid-loop;
+  - an LLM router that bypasses hard filters;
+  - an OpenWorker or DSH fork when a seam or a minimal patch suffices.

@@ -251,5 +251,5 @@ carry `sessionId` and `turnId`. The renderer never holds authoritative transcrip
 ## Amendment (2026-10-04): resource orchestration
 
 Engine delegation (`nexar → openworker|dsh → nexar child`) uses the existing lineage and
-`MAX_DELEGATION_DEPTH = 2`; children create no turn ([ADR-027](027-resource-orchestration-architecture.md) §9). Fallback reasons gain
-`dsh-control-unavailable` (§12).
+`MAX_DELEGATION_DEPTH = 2`; children create no turn and never start an engine ([ADR-027](027-resource-orchestration-architecture.md) §7). Fallback
+reasons gain `openworker-control-unavailable` and `dsh-control-unavailable` (§9).

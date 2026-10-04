@@ -13,13 +13,13 @@ Routing is per task: review diversity, reservations and budget are decided react
 ## Scope
 
 - `WorkGraph`, `ResourceStrategy` (reusing `RouteDecision`), optional `qualityClass`.
-- Pure `planStrategy` reusing `resource-intelligence@1` hard filters; plan factors diversity, reservation, budget, quality fit, balance.
+- Pure `planStrategy` reusing `resource-intelligence@1` hard filters; plan factors diversity, reservation, budget, quality fit, balance, support class, control compatibility.
 - Turn ledger `allocateNext` for dynamic engines; Stage 2 `revalidate` with ranked-alternative fallback (`strategy.fallback`).
 - `EngineeringRunner` plans the lane plan upfront; lanes revalidate before they run.
 
 ## Acceptance criteria
 
-- [ ] Seeded invariants: never re-admits a rejected candidate; deterministic; review unit avoids the implementer under `required`; reservations hold for `high` units.
+- [ ] Seeded invariants: never re-admits a rejected candidate; deterministic; review unit avoids the implementer under `required`; reservations hold for `high` units; experimental only when policy allows and ranked after official.
 - [ ] Code fake-plane E2E shows the planned strategy per lane.
 
 ## Security considerations

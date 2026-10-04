@@ -1,25 +1,25 @@
-# NXR-065: Providers UX consolidation
+# NXR-065: Providers and orchestration-control UX
 
-**Milestone:** v0.6 — Resource orchestration · **Labels:** desktop, providers · **Depends on:** NXR-060 · **ADR:** [ADR-027](../adr/027-resource-orchestration-architecture.md) ([plan](../architecture/resource-orchestration-plan.md))
+**Milestone:** v0.6 — Resource orchestration · **Labels:** desktop, providers · **Depends on:** NXR-060, NXR-063 · **ADR:** [ADR-027](../adr/027-resource-orchestration-architecture.md) ([plan](../architecture/resource-orchestration-plan.md))
 
 ## Objective
 
-Settings → Providers shows providers with their connection methods; an advanced view shows resources.
+Settings → Providers shows providers with their connections (registration); Settings → AI Behavior / Orchestration chooses how they are used.
 
 ## Problem
 
-The Providers tab is organised by implementation (API keys, subscriptions, local servers), not by provider.
+The Providers tab is organised by implementation, and there is no control-resource or experimental-route setting.
 
 ## Scope
 
-- Provider cards (Anthropic, OpenAI, Google, DeepSeek, Mistral, OpenRouter, Local/Custom) × supported methods; unsupported methods hidden or shown with the reason.
-- Advanced resource view (id, connection, adapter, capabilities, auth, quota provenance, cost class, health).
-- Owner resource policy contract (allowed lanes, preference tier, prefer-subscription, privacy, reservations); Auto default with overrides.
+- Provider cards (Anthropic, OpenAI, Google, DeepSeek, Mistral, OpenRouter, Local/Custom) × supported methods; experimental methods labelled and off by default; plane connections shown read-only under "Engineering plane".
+- AI Behavior / Orchestration: per mode Engine, Control Resource (Auto or a compatible resource), Fallback (Auto/None); prefer-subscription; review diversity; experimental enablement.
+- Advanced resource view (id, connection, adapter, capabilities incl. `model-turn`, auth, quota provenance, cost class, support, health).
 
 ## Acceptance criteria
 
-- [ ] Renderer/E2E: connections per provider, statuses, no secret in the page; policy round-trips through validated IPC.
+- [ ] Renderer/E2E: connections per provider; control dropdown lists only compatible resources; pinning round-trips via validated IPC; no secret in the page.
 
 ## Security considerations
 
-Keys never cross IPC; subscription logins stay vendor-owned.
+Keys and tokens never cross IPC; vendor logins stay vendor-owned; experimental logins run in main.

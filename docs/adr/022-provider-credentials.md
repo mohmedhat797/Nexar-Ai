@@ -133,8 +133,25 @@ discovered never means authenticated.
 
 ## Amendment (2026-10-04): resource orchestration
 
-Connections are first-class ([ADR-027](027-resource-orchestration-architecture.md) §1–3): a provider may have a `subscription`, `api` and
-`local`/`custom` connection at once; each yields Nexar resources. "A subscription never powers pi-ai or
-DSH" stands; subscriptions reach Cowork and Code work through native agents selected by the NRC, via
-the Engine Resource Bridge. OpenWorker's `openai-codex` (emulated Codex-client OAuth) is not an
-accepted route.
+Connections are first-class ([ADR-027](027-resource-orchestration-architecture.md) §1–3): a provider may hold `subscription`, `api` and
+`local`/`custom` connections at once, each with an auth class (`vendor-native`, `official-api`,
+`official-account`, `experimental-client-compat`, `none`) and a support class (`official`,
+`experimental`).
+
+**Owner authentication policy (2026-10-04), superseding the stricter rule of §1.** Nexar prefers
+vendor-owned native authentication and official account mechanisms. Experimental client-compatible
+subscription authentication may also be supported when explicitly enabled by the owner, provided:
+
+- credentials are obtained by Nexar's **own** isolated login for that connection and stored in
+  Nexar's key store under it;
+- credentials are **never** harvested from another application (credential files, CLI token stores,
+  browser cookies, OS keyrings), and another application's auth store is never reused;
+- the connection is clearly labelled experimental, disabled by default and visible to routing as
+  such;
+- vendor support status, terms/account risk, token storage, refresh behaviour and backend
+  assumptions are documented per adapter before it ships (NXR-067).
+
+Routes a vendor's terms explicitly prohibit (Antigravity Additional Terms §6) are excluded unless a
+later owner ADR decides otherwise. "A subscription never powers pi-ai or DSH" now reads: never through
+extracted vendor tokens; a Nexar-owned experimental model adapter may serve as a control or work
+resource under this policy.

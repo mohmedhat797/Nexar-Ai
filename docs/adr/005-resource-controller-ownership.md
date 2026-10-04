@@ -53,4 +53,4 @@ v0.4: quota/cost/latency awareness, historical success scoring from telemetry, r
 ## Amendment (2026-10-04): resource orchestration
 
 The NRC gains a plan-level **Resource Strategy Planner** (`strategy@1`) and runtime
-revalidation ([ADR-027](027-resource-orchestration-architecture.md) §6). It remains "who executes"; it never decomposes work.
+revalidation ([ADR-027](027-resource-orchestration-architecture.md) §10). It remains "who executes"; it never decomposes work.

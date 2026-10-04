@@ -81,18 +81,19 @@ Phases of [ADR-021](../adr/021-nexar-desktop.md); see also ADR-022 and ADR-023.
 ## v0.6 — Resource orchestration
 
 [ADR-027](../adr/027-resource-orchestration-architecture.md) · [plan](../architecture/resource-orchestration-plan.md).
-Order: NXR-060 → 061 → 062 → 059 → 063 → 064 → 065 → 066. NXR-054 waits for NXR-066.
+Order: NXR-060 → 061 → 062 → 059 → 063 → 064 → 065 → (067, optional) → 066. NXR-054 waits for NXR-066.
 
-| Id                                                   | Title                                                        | Milestone | Labels                                 | Status  |
-| ---------------------------------------------------- | ------------------------------------------------------------ | --------- | -------------------------------------- | ------- |
-| [NXR-059](059-openworker-nexar-delegation.md)        | OpenWorker → Nexar turn-scoped delegation                    | v0.6      | operating-layer, openworker, security  | Planned |
-| [NXR-060](060-provider-connections-and-resources.md) | Provider connections and resource normalization              | v0.6      | resources, desktop, routing            | Planned |
-| [NXR-061](061-resource-strategy-planner.md)          | Resource Strategy Planner (`strategy@1`)                     | v0.6      | resource-intelligence, routing         | Planned |
-| [NXR-062](062-engine-resource-bridge.md)             | Engine Resource Bridge                                       | v0.6      | operating-layer, routing, security     | Planned |
-| [NXR-063](063-openworker-control-resource.md)        | OpenWorker control resource                                  | v0.6      | openworker, routing                    | Planned |
-| [NXR-064](064-dsh-code-orchestration.md)             | DSH as the Code orchestrator inside the engineering envelope | v0.6      | engineering, deepseek-harness, routing | Planned |
-| [NXR-065](065-providers-ux-consolidation.md)         | Providers UX consolidation                                   | v0.6      | desktop, providers                     | Planned |
-| [NXR-066](066-resource-orchestration-acceptance.md)  | Resource orchestration E2E and live acceptance               | v0.6      | testing, acceptance                    | Planned |
+| Id                                                         | Title                                                                         | Milestone | Labels                                 | Status  |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------- | --------- | -------------------------------------- | ------- |
+| [NXR-059](059-openworker-nexar-delegation.md)              | OpenWorker → Nexar bounded work delegation                                    | v0.6      | operating-layer, openworker, security  | Planned |
+| [NXR-060](060-provider-connections-and-resources.md)       | Provider connections, compatibility metadata and resource normalization       | v0.6      | resources, desktop, routing            | Planned |
+| [NXR-061](061-resource-strategy-planner.md)                | Resource Strategy Planner (`strategy@1`)                                      | v0.6      | resource-intelligence, routing         | Planned |
+| [NXR-062](062-engine-gateway.md)                           | Nexar Engine Gateway: Control Model Gateway and Intelligence Execution Bridge | v0.6      | operating-layer, routing, security     | Planned |
+| [NXR-063](063-openworker-nexar-provider.md)                | OpenWorker NexarProvider and control-resource policy                          | v0.6      | openworker, routing, security          | Planned |
+| [NXR-064](064-dsh-code-orchestration.md)                   | DSH Code orchestration through the plane Engine Gateway                       | v0.6      | engineering, deepseek-harness, routing | Planned |
+| [NXR-065](065-providers-ux-consolidation.md)               | Providers and orchestration-control UX                                        | v0.6      | desktop, providers                     | Planned |
+| [NXR-066](066-resource-orchestration-acceptance.md)        | Resource orchestration E2E and live acceptance                                | v0.6      | testing, acceptance                    | Planned |
+| [NXR-067](067-experimental-subscription-model-adapters.md) | Experimental subscription model-turn adapters (owner-enabled)                 | v0.6      | providers, experimental, security      | Planned |
 
 ## Nexar Mobile (deferred)
 

@@ -88,17 +88,22 @@ daemon (owner deferral), Memory (v0.7), Automation (v0.8).
 ## Architecture correction (2026-10-04)
 
 The owner's core requirement is that Nexar uses their subscriptions (Claude, ChatGPT/Codex, Google),
-API keys and local models across Cowork and Code. The audit found that Cowork could not use
-subscriptions (ADR-026 §4), that DSH was only a lane resource, and that Desktop Auto routed to the
-`local-echo` test double even with an authenticated Claude Code. ADR-027 corrects the architecture;
-the previous next task (install OpenWorker and give it an API key) is **superseded** because it would
-validate the old coupling. OpenWorker's `openai-codex` provider was verified to emulate the Codex
-CLI's OAuth client and is not an accepted route.
+API keys and local models across Cowork and Code, configured once. The audit found that Cowork could
+not use subscriptions (ADR-026 §4), that DSH was only a lane resource, and that Desktop Auto routed
+to the `local-echo` test double even with an authenticated Claude Code. ADR-027 (revision 2) makes
+Nexar the unified intelligence gateway: engines consume Nexar through the Engine Gateway (Control
+Model Gateway + Intelligence Execution Bridge); control and work resources are separate, both from one
+registry, both owner-configurable or NRC Auto, subscriptions included wherever an adapter provides
+`model-turn`. The ADR-022 amendment allows owner-enabled experimental client-compatible subscription
+auth (Nexar's own isolated login, never harvested; Antigravity excluded by its terms). Compatibility
+evidence: [`subscription-control-compatibility.md`](../research/upstream/subscription-control-compatibility.md).
+The previous next task (install OpenWorker and give it an API key) is superseded.
 
 ## NEXT EXACT TASK
 
-**NXR-060 — Provider connections and resource normalization** on `feat/nexar-resource-orchestration`
-([backlog](../backlog/060-provider-connections-and-resources.md)): `ProviderConnection` contract,
-`metadata.connection` on every resource source, probe-backed native subscription resources,
-`agent-loop-control:<engine>` capability, and the first-run Desktop config without the `local-echo`
-default (with a one-time migration). Then NXR-061 → 062 → 059 → 063 → 064 → 065 → 066.
+**NXR-060 — Provider connections, compatibility metadata and resource normalization** on
+`feat/nexar-resource-orchestration` / PR #39 ([backlog](../backlog/060-provider-connections-and-resources.md)).
+First fix the production routing defect (first-run Desktop config without the `local-echo` default,
+one-time migration), then `ProviderConnection` + `metadata.connection`, the vendor-native
+subscription source, the `model-turn` capability and engine control requirements, and plane
+connection reporting. Then NXR-061 → 062 → 059 → 063 → 064 → 065 → (067) → 066.

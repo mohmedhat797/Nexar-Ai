@@ -103,7 +103,9 @@ interrupted turns are never replayed.
 
 ## Amendment (2026-10-04): resource orchestration
 
-§4 is superseded ([ADR-027](027-resource-orchestration-architecture.md) §7–8): the OpenWorker key now configures only the **control**
-model, NRC-selected among API connections the owner allowed for OpenWorker or local endpoints
-(`agent-loop-control:openworker`). Substantive units are delegated to Nexar (NXR-059) and may run on
-subscription agents. §5's "no MCP servers" becomes "only the turn-scoped Nexar bridge server".
+§4 is superseded ([ADR-027](027-resource-orchestration-architecture.md) §7–9): OpenWorker's control loop uses an owner-pinned or NRC-Auto
+control resource with `model-turn` from Nexar's registry (subscription, API, local or custom) through
+the Control Model Gateway (NXR-063); until then, direct provider configuration with an allowed API key
+remains a temporary compatibility path. Substantive units are delegated to Nexar (NXR-059). §5's "no
+MCP servers" becomes "only the turn-scoped Nexar bridge server". OpenWorker's own `openai-codex` auth
+store is not used as a Nexar connection.

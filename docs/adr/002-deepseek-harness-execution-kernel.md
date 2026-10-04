@@ -76,7 +76,8 @@ Live smoke test with `DEEPSEEK_API_KEY` (manual, documented); ACP adapter with c
 ## Amendment (2026-10-04): resource orchestration
 
 DSH is the **Code orchestration engine inside Nexar's engineering envelope**, not only a lane
-resource ([ADR-027](027-resource-orchestration-architecture.md) §8). Its control model is an NRC-selected API or local resource (§7);
-`DEEPSEEK_API_KEY` is no longer a product prerequisite. DSH's own sub-agent providers are not used as
-Nexar routes: worker units reach Nexar-owned resources through a lane-scoped bridge (§9, NXR-064).
-Until that lands, lanes run the NRC-selected native agent directly.
+resource ([ADR-027](027-resource-orchestration-architecture.md) §9). Its control loop and its work units go through the plane's Engine Gateway
+(§7): the control resource is any plane resource with `model-turn` (owner-pinned or NRC Auto, §8), so
+`DEEPSEEK_API_KEY` is no longer a product prerequisite. DSH's own sub-agent providers are not Nexar
+routes (NXR-064). Without a compatible control resource, lanes run the NRC-selected native agent
+directly, recorded as `executor: native`.

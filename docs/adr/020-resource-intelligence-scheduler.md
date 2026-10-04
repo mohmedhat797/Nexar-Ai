@@ -358,5 +358,5 @@ These record how the build resolved details the decision above left open. None c
 ## Amendment (2026-10-04): resource orchestration
 
 `resource-intelligence@1` hard filters and factors are reused unchanged by the plan-level
-planner `strategy@1` ([ADR-027](027-resource-orchestration-architecture.md) §6); plan factors (diversity, reservation, budget, quality fit,
+planner `strategy@1` ([ADR-027](027-resource-orchestration-architecture.md) §10); plan factors (diversity, reservation, budget, quality fit,
 balance) only reorder eligible candidates. `deterministic@1` is unchanged.
