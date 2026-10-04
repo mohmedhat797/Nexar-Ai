@@ -240,7 +240,7 @@ export function SettingsView({
       {tab === 'behavior' && <BehaviorSettings resources={resources} />}
       {tab === 'code' && <CodeSettings projects={projects} />}
       {tab === 'cowork' && <CoworkSettings />}
-      {tab === 'providers' && <ProvidersView />}
+      {tab === 'providers' && <ProvidersView resources={resources} />}
     </section>
   );
 }

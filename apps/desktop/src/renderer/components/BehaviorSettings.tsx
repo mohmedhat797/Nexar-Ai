@@ -6,6 +6,7 @@ import type {
   CoworkPermissionId,
   ResourceRow,
 } from '../../shared/api.js';
+import type { ControlPolicyView, ControlView } from '../../shared/behavior.js';
 import { call, errorText, nexar } from '../bridge.js';
 
 type Mode = 'cowork' | 'code';
@@ -176,6 +177,101 @@ function PermissionGroup<T extends string>({
   );
 }
 
+const ENGINE_LABEL: Readonly<Record<Mode, string>> = {
+  cowork: 'OpenWorker',
+  code: 'DeepSeek Harness',
+};
+const MODE_LABEL: Readonly<Record<Mode, string>> = { cowork: 'Cowork', code: 'Code' };
+export const NO_CONTROL_CANDIDATES =
+  'No resource can run the control loop; add an API model or a local endpoint with tool calling.';
+
+/** `Auto`, or `Auto → <label>` when the gateway's current pick is known. */
+export function autoLabel(control: ControlView): string {
+  if (control.effectiveResourceId === undefined) return 'Auto';
+  const known = control.candidates.find((c) => c.id === control.effectiveResourceId);
+  return `Auto → ${known?.label ?? control.effectiveResourceId}`;
+}
+
+/** One mode's orchestration: engine (fixed), control resource and fallback; Code is read-only. */
+function OrchestrationMode({
+  mode,
+  control,
+  disabled,
+  onChange,
+}: {
+  mode: Mode;
+  control: ControlView;
+  disabled: boolean;
+  onChange: (policy: ControlPolicyView) => void;
+}): ReactElement {
+  const { policy } = control;
+  const locked = disabled || !control.editable;
+  const pinned = policy.mode === 'pinned' ? policy.resourceId : undefined;
+  const stale = pinned !== undefined && !control.candidates.some((c) => c.id === pinned);
+  const setResource = (value: string): void =>
+    onChange(
+      value === ''
+        ? { mode: 'auto', fallback: policy.fallback }
+        : { mode: 'pinned', resourceId: value, fallback: policy.fallback },
+    );
+  return (
+    <div className="stack" data-testid={`orch-${mode}`}>
+      <h3>{MODE_LABEL[mode]}</h3>
+      <div className="field">
+        <span className="strong">Engine</span>
+        <span data-testid={`orch-${mode}-engine`}>{ENGINE_LABEL[mode]}</span>
+      </div>
+      <label className="field">
+        <span className="strong">Control resource</span>
+        <select
+          value={pinned ?? ''}
+          disabled={locked}
+          data-testid={`orch-${mode}-control`}
+          onChange={(event) => setResource(event.target.value)}
+        >
+          <option value="">{autoLabel(control)}</option>
+          {stale && <option value={pinned}>{pinned}</option>}
+          {control.candidates.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span className="strong">Fallback</span>
+        <select
+          value={policy.fallback}
+          disabled={locked}
+          data-testid={`orch-${mode}-fallback`}
+          onChange={(event) =>
+            onChange({
+              mode: policy.mode,
+              ...(policy.mode === 'pinned' && policy.resourceId !== undefined
+                ? { resourceId: policy.resourceId }
+                : {}),
+              fallback: event.target.value === 'none' ? 'none' : 'auto',
+            })
+          }
+        >
+          <option value="auto">Auto</option>
+          <option value="none">None</option>
+        </select>
+      </label>
+      {control.candidates.length === 0 && (
+        <p className="small muted" data-testid={`orch-${mode}-empty`}>
+          {NO_CONTROL_CANDIDATES}
+        </p>
+      )}
+      {!control.editable && control.reason !== undefined && (
+        <p className="small muted" data-testid={`orch-${mode}-reason`}>
+          {control.reason}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Settings → AI behavior: the permissions and preferred resource per mode (text only). */
 export function BehaviorSettings({
   resources,
@@ -244,6 +340,21 @@ export function BehaviorSettings({
         The Code preference applies to Code turns that run directly. Engineering runs on the plane
         pick their own resources (not supported yet).
       </p>
+
+      <h2>Orchestration</h2>
+      <p className="muted">Which resource drives each engine&apos;s control loop.</p>
+      <OrchestrationMode
+        mode="cowork"
+        control={view.control.cowork}
+        disabled={busy}
+        onChange={(controlResource) => apply({ cowork: { controlResource } })}
+      />
+      <OrchestrationMode
+        mode="code"
+        control={view.control.code}
+        disabled={busy}
+        onChange={() => undefined}
+      />
 
       <h2>Reasoning effort</h2>
       <p className="muted" data-testid="behavior-effort">

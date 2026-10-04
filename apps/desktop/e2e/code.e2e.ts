@@ -154,7 +154,7 @@ describe('Nexar Desktop Code lane', () => {
 
   it('runs a confirmed review on the plane and keeps the report and panel after a relaunch', async () => {
     const userData = harness.newUserData('review-plane');
-    const planeEnv = { NEXAR_DESKTOP_TEST_PLANE: FAKE_PLANE };
+    const planeEnv = { NEXAR_DESKTOP_TEST_PLANE: FAKE_PLANE, NEXAR_FAKE_PLANE_LANE_FACTS: '1' };
     let { app, page } = await harness.launch(userData, planeEnv);
     await addProject(app, page, harness.projectDir);
 
@@ -189,6 +189,10 @@ describe('Nexar Desktop Code lane', () => {
       await hasText(page.getByTestId('eng-status'), 'Reported');
       await hasText(page.getByTestId('eng-plan'), 'Repository report');
       await hasText(page.getByTestId('eng-resources'), 'report: dsh:deepseek');
+      await hasText(
+        page.getByTestId('eng-executors'),
+        'Executor: DeepSeek Harness (control: pi:deepseek-chat)',
+      );
       await hasText(page.getByTestId('lane-effective'), 'Lane: code');
       for (const id of [
         'show-diff',

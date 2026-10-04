@@ -376,6 +376,7 @@ describe('Nexar Desktop Cowork lane', () => {
       await expect.poll(() => turn.getAttribute('data-state'), POLL).toBe('succeeded');
       await hasText(page.getByTestId('lane-effective'), 'Lane: cowork');
       await hasText(page.getByTestId('lane-orchestrator'), 'Orchestrated by OpenWorker');
+      await hasText(page.getByTestId('lane-control'), 'Control: Nexar gateway on');
       await isVisible(page.getByTestId('artifact-card'));
       expect(await page.getByTestId('lane-fallback').count()).toBe(0);
       expect(await page.getByTestId('engineering-panel').count()).toBe(0);

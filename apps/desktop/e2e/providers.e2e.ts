@@ -275,10 +275,10 @@ describe('Desktop Providers', () => {
         'native Google CLI sign-in flow is not implemented',
       );
       expect(
-        await page.getByRole('region', { name: 'Subscriptions', exact: true }).innerText(),
+        await page.getByRole('region', { name: 'Providers', exact: true }).innerText(),
       ).toContain('not a paid plan, credits or remaining quota');
       expect(
-        await page.getByRole('region', { name: 'Subscriptions', exact: true }).innerText(),
+        await page.getByRole('region', { name: 'Providers', exact: true }).innerText(),
       ).toContain('cannot power pi-ai, DeepSeek Harness or OpenWorker');
       expect(
         await page.getByRole('region', { name: 'Local and custom servers' }).innerText(),
@@ -504,9 +504,8 @@ describe('Desktop Providers', () => {
           POLL,
         )
         .toBe(true);
-      const controls = page
-        .getByRole('region', { name: 'Providers', exact: true })
-        .getByRole('button');
+      // The key's own controls and the refresh button are busy; subscriptions have their own state.
+      const controls = page.getByTestId('provider-deepseek').getByRole('button');
       expect(await controls.count()).toBeGreaterThan(0);
       for (const button of await controls.all()) expect(await button.isDisabled()).toBe(true);
       await app.evaluate(() => {

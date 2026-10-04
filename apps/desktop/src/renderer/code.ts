@@ -47,6 +47,44 @@ export function fallbackText(lane: TurnLaneDto): string | null {
   return null;
 }
 
+const EXECUTOR_REASON_TEXT: Readonly<Record<string, string>> = {
+  'engine-unavailable': 'the engine is not available',
+  'control-unavailable': 'no resource can run the engine’s control loop',
+  'engine-not-selected': 'the engine was not selected for this lane',
+  'control-resource-failed': 'the control resource failed',
+};
+
+/** A fixed human text for an executor reason code; an unknown code is shown as itself. */
+export function executorReasonText(code: string): string {
+  return EXECUTOR_REASON_TEXT[code] ?? code;
+}
+
+type LaneFacts = NonNullable<NonNullable<TurnDto['outcome']>['engineering']>['lanes'];
+
+/** `Executor: DeepSeek Harness (control: <resource>)` or `Executor: native (<reason>)`. */
+export function laneExecutorText(lane: NonNullable<LaneFacts>[number]): string | null {
+  if (lane.executor === 'engine') {
+    const name = lane.engine === 'dsh' ? 'DeepSeek Harness' : 'OpenWorker';
+    return `Executor: ${name}${lane.controlResourceId === undefined ? '' : ` (control: ${lane.controlResourceId})`}`;
+  }
+  if (lane.executor === 'native') {
+    return `Executor: native${lane.executorReason === undefined ? '' : ` (${executorReasonText(lane.executorReason)})`}`;
+  }
+  return null;
+}
+
+/** `Control: Nexar gateway on <resource>` or `Control: direct key (temporary)`, plus restarts. */
+export function coworkControlText(control: TurnDto['tasks'][number]['control']): string | null {
+  if (control === undefined) return null;
+  const path =
+    control.path === 'gateway'
+      ? `Control: Nexar gateway${control.resourceId === undefined ? '' : ` on ${control.resourceId}`}`
+      : 'Control: direct key (temporary)';
+  return control.restarts !== undefined && control.restarts > 0
+    ? `${path} · restarts: ${String(control.restarts)}`
+    : path;
+}
+
 /** A turn Nexar refused before running anything (an engineering write without the Code lane). */
 export function isRefusedTurn(turn: TurnDto): boolean {
   return turn.state === 'failed' && turn.outcome?.error?.code === 'SANDBOX_UNAVAILABLE';

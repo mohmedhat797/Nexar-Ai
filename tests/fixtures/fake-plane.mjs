@@ -18,7 +18,7 @@
 //   NEXAR_FAKE_PLANE_RESOURCES `1` reports `readiness.resources` to a Desktop that sent
 //                              `features: ['resources']` (an older Desktop never receives it)
 //   NEXAR_FAKE_PLANE_CONTROL   `1` adds `readiness.control` (the Code control policy) next to the resources
-//   NEXAR_FAKE_PLANE_LANE_FACTS `1` adds the executor facts to the lanes of a committed outcome
+//   NEXAR_FAKE_PLANE_LANE_FACTS `1` adds the executor facts to the lanes of a committed or reported outcome
 //   NEXAR_FAKE_PLANE_DIFF    `big` makes the diff large and truncated
 //   NEXAR_FAKE_PLANE_LOG       when set, a JSON-lines log of the frames received and of the
 //                              environment variable NAMES this process started with
@@ -149,7 +149,15 @@ function runReport(runId, plan = false) {
           : '# Repository review\n\nThe repository implementation supports this proposal.\n\n- src/index.ts: entry point wires the proposal.\n',
       truncated: process.env.NEXAR_FAKE_PLANE_REPORT === 'truncated',
     },
-    lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+    lanes: [
+      {
+        role: 'report',
+        resourceId: 'dsh:deepseek',
+        ...(process.env.NEXAR_FAKE_PLANE_LANE_FACTS === '1'
+          ? { executor: 'engine', engine: 'dsh', controlResourceId: 'pi:deepseek-chat' }
+          : {}),
+      },
+    ],
   });
 }
 

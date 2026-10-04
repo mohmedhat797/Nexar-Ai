@@ -10,6 +10,7 @@ import {
   currentPhase,
   diffLines,
   fallbackText,
+  laneExecutorText,
   shortSha,
 } from '../code.js';
 
@@ -182,6 +183,10 @@ export function EngineeringPanel({
     !report &&
     (approval !== undefined || eng?.status === 'committed' || eng?.status === 'not-accepted');
   const resources = eng?.lanes ?? [];
+  const executors = resources.flatMap((lane) => {
+    const text = laneExecutorText(lane);
+    return text === null ? [] : [{ role: lane.role, text }];
+  });
 
   const decide = (decision: 'approve' | 'deny'): void => {
     if (approval === undefined) return;
@@ -243,6 +248,11 @@ export function EngineeringPanel({
         {resources.length > 0 && (
           <Row label="Resources" testId="eng-resources">
             {resources.map((lane) => `${lane.role}: ${lane.resourceId}`).join(', ')}
+          </Row>
+        )}
+        {executors.length > 0 && (
+          <Row label="Executors" testId="eng-executors">
+            {executors.map((e) => `${e.role} · ${e.text}`).join('; ')}
           </Row>
         )}
         {!report && files !== undefined && (

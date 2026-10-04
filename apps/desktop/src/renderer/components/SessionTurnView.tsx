@@ -2,7 +2,13 @@ import { useState, type ReactElement } from 'react';
 import type { ApprovalDto, SelectedDecision, TurnDto } from '../../shared/api.js';
 import { call, errorText, nexar } from '../bridge.js';
 import { ArtifactCard } from './ArtifactCard.js';
-import { fallbackText, isCodeTurn, isCoworkTurn, isRefusedTurn } from '../code.js';
+import {
+  coworkControlText,
+  fallbackText,
+  isCodeTurn,
+  isCoworkTurn,
+  isRefusedTurn,
+} from '../code.js';
 import { EngineeringPanel } from './EngineeringPanel.js';
 import { CandidateList } from './RoutingCard.js';
 
@@ -79,6 +85,7 @@ function LaneLine({ turn }: { turn: TurnDto }): ReactElement | null {
   }
   const notice = fallbackText(lane);
   const resource = turn.tasks.find((t) => t.resourceId !== undefined)?.resourceId;
+  const control = coworkControlText(turn.tasks.find((t) => t.control !== undefined)?.control);
   return (
     <div className="lane-line small muted" data-testid="lane-line">
       <span data-testid="lane-effective">Lane: {lane.effectiveLane}</span>
@@ -87,6 +94,9 @@ function LaneLine({ turn }: { turn: TurnDto }): ReactElement | null {
           {' '}
           · Orchestrated by OpenWorker{resource === undefined ? '' : ` using ${resource}`}
         </span>
+      )}
+      {isCoworkTurn(turn) && control !== null && (
+        <span data-testid="lane-control"> · {control}</span>
       )}
       {notice !== null && <span data-testid="lane-fallback"> · {notice}</span>}
     </div>
