@@ -99,11 +99,21 @@ auth (Nexar's own isolated login, never harvested; Antigravity excluded by its t
 evidence: [`subscription-control-compatibility.md`](../research/upstream/subscription-control-compatibility.md).
 The previous next task (install OpenWorker and give it an API key) is superseded.
 
+## v0.6 progress (PR #39, `feat/nexar-resource-orchestration`)
+
+| Unit                                                  | State                                                         | Commits                                                                                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ADR-027 rev. 2, plan, spike, ADR-022 auth amendment   | done                                                          | `12c6e00`, `ec33f1a`, `5fcbc86`                                                                                                                                                          |
+| NXR-060 Provider connections + compatibility metadata | done (CI green)                                               | `2b5edd4` echo default removed + migration, `1363dc8` connections + `model-turn`, `ebb8c37` E2E seed (echo explicit, real CLIs excluded), `b58484f` plane resources over `nexar-plane/1` |
+| NXR-061 Resource Strategy Planner                     | done                                                          | `ae320e2` pure `strategy@1`, `23fa38c` Code lanes planned upfront (records `planned`/`fallback`)                                                                                         |
+| NXR-062 Engine Gateway                                | in progress (062a Control Model Gateway + pi model-turn port) | —                                                                                                                                                                                        |
+
+Desktop note: the next Desktop start migrates the owner's config (backup `nexar.config.json.bak-<timestamp>`),
+removing the `local-echo` default so Auto routes to discovered resources (signed-in Claude Code).
+
 ## NEXT EXACT TASK
 
-**NXR-060 — Provider connections, compatibility metadata and resource normalization** on
-`feat/nexar-resource-orchestration` / PR #39 ([backlog](../backlog/060-provider-connections-and-resources.md)).
-First fix the production routing defect (first-run Desktop config without the `local-echo` default,
-one-time migration), then `ProviderConnection` + `metadata.connection`, the vendor-native
-subscription source, the `model-turn` capability and engine control requirements, and plane
-connection reporting. Then NXR-061 → 062 → 059 → 063 → 064 → 065 → (067) → 066.
+**NXR-062 — Nexar Engine Gateway** ([backlog](../backlog/062-engine-gateway.md)): 062a Control Model
+Gateway core (`@nexar/engine-gateway`, `ControlTurnRequest`/`Result`, pinned control decisions,
+retry/restart semantics) and the pi-ai `ModelTurnPort`; then 062b Intelligence Execution Bridge core.
+Then NXR-059 → 063 → 064 → 065 → (067) → 066.
