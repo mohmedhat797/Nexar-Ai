@@ -361,6 +361,15 @@ importers:
         specifier: workspace:*
         version: link:../../integrations/echo
 
+  packages/engine-gateway:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@nexar/resource-controller':
+        specifier: workspace:*
+        version: link:../resource-controller
+
   packages/engineering:
     dependencies:
       '@nexar/approvals':

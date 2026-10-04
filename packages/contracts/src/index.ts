@@ -4,6 +4,7 @@ export * from './connection.js';
 export * from './discovery.js';
 export * from './errors.js';
 export * from './execution.js';
+export * from './gateway.js';
 export * from './ids.js';
 export * from './intelligence.js';
 export * from './launcher.js';

@@ -87,6 +87,9 @@
     },
     {
       "path": "./packages/workflows"
+    },
+    {
+      "path": "./packages/engine-gateway"
     }
   ]
 }

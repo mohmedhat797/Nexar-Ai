@@ -11,12 +11,13 @@ import type {
 import {
   DEFAULT_ALLOWED_PROVIDERS,
   KEYLESS_LOCAL_PLACEHOLDER_KEY,
-  PI_REASONING_LEVELS,
   createAllowlistedModels,
   createLocalEndpointModels,
 } from './pi-models.js';
-import type { PiModelLike, PiModelsLike, PiReasoningLevel } from './pi-models.js';
+import type { PiModelLike, PiModelsLike } from './pi-models.js';
 import { PI_ADAPTER_ID } from './resource.js';
+import { configError, parseRuntimeOptions, readPiCredential } from './runtime-options.js';
+import type { PiRuntimeOptions } from './runtime-options.js';
 import { toExecutionResult, toThrownNexarError } from './result.js';
 
 /** Options for {@link PiExecutionAdapter}. */
@@ -36,56 +37,8 @@ export interface PiExecutionAdapterOptions {
   readonly now?: () => number;
 }
 
-interface PiRuntimeOptions {
-  readonly baseUrl?: string;
-  readonly maxTokens?: number;
-  readonly reasoning?: PiReasoningLevel;
-}
-
 type ModelKind = Extract<ResourceDescriptor['kind'], { type: 'model' }>;
 type ModelResource = ResourceDescriptor & { readonly kind: ModelKind };
-
-function configError(message: string, details?: Record<string, unknown>): NexarError {
-  return new NexarError('CONFIGURATION_ERROR', message, details ? { details } : {});
-}
-
-function parseRuntimeOptions(resource: ResourceDescriptor): PiRuntimeOptions {
-  const raw = resource.runtime.options ?? {};
-  const { baseUrl, maxTokens, reasoning } = raw;
-  const out: { baseUrl?: string; maxTokens?: number; reasoning?: PiReasoningLevel } = {};
-  if (baseUrl !== undefined) {
-    let protocol: string | undefined;
-    try {
-      protocol = typeof baseUrl === 'string' ? new URL(baseUrl).protocol : undefined;
-    } catch {
-      protocol = undefined;
-    }
-    if (protocol !== 'http:' && protocol !== 'https:') {
-      throw configError('runtime.options.baseUrl must be an http(s) URL', {
-        resource: resource.id,
-      });
-    }
-    out.baseUrl = baseUrl as string;
-  }
-  if (maxTokens !== undefined) {
-    if (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) || maxTokens <= 0) {
-      throw configError('runtime.options.maxTokens must be a positive integer', {
-        resource: resource.id,
-      });
-    }
-    out.maxTokens = maxTokens;
-  }
-  if (reasoning !== undefined) {
-    if (!(PI_REASONING_LEVELS as readonly unknown[]).includes(reasoning)) {
-      throw configError(
-        `runtime.options.reasoning must be one of: ${PI_REASONING_LEVELS.join(', ')}`,
-        { resource: resource.id },
-      );
-    }
-    out.reasoning = reasoning as PiReasoningLevel;
-  }
-  return out;
-}
 
 /**
  * Executes `model` resources directly through pi-ai (API keys, gateways, local
@@ -139,7 +92,7 @@ export class PiExecutionAdapter implements ExecutionAdapter {
       const authState =
         auth.mode === 'none'
           ? 'not-required'
-          : this.readCredential(auth.credential) === undefined
+          : readPiCredential(auth.credential, this.env, this.resolveSecret) === undefined
             ? 'unauthenticated'
             : 'authenticated';
       return { availability: 'available', auth: authState, observedAt };
@@ -162,7 +115,7 @@ export class PiExecutionAdapter implements ExecutionAdapter {
 
     let apiKey: string | undefined;
     if (target.auth.mode === 'api-key') {
-      apiKey = this.readCredential(target.auth.credential);
+      apiKey = readPiCredential(target.auth.credential, this.env, this.resolveSecret);
       if (apiKey === undefined) {
         const { credential } = target.auth;
         if (credential.source === 'keystore') {
@@ -257,26 +210,6 @@ export class PiExecutionAdapter implements ExecutionAdapter {
         details: { provider, resource: resource.id, allowed: this.allowedProviders },
       });
     }
-  }
-
-  /**
-   * Reads the referenced env var or key store entry; empty or absent means "no credential". The
-   * sources never fall back to each other. Never logs the value.
-   */
-  private readCredential(
-    credential: Extract<ResourceDescriptor['auth'], { mode: 'api-key' }>['credential'],
-  ): string | undefined {
-    let value: string | undefined;
-    if (credential.source === 'env') {
-      value = this.env[credential.name];
-    } else if (credential.source === 'keystore') {
-      value = this.resolveSecret?.(credential.name);
-    } else {
-      throw configError('pi-ai resources need an env or keystore credential reference', {
-        source: credential.source,
-      });
-    }
-    return value === undefined || value === '' ? undefined : value;
   }
 
   private getDefaultModels(): Promise<PiModelsLike> {

@@ -29,7 +29,10 @@ function truncate(text: string): string {
     : text;
 }
 
-function failureFor(message: PiAssistantMessageLike, secrets: readonly string[]): NexarError {
+export function failureFor(
+  message: PiAssistantMessageLike,
+  secrets: readonly string[],
+): NexarError {
   const raw = message.errorMessage ?? 'pi-ai reported an error without a message';
   const text = truncate(redactSecrets(raw, secrets));
   const details = { provider: message.provider, model: message.model };

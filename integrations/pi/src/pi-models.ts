@@ -10,13 +10,15 @@ import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completio
 export interface PiModelLike {
   readonly id: string;
   readonly provider: string;
+  readonly api?: string;
 }
 
-/** The request context handed to pi-ai (a single user turn; no tools in v0.1). */
+/** The request context handed to pi-ai (messages are built by the adapter or the model-turn port). */
 export interface PiContextLike {
   readonly systemPrompt?: string;
-  // Mutable array: pi-ai's own `Context.messages` is, and this must stay assignable to it.
-  readonly messages: { role: 'user'; content: string; timestamp: number }[];
+  // Mutable arrays: pi-ai's own `Context` has them, and this must stay assignable to it.
+  readonly messages: object[];
+  readonly tools?: object[];
 }
 
 /** Reasoning effort levels accepted by the pi-ai simple options. */
@@ -29,13 +31,29 @@ export type PiReasoningLevel = (typeof PI_REASONING_LEVELS)[number];
 export interface PiRequestOptionsLike {
   readonly signal?: AbortSignal;
   readonly maxTokens?: number;
+  readonly temperature?: number;
   readonly reasoning?: PiReasoningLevel;
   readonly apiKey?: string;
 }
 
+/** The content-block fields this package reads; provider-private ones feed extras. */
+export interface PiContentBlockLike {
+  readonly type: string;
+  readonly text?: string;
+  readonly textSignature?: string;
+  readonly thinking?: string;
+  readonly thinkingSignature?: string;
+  readonly redacted?: boolean;
+  readonly id?: string;
+  readonly name?: string;
+  readonly arguments?: Readonly<Record<string, unknown>>;
+  readonly thoughtSignature?: string;
+  readonly namespace?: string;
+}
+
 /** The subset of a pi-ai assistant message this package reads. */
 export interface PiAssistantMessageLike {
-  readonly content: readonly { readonly type: string; readonly text?: string }[];
+  readonly content: readonly PiContentBlockLike[];
   readonly usage: {
     readonly input: number;
     readonly output: number;
@@ -57,6 +75,20 @@ export interface PiModelsLike {
     context: PiContextLike,
     options?: PiRequestOptionsLike,
   ): Promise<PiAssistantMessageLike>;
+  /** Streaming variant (events carry text deltas); absent on minimal test doubles. */
+  streamSimple?(
+    model: PiModelLike,
+    context: PiContextLike,
+    options?: PiRequestOptionsLike,
+  ): PiEventStreamLike;
+}
+
+/** The pi-ai event stream, reduced to text deltas and the final message. */
+export interface PiEventStreamLike extends AsyncIterable<{
+  readonly type: string;
+  readonly delta?: string;
+}> {
+  result(): Promise<PiAssistantMessageLike>;
 }
 
 /** The pinned upstream version (kept in step with package.json's exact pin). */
