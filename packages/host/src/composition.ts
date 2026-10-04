@@ -365,6 +365,7 @@ export async function composeEngineering(
       artifacts: new LocalArtifactStore({ projects: runtime.projects }),
       telemetry: engineeringTelemetry(loaded, io),
       logger,
+      strategist: runtime.controller,
       stateDir,
       author: engineering.author,
       approvalTtlMs: engineering.approvalTtlMs,

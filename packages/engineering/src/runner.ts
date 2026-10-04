@@ -18,6 +18,7 @@ import {
   type EngineeringInput,
   type EngineeringOutcome,
   type EngineeringRunOptions,
+  type EngineeringStrategist,
   type WorktreeOps,
 } from './execution.js';
 import type { PlanCatalog } from './plan.js';
@@ -49,6 +50,8 @@ export interface EngineeringRunnerDependencies {
   readonly approvalTtlMs?: number;
   /** Test seam; defaults to `@nexar/worktrees`. */
   readonly worktrees?: WorktreeOps;
+  /** Plans every lane's resource upfront (`strategy@1`); absent = lanes are routed one by one. */
+  readonly strategist?: EngineeringStrategist;
 }
 
 /**
@@ -131,6 +134,7 @@ export class EngineeringRunner {
         author: this.deps.author,
         approvalTtlMs: this.deps.approvalTtlMs ?? DEFAULT_APPROVAL_TTL_MS,
         worktrees: this.worktrees,
+        ...(this.deps.strategist === undefined ? {} : { strategist: this.deps.strategist }),
       },
       {
         taskId: this.newId(),

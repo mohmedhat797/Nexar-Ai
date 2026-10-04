@@ -29,6 +29,7 @@ export { MAX_OUTCOME_LANES, MAX_REPORT_BYTES, boundReport } from './report.js';
 export {
   RECORD_FILE,
   isEngineeringLineage,
+  isStrategyRecord,
   isTaskId,
   listEngineeringRecords,
   readEngineeringRecord,
@@ -39,6 +40,7 @@ export {
   type LaneRecord,
   type PatchRecord,
   type ReviewRecord,
+  type StrategyRecord,
 } from './record.js';
 export {
   LANE_VARIABLES,
@@ -58,6 +60,7 @@ export {
   MAX_TITLE_CHARS,
   type EngineeringRunnerDependencies,
 } from './runner.js';
+export type { EngineeringStrategist } from './execution.js';
 export {
   parseReviewVerdict,
   type FindingSeverity,

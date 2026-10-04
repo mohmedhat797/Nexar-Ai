@@ -12,8 +12,11 @@ import {
   type Logger,
   type ProcessLauncher,
   type ResourceId,
+  type ResourceStrategy,
   type TelemetrySink,
   type UsageReport,
+  type WorkGraph,
+  type WorkUnit,
 } from '@nexar/contracts';
 import type { Nexar } from '@nexar/core';
 import type { Project, ProjectEngineeringSettings } from '@nexar/projects';
@@ -37,6 +40,7 @@ import {
   type LaneRecord,
   type PatchRecord,
   type ReviewRecord,
+  type StrategyRecord,
 } from './record.js';
 import { renderLaneTemplate, type LaneTemplate, type LaneValues } from './render.js';
 import { parseReviewVerdict, type ReviewVerdict } from './verdict.js';
@@ -116,6 +120,14 @@ export interface EngineeringOutcome {
   readonly recordPath: string;
 }
 
+/**
+ * Plans the resource of every lane upfront. Structurally satisfied by the Resource Controller
+ * (`ResourceStrategist`); each lane's normal routing is the runtime revalidation of the plan.
+ */
+export interface EngineeringStrategist {
+  planStrategy(graph: WorkGraph): Promise<ResourceStrategy>;
+}
+
 export interface ExecutionDependencies {
   readonly nexar: Nexar;
   readonly plan: LoadedPlan;
@@ -130,6 +142,7 @@ export interface ExecutionDependencies {
   readonly author: { readonly name: string; readonly email: string };
   readonly approvalTtlMs: number;
   readonly worktrees: WorktreeOps;
+  readonly strategist?: EngineeringStrategist;
 }
 
 export interface ExecutionTarget {
@@ -217,6 +230,9 @@ export class EngineeringExecution {
   private readonly reviews: ReviewRecord[] = [];
   private readonly rwResources = new Set<ResourceId>();
   private readonly laneExecutions: { role: string; resourceId: string }[] = [];
+  /** Planned resource per lane id (only lanes the strategy selected a resource for). */
+  private readonly planned = new Map<string, ResourceId>();
+  private strategy: StrategyRecord | undefined;
   private readonly startedAt: string;
   private status: EngineeringStatus = 'running';
   private reason: string | undefined;
@@ -245,6 +261,7 @@ export class EngineeringExecution {
       recordPath = await this.persist();
       await this.begin();
       const { plan } = this.deps;
+      await this.planLanes(plan.lanes);
       if (plan.mode === 'report') await this.runReport(plan);
       else await this.runChange(plan);
     } catch (error) {
@@ -377,6 +394,7 @@ export class EngineeringExecution {
         ? {}
         : { report: { sha256: this.report.sha256, bytes: this.report.bytes } }),
       ...(this.target.lineage === undefined ? {} : { lineage: this.target.lineage }),
+      ...(this.strategy === undefined ? {} : { strategy: this.strategy }),
     };
   }
 
@@ -475,6 +493,62 @@ export class EngineeringExecution {
     }
   }
 
+  /**
+   * Plans every plan lane before the first one runs. Rework (`debugging`) lanes are not planned.
+   * Any failure leaves the task unplanned, exactly as without a strategist.
+   */
+  private async planLanes(lanes: readonly PlanLane[]): Promise<void> {
+    const { strategist } = this.deps;
+    if (strategist === undefined) return;
+    try {
+      const units: WorkUnit[] = [];
+      let previous: PlanLane | undefined;
+      let lastWriter: PlanLane | undefined;
+      for (const lane of lanes) {
+        const { preferred } = this.spec(lane);
+        const reviews = lane.role === 'review' ? lastWriter : undefined;
+        units.push({
+          unitId: lane.id,
+          task: {
+            id: toTaskId(`${this.target.taskId}:${lane.id}`),
+            kind: lane.taskKind,
+            requirements: {
+              capabilities: lane.capabilities,
+              ...(preferred === undefined ? {} : { preferredResourceIds: preferred }),
+            },
+          },
+          ...(lane.role === 'report' ? {} : { laneRole: lane.role }),
+          ...(previous === undefined ? {} : { dependsOn: [previous.id] }),
+          ...(reviews === undefined ? {} : { reviewOf: reviews.id }),
+        });
+        previous = lane;
+        if (lane.access === 'read-write') lastWriter = lane;
+      }
+      const strategy = await strategist.planStrategy({
+        graphId: this.target.taskId,
+        units,
+        reviewDiversity: this.target.settings.reviewDiversity,
+      });
+      for (const { unitId, decision } of strategy.units) {
+        if (decision.outcome === 'selected') this.planned.set(unitId, decision.selected.resourceId);
+      }
+      const { policy } = strategy;
+      this.strategy = {
+        policy: `${policy.name}@${policy.version}`,
+        ...(policy.configId === undefined ? {} : { configId: policy.configId }),
+        units: strategy.units.length,
+        ...(policy.base.fallback === undefined ? {} : { fallback: policy.base.fallback.reason }),
+      };
+    } catch (error) {
+      this.planned.clear();
+      this.strategy = undefined;
+      this.deps.logger.warn('resource strategy could not be planned', {
+        taskId: this.target.taskId,
+        code: isNexarError(error) ? error.code : 'INTERNAL_ERROR',
+      });
+    }
+  }
+
   private spec(lane: PlanLane): LaneSpec {
     const preferred = this.target.settings.lanePreferences[lane.role];
     return {
@@ -518,6 +592,12 @@ export class EngineeringExecution {
     this.progress({ type: 'lane.started', lane: lane.id, role: lane.role, round });
     const prompt = renderLaneTemplate(lane.brief, values);
     let current: { taskId: string; startedMs: number } | undefined;
+    const planned = this.planned.get(lane.id);
+    // The plan's pick leads; the owner's lane preferences follow. Runtime routing still decides.
+    const preferred =
+      planned === undefined
+        ? lane.preferred
+        : [planned, ...(lane.preferred ?? []).filter((id) => id !== planned)];
 
     const attempt = async (excluded: readonly ResourceId[]) => {
       const task = nexar.createTask({
@@ -527,7 +607,7 @@ export class EngineeringExecution {
         projectId: this.target.project.id,
         requirements: {
           capabilities: lane.capabilities,
-          ...(lane.preferred === undefined ? {} : { preferredResourceIds: lane.preferred }),
+          ...(preferred === undefined ? {} : { preferredResourceIds: preferred }),
           ...(excluded.length === 0 ? {} : { excludedResourceIds: excluded }),
         },
         metadata: { engineeringTaskId: this.target.taskId, lane: lane.id, role: lane.role, round },
@@ -577,6 +657,7 @@ export class EngineeringExecution {
         usage: outcome.record.usage,
         latencyMs: outcome.record.latencyMs,
         outputSha256,
+        ...(planned === undefined ? {} : { planned, fallback: planned !== resourceId }),
       });
       this.laneExecutions.push({ role: lane.role, resourceId });
       if (lane.access === 'read-write') this.rwResources.add(toResourceId(resourceId));
@@ -614,6 +695,7 @@ export class EngineeringExecution {
         outcome,
         errorCode: code,
         latencyMs: clock().getTime() - started,
+        ...(planned === undefined ? {} : { planned }),
       });
       await this.step('lane.completed', {
         lane: lane.id,
@@ -639,6 +721,8 @@ export class EngineeringExecution {
     usage?: UsageReport;
     latencyMs: number;
     outputSha256?: string;
+    planned?: string;
+    fallback?: boolean;
   }): void {
     this.lanes.push(lane);
   }
