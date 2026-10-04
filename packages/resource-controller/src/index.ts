@@ -8,3 +8,4 @@ export * from './intelligence-policy.js';
 export * from './intelligence-settings.js';
 export * from './quota.js';
 export * from './size.js';
+export * from './strategy.js';

@@ -13,6 +13,7 @@ export * from './provider.js';
 export * from './resource.js';
 export * from './subscription.js';
 export * from './routing.js';
+export * from './strategy.js';
 export * from './task.js';
 export * from './telemetry.js';
 export * from './version.js';
