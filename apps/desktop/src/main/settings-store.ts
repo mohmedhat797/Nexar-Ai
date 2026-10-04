@@ -189,18 +189,39 @@ const BehaviorSchema = z
     code: value.code ?? { permission: DEFAULT_CODE_PERMISSION },
   }));
 
-/** What a `behavior:set call may carry: any subset of known values, nothing else. */
+/** A control-resource patch: `pinned` names a resource, `auto` never does (any id is dropped). */
+const ControlPatchSchema = z
+  .strictObject({
+    mode: z.enum(['auto', 'pinned']),
+    resourceId: ResourceIdSchema.optional(),
+    fallback: z.enum(['auto', 'none']),
+  })
+  .refine((value) => value.mode === 'auto' || value.resourceId !== undefined, {
+    message: 'resourceId is required when pinned',
+  })
+  .transform((value): ControlResourcePolicy => ({
+    mode: value.mode,
+    fallback: value.fallback,
+    ...(value.mode === 'pinned' && value.resourceId !== undefined
+      ? { resourceId: value.resourceId }
+      : {}),
+  }));
+
+/** What a `behavior:set` call may carry: any subset of known values, nothing else. */
 export const BehaviorPatchSchema = z.strictObject({
   cowork: z
     .strictObject({
       permission: z.enum(COWORK_PERMISSIONS).optional(),
       preferredResourceId: ResourceIdSchema.nullable().optional(),
+      controlResource: ControlPatchSchema.optional(),
     })
     .optional(),
   code: z
     .strictObject({
       permission: z.enum(CODE_PERMISSIONS).optional(),
       preferredResourceId: ResourceIdSchema.nullable().optional(),
+      // Accepted only so the handler can refuse it with a clear code: the plane owns this policy.
+      controlResource: ControlPatchSchema.optional(),
     })
     .optional(),
 });
@@ -210,7 +231,7 @@ export const DEFAULT_BEHAVIOR: BehaviorSettings = {
   code: { permission: DEFAULT_CODE_PERMISSION },
 };
 
-/** A damaged `behavior section fails closed (no turn starts on it) and is preserved verbatim. */
+/** A damaged `behavior` section fails closed (no turn starts on it) and is preserved verbatim. */
 export type BehaviorResult =
   { readonly valid: true; readonly value: BehaviorSettings } | { readonly valid: false };
 

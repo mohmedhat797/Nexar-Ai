@@ -376,6 +376,11 @@ export class CoworkService {
     return preview === undefined ? undefined : { policy, resourceId: preview.resourceId };
   }
 
+  /** The control resource a turn would pin now (a preview); `undefined` when none qualifies. */
+  async effectiveControlResourceId(): Promise<string | undefined> {
+    return (await this.gatewayChoice())?.resourceId;
+  }
+
   private async probe(): Promise<CoworkStatus> {
     if (this.options.disabled === true || this.disposed) return MISSING_STATUS;
     const config = await this.options.settings.getCowork();

@@ -550,3 +550,60 @@ describe('completed outcome: report and lanes (additive to nexar-plane/1)', () =
     );
   });
 });
+
+describe('control policy and lane facts (additive to nexar-plane/1)', () => {
+  const ok = (frame: unknown): boolean => planeFrameSchema.safeParse(frame).success;
+  const withControl = (control: unknown) => ({ ...ready, readiness: { ...readiness, control } });
+  const completed = (lane: Record<string, unknown>) => ({
+    type: 'completed',
+    runId: RUN,
+    outcome: {
+      taskId: 'eng-0123456789ab',
+      status: 'committed',
+      lanes: [{ role: 'implementation', resourceId: 'dsh', ...lane }],
+    },
+  });
+
+  it('accepts readiness with and without a Code control policy', () => {
+    expect(ok(ready)).toBe(true);
+    expect(ok(withControl({ code: { mode: 'auto', fallback: 'auto' } }))).toBe(true);
+    expect(
+      ok(
+        withControl({ code: { mode: 'pinned', resourceId: 'pi:deepseek-chat', fallback: 'none' } }),
+      ),
+    ).toBe(true);
+  });
+  it.each([
+    ['an unknown mode', { code: { mode: 'x', fallback: 'auto' } }],
+    ['a bad fallback', { code: { mode: 'auto', fallback: 'x' } }],
+    ['a path-like resource id', { code: { mode: 'pinned', resourceId: '../x', fallback: 'auto' } }],
+    ['an extra key', { code: { mode: 'auto', fallback: 'auto', token: 't' } }],
+    ['an extra engine key', { code: { mode: 'auto', fallback: 'auto' }, cowork: {} }],
+    ['no code section', {}],
+  ])('rejects a control policy with %s', (_name, control) => {
+    expect(ok(withControl(control))).toBe(false);
+  });
+
+  it('accepts lane executor facts and rejects anything else on a lane', () => {
+    expect(ok(completed({}))).toBe(true);
+    expect(
+      ok(
+        completed({
+          executor: 'engine',
+          engine: 'dsh',
+          executorReason: 'engine-not-selected',
+          controlResourceId: 'pi:deepseek-chat',
+        }),
+      ),
+    ).toBe(true);
+    for (const bad of [
+      { executor: 'other' },
+      { engine: 'codex' },
+      { controlResourceId: 'Bad Id' },
+      { executorReason: 'r'.repeat(65) },
+      { token: 't' },
+    ]) {
+      expect(ok(completed(bad))).toBe(false);
+    }
+  });
+});

@@ -149,6 +149,14 @@ function toEngineeringDto(e: TurnEngineering): TurnEngineeringDto {
           lanes: e.lanes.map((lane) => ({
             role: plainText(lane.role),
             resourceId: plainText(lane.resourceId),
+            ...(lane.executor === undefined ? {} : { executor: lane.executor }),
+            ...(lane.engine === undefined ? {} : { engine: lane.engine }),
+            ...(lane.executorReason === undefined
+              ? {}
+              : { executorReason: plainText(lane.executorReason) }),
+            ...(lane.controlResourceId === undefined
+              ? {}
+              : { controlResourceId: plainText(lane.controlResourceId) }),
           })),
         }),
     ...(e.branch === undefined ? {} : { branch: plainText(e.branch) }),
@@ -185,6 +193,15 @@ function toTurnDto(project: Project, turn: Turn): TurnDto {
       taskId: t.taskId,
       state: t.state,
       ...(t.resourceId === undefined ? {} : { resourceId: t.resourceId }),
+      ...(t.control === undefined
+        ? {}
+        : {
+            control: {
+              path: t.control.path,
+              ...(t.control.resourceId === undefined ? {} : { resourceId: t.control.resourceId }),
+              ...(t.control.restarts === undefined ? {} : { restarts: t.control.restarts }),
+            },
+          }),
     })),
     artifacts,
     ...(turn.outcome === undefined

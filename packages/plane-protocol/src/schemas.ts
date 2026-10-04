@@ -151,6 +151,15 @@ export const planeResourceSchema = z.strictObject({
   control: z.strictObject({ openworker: z.boolean(), dsh: z.boolean() }),
 });
 
+/** The plane's owner policy for the Code lane's control resource (`orchestration.code`). */
+export const planeControlSchema = z.strictObject({
+  code: z.strictObject({
+    mode: z.enum(['auto', 'pinned']),
+    resourceId: id(RESOURCE_ID_PATTERN).optional(),
+    fallback: z.enum(['auto', 'none']),
+  }),
+});
+
 export const readinessSchema = z.strictObject({
   sandbox: z.enum(['ok', 'unavailable']),
   selftest: z.enum(['pass', 'fail', 'skipped']),
@@ -161,6 +170,8 @@ export const readinessSchema = z.strictObject({
   projects: z.array(id(PROJECT_ID_PATTERN)).max(200),
   /** Only sent when `initialize` requested the `resources` feature. */
   resources: z.array(planeResourceSchema).max(64).optional(),
+  /** Only sent when `initialize` requested the `resources` feature. */
+  control: planeControlSchema.optional(),
 });
 
 export const readyFrameSchema = z.strictObject({
@@ -248,6 +259,11 @@ export const reportSchema = z.strictObject({
 export const outcomeLaneSchema = z.strictObject({
   role: boundedText(64),
   resourceId: boundedText(128),
+  // Additive, only sent when `initialize` requested `resources`: who orchestrated a write lane.
+  executor: z.enum(['engine', 'native']).optional(),
+  engine: z.enum(['openworker', 'dsh']).optional(),
+  executorReason: boundedText(64).optional(),
+  controlResourceId: id(RESOURCE_ID_PATTERN).optional(),
 });
 
 export const outcomeSchema = z
@@ -309,6 +325,7 @@ export type DesktopFrame = z.infer<typeof desktopFrameSchema>;
 
 export type PlaneFeature = (typeof PLANE_FEATURES)[number];
 export type PlaneResource = z.infer<typeof planeResourceSchema>;
+export type PlaneControl = z.infer<typeof planeControlSchema>;
 export type PlaneReadiness = z.infer<typeof readinessSchema>;
 export type ReadyFrame = z.infer<typeof readyFrameSchema>;
 export type ProgressEvent = z.infer<typeof progressEventSchema>;

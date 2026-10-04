@@ -714,13 +714,12 @@ export class OperatingService {
         onTask: link,
         onProgress,
       };
-      const result: DirectResult & { readonly delegations?: CoworkResult['delegations'] } =
-        viaCowork
-          ? await executeCowork(
-              { ...request, permission: behavior.cowork.permission },
-              controller.signal,
-            )
-          : await this.ports.executeDirect(request, controller.signal);
+      const result: DirectResult & Pick<CoworkResult, 'delegations' | 'control'> = viaCowork
+        ? await executeCowork(
+            { ...request, permission: behavior.cowork.permission },
+            controller.signal,
+          )
+        : await this.ports.executeDirect(request, controller.signal);
 
       await link(result.taskId);
       if (result.artifacts.length > 0) {
@@ -736,6 +735,18 @@ export class OperatingService {
         ...(result.delegations === undefined || result.delegations.length === 0
           ? {}
           : { delegations: result.delegations }),
+        ...(result.control === undefined
+          ? {}
+          : {
+              control:
+                result.control.path === 'gateway'
+                  ? {
+                      path: 'gateway' as const,
+                      ...(result.resourceId === undefined ? {} : { resourceId: result.resourceId }),
+                      restarts: result.control.restarts,
+                    }
+                  : { path: 'direct-key' as const },
+            }),
       });
       await store.completeTurn(sessionId, turnId, {
         state: cancelled ? 'cancelled' : 'succeeded',

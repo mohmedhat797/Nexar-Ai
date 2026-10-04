@@ -17,6 +17,8 @@
 //   NEXAR_FAKE_PLANE_PROJECTS  comma separated plane project ids (default `plane-proj`)
 //   NEXAR_FAKE_PLANE_RESOURCES `1` reports `readiness.resources` to a Desktop that sent
 //                              `features: ['resources']` (an older Desktop never receives it)
+//   NEXAR_FAKE_PLANE_CONTROL   `1` adds `readiness.control` (the Code control policy) next to the resources
+//   NEXAR_FAKE_PLANE_LANE_FACTS `1` adds the executor facts to the lanes of a committed outcome
 //   NEXAR_FAKE_PLANE_DIFF    `big` makes the diff large and truncated
 //   NEXAR_FAKE_PLANE_LOG       when set, a JSON-lines log of the frames received and of the
 //                              environment variable NAMES this process started with
@@ -208,8 +210,24 @@ function handleRun(frame) {
         ...(process.env.NEXAR_FAKE_PLANE_LANES === '1'
           ? {
               lanes: [
-                { role: 'implementation', resourceId: 'dsh:deepseek' },
-                { role: 'review', resourceId: 'claude-code:sonnet' },
+                {
+                  role: 'implementation',
+                  resourceId: 'dsh:deepseek',
+                  ...(process.env.NEXAR_FAKE_PLANE_LANE_FACTS === '1'
+                    ? {
+                        executor: 'engine',
+                        engine: 'dsh',
+                        controlResourceId: 'pi:deepseek-chat',
+                      }
+                    : {}),
+                },
+                {
+                  role: 'review',
+                  resourceId: 'claude-code:sonnet',
+                  ...(process.env.NEXAR_FAKE_PLANE_LANE_FACTS === '1'
+                    ? { executor: 'native', executorReason: 'engine-not-selected' }
+                    : {}),
+                },
               ],
             }
           : {}),
@@ -288,7 +306,17 @@ function handle(frame) {
           process.env.NEXAR_FAKE_PLANE_RESOURCES === '1' &&
           Array.isArray(frame.features) &&
           frame.features.includes('resources')
-            ? { ...readiness(), resources: FAKE_RESOURCES }
+            ? {
+                ...readiness(),
+                resources: FAKE_RESOURCES,
+                ...(process.env.NEXAR_FAKE_PLANE_CONTROL === '1'
+                  ? {
+                      control: {
+                        code: { mode: 'pinned', resourceId: 'pi:deepseek-chat', fallback: 'none' },
+                      },
+                    }
+                  : {}),
+              }
             : readiness(),
       });
       return;

@@ -68,6 +68,7 @@ export type {
   OperatingSession,
   SessionSummary,
   Turn,
+  TurnControl,
   TurnEngineering,
   TurnEngineeringLane,
   TurnEngineeringStatus,

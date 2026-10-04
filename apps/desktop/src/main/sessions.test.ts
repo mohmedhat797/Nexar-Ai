@@ -774,6 +774,87 @@ describe('sessions: intent, lanes and confirmation', () => {
   });
 });
 
+describe('sessions: control and executor facts (NXR-065a)', () => {
+  it('shows how a Cowork task ran its control loop and which executor served each Code lane', async () => {
+    const session = await create(h);
+    const begin = await h.sessionStore.beginTurn(session.id, {
+      submissionKey: KEY1,
+      text: 'work',
+      state: 'running',
+      intent: { kind: 'general', source: 'explicit', ruleIds: [], policy: 'desktop-explicit@1' },
+    });
+    const turnId = begin.turn.id;
+    await h.sessionStore.linkTask(session.id, turnId, { taskId: 'task-cw', state: 'running' });
+    await h.sessionStore.updateTask(session.id, turnId, 'task-cw', {
+      state: 'succeeded',
+      resourceId: 'ctl-model',
+      control: { path: 'gateway', resourceId: 'ctl-model', restarts: 1 },
+    });
+    await h.sessionStore.completeTurn(session.id, turnId, {
+      state: 'succeeded',
+      outcome: {
+        text: 'done',
+        engineering: {
+          planeTaskId: 'task_1',
+          status: 'reported',
+          lanes: [
+            {
+              role: 'implementation',
+              resourceId: 'dsh:deepseek',
+              executor: 'engine',
+              engine: 'dsh',
+              controlResourceId: 'pi:deepseek-chat',
+            },
+            {
+              role: 'review',
+              resourceId: 'claude-code',
+              executor: 'native',
+              executorReason: 'engine-not-selected',
+            },
+          ],
+        },
+      },
+    });
+    const turn = (await fetchSession(h, session.id)).turns[0];
+    expect(turn?.tasks[0]?.control).toEqual({
+      path: 'gateway',
+      resourceId: 'ctl-model',
+      restarts: 1,
+    });
+    expect(turn?.outcome?.engineering?.lanes).toEqual([
+      {
+        role: 'implementation',
+        resourceId: 'dsh:deepseek',
+        executor: 'engine',
+        engine: 'dsh',
+        controlResourceId: 'pi:deepseek-chat',
+      },
+      {
+        role: 'review',
+        resourceId: 'claude-code',
+        executor: 'native',
+        executorReason: 'engine-not-selected',
+      },
+    ]);
+  });
+
+  it('leaves the fields out for turns that carry no control facts', async () => {
+    const session = await create(h);
+    const begin = await h.sessionStore.beginTurn(session.id, {
+      submissionKey: KEY1,
+      text: 'plain',
+      state: 'running',
+      intent: { kind: 'general', source: 'explicit', ruleIds: [], policy: 'desktop-explicit@1' },
+    });
+    await h.sessionStore.linkTask(session.id, begin.turn.id, {
+      taskId: 'task-1',
+      state: 'running',
+    });
+    const task = (await fetchSession(h, session.id)).turns[0]?.tasks[0];
+    expect(task).toEqual({ taskId: 'task-1', state: 'running' });
+  });
+});
+
 describe('sessions: restart and availability', () => {
   it('marks a running turn interrupted when a new process takes the lease, and frees the session', async () => {
     const session = await create(h);

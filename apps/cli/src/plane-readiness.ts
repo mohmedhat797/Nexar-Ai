@@ -10,16 +10,20 @@ import {
   PLAN_ID_PATTERN,
   PROJECT_ID_PATTERN,
   RESOURCE_ID_PATTERN,
+  type PlaneControl,
   type PlaneReadiness,
   type PlaneResource,
+  type RunOutcome,
 } from '@nexar/plane-protocol';
 import {
+  DEFAULT_CONTROL_RESOURCE_POLICY,
   connectionOf,
   isControlCompatible,
   type Logger,
   type ResourceSnapshot,
 } from '@nexar/contracts';
 import type { LoadedConfig } from '@nexar/core';
+import type { OutcomeLane } from '@nexar/engineering';
 import type { CliSeams, PlaneRegistry } from './args.js';
 import { builtinEngineeringPlansDir, compose } from './composition.js';
 import type { CliIo } from './io.js';
@@ -133,6 +137,35 @@ function projectIds(loaded: LoadedConfig): string[] {
     .map((project) => project.id)
     .filter((id) => PROJECT_ID_PATTERN.test(id))
     .slice(0, MAX_PROJECTS);
+}
+
+/** The Code lane's owner policy (`orchestration.code.controlResource`), or the default. */
+export function controlOf(loaded: LoadedConfig): PlaneControl {
+  const { mode, resourceId, fallback } =
+    loaded.config.orchestration?.code?.controlResource ?? DEFAULT_CONTROL_RESOURCE_POLICY;
+  return {
+    code: {
+      mode,
+      fallback,
+      ...(resourceId !== undefined && RESOURCE_ID_PATTERN.test(resourceId) ? { resourceId } : {}),
+    },
+  };
+}
+
+type LaneFacts = Omit<NonNullable<RunOutcome['lanes']>[number], 'role' | 'resourceId'>;
+
+/** The executor facts of a lane, bounded and shape-checked against the protocol's patterns. */
+export function laneFacts(lane: OutcomeLane): LaneFacts {
+  return {
+    ...(lane.executor === undefined ? {} : { executor: lane.executor }),
+    ...(lane.engine === undefined ? {} : { engine: lane.engine }),
+    ...(lane.executorReason === undefined || lane.executorReason === ''
+      ? {}
+      : { executorReason: lane.executorReason.slice(0, 64) }),
+    ...(lane.controlResourceId !== undefined && RESOURCE_ID_PATTERN.test(lane.controlResourceId)
+      ? { controlResourceId: lane.controlResourceId }
+      : {}),
+  };
 }
 
 const MAX_RESOURCES = 64;

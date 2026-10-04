@@ -99,6 +99,16 @@ describe.skipIf(process.platform === 'win32')('EngineeringRunner: engine gateway
       });
       expect(lane.executorReason).toBeUndefined();
     }
+    // The outcome carries the executor facts (never the decision id) for the lanes that had a session.
+    const engineLanes = (outcome.lanes ?? []).filter((l) => l.executor === 'engine');
+    expect(engineLanes.length).toBeGreaterThan(0);
+    for (const lane of engineLanes) {
+      expect(lane).toMatchObject({ engine: 'dsh', controlResourceId: 'control-model' });
+      expect(lane).not.toHaveProperty('controlDecisionId');
+    }
+    expect((outcome.lanes ?? []).filter((l) => l.role === 'review').every((l) => !l.executor)).toBe(
+      true,
+    );
     // Every opened session was closed, and only write lanes opened one.
     expect(engine.closed).toBe(engine.opened.length);
     expect(engine.opened.every((l) => l.access === 'read-write' && l.projectId === 'demo')).toBe(
@@ -140,7 +150,11 @@ describe.skipIf(process.platform === 'win32')('EngineeringRunner: engine gateway
   it('records engine-not-selected and passes no gateway when routing picks another resource', async () => {
     const engine = new FakeLaneEngine({ engineResourceId: 'architect' });
     const x = await harness(engine);
-    expect((await x.run()).status).toBe('committed');
+    const outcome = await x.run();
+    expect(outcome.status).toBe('committed');
+    expect(outcome.lanes?.find((l) => l.executorReason === 'engine-not-selected')).toMatchObject({
+      executor: 'native',
+    });
     const feature = x.adapter.calls.find((c) => c.lane === 'feature');
     expect(feature?.resourceId).toBe('impl');
     expect(feature?.gateway).toBeUndefined();

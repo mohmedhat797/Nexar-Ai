@@ -77,6 +77,14 @@ export interface ResourceRow {
   readonly costModel: string;
   readonly capabilities: readonly string[];
   readonly detail?: string;
+  /** How the resource's provider is reached (ADR-027 section 3); absent when not inferable. */
+  readonly connection?: {
+    readonly provider?: string;
+    readonly method: 'subscription' | 'api' | 'local' | 'custom';
+    readonly support: 'official' | 'experimental';
+  };
+  /** Whether the resource can drive that engine's control loop (`model-turn`). */
+  readonly control: { readonly openworker: boolean; readonly dsh: boolean };
 }
 
 export type MeasuredNumber =
@@ -200,6 +208,12 @@ export interface PlaneStatusDto {
   readonly projects: readonly string[];
   /** The plane's resources; absent when the plane (older) does not report them. */
   readonly planeResources?: readonly PlaneResourceDto[];
+  /** The plane's Code control-resource policy; absent when an older plane does not report it. */
+  readonly codeControl?: {
+    readonly mode: 'auto' | 'pinned';
+    readonly resourceId?: string;
+    readonly fallback: 'auto' | 'none';
+  };
   readonly checkedAt: string;
   /** Present when the call named a Desktop project. */
   readonly project?: ProjectPlaneDto;
@@ -314,6 +328,12 @@ export interface TurnDto {
     readonly taskId: string;
     readonly state: string;
     readonly resourceId?: string;
+    /** Cowork: how the control loop ran. Ids, an enum and a count only. */
+    readonly control?: {
+      readonly path: 'gateway' | 'direct-key';
+      readonly resourceId?: string;
+      readonly restarts?: number;
+    };
   }[];
   readonly artifacts: readonly ArtifactDto[];
   readonly outcome?: {
@@ -329,7 +349,14 @@ export interface TurnEngineeringDto {
   readonly planeTaskId: string;
   readonly status: 'committed' | 'reported' | 'not-accepted' | 'failed' | 'cancelled';
   /** Lane role to the resource id that served it (change and report runs). */
-  readonly lanes?: readonly { readonly role: string; readonly resourceId: string }[];
+  readonly lanes?: readonly {
+    readonly role: string;
+    readonly resourceId: string;
+    readonly executor?: 'engine' | 'native';
+    readonly engine?: 'openworker' | 'dsh';
+    readonly executorReason?: string;
+    readonly controlResourceId?: string;
+  }[];
   readonly branch?: string;
   readonly commit?: string;
   readonly files?: number;

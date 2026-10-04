@@ -225,6 +225,27 @@ describe('probe states', () => {
     expect(text).not.toContain('anthropic.subscription');
   });
 
+  it('maps the plane Code control policy to ids and enums only', async () => {
+    const { plane: p } = plane(
+      fakeLauncher({ NEXAR_FAKE_PLANE_RESOURCES: '1', NEXAR_FAKE_PLANE_CONTROL: '1' }),
+    );
+    const status = await p.status();
+    expect(status.codeControl).toEqual({
+      mode: 'pinned',
+      resourceId: 'pi:deepseek-chat',
+      fallback: 'none',
+    });
+    expect(p.cachedStatus()).toBe(status);
+  });
+
+  it('has no Code control policy for an older plane that reports none', async () => {
+    const { plane: p } = plane(fakeLauncher({ NEXAR_FAKE_PLANE_RESOURCES: '1' }));
+    const status = await p.status();
+    expect(status.state).toBe('ready');
+    expect(status).not.toHaveProperty('codeControl');
+    expect(plane(fakeLauncher()).plane.cachedStatus()).toBeUndefined();
+  });
+
   it('leaves planeResources undefined for an older plane that sends none', async () => {
     const { plane: p } = plane(fakeLauncher());
     const status = await p.status();
@@ -483,6 +504,28 @@ describe('run', () => {
     expect(result.engineering.lanes).toEqual([
       { role: 'implementation', resourceId: 'dsh:deepseek' },
       { role: 'review', resourceId: 'claude-code:sonnet' },
+    ]);
+  });
+
+  it('passes the executor facts of a lane through, and omits them for an older plane', async () => {
+    const { plane: p } = plane(
+      fakeLauncher({ NEXAR_FAKE_PLANE_LANES: '1', NEXAR_FAKE_PLANE_LANE_FACTS: '1' }),
+    );
+    const result = await p.run(codeRequest().request, new AbortController().signal);
+    expect(result.engineering.lanes).toEqual([
+      {
+        role: 'implementation',
+        resourceId: 'dsh:deepseek',
+        executor: 'engine',
+        engine: 'dsh',
+        controlResourceId: 'pi:deepseek-chat',
+      },
+      {
+        role: 'review',
+        resourceId: 'claude-code:sonnet',
+        executor: 'native',
+        executorReason: 'engine-not-selected',
+      },
     ]);
   });
 

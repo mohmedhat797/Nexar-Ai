@@ -3,6 +3,7 @@ export {
   commitSubject,
   type EngineeringInput,
   type EngineeringOutcome,
+  type OutcomeLane,
   type EngineeringProgress,
   type EngineeringRunOptions,
   type WorktreeOps,

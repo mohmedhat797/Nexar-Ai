@@ -7,6 +7,7 @@ import {
   isNexarError,
   resourceId as toResourceId,
   taskId as toTaskId,
+  type ControlEngine,
   type EngineeringLineage,
   type EngineeringStep,
   type Logger,
@@ -107,6 +108,16 @@ export interface EngineeringRunOptions {
   readonly onProgress?: (event: EngineeringProgress) => void;
 }
 
+/** One completed lane: role and resource, plus the executor facts of an engine gateway attempt. */
+export interface OutcomeLane {
+  readonly role: string;
+  readonly resourceId: string;
+  readonly executor?: 'engine' | 'native';
+  readonly engine?: ControlEngine;
+  readonly executorReason?: string;
+  readonly controlResourceId?: string;
+}
+
 export interface EngineeringOutcome {
   readonly taskId: string;
   readonly status: 'committed' | 'reported' | 'not-accepted' | 'failed' | 'cancelled';
@@ -117,7 +128,7 @@ export interface EngineeringOutcome {
   /** Present only when a report plan produced its report (status `reported`). Bounded to 64 KiB. */
   readonly report?: { readonly text: string; readonly truncated: boolean };
   /** The lane executions that completed, in order (at most 16). Roles and resource ids only. */
-  readonly lanes?: readonly { readonly role: string; readonly resourceId: string }[];
+  readonly lanes?: readonly OutcomeLane[];
   readonly recordPath: string;
 }
 
@@ -231,7 +242,7 @@ export class EngineeringExecution {
   private readonly patches: PatchRecord[] = [];
   private readonly reviews: ReviewRecord[] = [];
   private readonly rwResources = new Set<ResourceId>();
-  private readonly laneExecutions: { role: string; resourceId: string }[] = [];
+  private readonly laneExecutions: OutcomeLane[] = [];
   /** Planned resource per lane id (only lanes the strategy selected a resource for). */
   private readonly planned = new Map<string, ResourceId>();
   private strategy: StrategyRecord | undefined;
@@ -695,7 +706,15 @@ export class EngineeringExecution {
         ...(planned === undefined ? {} : { planned, fallback: planned !== resourceId }),
         ...executorFor(resourceId),
       });
-      this.laneExecutions.push({ role: lane.role, resourceId });
+      const facts = executorFor(resourceId);
+      this.laneExecutions.push({
+        role: lane.role,
+        resourceId,
+        ...('executor' in facts ? { executor: facts.executor } : {}),
+        ...('engine' in facts ? { engine: facts.engine } : {}),
+        ...('executorReason' in facts ? { executorReason: facts.executorReason } : {}),
+        ...('controlResourceId' in facts ? { controlResourceId: facts.controlResourceId } : {}),
+      });
       if (lane.access === 'read-write') this.rwResources.add(toResourceId(resourceId));
       await this.step('lane.completed', {
         lane: lane.id,

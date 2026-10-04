@@ -182,13 +182,14 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  async function writeConfig(engineering: unknown = {}): Promise<void> {
+  async function writeConfig(engineering: unknown = {}, orchestration?: unknown): Promise<void> {
     await writeFile(
       join(dir, 'nexar.config.json'),
       JSON.stringify({
         version: 1,
         resources: [echo],
         routing: { policy: 'deterministic', defaultResourceId: 'local-echo' },
+        ...(orchestration === undefined ? {} : { orchestration }),
         engineering: {
           toolchainPaths: [],
           worktreesDir: join(dir, 'wt'),
@@ -603,6 +604,88 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
           control: { openworker: true, dsh: true },
         },
       ]);
+    });
+
+    it('reports the Code control policy with the resources feature only', async () => {
+      start(
+        approvalRunner(),
+        withResources(() => fakeRegistry(snapshots)),
+      );
+      input.frame({ ...initialize, features: ['resources'] });
+      await waitFor(() => out.includes('"type":"ready"'), 'ready');
+      expect(framesOf('ready')[0]?.readiness.control).toEqual({
+        code: { mode: 'auto', fallback: 'auto' },
+      });
+    });
+
+    it('reports the configured Code control policy', async () => {
+      await writeConfig(
+        {},
+        {
+          code: {
+            controlResource: { mode: 'pinned', resourceId: 'pi-deepseek', fallback: 'none' },
+          },
+        },
+      );
+      start(
+        approvalRunner(),
+        withResources(() => fakeRegistry(snapshots)),
+      );
+      input.frame({ ...initialize, features: ['resources'] });
+      await waitFor(() => out.includes('"type":"ready"'), 'ready');
+      expect(framesOf('ready')[0]?.readiness.control).toEqual({
+        code: { mode: 'pinned', resourceId: 'pi-deepseek', fallback: 'none' },
+      });
+    });
+
+    it('omits the control policy for a Desktop that did not ask for the feature', async () => {
+      start(
+        approvalRunner(),
+        withResources(() => fakeRegistry(snapshots)),
+      );
+      await handshake();
+      expect(framesOf('ready')[0]?.readiness).not.toHaveProperty('control');
+    });
+
+    describe('lane executor facts', () => {
+      const facts = {
+        status: 'committed',
+        lanes: [
+          {
+            role: 'implementation',
+            resourceId: 'dsh:deepseek',
+            executor: 'engine',
+            engine: 'dsh',
+            controlResourceId: 'pi-deepseek',
+          },
+          {
+            role: 'review',
+            resourceId: 'claude-code',
+            executor: 'native',
+            executorReason: 'engine-not-selected',
+          },
+        ],
+      } as const;
+
+      it('are sent to a Desktop that asked for the feature', async () => {
+        start(scriptedRunner(facts));
+        input.frame({ ...initialize, features: ['resources'] });
+        await waitFor(() => out.includes('"type":"ready"'), 'ready');
+        input.frame(runFrame());
+        await waitFor(() => framesOf('completed').length === 1, 'completed');
+        expect(framesOf('completed')[0]?.outcome.lanes).toEqual(facts.lanes);
+      });
+
+      it('are left out for an older Desktop, which keeps only role and resource', async () => {
+        start(scriptedRunner(facts));
+        await handshake();
+        input.frame(runFrame());
+        await waitFor(() => framesOf('completed').length === 1, 'completed');
+        expect(framesOf('completed')[0]?.outcome.lanes).toEqual([
+          { role: 'implementation', resourceId: 'dsh:deepseek' },
+          { role: 'review', resourceId: 'claude-code' },
+        ]);
+      });
     });
 
     it('caps the list at 64 resources', async () => {

@@ -1192,6 +1192,30 @@ describe('OperatingService', () => {
       expect(turn?.artifacts).toHaveLength(1);
     });
 
+    it.each([
+      [
+        { path: 'gateway', controlDecisionId: 'dec-1', restarts: 1 } as const,
+        { path: 'gateway', resourceId: 'res-1', restarts: 1 },
+      ],
+      [{ path: 'direct-key' } as const, { path: 'direct-key' }],
+    ])('records how the control loop ran on the task: %j', async (control, recorded) => {
+      const h = await harness();
+      h.availability.cowork = true;
+      const service = h.makeService({
+        executeCowork: async (request) => {
+          await request.onTask('task-cw');
+          return { taskId: 'task-cw', text: 'a', artifacts: [], resourceId: 'res-1', control };
+        },
+      });
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      const task = (await h.session(s.id)).turns[0]?.tasks[0];
+      expect(task?.control).toEqual(recorded);
+      // The decision id stays in telemetry and records of the engine, not in the session.
+      expect(JSON.stringify(task)).not.toContain('dec-1');
+    });
+
     it('falls back to direct with openworker-unavailable when the lane is unavailable', async () => {
       const { h, requests, service } = await coworkHarness();
       h.availability.cowork = false;

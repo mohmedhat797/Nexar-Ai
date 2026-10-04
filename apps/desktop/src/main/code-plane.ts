@@ -8,6 +8,7 @@ import {
   type DecidedFrame,
   type DesktopFrame,
   type DiffFrame,
+  type PlaneControl,
   type PlaneFrame,
   type PlaneReadiness,
   type PlaneResource,
@@ -128,6 +129,12 @@ function resourceDto(resource: PlaneResource): PlaneResourceDto {
     availability: resource.availability,
     control: { openworker: resource.control.openworker, dsh: resource.control.dsh },
   };
+}
+
+/** The plane's Code control policy as the renderer sees it: enums and one resource id. */
+function controlDto(control: PlaneControl): NonNullable<PlaneStatusDto['codeControl']> {
+  const { mode, resourceId, fallback } = control.code;
+  return { mode, fallback, ...(resourceId === undefined ? {} : { resourceId }) };
 }
 
 /** How a connection that ended or failed before `ready` maps to a state. */
@@ -291,6 +298,11 @@ export class CodePlane {
     return this.refresh();
   }
 
+  /** The last probed status, or `undefined` when none exists yet. Never probes. */
+  cachedStatus(): PlaneStatus | undefined {
+    return this.cached?.status;
+  }
+
   /** Probes now (one probe at a time) and replaces the cache. Never rejects. */
   refresh(): Promise<PlaneStatus> {
     this.inflight ??= this.probe()
@@ -337,7 +349,7 @@ export class CodePlane {
   private statusOf(
     state: PlaneStateDto,
     extra: Partial<
-      Pick<PlaneStatus, 'planeVersion' | 'kernel' | 'projects' | 'planeResources'>
+      Pick<PlaneStatus, 'planeVersion' | 'kernel' | 'projects' | 'planeResources' | 'codeControl'>
     > = {},
     reason: string = PLANE_REASONS[state],
   ): PlaneStatus {
@@ -348,6 +360,7 @@ export class CodePlane {
       ...(extra.planeVersion === undefined ? {} : { planeVersion: extra.planeVersion }),
       ...(extra.kernel === undefined ? {} : { kernel: extra.kernel }),
       ...(extra.planeResources === undefined ? {} : { planeResources: extra.planeResources }),
+      ...(extra.codeControl === undefined ? {} : { codeControl: extra.codeControl }),
       checkedAt: new Date(this.now()).toISOString(),
     };
   }
@@ -420,6 +433,9 @@ export class CodePlane {
       ...(ready.readiness.resources === undefined
         ? {}
         : { planeResources: ready.readiness.resources.map(resourceDto) }),
+      ...(ready.readiness.control === undefined
+        ? {}
+        : { codeControl: controlDto(ready.readiness.control) }),
     });
   }
 
@@ -810,7 +826,18 @@ export class CodePlane {
     const laneFields =
       lanes === undefined || lanes.length === 0
         ? {}
-        : { lanes: lanes.map(({ role, resourceId }) => ({ role, resourceId })) };
+        : {
+            lanes: lanes.map(
+              ({ role, resourceId, executor, engine, executorReason, controlResourceId }) => ({
+                role,
+                resourceId,
+                ...(executor === undefined ? {} : { executor }),
+                ...(engine === undefined ? {} : { engine }),
+                ...(executorReason === undefined ? {} : { executorReason }),
+                ...(controlResourceId === undefined ? {} : { controlResourceId }),
+              }),
+            ),
+          };
     const status = outcome.status;
     if (status === 'reported') {
       // Only a review or plan run may end `reported`, and it must carry the report.
