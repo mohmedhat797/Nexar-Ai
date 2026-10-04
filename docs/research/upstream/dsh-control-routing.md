@@ -36,9 +36,13 @@ sandbox? Decision: [ADR-027 §9b](../../adr/027-resource-orchestration-architect
   socat bridge and `NODE_USE_ENV_PROXY=1`, and strips any caller `NO_PROXY`
   (`packages/sandbox/src/launcher.ts`). Node's env proxy would therefore send
   `http://127.0.0.1:<port>` to the egress proxy, which allows only allowlisted CONNECT targets and
-  denies it. The launcher must set `NO_PROXY=127.0.0.1` exactly when the gateway service is mounted.
-- DSH sets no global dispatcher of its own in `llm-pi-ai` (no proxy/dispatcher code in the package);
-  a repository-wide search was not completed (UNVERIFIED), so the 064 E2E must exercise the path.
+  denies it. The launcher sets `NO_PROXY=127.0.0.1` exactly when the gateway service is mounted.
+- DSH itself installs a proxy dispatcher from the environment at boot
+  (`apps/cli/src/profile-boot.ts` → `@deepseek-ai/dsh-http-proxy`), and its policy always merges
+  loopback into the bypass list (`packages/util/http-proxy/src/policy.ts`, `LOOPBACK_NO_PROXY`:
+  `localhost`, `127.0.0.0/8`, `::1`). So DSH's own calls to `127.0.0.1` bypass the egress proxy even
+  without `NO_PROXY`; the launcher still sets it with the gateway service for any other Node process
+  in the sandbox that relies on `NODE_USE_ENV_PROXY`.
 - The proxy pattern already relays a host unix socket (`proxy.sock` in the per-launch run dir) to a
   loopback TCP port inside the network namespace with socat (`profile.ts`). The gateway reuses it:
   `gateway.sock` → `127.0.0.1:<in-sandbox port>`. The translator's Host-header guard must accept that
