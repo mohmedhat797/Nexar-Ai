@@ -18,7 +18,8 @@ afterEach(() => {
 });
 
 async function harness(): Promise<Harness> {
-  h = await createHarness({ newId: () => TASK });
+  // No approver: the pipeline ends not-accepted right after the lanes (it never waits for one).
+  h = await createHarness({ newId: () => TASK, approvalMode: 'deny-all' });
   return h;
 }
 
@@ -138,6 +139,7 @@ describe('EngineeringExecution: strategy planning', () => {
   it('keeps owner lane preferences after the planned resource', async () => {
     h = await createHarness({
       newId: () => TASK,
+      approvalMode: 'deny-all',
       engineering: { lanePreferences: { feature: ['impl'] } },
     });
     const seen = spyPreferences(h);
