@@ -10,6 +10,7 @@
   "include": [
     "src/main/**/*.ts",
     "src/control-gateway/**/*.ts",
+    "src/signin-callback/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts"
   ],
@@ -21,6 +22,7 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/engine-gateway" },
     { "path": "../../packages/host" },
+    { "path": "../../integrations/openai-account" },
     { "path": "../../integrations/openai-compat" },
     { "path": "../../integrations/openworker" },
     { "path": "../../packages/operating" },

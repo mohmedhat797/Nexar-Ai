@@ -21,6 +21,7 @@
     "@nexar/core": "workspace:*",
     "@nexar/engine-gateway": "workspace:*",
     "@nexar/host": "workspace:*",
+    "@nexar/integration-openai-account": "workspace:*",
     "@nexar/integration-openai-compat": "workspace:*",
     "@nexar/integration-openworker": "workspace:*",
     "@nexar/operating": "workspace:*",

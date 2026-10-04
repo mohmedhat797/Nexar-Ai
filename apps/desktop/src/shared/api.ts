@@ -13,6 +13,8 @@ export type {
 } from './behavior.js';
 import type { SubscriptionRow } from './subscriptions.js';
 export type { SubscriptionRow } from './subscriptions.js';
+import type { ChatGptPlanStatus } from './chatgpt-plan.js';
+export type { ChatGptPlanStatus } from './chatgpt-plan.js';
 import type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 export type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 
@@ -410,6 +412,12 @@ export interface NexarApi {
   refreshSubscription(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
   startSubscriptionLogin(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
   cancelSubscriptionLogin(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
+  /** The ChatGPT plan connection (NXR-067): status only; no token, code or URL crosses the bridge. */
+  chatgptPlanStatus(): Promise<BridgeResult<ChatGptPlanStatus>>;
+  /** Owner-initiated; resolves when the browser sign-in finishes or is cancelled. */
+  connectChatgptPlan(): Promise<BridgeResult<ChatGptPlanStatus>>;
+  cancelChatgptPlan(): Promise<BridgeResult<ChatGptPlanStatus>>;
+  disconnectChatgptPlan(): Promise<BridgeResult<ChatGptPlanStatus>>;
   saveProviderKeyFromClipboard(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   removeProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   checkProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;

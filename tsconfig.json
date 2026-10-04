@@ -62,6 +62,9 @@
       "path": "./integrations/openai-compat"
     },
     {
+      "path": "./integrations/openai-account"
+    },
+    {
       "path": "./packages/host"
     },
     {

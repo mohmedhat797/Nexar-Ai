@@ -114,6 +114,9 @@ importers:
       '@nexar/host':
         specifier: workspace:*
         version: link:../../packages/host
+      '@nexar/integration-openai-account':
+        specifier: workspace:*
+        version: link:../../integrations/openai-account
       '@nexar/integration-openai-compat':
         specifier: workspace:*
         version: link:../../integrations/openai-compat
@@ -282,6 +285,18 @@ importers:
       '@nexar/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
+
+  integrations/openai-account:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   integrations/openai-compat:
     dependencies:

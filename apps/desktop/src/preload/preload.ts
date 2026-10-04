@@ -10,6 +10,7 @@ import {
   PROVIDER_ERROR_MESSAGE,
 } from '../shared/providers.js';
 import type { BridgeResult } from '../shared/api.js';
+import { ChatGptPlanStatusSchema } from '../shared/chatgpt-plan.js';
 import {
   EndpointListSchema,
   EndpointSaveSchema,
@@ -53,6 +54,7 @@ async function invokeProvider<S extends z.ZodType>(
             'CONFIGURATION_ERROR',
             'POLICY_REJECTED',
             'CONFLICT',
+            'PROVIDER_ERROR',
             'INTERNAL_ERROR',
           ]),
           message: z.enum([
@@ -91,6 +93,14 @@ const api: NexarApi = {
   setBehavior: (args) => invoke(CHANNELS.behaviorSet, args),
   listProviders: () =>
     invokeProvider(CHANNELS.providersList, {}, ProviderListSchema, z.strictObject({})),
+  chatgptPlanStatus: () =>
+    invokeProvider(CHANNELS.chatgptPlanStatus, {}, ChatGptPlanStatusSchema, z.strictObject({})),
+  connectChatgptPlan: () =>
+    invokeProvider(CHANNELS.chatgptPlanConnect, {}, ChatGptPlanStatusSchema, z.strictObject({})),
+  cancelChatgptPlan: () =>
+    invokeProvider(CHANNELS.chatgptPlanCancel, {}, ChatGptPlanStatusSchema, z.strictObject({})),
+  disconnectChatgptPlan: () =>
+    invokeProvider(CHANNELS.chatgptPlanDisconnect, {}, ChatGptPlanStatusSchema, z.strictObject({})),
   listSubscriptions: () =>
     invokeProvider(CHANNELS.subscriptionsList, {}, SubscriptionListSchema, z.strictObject({})),
   refreshSubscription: (runtime) =>

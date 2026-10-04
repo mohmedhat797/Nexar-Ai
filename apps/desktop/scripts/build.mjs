@@ -60,4 +60,16 @@ await build({
   logLevel: 'info',
 });
 
+// The loopback redirect target of one ChatGPT sign-in: a short-lived child per sign-in (ADR-021: main
+// opens no listener), launched the same way, so it is one self-contained CommonJS file too.
+await build({
+  entryPoints: [at('src/signin-callback/main.ts')],
+  outfile: at('dist/main/signin-callback.cjs'),
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  target: 'node22',
+  logLevel: 'info',
+});
+
 await viteBuild({ configFile: at('vite.config.ts'), logLevel: 'info' });

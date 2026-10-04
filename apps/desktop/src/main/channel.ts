@@ -12,6 +12,7 @@ import type { CoworkService } from './cowork.js';
 import type { SettingsStore } from './settings-store.js';
 import type { ProviderService } from './providers.js';
 import type { SubscriptionService } from './subscriptions.js';
+import type { ChatGptPlanService } from './chatgpt-plan.js';
 import type { LocalEndpointService } from './local-endpoints.js';
 
 /** The slice of Electron's `dialog` the bridge uses; tests substitute a fake. */
@@ -55,6 +56,7 @@ export interface BridgeDeps {
   readonly settings: SettingsStore;
   readonly providers?: ProviderService;
   readonly subscriptions?: SubscriptionService;
+  readonly chatgptPlan?: ChatGptPlanService;
   readonly localEndpoints?: LocalEndpointService;
   /** The WSL2 engineering-plane bridge (ADR-025); absent in tests that do not need it. */
   readonly codePlane?: CodePlane;

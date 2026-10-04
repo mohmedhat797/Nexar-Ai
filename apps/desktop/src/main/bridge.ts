@@ -18,6 +18,7 @@ import {
 } from './channel.js';
 import { createOperating } from './operating.js';
 import { projectChannels } from './projects.js';
+import { chatgptPlanChannels } from './chatgpt-plan.js';
 import { providerChannels } from './providers.js';
 import { subscriptionChannels } from './subscriptions.js';
 import { localEndpointChannels } from './local-endpoints.js';
@@ -55,6 +56,7 @@ export function createBridge(deps: BridgeDeps): Bridge {
     [CHANNELS.settingsSet]: defineChannel(SettingsPatchSchema, (patch) => deps.settings.set(patch)),
     ...projectChannels,
     ...providerChannels,
+    ...chatgptPlanChannels,
     ...subscriptionChannels,
     ...localEndpointChannels,
     ...resourceChannels,

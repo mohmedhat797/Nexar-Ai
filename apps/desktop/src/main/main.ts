@@ -20,7 +20,10 @@ import { CoworkService, createScriptSpawn } from './cowork.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
+import { ChatGptPlanService } from './chatgpt-plan.js';
+import { installationId } from './installation-id.js';
 import { ProviderService } from './providers.js';
+import { SigninCallbackSupervisor } from './signin-callback-child.js';
 import { SubscriptionService } from './subscriptions.js';
 import { LocalEndpointService } from './local-endpoints.js';
 import { createStderrLogger } from './logger.js';
@@ -137,6 +140,16 @@ async function start(): Promise<void> {
     createNativeSubscriptions({ env: engineEnv, cwd: app.getPath('home') }),
   );
   app.on('before-quit', () => subscriptions.dispose());
+  // The ChatGPT plan connection (ADR-022 amendment 2026-10-05): sign-ins start only from the owner's click;
+  // the loopback callback lives in a per-sign-in child, never in this process.
+  const chatgptPlan = new ChatGptPlanService({
+    keys,
+    callback: new SigninCallbackSupervisor(),
+    openExternal: (url) => shell.openExternal(url),
+    installationId: () => installationId(userData),
+    logger,
+  });
+  app.on('before-quit', () => chatgptPlan.dispose());
 
   // Operating Sessions (ADR-024): this process is the single writer. If another Nexar process holds
   // the lease, sessions stay unavailable (every session channel answers CONFLICT) instead of racing it.
@@ -282,6 +295,7 @@ async function start(): Promise<void> {
     settings,
     providers,
     subscriptions,
+    chatgptPlan,
     localEndpoints: new LocalEndpointService(config, engine),
     logger,
     // Looked up per call, so a test can replace `dialog.showOpenDialog`.
