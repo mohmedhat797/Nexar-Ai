@@ -12,3 +12,10 @@ condition = "AND"
 paths = ['''^apps/desktop/src/main/providers\.test\.ts$''']
 regexTarget = "secret"
 regexes = ['''^preserved_submission_1$''']
+
+[[rules.allowlists]]
+description = "Fake bridge token fixture in the loopback translator tests"
+condition = "AND"
+paths = ['''^apps/desktop/src/control-gateway/server\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^tok-0123456789abcdef$''']
