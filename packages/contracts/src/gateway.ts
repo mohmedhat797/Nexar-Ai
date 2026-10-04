@@ -1,7 +1,11 @@
+import type { Capability } from './capabilities.js';
 import type { ControlEngine } from './connection.js';
 import { NexarError } from './errors.js';
+import type { NexarErrorCode } from './errors.js';
 import type { Measured } from './measured.js';
 import type { ResourceDescriptor } from './resource.js';
+import type { QualityClass } from './strategy.js';
+import type { TaskKind } from './task.js';
 
 /** A tool call requested by the model; the engine executes it, never Nexar. */
 export interface ModelTurnToolCall {
@@ -193,5 +197,131 @@ export function validateControlTurnRequest(request: ControlTurnRequest): void {
   }
   if (sizeOf({ messages, tools }) > CONTROL_TURN_LIMITS.maxRequestBytes) {
     throw invalid(`A turn request exceeds ${String(CONTROL_TURN_LIMITS.maxRequestBytes)} bytes`);
+  }
+}
+
+/** Lineage of an Intelligence Execution request (ADR-024); ids only, minted by Nexar. */
+export interface IntelligenceLineage extends ControlLineage {
+  /** Orchestrators already in this chain, root first. */
+  readonly chain: readonly string[];
+}
+
+/** One bounded substantive unit an engine asks Nexar to execute (ADR-027 §7B). */
+export interface IntelligenceRequest {
+  readonly lineage: IntelligenceLineage;
+  readonly unitId: string;
+  readonly kind: TaskKind;
+  readonly requirements: {
+    readonly capabilities: readonly Capability[];
+    readonly qualityClass?: QualityClass;
+  };
+  /** Untrusted text the unit acts on (ADR-017). */
+  readonly input: string;
+  /** Opaque document references, never content. */
+  readonly documentRefs?: readonly string[];
+  readonly access: 'read-only' | 'draft';
+  readonly timeoutMs?: number;
+  readonly budgetUsd?: number;
+}
+
+export interface IntelligenceResult {
+  readonly unitId: string;
+  readonly outcome: 'succeeded' | 'failed' | 'cancelled';
+  readonly text?: string;
+  readonly usage: {
+    readonly inputTokens: Measured<number>;
+    readonly outputTokens: Measured<number>;
+    readonly costUsd: Measured<number>;
+  };
+  readonly decisionId?: string;
+  readonly resourceId?: string;
+  readonly errorCode?: NexarErrorCode;
+}
+
+/** The turn-scoped identity of an engine (ADR-015) as data; minted by Nexar, never by a request. */
+export interface BridgeGrant {
+  readonly grantId: string;
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly projectId: string;
+  readonly engine: ControlEngine;
+  readonly access: 'read-only' | 'draft';
+  readonly budgetUsd?: number;
+  readonly maxUnits: number;
+  /** ISO-8601. */
+  readonly expiresAt: string;
+}
+
+export const INTELLIGENCE_LIMITS = {
+  maxInputBytes: 256 * 1024,
+  maxDocumentRefs: 32,
+  maxDocumentRefChars: 512,
+  maxTimeoutMs: 30 * 60 * 1000,
+} as const;
+
+const UNIT_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+/** Validates the bounds of an intelligence request. Content is never echoed in the error. */
+export function validateIntelligenceRequest(request: IntelligenceRequest): void {
+  if (typeof request.unitId !== 'string' || !UNIT_ID.test(request.unitId)) {
+    throw invalid('unitId must match ^[A-Za-z0-9_.:-]{1,64}$');
+  }
+  if (typeof request.kind !== 'string' || request.kind.length === 0 || request.kind.length > 64) {
+    throw invalid('kind must be a non-empty string of at most 64 characters');
+  }
+  if (request.access !== 'read-only' && request.access !== 'draft') {
+    throw invalid('access must be read-only or draft');
+  }
+  const caps = request.requirements?.capabilities;
+  if (!isList(caps) || caps.some((c) => typeof c !== 'string' || c.length === 0)) {
+    throw invalid('requirements.capabilities must be a list of strings');
+  }
+  if (typeof request.input !== 'string') throw invalid('input must be a string');
+  if (utf8Length(request.input) > INTELLIGENCE_LIMITS.maxInputBytes) {
+    throw invalid(`input exceeds ${String(INTELLIGENCE_LIMITS.maxInputBytes)} bytes`);
+  }
+  const refs = request.documentRefs;
+  if (refs !== undefined) {
+    if (!isList(refs) || refs.length > INTELLIGENCE_LIMITS.maxDocumentRefs) {
+      throw invalid(`at most ${String(INTELLIGENCE_LIMITS.maxDocumentRefs)} document refs`);
+    }
+    for (const ref of refs) {
+      if (
+        typeof ref !== 'string' ||
+        ref.length === 0 ||
+        ref.length > INTELLIGENCE_LIMITS.maxDocumentRefChars
+      ) {
+        throw invalid(
+          `document refs must be strings of at most ${String(INTELLIGENCE_LIMITS.maxDocumentRefChars)} characters`,
+        );
+      }
+    }
+  }
+  const { timeoutMs, budgetUsd } = request;
+  if (
+    timeoutMs !== undefined &&
+    (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > INTELLIGENCE_LIMITS.maxTimeoutMs)
+  ) {
+    throw invalid(
+      `timeoutMs must be a positive integer of at most ${String(INTELLIGENCE_LIMITS.maxTimeoutMs)}`,
+    );
+  }
+  if (budgetUsd !== undefined && (!Number.isFinite(budgetUsd) || budgetUsd < 0)) {
+    throw invalid('budgetUsd must be a finite number >= 0');
+  }
+  const lineage = request.lineage;
+  if (
+    typeof lineage !== 'object' ||
+    lineage === null ||
+    !isList(lineage.chain) ||
+    lineage.chain.length > 8 ||
+    lineage.chain.some((c) => typeof c !== 'string' || c.length === 0 || c.length > 64) ||
+    [lineage.rootSessionId, lineage.turnId, lineage.correlationId].some(
+      (id) => typeof id !== 'string' || id.length === 0 || id.length > 128,
+    ) ||
+    !Number.isInteger(lineage.depth) ||
+    lineage.depth < 0
+  ) {
+    throw invalid('lineage is malformed');
   }
 }

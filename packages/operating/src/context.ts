@@ -30,11 +30,11 @@ export interface BuiltContext {
 }
 
 /** Same rule as `neutralize` in `@nexar/workflows`: an embedded value cannot close the wrapper. */
-function neutralize(value: string): string {
+export function neutralize(value: string): string {
   return value.replace(/<(\s*)\/(\s*)untrusted-input/gi, '<$1/$2untrusted_input');
 }
 
-function wrap(name: string, lines: readonly string[]): string[] {
+export function wrap(name: string, lines: readonly string[]): string[] {
   return [`<untrusted-input name="${name}">`, ...lines, '</untrusted-input>'];
 }
 

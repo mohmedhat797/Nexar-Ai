@@ -15,16 +15,25 @@ import {
   type RoutingInput,
   type RoutingPolicy,
   type ResourceStrategy,
+  type StrategyLedger,
+  type StrategyPolicyStamp,
   type WorkGraph,
+  type WorkUnit,
 } from '@nexar/contracts';
 import type { ResourceRegistry } from '@nexar/resource-registry';
 import { isFallbackRoutingPolicy } from './fallback.js';
 import { estimateTaskSize, laneRoleOf } from './size.js';
-import { planStrategy, type StrategySettings } from './strategy.js';
+import { allocateNext, planStrategy, type StrategySettings } from './strategy.js';
 
 /** Plans resources for a whole work graph (ADR-027 §10). */
 export interface ResourceStrategist {
   planStrategy(graph: WorkGraph, settings?: StrategySettings): Promise<ResourceStrategy>;
+  /** Allocates one more unit against a running ledger (dynamic engines, ADR-027 section 7B). */
+  allocate(
+    ledger: StrategyLedger,
+    unit: WorkUnit,
+    settings?: StrategySettings,
+  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger }>;
 }
 
 /** Supplies quota observations per resource (ADR-020 §4); read outside the policy. */
@@ -111,6 +120,52 @@ export class ResourceController implements ResourceRouter, ResourceStrategist {
         ...planned,
         policy: { ...planned.policy, base: { ...planned.policy.base, fallback } },
       };
+    }
+  }
+
+  /** Allocates one unit against `ledger` with the same inputs and fallback rule as `route()`. */
+  async allocate(
+    ledger: StrategyLedger,
+    unit: WorkUnit,
+    settings?: StrategySettings,
+  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger }> {
+    const now = this.clock();
+    const { candidates, history } = await this.gather(now);
+    const input = {
+      ledger,
+      unit,
+      candidates,
+      now,
+      ...(history === undefined ? {} : { history }),
+      ...(settings === undefined ? {} : { settings }),
+    };
+    try {
+      return allocateNext({ ...input, policy: this.policy });
+    } catch (error) {
+      // Same rule as route(): fail closed unless the policy can rank its hard-filter stage.
+      if (!isFallbackRoutingPolicy(this.policy)) throw error;
+      const policy = this.policy;
+      const fallback = {
+        from: `${policy.name}@${policy.version}`,
+        reason: error instanceof NexarError ? error.code : 'INTERNAL_ERROR',
+      };
+      this.logger?.warn('routing policy failed; using deterministic fallback', { ...fallback });
+      const allocated = allocateNext({
+        ...input,
+        policy: {
+          name: 'deterministic',
+          version: '1',
+          ...(policy.configId === undefined ? {} : { configId: policy.configId }),
+          evaluate: (i) => policy.evaluateFallback(i),
+        },
+      });
+      const stamp = allocated.decision.policy as StrategyPolicyStamp;
+      const stamped: StrategyPolicyStamp = {
+        ...stamp,
+        fallback,
+        base: { ...stamp.base, fallback },
+      };
+      return { ...allocated, decision: { ...allocated.decision, policy: stamped } };
     }
   }
 

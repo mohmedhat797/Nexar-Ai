@@ -366,6 +366,9 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@nexar/operating':
+        specifier: workspace:*
+        version: link:../operating
       '@nexar/resource-controller':
         specifier: workspace:*
         version: link:../resource-controller

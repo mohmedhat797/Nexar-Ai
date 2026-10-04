@@ -11,6 +11,9 @@
       "path": "../contracts"
     },
     {
+      "path": "../operating"
+    },
+    {
       "path": "../resource-controller"
     }
   ]

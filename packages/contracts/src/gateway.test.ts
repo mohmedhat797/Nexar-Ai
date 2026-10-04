@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { CONTROL_TURN_LIMITS, validateControlTurnRequest } from './gateway.js';
-import type { ControlTurnRequest, ModelTurnMessage } from './gateway.js';
+import {
+  CONTROL_TURN_LIMITS,
+  INTELLIGENCE_LIMITS,
+  validateControlTurnRequest,
+  validateIntelligenceRequest,
+} from './gateway.js';
+import type { ControlTurnRequest, IntelligenceRequest, ModelTurnMessage } from './gateway.js';
 
 const base: ControlTurnRequest = {
   lineage: { rootSessionId: 's', turnId: 't', correlationId: 'c', depth: 0 },
@@ -74,5 +79,62 @@ describe('validateControlTurnRequest', () => {
     expect(() => check({ messages: [{ role: 'user', content: 5 as unknown as string }] })).toThrow(
       /string/,
     );
+  });
+});
+
+describe('validateIntelligenceRequest', () => {
+  const ok: IntelligenceRequest = {
+    lineage: { rootSessionId: 's', turnId: 't', correlationId: 'c', depth: 0, chain: ['nexar'] },
+    unitId: 'unit_1.a:b-c',
+    kind: 'analysis',
+    requirements: { capabilities: ['text-generation'] },
+    input: 'hello',
+    access: 'read-only',
+  };
+  const check = (patch: Partial<IntelligenceRequest>): void =>
+    validateIntelligenceRequest({ ...ok, ...patch });
+
+  it('accepts a well-formed request and the boundary values', () => {
+    expect(() => check({})).not.toThrow();
+    expect(() =>
+      check({
+        unitId: 'x'.repeat(64),
+        input: 'a'.repeat(INTELLIGENCE_LIMITS.maxInputBytes),
+        documentRefs: Array.from({ length: 32 }, () => 'r'.repeat(512)),
+        timeoutMs: INTELLIGENCE_LIMITS.maxTimeoutMs,
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects bad unit ids', () => {
+    for (const unitId of ['', 'x'.repeat(65), 'has space', 'a/b', 'a\nb']) {
+      expect(() => check({ unitId })).toThrow(/unitId/);
+    }
+  });
+
+  it('bounds input by bytes, not characters', () => {
+    expect(() => check({ input: 'a'.repeat(INTELLIGENCE_LIMITS.maxInputBytes + 1) })).toThrow(
+      /input/,
+    );
+    expect(() => check({ input: 'é'.repeat(INTELLIGENCE_LIMITS.maxInputBytes / 2 + 1) })).toThrow(
+      /input/,
+    );
+  });
+
+  it('bounds document refs and timeout', () => {
+    expect(() => check({ documentRefs: Array.from({ length: 33 }, () => 'r') })).toThrow(/refs/);
+    expect(() => check({ documentRefs: ['r'.repeat(513)] })).toThrow(/refs/);
+    expect(() => check({ documentRefs: [''] })).toThrow(/refs/);
+    expect(() => check({ timeoutMs: INTELLIGENCE_LIMITS.maxTimeoutMs + 1 })).toThrow(/timeoutMs/);
+    expect(() => check({ timeoutMs: 0 })).toThrow(/timeoutMs/);
+    expect(() => check({ budgetUsd: -1 })).toThrow(/budgetUsd/);
+  });
+
+  it('never echoes the input in an error', () => {
+    try {
+      check({ unitId: 'SENTINEL bad id', input: 'SENTINEL' });
+    } catch (e) {
+      expect(String((e as Error).message)).not.toContain('SENTINEL');
+    }
   });
 });

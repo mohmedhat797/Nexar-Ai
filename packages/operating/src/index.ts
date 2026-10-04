@@ -11,7 +11,11 @@ export {
   MAX_CONTEXT_SIDE_CHARS,
   MAX_CONTEXT_TURNS,
 } from './context.js';
-export { buildContext } from './context.js';
+export {
+  buildContext,
+  neutralize as neutralizeUntrusted,
+  wrap as wrapUntrusted,
+} from './context.js';
 export type { BuildContextInput, BuiltContext } from './context.js';
 export { MAX_DELEGATION_DEPTH, childTask, delegate, rootCorrelation } from './correlation.js';
 export type { Orchestrator, OperatingCorrelation } from './correlation.js';

@@ -12,7 +12,9 @@ import {
   type RoutingHistory,
   type RoutingInput,
   type RoutingPolicy,
+  type StrategyLedger,
   type WorkGraph,
+  type WorkUnit,
 } from '@nexar/contracts';
 import { InMemoryResourceRegistry } from '@nexar/resource-registry';
 import { describe, expect, it } from 'vitest';
@@ -381,5 +383,98 @@ describe('ResourceController.planStrategy', () => {
       },
     };
     await expect(build(policy).planStrategy(graph)).rejects.toThrow('boom');
+  });
+});
+
+describe('ResourceController.allocate', () => {
+  const quota: QuotaObservation = {
+    unit: 'requests',
+    remaining: 5,
+    observedAt: NOW.toISOString(),
+    provenance: {},
+  };
+  const unit = (id: string): WorkUnit => ({
+    unitId: id,
+    task: { id: taskId(`g:${id}`), kind: 'coding', requirements: { capabilities: ['coding'] } },
+  });
+  const ledger: StrategyLedger = {
+    graphId: 'g',
+    allocations: [],
+    spentUsd: 0,
+    reviewDiversity: 'preferred',
+  };
+
+  function build(policy: RoutingPolicy) {
+    const registry = new InMemoryResourceRegistry({ clock: () => NOW });
+    add(registry, 'one');
+    add(registry, 'two');
+    return new ResourceController({
+      registry,
+      policy,
+      clock: () => NOW,
+      quotaSource: { observe: (ids) => Promise.resolve(new Map(ids.map((id) => [id, [quota]]))) },
+    });
+  }
+
+  it('reads the same candidates as route(), advances the ledger and is deterministic', async () => {
+    const inputs: RoutingInput[] = [];
+    const base = new DeterministicRoutingPolicy({ taskKinds: DEFAULT_TASK_KIND_RULES });
+    const policy: RoutingPolicy = {
+      name: base.name,
+      version: base.version,
+      evaluate: (input) => {
+        inputs.push(input);
+        return base.evaluate(input);
+      },
+    };
+    const controller = build(policy);
+    await controller.route(task());
+    const routed = inputs.splice(0);
+    const first = await controller.allocate(ledger, unit('a'));
+    const second = await controller.allocate(ledger, unit('a'));
+
+    expect(second).toEqual(first);
+    expect(inputs[0]?.candidates).toEqual(routed[0]?.candidates);
+    expect(first.decision.outcome).toBe('selected');
+    expect(first.decision.policy).toMatchObject({ name: 'strategy', version: '1' });
+    expect(first.ledger.allocations.map((a) => a.unitId)).toEqual(['a']);
+    expect(ledger.allocations).toEqual([]);
+
+    // The balance factor moves the next unit to the other resource.
+    const next = await controller.allocate(first.ledger, unit('b'));
+    expect(next.ledger.allocations.map((a) => a.unitId)).toEqual(['a', 'b']);
+    expect(next.ledger.allocations[1]?.resourceId).not.toBe(
+      first.ledger.allocations[0]?.resourceId,
+    );
+  });
+
+  it('uses the deterministic fallback and stamps it when the policy throws', async () => {
+    const base = new DeterministicRoutingPolicy({ taskKinds: DEFAULT_TASK_KIND_RULES });
+    const policy: FallbackRoutingPolicy = {
+      name: 'resource-intelligence',
+      version: '1',
+      configId: 'cfg',
+      evaluate: () => {
+        throw new Error('boom');
+      },
+      evaluateFallback: (input) => base.evaluate(input),
+    };
+    const { decision } = await build(policy).allocate(ledger, unit('a'));
+    expect(decision.outcome).toBe('selected');
+    expect(decision.policy.fallback).toEqual({
+      from: 'resource-intelligence@1',
+      reason: 'INTERNAL_ERROR',
+    });
+  });
+
+  it('fails closed when a policy without a fallback throws', async () => {
+    const policy: RoutingPolicy = {
+      name: 'broken',
+      version: '1',
+      evaluate: () => {
+        throw new Error('boom');
+      },
+    };
+    await expect(build(policy).allocate(ledger, unit('a'))).rejects.toThrow('boom');
   });
 });
