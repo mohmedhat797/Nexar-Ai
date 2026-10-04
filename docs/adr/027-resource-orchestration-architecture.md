@@ -190,6 +190,34 @@ inside its connection boundary.
   - Without a DSH control resource: the lane runs the NRC-selected native agent directly as
     `executor: native`. The UI shows it.
 
+### 9a. NXR-059 transport decision (2026-10-04)
+
+OpenWorker keeps **one long-lived stdio MCP process per server name**, shared by its sessions, with
+the environment fixed at spawn; tool calls are capped at 120 s and carry no session context.
+Therefore:
+
+- **Bridge endpoint in Desktop main:** a per-launch, randomly named local IPC endpoint — a Windows
+  named pipe, or a `0600` unix socket in the private runtime directory elsewhere. It is not a network
+  port (ADR-021 §network still holds; same class as the sandbox egress proxy's unix socket). It
+  serves only `intelligence_submit` / `intelligence_status`, framed and size-bounded, and every
+  request must carry a valid, unexpired turn grant token (compared in constant time).
+- **Endpoint lifetime and access:** started lazily with the first grant and closed at quit, so no
+  pipe or socket exists unless delegation is used. Node cannot set an explicit Windows pipe ACL; the
+  per-launch random name plus the per-request turn token are the access control (a process that
+  can open the pipe but holds no token gets `AUTH_REQUIRED` and nothing else).
+- **Relay:** `integrations/mcp` gains a stdio MCP relay entry exposing exactly those two tools; it
+  holds no engine, no keys and no state, and forwards to the endpoint named in its environment.
+- **Per-turn registration:** at turn start Desktop mints the grant (ADR-015 scope: these two tools,
+  the session's project, `access ≤ draft`, budget, unit cap, TTL = turn timeout) and registers the
+  `nexar` MCP entry through OpenWorker's REST API with the endpoint name and the token in its `env`;
+  at turn end it deletes the entry (OpenWorker tears the relay down) and revokes the grant. The token
+  is therefore a literal in OpenWorker's private `mcp.json` for the turn's lifetime only — private
+  state directory, short-lived, scoped, revoked at turn end.
+- **Serialization:** while delegation is enabled, Cowork turns on one OpenWorker server run one at a
+  time (the relay process is shared).
+- **Approvals:** OpenWorker's permission request for exactly `mcp__nexar__nexar_intelligence_submit`
+  and `..._status` is allowed by Nexar policy and recorded; every other MCP tool stays denied.
+
 ### 10. Two-stage resource intelligence
 
 - **Stage 1, `strategy@1`.** It plans a `WorkGraph`: a lane plan, or a turn ledger for dynamic

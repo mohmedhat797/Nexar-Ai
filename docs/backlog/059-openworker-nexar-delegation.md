@@ -12,11 +12,10 @@ A Cowork turn today runs entirely on one model OpenWorker was configured with; s
 
 ## Scope
 
-- Turn-scoped ADR-015 client: tools `nexar.intelligence_submit` / `nexar.intelligence_status` only, the session project, access ≤ draft, TTL = turn timeout, budget; revoked at turn end.
-- Register a stdio MCP server entry in the private OpenWorker (`POST /v1/mcp`) with the token by `${…}` reference; remove it at turn end.
-- Submit-and-poll so every tool call returns under OpenWorker's 120 s limit.
-- Nexar policy allows OpenWorker's permission request for exactly this server/tools (recorded); everything else stays denied (ADR-026 §3).
-- Children: same `rootSessionId`/`turnId`/`correlationId`, `depth + 1`, chain contains `openworker`; no turn, no project write, no approval, no outward action; a child never starts OpenWorker.
+Transport decision: [ADR-027 §9a](../adr/027-resource-orchestration-architecture.md).
+
+- **059a — bridge host and relay:** Desktop main hosts the `IntelligenceBridge` (NXR-062b) behind a per-launch local IPC endpoint (named pipe / `0600` unix socket), framed and bounded, every request authenticated by a turn grant token; grant minting/revocation (ADR-015 scope, TTL); a stateless stdio MCP relay in `integrations/mcp` exposing `nexar.intelligence_submit` / `nexar.intelligence_status` (submit-and-poll, each call well under 120 s, JSON in a text block).
+- **059b — OpenWorker wiring:** per turn, register the `nexar` MCP entry via OpenWorker REST with the endpoint and token in `env`, delete it at turn end; serialize Cowork turns per OpenWorker server while delegation is on; Nexar policy allows exactly the two bridge tools (recorded), all other MCP stays denied; child lineage `depth + 1`, chain contains `openworker`, children never start OpenWorker; fake OpenWorker gains a minimal MCP stdio client; offline E2E.
 
 ## Acceptance criteria
 
