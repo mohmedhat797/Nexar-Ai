@@ -1,9 +1,19 @@
 import { readdir, readFile } from 'node:fs/promises';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ElectronApplication, Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { POLL, addProject, createHarness, hasText, isVisible, type Harness } from './harness.js';
+import {
+  POLL,
+  addProject,
+  createHarness,
+  hasText,
+  isVisible,
+  seedE2EConfig,
+  type Harness,
+} from './harness.js';
 
 const FAKE_OPENWORKER = fileURLToPath(
   new URL('../../../tests/fixtures/fake-openworker.mjs', import.meta.url),
@@ -277,6 +287,117 @@ describe('Nexar Desktop Cowork lane', () => {
     expect(drafts.some((text) => text.includes('Draft a short project status note.'))).toBe(true);
 
     await harness.close(app);
+  });
+
+  it('runs the control loop through Nexar on a local model-turn resource, with no provider key', async () => {
+    // A tiny OpenAI-compatible server: the first completion is a tool call, the second is text.
+    const seen: { method: string; path: string; tools: boolean; roles: string[] }[] = [];
+    const sse = (delta: object, finish: string | null): string =>
+      `data: ${JSON.stringify({
+        id: 'c1',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'e2e-model',
+        choices: [{ index: 0, delta, finish_reason: finish }],
+      })}\n\n`;
+    const model: Server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        const path = (req.url ?? '').split('?')[0] ?? '';
+        if (req.method === 'GET' && path === '/v1/models') {
+          seen.push({ method: 'GET', path, tools: false, roles: [] });
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ object: 'list', data: [{ id: 'e2e-model' }] }));
+          return;
+        }
+        if (req.method !== 'POST' || path !== '/v1/chat/completions') {
+          res.writeHead(404).end();
+          return;
+        }
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+          messages: { role: string }[];
+          tools?: unknown[];
+        };
+        const roles = body.messages.map((m) => m.role);
+        seen.push({ method: 'POST', path, tools: body.tools !== undefined, roles });
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        if (roles.at(-1) === 'tool') {
+          res.write(sse({ role: 'assistant', content: 'Status note: ' }, null));
+          res.write(sse({ content: 'all on track.' }, null));
+          res.write(sse({}, 'stop'));
+        } else {
+          res.write(
+            sse(
+              {
+                role: 'assistant',
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call_1',
+                    type: 'function',
+                    function: { name: 'scratch_note', arguments: '{"text":"outline"}' },
+                  },
+                ],
+              },
+              null,
+            ),
+          );
+          res.write(sse({}, 'tool_calls'));
+        }
+        res.end('data: [DONE]\n\n');
+      });
+    });
+    await new Promise<void>((resolve) => model.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (model.address() as AddressInfo).port;
+      const userData = harness.newUserData('control-gateway');
+      await seedE2EConfig(userData, [
+        {
+          id: 'e2e-local',
+          kind: 'openai-compatible',
+          baseUrl: `http://127.0.0.1:${String(port)}/v1`,
+          // The owner's declaration: only then does the endpoint get the `model-turn` capability.
+          toolCalling: true,
+        },
+      ]);
+      const env = {
+        NEXAR_DESKTOP_TEST_OPENWORKER: FAKE_OPENWORKER,
+        NEXAR_FAKE_OPENWORKER_SCENARIO: 'control-loop',
+      };
+      const { app, page } = await harness.launch(userData, env);
+      await addProject(app, page, harness.projectDir);
+
+      // No provider key was saved or allowed: the lane is ready on the Nexar control resource alone.
+      await page.getByTestId('mode-cowork').click();
+      await waitForReady(page);
+      await newCoworkTurn(page);
+      const turn = page.getByTestId('turn').first();
+      await expect.poll(() => turn.getAttribute('data-state'), POLL).toBe('succeeded');
+      await hasText(page.getByTestId('lane-effective'), 'Lane: cowork');
+      await hasText(page.getByTestId('lane-orchestrator'), 'Orchestrated by OpenWorker');
+      await isVisible(page.getByTestId('artifact-card'));
+      expect(await page.getByTestId('lane-fallback').count()).toBe(0);
+      expect(await page.getByTestId('engineering-panel').count()).toBe(0);
+
+      // The loop ran on the model server: a tool call, then the answer, replayed from one history.
+      const completions = seen.filter((entry) => entry.method === 'POST');
+      expect(completions.map((entry) => entry.roles.at(-1))).toEqual(['user', 'tool']);
+      expect(completions.every((entry) => entry.tools)).toBe(true);
+      // The draft is the model's final text.
+      const artifacts = join(harness.projectDir, '.nexar', 'artifacts');
+      const drafts: string[] = [];
+      for (const task of await readdir(artifacts)) {
+        drafts.push(
+          await readFile(join(artifacts, task, 'drafts', 'draft.md'), 'utf8').catch(() => ''),
+        );
+      }
+      expect(drafts).toContain('Status note: all on track.');
+
+      await harness.close(app);
+    } finally {
+      await new Promise<void>((resolve) => model.close(() => resolve()));
+    }
   });
 
   it('shows why OpenWorker is unavailable and runs the request with Nexar direct execution', async () => {

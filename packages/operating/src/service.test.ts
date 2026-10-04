@@ -1206,6 +1206,50 @@ describe('OperatingService', () => {
       });
     });
 
+    it('records openworker-control-unavailable when the lanes port names that reason', async () => {
+      const { h, requests } = await coworkHarness();
+      h.availability.cowork = false;
+      const service = h.makeService({
+        lanes: {
+          available: () => false,
+          fallbackReason: () => 'openworker-control-unavailable',
+        },
+        executeCowork: () => Promise.reject(new Error('unused')),
+      });
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      expect(requests).toHaveLength(0);
+      expect(h.requests).toHaveLength(1);
+      expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
+        requestedLane: 'cowork',
+        effectiveLane: 'direct',
+        fallbackReason: 'openworker-control-unavailable',
+      });
+    });
+
+    it('keeps openworker-unavailable when the reason port has nothing or throws', async () => {
+      const throwing = (): string => {
+        throw new Error('x');
+      };
+      for (const fallbackReason of [(): undefined => undefined, throwing]) {
+        const { h } = await coworkHarness();
+        const service = h.makeService({
+          lanes: {
+            available: () => false,
+            fallbackReason,
+          },
+          executeCowork: () => Promise.reject(new Error('unused')),
+        });
+        const s = await h.newSession('cowork');
+        await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize.' });
+        await service.whenIdle();
+        expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
+          fallbackReason: 'openworker-unavailable',
+        });
+      }
+    });
+
     it('falls back when there is no Cowork executor even if the lane reports available', async () => {
       const { h, requests } = await coworkHarness();
       const s = await h.newSession('cowork');

@@ -1,23 +1,32 @@
 import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { measured, type Logger, type RouteDecision } from '@nexar/contracts';
-import type { BridgeEvent } from '@nexar/engine-gateway';
+import {
+  NexarError,
+  measured,
+  type Logger,
+  type ModelTurnPortRequest,
+  type RouteDecision,
+} from '@nexar/contracts';
+import type { BridgeEvent, ControlModelGateway } from '@nexar/engine-gateway';
 import type { Turn } from '@nexar/sessions';
 import type { BridgeResult, CoworkStatusDto, SessionDto, SubmitTurnResult } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
 import type { ProviderRow } from '../shared/providers.js';
 import { createBridge } from './bridge.js';
 import { BridgeHost, type BridgeGrantInput } from './bridge-host.js';
+import { ControlGatewayChild } from './control-gateway-child.js';
+import { createFakeControl, okTurn } from './control-test-kit.js';
 import type { RelayLaunch } from './bridge-relay-path.js';
 import {
   CoworkService,
   DELEGATION_INSTRUCTION,
   createScriptSpawn,
+  type CoworkServiceOptions,
   type CoworkTimings,
 } from './cowork.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
@@ -124,6 +133,7 @@ interface Delegation {
 
 let relayFile: string;
 let relayDir: string;
+let gatewayFile: string;
 
 beforeAll(async () => {
   relayDir = await mkdtemp(join(tmpdir(), 'nexar-relay-'));
@@ -142,6 +152,17 @@ beforeAll(async () => {
     // The same options as scripts/build.mjs.
     define: { 'import.meta.url': '__importMetaUrl' },
     banner: { js: "const __importMetaUrl = require('node:url').pathToFileURL(__filename).href;" },
+    logLevel: 'silent',
+  });
+  // The loopback translator child, bundled as scripts/build.mjs does.
+  gatewayFile = join(relayDir, 'control-gateway.cjs');
+  await build({
+    entryPoints: [fileURLToPath(new URL('../control-gateway/main.ts', import.meta.url))],
+    outfile: gatewayFile,
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
     logLevel: 'silent',
   });
 });
@@ -218,7 +239,138 @@ function delegation(): Delegation {
   return d;
 }
 
+/** A real BridgeHost + translator child over a fake control port, with every host call logged. */
+interface ControlKit {
+  readonly host: NonNullable<CoworkServiceOptions['bridgeHost']>;
+  readonly gateway: ControlModelGateway;
+  readonly child: ControlGatewayChild;
+  readonly relay: () => RelayLaunch;
+  readonly attach: (cowork: CoworkService) => void;
+  /** Host calls in order (`mint`, `restart`, `revoke`, ...). */
+  readonly calls: string[];
+  readonly grants: BridgeGrantInput[];
+  readonly tokens: string[];
+  /** Every model turn the fake port ran, with the resource it ran on. */
+  readonly turns: { readonly resource: string; readonly request: ModelTurnPortRequest }[];
+  /** For each revoke: had the fake server already seen the MCP entry deleted? */
+  readonly deletedBeforeRevoke: boolean[];
+  maxOpen: number;
+}
+
+/** A model turn that asks for the `scratch_note` tool first, then answers (an agent loop). */
+function loopTurn(request: ModelTurnPortRequest, finalText = 'FINAL-DRAFT-TEXT') {
+  const last = request.messages.at(-1);
+  return last?.role === 'tool'
+    ? okTurn(finalText)
+    : {
+        ...okTurn(),
+        text: '',
+        toolCalls: [{ id: 'call_1', name: 'scratch_note', arguments: { text: 'note' } }],
+        finishReason: 'tool-calls' as const,
+      };
+}
+
+function controlKit(options: {
+  readonly resources?: readonly string[];
+  readonly turn?: (request: ModelTurnPortRequest) => ReturnType<typeof loopTurn>;
+}): ControlKit {
+  const runtimeDir = join(dirname(h.userData), 'bridge-runtime');
+  const hostRef: { current?: BridgeHost } = {};
+  let sink: ((event: BridgeEvent) => void) | undefined;
+  const fake = createFakeControl({
+    ...(options.resources === undefined ? {} : { resources: options.resources }),
+    turn: options.turn ?? loopTurn,
+    retries: 0,
+    onEvent: (event) => hostRef.current?.noteControlEvent(event),
+  });
+  let n = 0;
+  const real = new BridgeHost({
+    allocator: {
+      allocate: (ledger) =>
+        Promise.resolve({
+          decision: {
+            outcome: 'selected',
+            selected: { resourceId: 'res-a' },
+          } as unknown as RouteDecision,
+          ledger,
+        }),
+    },
+    executor: () =>
+      Promise.resolve({
+        text: 'DELEGATED-ANSWER',
+        resourceId: 'res-a',
+        usage: { inputTokens: measured(1), outputTokens: measured(1), costUsd: measured(0) },
+      }),
+    clock: () => new Date(),
+    newId: () => `g${String(++n)}`,
+    logger: capture,
+    runtimeDir,
+    gateway: fake.gateway,
+    onEvent: (event) => sink?.(event),
+  });
+  hostRef.current = real;
+  const child = new ControlGatewayChild({
+    endpoint: () => real.ensureStarted(),
+    logger: capture,
+    launch: { command: process.execPath, args: [gatewayFile], env: { ELECTRON_RUN_AS_NODE: '1' } },
+  });
+  const kit: ControlKit = {
+    gateway: fake.gateway,
+    child,
+    calls: [],
+    grants: [],
+    tokens: [],
+    turns: fake.calls,
+    deletedBeforeRevoke: [],
+    maxOpen: 0,
+    attach: (cowork) => {
+      sink = (event) => cowork.noteBridgeEvent(event);
+    },
+    relay: () => ({
+      command: process.execPath,
+      args: [relayFile],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    }),
+    host: undefined as never,
+  };
+  let open = 0;
+  Object.assign(kit, {
+    host: {
+      ensureStarted: () => real.ensureStarted(),
+      mint: (...args: Parameters<BridgeHost['mint']>) => {
+        kit.calls.push('mint');
+        kit.grants.push(args[0]);
+        const grant = real.mint(...args);
+        kit.tokens.push(grant.token);
+        kit.maxOpen = Math.max(kit.maxOpen, ++open);
+        return grant;
+      },
+      revoke: (grantId: string) => {
+        kit.calls.push('revoke');
+        open -= 1;
+        void readFile(join(dirname(h.userData), 'ow-runtime', 'records.jsonl'), 'utf8')
+          .then((text) => kit.deletedBeforeRevoke.push(text.includes('mcp-delete')))
+          .catch(() => kit.deletedBeforeRevoke.push(false));
+        real.revoke(grantId);
+      },
+      restartControl: (grantId: string) => {
+        kit.calls.push('restart');
+        return real.restartControl(grantId);
+      },
+      controlFailed: (grantId: string) => real.controlFailed(grantId),
+    } satisfies ControlKit['host'],
+  });
+  services.push({
+    dispose: async () => {
+      await child.stop();
+      await real.stop();
+    },
+  } as CoworkService);
+  return kit;
+}
+
 interface Setup {
+  readonly control?: ControlKit;
   readonly allowed?: readonly string[];
   readonly saved?: Readonly<Record<string, string>>;
   readonly env?: Record<string, string>;
@@ -254,6 +406,14 @@ async function setup(options: Setup = {}) {
     ...(options.delegation === undefined
       ? {}
       : { bridgeHost: options.delegation.host, relay: options.delegation.relay }),
+    ...(options.control === undefined
+      ? {}
+      : {
+          bridgeHost: options.control.host,
+          controlGateway: options.control.gateway,
+          controlChild: options.control.child,
+          relay: options.control.relay,
+        }),
     createTask: (request, excludedResourceIds) => {
       options.createTaskSpy?.(request, request.correlation);
       return newTask(
@@ -273,6 +433,7 @@ async function setup(options: Setup = {}) {
   });
   services.push(cowork);
   options.delegation?.attach(cowork);
+  options.control?.attach(cowork);
   const providers = new ProviderService({
     keys,
     config: h.config,
@@ -364,7 +525,7 @@ describe('Cowork lane', () => {
     const seen = await records();
     const providers = seen.filter((r) => r['kind'] === 'provider');
     expect(providers).toEqual([
-      { kind: 'provider', body: { name: 'anthropic', fields: { api_key: SECRET } } },
+      { kind: 'provider', body: { name: 'anthropic', fields: { api_key: SECRET, base_url: '' } } },
     ]);
     const message = seen.find((r) => r['kind'] === 'user_message');
     expect((message?.['body'] as { model?: string }).model).toBe('anthropic:claude-sonnet-4-5');
@@ -995,3 +1156,361 @@ async function readdirSafe(path: string): Promise<string[]> {
     return [];
   }
 }
+
+describe('Cowork control loop through Nexar (NXR-063b)', () => {
+  const LOOP = { NEXAR_FAKE_OPENWORKER_SCENARIO: 'control-loop' };
+  const BASE_URL = /^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}\/v1$/;
+  const RESOURCES = ['res-a', 'res-b'] as const;
+  const providerEntries = async () =>
+    (await records())
+      .filter((r) => r['kind'] === 'provider')
+      .map((r) => r['body'] as { name: string; fields: Record<string, string> });
+  const userMessages = async () =>
+    (await records()).filter((r) => r['kind'] === 'user_message').length;
+
+  async function runDirect(cowork: CoworkService, signal = new AbortController().signal) {
+    const turnId = 'turn-direct-1';
+    return cowork.run(
+      {
+        sessionId: 'sess-direct-1',
+        turnId,
+        projectId,
+        kind: 'general',
+        prompt: 'Draft a summary',
+        correlation: {
+          rootSessionId: 'sess-direct-1',
+          turnId,
+          rootOrchestrator: 'nexar',
+          chain: ['nexar', 'openworker'],
+          currentOrchestrator: 'openworker',
+          depth: 1,
+          correlationId: turnId,
+        },
+        permission: 'drafts-only',
+        onTask: () => Promise.resolve(),
+        onProgress: () => undefined,
+      },
+      signal,
+    );
+  }
+
+  const failFirstResource = (): ((r: ModelTurnPortRequest) => ReturnType<typeof loopTurn>) => {
+    let failed: string | undefined;
+    return (r) => {
+      failed ??= r.descriptor.id;
+      if (r.descriptor.id === failed) throw new NexarError('PROVIDER_ERROR', 'boom');
+      return loopTurn(r);
+    };
+  };
+
+  it('auto: drives the whole loop on one pinned resource, with no saved key in OpenWorker', async () => {
+    const kit = controlKit({ resources: RESOURCES });
+    const { cowork, call } = await setup({ env: LOOP, control: kit });
+    expect(await cowork.refresh()).toMatchObject({ state: 'ready' });
+    // A status probe previews the selection: it never mints a grant or records a decision.
+    expect(kit.calls).toEqual([]);
+    const { sessionId } = await turnOf(call);
+    const turn = await settled(sessionId);
+
+    expect(turn).toMatchObject({
+      state: 'succeeded',
+      outcome: { text: 'Control loop done' },
+      lane: { requestedLane: 'cowork', effectiveLane: 'cowork' },
+    });
+    expect(turn.lane?.fallbackReason).toBeUndefined();
+    const taskId = turn.tasks[0]?.taskId as string;
+    const draft = join(h.projectDir, '.nexar', 'artifacts', taskId, 'drafts', 'draft.md');
+    expect(await readFile(draft, 'utf8')).toBe('FINAL-DRAFT-TEXT');
+
+    // Two model turns (tool call, then the answer) on the same resource, from the standard shapes.
+    const resource = kit.turns[0]?.resource ?? '';
+    expect(RESOURCES).toContain(resource);
+    expect(kit.turns.map((t) => t.resource)).toEqual([resource, resource]);
+    expect(turn.tasks[0]?.resourceId).toBe(resource);
+    expect(kit.turns[0]?.request.tools?.map((t) => t.name)).toEqual(['scratch_note']);
+    expect(kit.turns[1]?.request.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      toolCallId: 'call_1',
+    });
+
+    // OpenWorker's `openai` provider is the translator, keyed by the turn's grant token.
+    const entries = await providerEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ name: 'openai' });
+    expect(Object.keys(entries[0]?.fields ?? {}).sort()).toEqual(['api_key', 'base_url']);
+    expect(entries[0]?.fields['api_key']).toBe(kit.tokens[0]);
+    expect(entries[0]?.fields['base_url']).toMatch(BASE_URL);
+    const message = (await records()).find((r) => r['kind'] === 'user_message');
+    expect((message?.['body'] as { model?: string }).model).toBe('openai:nexar-control');
+    // No saved key value reaches OpenWorker.
+    expect(JSON.stringify(await records())).not.toContain(SECRET);
+
+    // One grant for the turn: it outlives a restart (two attempts), and is revoked after the MCP entry.
+    expect(kit.calls).toEqual(['mint', 'revoke']);
+    expect(kit.grants).toHaveLength(1);
+    expect(kit.grants[0]).toMatchObject({ ttlMs: 40_000, access: 'draft', engine: 'openworker' });
+    await expect.poll(() => kit.deletedBeforeRevoke).toEqual([true]);
+    // OpenWorker stores provider fields: the turn's token and endpoint are forgotten after the turn.
+    expect((await records()).filter((r) => r['kind'] === 'provider-removed')).toEqual([
+      { kind: 'provider-removed', body: { name: 'openai' } },
+    ]);
+
+    const everything = JSON.stringify([
+      logs,
+      h.events,
+      h.sessionEvents,
+      await h.sessionStore.get(sessionId),
+      await call(CHANNELS.coworkStatus),
+      await engine.approvals().list(),
+    ]);
+    expect(everything).not.toContain(kit.tokens[0]);
+    expect(everything).not.toContain(SECRET);
+    expect(everything).not.toContain('FINAL-DRAFT-TEXT');
+  });
+
+  it('reports how the control loop ran, on the gateway path', async () => {
+    const kit = controlKit({ resources: RESOURCES });
+    const { cowork } = await setup({ env: LOOP, control: kit });
+    await cowork.refresh();
+    const result = await runDirect(cowork);
+    expect(RESOURCES).toContain(result.resourceId);
+    expect(result).toMatchObject({
+      resourceId: kit.turns[0]?.resource,
+      policyId: 'control@1:auto',
+      control: { path: 'gateway', restarts: 0 },
+    });
+    expect(result.control).toHaveProperty('controlDecisionId');
+  });
+
+  it('pinned: the owner-pinned resource drives the loop', async () => {
+    await h.deps.settings.setCoworkControlResource({
+      mode: 'pinned',
+      resourceId: 'res-b',
+      fallback: 'none',
+    });
+    const kit = controlKit({ resources: RESOURCES });
+    const { cowork, call } = await setup({ env: LOOP, control: kit });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    const turn = await settled(sessionId);
+    expect(turn.state).toBe('succeeded');
+    expect(turn.tasks[0]?.resourceId).toBe('res-b');
+    expect(kit.turns.map((t) => t.resource)).toEqual(['res-b', 'res-b']);
+  });
+
+  it('restarts the whole turn once on another resource after a control failure (fallback auto)', async () => {
+    const kit = controlKit({ resources: RESOURCES, turn: failFirstResource() });
+    const { cowork } = await setup({ env: LOOP, control: kit });
+    await cowork.refresh();
+    const result = await runDirect(cowork);
+
+    const [failed, next, again] = kit.turns.map((t) => t.resource);
+    expect(next).not.toBe(failed);
+    expect(again).toBe(next);
+    expect(kit.turns).toHaveLength(3);
+    // The replay starts from the original prompt, not from the failed loop's messages.
+    expect(kit.turns[1]?.request.messages).toHaveLength(2);
+    expect(result).toMatchObject({
+      resourceId: next,
+      control: { path: 'gateway', restarts: 1 },
+      artifacts: [{ mediaType: 'text/markdown', draft: true }],
+    });
+    // One grant and one token across the restart; one restart; revoked at the end.
+    expect(kit.calls).toEqual(['mint', 'restart', 'revoke']);
+    expect(await userMessages()).toBe(2);
+    expect(await providerEntries()).toHaveLength(1);
+    expect(await readdirSafe(join(dirname(h.userData), 'ow-runtime', 'scratch'))).toEqual([]);
+  });
+
+  it('does not restart with fallback none: the turn fails with control-resource-failed', async () => {
+    await h.deps.settings.setCoworkControlResource({
+      mode: 'pinned',
+      resourceId: 'res-a',
+      fallback: 'none',
+    });
+    const kit = controlKit({ resources: RESOURCES, turn: failFirstResource() });
+    const { cowork } = await setup({ env: LOOP, control: kit });
+    await cowork.refresh();
+    await expect(runDirect(cowork)).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+      details: { reason: 'control-resource-failed' },
+    });
+    expect(kit.turns).toHaveLength(1);
+    expect(kit.calls).toEqual(['mint', 'revoke']);
+  });
+
+  it('fails after a second control failure and after a failed restart', async () => {
+    const both = controlKit({
+      resources: RESOURCES,
+      turn: () => {
+        throw new NexarError('PROVIDER_ERROR', 'boom');
+      },
+    });
+    const first = await setup({ env: LOOP, control: both });
+    await first.cowork.refresh();
+    await expect(runDirect(first.cowork)).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+      details: { reason: 'control-resource-failed' },
+    });
+    expect(both.calls).toEqual(['mint', 'restart', 'revoke']);
+    expect(both.turns).toHaveLength(2);
+
+    const one = controlKit({ resources: ['res-a'], turn: failFirstResource() });
+    const second = await setup({ env: LOOP, control: one });
+    await second.cowork.refresh();
+    await expect(runDirect(second.cowork)).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+      details: { reason: 'control-resource-failed' },
+    });
+    expect(one.calls).toEqual(['mint', 'restart', 'revoke']);
+    expect(one.turns).toHaveLength(1);
+  });
+
+  it('never restarts for a failure the gateway did not attribute to the control resource', async () => {
+    const kit = controlKit({ resources: RESOURCES });
+    const { cowork, call } = await setup({
+      env: { NEXAR_FAKE_OPENWORKER_SCENARIO: 'error' },
+      control: kit,
+    });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    expect((await settled(sessionId)).state).toBe('failed');
+    expect(kit.calls).toEqual(['mint', 'revoke']);
+    expect(kit.turns).toHaveLength(0);
+    expect(await userMessages()).toBe(1);
+    await expect.poll(() => kit.deletedBeforeRevoke).toEqual([true]);
+  });
+
+  it('deletes the MCP entry and revokes the grant when the turn is cancelled', async () => {
+    const kit = controlKit({ resources: RESOURCES });
+    const { cowork, call } = await setup({
+      env: { NEXAR_FAKE_OPENWORKER_SCENARIO: 'hang' },
+      control: kit,
+    });
+    await cowork.refresh();
+    const { sessionId, turnId } = await turnOf(call);
+    await expect.poll(async () => (await userMessages()) > 0).toBe(true);
+    expect(await call(CHANNELS.sessionsCancel, { sessionId, turnId })).toMatchObject({ ok: true });
+    expect((await settled(sessionId)).state).toBe('cancelled');
+    expect(kit.calls).toEqual(['mint', 'revoke']);
+    await expect.poll(() => kit.deletedBeforeRevoke).toEqual([true]);
+  });
+
+  it('delegation reuses the turn grant: one mint, units recorded, draft imported', async () => {
+    const kit = controlKit({ resources: RESOURCES });
+    const { cowork, call } = await setup({
+      env: { NEXAR_FAKE_OPENWORKER_SCENARIO: 'delegate' },
+      control: kit,
+    });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    const turn = await settled(sessionId);
+    expect(turn).toMatchObject({
+      state: 'succeeded',
+      outcome: { text: 'Delegated unit done' },
+      tasks: [{ delegations: [{ unitId: 'u1', resourceId: 'res-a', outcome: 'succeeded' }] }],
+    });
+    expect(kit.calls).toEqual(['mint', 'revoke']);
+    expect(kit.maxOpen).toBe(1);
+    expect((await records()).find((r) => r['kind'] === 'mcp-register')?.['body']).toEqual({
+      name: 'nexar',
+      envNames: ['ELECTRON_RUN_AS_NODE', 'NEXAR_BRIDGE_ENDPOINT', 'NEXAR_BRIDGE_TOKEN'],
+    });
+    await expect.poll(() => kit.deletedBeforeRevoke).toEqual([true]);
+  });
+
+  it('falls back to the interim direct key when no control resource qualifies, and says so', async () => {
+    const kit = controlKit({ resources: [] });
+    const { cowork, call } = await setup({ control: kit });
+    expect(await cowork.refresh()).toMatchObject({ state: 'ready' });
+    const { sessionId } = await turnOf(call);
+    const turn = await settled(sessionId);
+    expect(turn).toMatchObject({
+      state: 'succeeded',
+      lane: { requestedLane: 'cowork', effectiveLane: 'cowork' },
+      tasks: [{ resourceId: 'anthropic-m' }],
+    });
+    expect(await providerEntries()).toEqual([
+      { name: 'anthropic', fields: { api_key: SECRET, base_url: '' } },
+    ]);
+    expect(kit.turns).toHaveLength(0);
+    // The direct path keeps the owner's provider profile.
+    expect((await records()).some((r) => r['kind'] === 'provider-removed')).toBe(false);
+  });
+
+  it('reports the direct-key path on the result', async () => {
+    const kit = controlKit({ resources: [] });
+    const { cowork } = await setup({ control: kit });
+    await cowork.refresh();
+    expect(await runDirect(cowork)).toMatchObject({
+      resourceId: 'anthropic-m',
+      control: { path: 'direct-key' },
+    });
+  });
+
+  it('is unavailable with control-unavailable when neither path can run, and falls back to direct', async () => {
+    const kit = controlKit({ resources: [] });
+    const { cowork, call } = await setup({ allowed: [], saved: {}, control: kit });
+    expect(await cowork.refresh()).toMatchObject({
+      state: 'configuration-missing',
+      reason: 'No control-compatible resource can run Cowork',
+    });
+    expect(cowork.fallbackReason()).toBe('openworker-control-unavailable');
+    const { sessionId } = await turnOf(call);
+    expect(await settled(sessionId)).toMatchObject({
+      state: 'succeeded',
+      lane: {
+        requestedLane: 'cowork',
+        effectiveLane: 'direct',
+        fallbackReason: 'openworker-control-unavailable',
+      },
+    });
+    await expect(runDirect(cowork)).rejects.toMatchObject({
+      code: 'INTEGRATION_UNAVAILABLE',
+      message: 'No control-compatible resource can run Cowork',
+    });
+    expect(kit.calls).toEqual([]);
+  });
+
+  it('keeps openworker-unavailable when OpenWorker itself is missing', async () => {
+    const kit = controlKit({ resources: RESOURCES });
+    const { cowork } = await setup({ disabled: true, control: kit });
+    await cowork.refresh();
+    expect(cowork.fallbackReason()).toBeUndefined();
+  });
+
+  it('fails closed on a damaged orchestration section (gateway path unavailable)', async () => {
+    await writeFile(
+      join(h.userData, 'desktop-settings.json'),
+      JSON.stringify({
+        theme: 'light',
+        density: 'comfortable',
+        mode: 'cowork',
+        orchestration: { cowork: { controlResource: { mode: 'pinned', fallback: 'auto' } } },
+      }),
+    );
+    const kit = controlKit({ resources: RESOURCES });
+    const none = await setup({ allowed: [], saved: {}, control: kit });
+    expect(await none.cowork.refresh()).toMatchObject({
+      state: 'configuration-missing',
+      reason: 'No control-compatible resource can run Cowork',
+    });
+  });
+
+  it('uses a usable direct key when the orchestration section is damaged', async () => {
+    await writeFile(
+      join(h.userData, 'desktop-settings.json'),
+      JSON.stringify({
+        theme: 'light',
+        density: 'comfortable',
+        mode: 'cowork',
+        orchestration: 'broken',
+      }),
+    );
+    const kit = controlKit({ resources: RESOURCES });
+    const { cowork } = await setup({ control: kit });
+    await cowork.refresh();
+    expect(await runDirect(cowork)).toMatchObject({ control: { path: 'direct-key' } });
+    expect(kit.turns).toHaveLength(0);
+  });
+});

@@ -110,6 +110,8 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
           : (cowork?.available() ?? false),
       reason: (lane, projectId) =>
         lane === 'code' ? codePlane?.reason(projectId) : cowork?.reason(),
+      // OpenWorker itself is fine but no control resource can run it: recorded precisely.
+      fallbackReason: () => cowork?.fallbackReason(),
       // A read-only review turn runs on the plane only when it advertises the report-only plan
       // (false while unknown); otherwise it runs direct, recorded as such.
       supports: (lane, kind) =>

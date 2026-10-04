@@ -103,6 +103,16 @@ describe('Cowork lane texts', () => {
     ).toBe('OpenWorker unavailable. Using Nexar direct execution.');
   });
 
+  it('words the openworker-control-unavailable fallback', () => {
+    expect(
+      fallbackText({
+        requestedLane: 'cowork',
+        effectiveLane: 'direct',
+        fallbackReason: 'openworker-control-unavailable',
+      }),
+    ).toBe('No control-compatible resource can run Cowork. Using Nexar direct execution.');
+  });
+
   it('marks only a started or finished cowork-lane turn', () => {
     const lane = { requestedLane: 'cowork', effectiveLane: 'cowork' } as const;
     expect(isCoworkTurn(turn({ state: 'succeeded', lane }))).toBe(true);

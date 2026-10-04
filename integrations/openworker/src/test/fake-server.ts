@@ -20,7 +20,8 @@ export type FakeScenario =
   | 'no-ready'
   | 'declined-requests'
   | 'question'
-  | 'delegate';
+  | 'delegate'
+  | 'control-loop';
 
 export interface FakeServerOptions {
   readonly token: string;
@@ -30,6 +31,7 @@ export interface FakeServerOptions {
   readonly startDelayMs?: number;
   readonly neverReady?: boolean;
   readonly failProviders?: boolean;
+  readonly refuseProviders?: boolean;
   /** Writes draft.md into the turn workspace when its write permission is allowed. */
   readonly writeDraft?: boolean;
   readonly onRecord?: (entry: { readonly kind: string; readonly body: unknown }) => void;
@@ -128,6 +130,7 @@ export class FakeOpenWorkerServer {
   readonly frames: Frame[] = [];
   readonly roots: { readonly sessionId: string; readonly body: unknown }[] = [];
   readonly providers: unknown[] = [];
+  readonly removedProviders: string[] = [];
   /** Registered /v1/mcp entries by name (the env may hold a secret: never recorded). */
   readonly mcpServers = new Map<string, McpConfig>();
   readonly requests: { readonly method: string; readonly path: string; readonly status: number }[] =
@@ -200,7 +203,18 @@ export class FakeOpenWorkerServer {
       if (method === 'POST' && path === '/v1/providers') {
         this.#options.onRecord?.({ kind: 'provider', body });
         if (this.#options.failProviders === true) return reply(500, { error: 'provider' });
+        // Upstream reports a refusal (unknown provider, missing field) as 200 `{ ok: false }`.
+        if (this.#options.refuseProviders === true)
+          return reply(200, { ok: false, error: 'missing' });
         this.providers.push(body);
+        return reply(200, { ok: true });
+      }
+      const removed = /^\/v1\/providers\/([A-Za-z0-9._-]+)$/.exec(path);
+      if (method === 'DELETE' && removed !== null) {
+        this.#options.onRecord?.({ kind: 'provider-removed', body: { name: removed[1] } });
+        if (this.#options.refuseProviders === true)
+          return reply(200, { ok: false, error: 'unknown' });
+        this.removedProviders.push(removed[1] ?? '');
         return reply(200, { ok: true });
       }
       if (method === 'POST' && path === '/v1/mcp') {
@@ -274,7 +288,8 @@ export class FakeOpenWorkerServer {
             this.#options.onRecord?.({ kind: String(frame['type']), body: frame });
           const index = this.#waiters.findIndex((waiter) => waiter.type === frame['type']);
           if (index >= 0) this.#waiters.splice(index, 1)[0]!.resolve(frame);
-          else if (frame['type'] === 'user_message') void this.#turn(socket, send, workspace);
+          else if (frame['type'] === 'user_message')
+            void this.#turn(socket, send, workspace, frame);
         }
       }
     });
@@ -400,10 +415,93 @@ export class FakeOpenWorkerServer {
     }
   }
 
+  /**
+   * Drives a real Chat Completions loop against the last openai provider entry (its `base_url` and
+   * `api_key`), as OpenWorker's openai provider does: one tool call, one local tool execution, one
+   * final answer, written as a scratch draft. Any HTTP or shape error ends the turn with an error.
+   */
+  async #controlLoop(
+    send: (frame: Frame | string) => void,
+    workspace: string,
+    userMessage: Frame,
+  ): Promise<void> {
+    send({ type: 'turn_start' });
+    const entry = this.providers
+      .map((p) => p as { name?: unknown; fields?: Record<string, unknown> })
+      .reverse()
+      .find((p) => p.name === 'openai');
+    const apiKey = entry?.fields?.['api_key'];
+    const baseUrl = entry?.fields?.['base_url'];
+    try {
+      if (
+        userMessage['model'] !== 'openai:nexar-control' ||
+        typeof apiKey !== 'string' ||
+        typeof baseUrl !== 'string'
+      ) {
+        throw new Error('control-loop: provider or model not configured');
+      }
+      const prompt = userMessage['text'];
+      type Message = Record<string, unknown>;
+      const messages: Message[] = [
+        { role: 'system', content: 'You are a careful drafting assistant.' },
+        { role: 'user', content: typeof prompt === 'string' ? prompt : '' },
+      ];
+      const tools = [
+        {
+          type: 'function',
+          function: {
+            name: 'scratch_note',
+            description: 'Keep a short working note.',
+            parameters: {
+              type: 'object',
+              properties: { text: { type: 'string' } },
+              required: ['text'],
+            },
+          },
+        },
+      ];
+      const complete = async (): Promise<Message> => {
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: 'nexar-control', messages, tools }),
+        });
+        if (!response.ok) throw new Error(`control-loop: http ${String(response.status)}`);
+        const body = (await response.json()) as { choices?: { message?: Message }[] };
+        const message = body.choices?.[0]?.message;
+        if (message === undefined) throw new Error('control-loop: no message');
+        return message;
+      };
+
+      const first = await complete();
+      const calls = first['tool_calls'];
+      if (!Array.isArray(calls) || calls.length === 0)
+        throw new Error('control-loop: no tool call');
+      messages.push({ role: 'assistant', content: first['content'] ?? null, tool_calls: calls });
+      for (const call of calls as { id: string; function: { name: string; arguments: string } }[]) {
+        const note = JSON.parse(call.function.arguments) as { text?: unknown };
+        if (call.function.name !== 'scratch_note' || typeof note.text !== 'string') {
+          throw new Error('control-loop: unexpected tool call');
+        }
+        // "Executed" locally: the note is only kept in memory.
+        messages.push({ role: 'tool', tool_call_id: call.id, content: 'noted' });
+      }
+      const second = await complete();
+      const text = second['content'];
+      if (typeof text !== 'string' || text === '') throw new Error('control-loop: no final text');
+      writeFileSync(join(workspace, 'draft.md'), text);
+      send({ type: 'assistant_message', text: 'Control loop done' });
+      send({ type: 'turn_done' });
+    } catch {
+      send({ type: 'error', message: 'control-loop-failed' });
+    }
+  }
+
   async #turn(
     socket: Duplex,
     send: (frame: Frame | string) => void,
     workspace: string,
+    userMessage: Frame,
   ): Promise<void> {
     switch (this.scenario) {
       case 'hang':
@@ -438,6 +536,8 @@ export class FakeOpenWorkerServer {
         return;
       case 'delegate':
         return this.#delegate(send, workspace);
+      case 'control-loop':
+        return this.#controlLoop(send, workspace, userMessage);
       default:
         break;
     }

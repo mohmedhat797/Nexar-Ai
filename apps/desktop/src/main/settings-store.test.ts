@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_BEHAVIOR,
+  DEFAULT_ORCHESTRATION,
   DEFAULT_CODE_PLANE,
   MAX_PLANE_PROJECTS,
   SettingsStore,
@@ -264,5 +265,73 @@ describe('AI behavior settings (NXR-053)', () => {
     expect(file['codePlane']).toMatchObject({ projects: { a: 'plane-a' } });
     // A new store sees the persisted value.
     expect(await new SettingsStore(path).getBehavior()).toMatchObject({ valid: true });
+  });
+});
+
+describe('Orchestration settings (NXR-063)', () => {
+  const orchestrationOf = async (section: unknown) => {
+    await writeFile(path, JSON.stringify({ ...base, orchestration: section }));
+    return new SettingsStore(path).getOrchestration();
+  };
+
+  it('defaults to Auto with fallback when the file or section is missing', async () => {
+    expect(await new SettingsStore(path).getOrchestration()).toEqual({
+      valid: true,
+      value: DEFAULT_ORCHESTRATION,
+    });
+    expect(DEFAULT_ORCHESTRATION.cowork.controlResource).toEqual({
+      mode: 'auto',
+      fallback: 'auto',
+    });
+    expect(await orchestrationOf({})).toEqual({ valid: true, value: DEFAULT_ORCHESTRATION });
+  });
+
+  it('accepts auto and pinned policies', async () => {
+    const pinned = { mode: 'pinned', resourceId: 'pi:local', fallback: 'none' };
+    expect(await orchestrationOf({ cowork: { controlResource: pinned } })).toEqual({
+      valid: true,
+      value: { cowork: { controlResource: pinned } },
+    });
+  });
+
+  it.each([
+    { cowork: { controlResource: { mode: 'pinned', fallback: 'auto' } } },
+    { cowork: { controlResource: { mode: 'auto', resourceId: 'x', fallback: 'auto' } } },
+    {
+      cowork: {
+        controlResource: { mode: 'pinned', resourceId: 'x'.repeat(201), fallback: 'auto' },
+      },
+    },
+    { cowork: { controlResource: { mode: 'auto' } } },
+    { cowork: { controlResource: { mode: 'auto', fallback: 'auto', extra: 1 } } },
+    { other: 1 },
+    'text',
+  ])('fails closed on a damaged section %#', async (section) => {
+    expect(await orchestrationOf(section)).toEqual({ valid: false });
+  });
+
+  it('writes the policy, keeps other sections, and refuses to overwrite a damaged one', async () => {
+    await writeFile(path, JSON.stringify({ ...base, cowork: { allowedProviders: [] } }));
+    const store = new SettingsStore(path);
+    await store.setCoworkControlResource({ mode: 'pinned', resourceId: 'r1', fallback: 'auto' });
+    const saved = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+    expect(saved['orchestration']).toEqual({
+      cowork: { controlResource: { mode: 'pinned', resourceId: 'r1', fallback: 'auto' } },
+    });
+    expect(saved['cowork']).toEqual({ allowedProviders: [] });
+    expect((await new SettingsStore(path).getOrchestration()).valid).toBe(true);
+    await expect(
+      store.setCoworkControlResource({ mode: 'pinned', fallback: 'auto' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    const damaged = { cowork: { controlResource: { mode: 'nope' } } };
+    await writeFile(path, JSON.stringify({ ...base, orchestration: damaged }));
+    const broken = new SettingsStore(path);
+    await expect(
+      broken.setCoworkControlResource({ mode: 'auto', fallback: 'auto' }),
+    ).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
+    await broken.set({ theme: 'dark' });
+    const kept = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+    expect(kept['orchestration']).toEqual(damaged);
   });
 });

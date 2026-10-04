@@ -239,8 +239,14 @@ describe('OpenWorkerSupervisor', () => {
     ]);
     const records = jsonl(join(stateDir, 'records.jsonl'));
     expect(records).toEqual([
-      { kind: 'provider', body: { name: 'anthropic', fields: { api_key: 'sk-ant-body-only' } } },
-      { kind: 'provider', body: { name: 'openai', fields: { api_key: 'sk-openai-body-only' } } },
+      {
+        kind: 'provider',
+        body: { name: 'anthropic', fields: { api_key: 'sk-ant-body-only', base_url: '' } },
+      },
+      {
+        kind: 'provider',
+        body: { name: 'openai', fields: { api_key: 'sk-openai-body-only', base_url: '' } },
+      },
     ]);
     const everywhereElse = JSON.stringify([
       spawned.map((s) => [s.args, s.env]),
@@ -252,6 +258,62 @@ describe('OpenWorkerSupervisor', () => {
     expect(everywhereElse).not.toMatch(/body-only/);
     log.mockRestore();
     err.mockRestore();
+  });
+
+  it('sends a loopback base_url with the entry and refuses any other', async () => {
+    const { supervisor, stateDir } = harness();
+    await supervisor.start();
+    await supervisor.configureProviders([
+      { provider: 'openai', apiKey: 'token-body-only', baseUrl: 'http://127.0.0.1:41234/v1' },
+    ]);
+    expect(jsonl(join(stateDir, 'records.jsonl'))).toEqual([
+      {
+        kind: 'provider',
+        body: {
+          name: 'openai',
+          fields: { api_key: 'token-body-only', base_url: 'http://127.0.0.1:41234/v1' },
+        },
+      },
+    ]);
+    for (const baseUrl of [
+      'https://127.0.0.1:41234/v1',
+      'http://localhost:41234/v1',
+      'http://127.0.0.1/v1',
+      'http://127.0.0.1:0/v1',
+      'http://127.0.0.1:41234/v1/',
+      'http://127.0.0.1:41234/v2',
+      'http://127.0.0.1:41234@evil.example/v1',
+      'http://127.0.0.1:123456/v1',
+      '',
+    ]) {
+      await expect(
+        supervisor.configureProviders([{ provider: 'openai', apiKey: 'k', baseUrl }]),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
+    expect(jsonl(join(stateDir, 'records.jsonl'))).toHaveLength(1);
+  });
+
+  it('treats an upstream { ok: false } answer as a failed provider configuration', async () => {
+    const { supervisor } = harness({ FAKE_OW_REFUSE_PROVIDERS: '1' });
+    await supervisor.start();
+    await expect(
+      supervisor.configureProviders([{ provider: 'openai', apiKey: 'sk-refused' }]),
+    ).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
+    await expect(supervisor.removeProvider('openai')).rejects.toMatchObject({
+      code: 'CONFIGURATION_ERROR',
+    });
+  });
+
+  it('removes a stored provider profile by name', async () => {
+    const { supervisor, stateDir } = harness();
+    await supervisor.start();
+    await supervisor.removeProvider('openai');
+    expect(jsonl(join(stateDir, 'records.jsonl'))).toEqual([
+      { kind: 'provider-removed', body: { name: 'openai' } },
+    ]);
+    await expect(supervisor.removeProvider('../x')).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
   });
 
   it('reports provider failures by code only', async () => {

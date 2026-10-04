@@ -121,6 +121,35 @@ export class ControlModelGateway {
     return this.pin(engine, policy, lineage, policy, new Set());
   }
 
+  /**
+   * The resource `begin` would pin right now, or `undefined` when none qualifies. Runs the same
+   * selection with no side effects: nothing is recorded, pinned or emitted.
+   */
+  preview(
+    engine: ControlEngine,
+    controlPolicy: ControlResourcePolicy | undefined,
+  ): { readonly resourceId: string } | undefined {
+    try {
+      const decision = selectControl({
+        engine,
+        policy: controlPolicy ?? DEFAULT_CONTROL_RESOURCE_POLICY,
+        candidates: this.options.candidates(),
+        routingPolicy: this.options.policy,
+        ...(this.options.history === undefined ? {} : { history: this.options.history }),
+        ...(this.options.strategySettings === undefined
+          ? {}
+          : { strategySettings: this.options.strategySettings }),
+        now: this.options.clock(),
+        // No decision is kept: the id is never used.
+        newId: () => 'preview',
+        exclude: [],
+      });
+      return { resourceId: decision.resourceId };
+    } catch {
+      return undefined;
+    }
+  }
+
   async turn(request: ControlTurnRequest, signal: AbortSignal): Promise<ControlTurnResult> {
     validateControlTurnRequest(request);
     const entry = this.active.get(request.controlDecisionId);

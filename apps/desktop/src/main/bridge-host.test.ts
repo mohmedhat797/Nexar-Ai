@@ -602,4 +602,69 @@ describe('BridgeHost', () => {
       expect(warned.join('\n')).not.toContain(token);
     });
   });
+  describe('control restart (NXR-063)', () => {
+    const policy = { mode: 'auto', fallback: 'auto' } as const;
+    const hello = { messages: [{ role: 'user' as const, content: 'hi' }] };
+    const controlFrame = (token: string) => ({ v: 1, id: 'c1', token, op: 'control', turn: hello });
+
+    it('returns the resource of the minted decision', async () => {
+      const { gateway } = createFakeControl({ resources: ['res-a', 'res-b'] });
+      await make(undefined, executor, gateway);
+      const minted = host.mint(grantInput, { policy });
+      expect(['res-a', 'res-b']).toContain(minted.resourceId);
+      expect(host.mint(grantInput).resourceId).toBeUndefined();
+    });
+
+    it('reports a control failure of the current decision and restarts on another resource', async () => {
+      let failing = '';
+      const { gateway, calls } = createFakeControl({
+        resources: ['res-a', 'res-b'],
+        retries: 0,
+        turn: (request) => {
+          if (request.descriptor.id === failing) throw new NexarError('PROVIDER_ERROR', 'boom');
+          return okTurn();
+        },
+        onEvent: (event) => host.noteControlEvent(event),
+      });
+      await make(undefined, executor, gateway);
+      const minted = host.mint(grantInput, { policy });
+      failing = minted.resourceId ?? '';
+      expect(host.controlFailed(minted.grantId)).toBe(false);
+      const conn = await open();
+      expect(await conn.call(controlFrame(minted.token))).toMatchObject({
+        ok: false,
+        code: 'PROVIDER_ERROR',
+      });
+      expect(host.controlFailed(minted.grantId)).toBe(true);
+
+      const next = host.restartControl(minted.grantId);
+      expect(next.resourceId).not.toBe(failing);
+      expect(next.controlDecisionId).not.toBe(minted.controlDecisionId);
+      // The same token now drives the new decision; the failure flag belongs to the old one.
+      expect(host.controlFailed(minted.grantId)).toBe(false);
+      expect(await conn.call(controlFrame(minted.token))).toMatchObject({ ok: true });
+      expect(calls.at(-1)?.resource).toBe(next.resourceId);
+    });
+
+    it('passes the gateway refusals through unchanged and rejects grants without control', async () => {
+      const { gateway } = createFakeControl({ resources: ['res-a'] });
+      await make(undefined, executor, gateway);
+      const none = host.mint(grantInput, { policy: { mode: 'auto', fallback: 'none' } });
+      expect(() => host.restartControl(none.grantId)).toThrow(
+        expect.objectContaining({ code: 'POLICY_REJECTED' }) as Error,
+      );
+      const only = host.mint(grantInput, { policy });
+      expect(() => host.restartControl(only.grantId)).toThrow(
+        expect.objectContaining({ code: 'NO_ELIGIBLE_RESOURCE' }) as Error,
+      );
+      const plain = host.mint(grantInput);
+      expect(() => host.restartControl(plain.grantId)).toThrow(
+        expect.objectContaining({ code: 'POLICY_REJECTED' }) as Error,
+      );
+      expect(() => host.restartControl('nope')).toThrow(
+        expect.objectContaining({ code: 'POLICY_REJECTED' }) as Error,
+      );
+      expect(host.controlFailed('nope')).toBe(false);
+    });
+  });
 });

@@ -20,6 +20,7 @@ import {
   type BridgeAllocator,
   type BridgeEvent,
   type ChildExecutor,
+  type ControlEvent,
 } from '@nexar/engine-gateway';
 import type { StrategySettings } from '@nexar/resource-controller';
 import type { EngineHost } from './engine-host.js';
@@ -154,6 +155,8 @@ const sha256 = (text: string): Buffer => createHash('sha256').update(text).diges
 export class BridgeHost {
   private readonly bridge: IntelligenceBridge;
   private readonly grants = new Map<string, StoredGrant>();
+  /** Control decisions that emitted `control.failed` (ids only; bounded by the active decisions). */
+  private readonly failedDecisions = new Set<string>();
   private readonly sockets = new Set<Socket>();
   private readonly limits: BridgeEndpointLimits;
   private readonly platform: NodeJS.Platform;
@@ -187,7 +190,12 @@ export class BridgeHost {
   mint(
     input: BridgeGrantInput,
     control?: { readonly policy: ControlResourcePolicy },
-  ): { readonly grantId: string; readonly token: string; readonly controlDecisionId?: string } {
+  ): {
+    readonly grantId: string;
+    readonly token: string;
+    readonly controlDecisionId?: string;
+    readonly resourceId?: string;
+  } {
     if (!Number.isInteger(input.ttlMs) || input.ttlMs < 1) {
       throw new NexarError('VALIDATION_ERROR', 'ttlMs must be a positive integer');
     }
@@ -204,10 +212,11 @@ export class BridgeHost {
       depth: 1,
     };
     // Throws NO_ELIGIBLE_RESOURCE before anything is opened; the caller decides on a fallback.
-    const controlDecisionId =
+    const decision =
       control === undefined || gateway === undefined
         ? undefined
-        : gateway.begin(input.engine, control.policy, lineage).controlDecisionId;
+        : gateway.begin(input.engine, control.policy, lineage);
+    const controlDecisionId = decision?.controlDecisionId;
     const token = randomBytes(32).toString('hex');
     const expiresAtMs = this.options.clock().getTime() + input.ttlMs;
     const grant: BridgeGrant = {
@@ -229,13 +238,54 @@ export class BridgeHost {
       grant,
       lineage: { ...lineage, chain: ['nexar', input.engine] },
     });
-    return { grantId, token, ...(controlDecisionId === undefined ? {} : { controlDecisionId }) };
+    return {
+      grantId,
+      token,
+      ...(decision === undefined
+        ? {}
+        : { controlDecisionId: decision.controlDecisionId, resourceId: decision.resourceId }),
+    };
+  }
+
+  /** Feed the gateway's events here (its `onEvent`): `controlFailed` reads them. */
+  noteControlEvent(event: ControlEvent): void {
+    if (event.type === 'control.failed') this.failedDecisions.add(event.controlDecisionId);
+  }
+
+  /** True when the grant's current control decision emitted `control.failed`. */
+  controlFailed(grantId: string): boolean {
+    const id = this.grants.get(grantId)?.controlDecisionId;
+    return id !== undefined && this.failedDecisions.has(id);
+  }
+
+  /**
+   * After a control failure: a new decision on the next eligible resource, stored on the grant (the
+   * token and grant stay). Throws the gateway's `POLICY_REJECTED` / `NO_ELIGIBLE_RESOURCE` unchanged.
+   */
+  restartControl(grantId: string): {
+    readonly controlDecisionId: string;
+    readonly resourceId: string;
+  } {
+    const stored = this.grants.get(grantId);
+    const { gateway } = this.options;
+    if (stored?.controlDecisionId === undefined || gateway === undefined) {
+      throw new NexarError('POLICY_REJECTED', 'Control is not available');
+    }
+    const next = gateway.restart(stored.controlDecisionId);
+    this.failedDecisions.delete(stored.controlDecisionId);
+    this.grants.set(grantId, {
+      ...stored,
+      controlDecisionId: next.controlDecisionId,
+    });
+    return { controlDecisionId: next.controlDecisionId, resourceId: next.resourceId };
   }
 
   revoke(grantId: string): void {
     const stored = this.grants.get(grantId);
-    if (stored?.controlDecisionId !== undefined)
+    if (stored?.controlDecisionId !== undefined) {
       this.options.gateway?.end(stored.controlDecisionId);
+      this.failedDecisions.delete(stored.controlDecisionId);
+    }
     this.grants.delete(grantId);
     this.bridge.close(grantId);
   }

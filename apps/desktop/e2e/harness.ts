@@ -37,7 +37,16 @@ const REAL_RUNTIMES = ['claude-code', 'codex', 'antigravity', 'deepseek-harness'
  * from the legacy first-run shape (which Desktop migrates away). Discovery stays on (provider keys
  * add pi catalog resources) but never yields a developer's real signed-in CLIs.
  */
-export async function seedE2EConfig(userData: string): Promise<void> {
+export async function seedE2EConfig(
+  userData: string,
+  /** Owner-listed local endpoints (NXR-063 E2E): discovery lists them as pi resources. */
+  localEndpoints: readonly {
+    readonly id: string;
+    readonly kind: 'openai-compatible';
+    readonly baseUrl: string;
+    readonly toolCalling: boolean;
+  }[] = [],
+): Promise<void> {
   const path = join(userData, 'nexar.config.json');
   const exists = await access(path).then(
     () => true,
@@ -53,7 +62,13 @@ export async function seedE2EConfig(userData: string): Promise<void> {
       resources: [{ ...echo, tags: ['e2e'] }],
       routing: { policy: 'resource-intelligence', defaultResourceId: 'local-echo' },
       telemetry: { jsonlPath: '.nexar/telemetry.jsonl' },
-      discovery: { enabled: true, excludeIds: REAL_RUNTIMES },
+      discovery: {
+        enabled: true,
+        excludeIds: REAL_RUNTIMES,
+        ...(localEndpoints.length === 0
+          ? {}
+          : { sources: { localEndpoints: { enabled: true, endpoints: localEndpoints } } }),
+      },
       projects: [],
     }),
   );

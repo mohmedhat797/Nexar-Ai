@@ -7,7 +7,7 @@ import {
   type ModelTurnPort,
   type ResourceSnapshot,
 } from '@nexar/contracts';
-import { ControlModelGateway } from '@nexar/engine-gateway';
+import { ControlModelGateway, type ControlEvent } from '@nexar/engine-gateway';
 import {
   DEFAULT_RESOURCE_INTELLIGENCE_SETTINGS,
   DEFAULT_TASK_KIND_RULES,
@@ -61,6 +61,9 @@ export interface FakeControl {
 export function createFakeControl(options: {
   readonly resources?: readonly string[];
   readonly turn?: (request: ModelTurnPortRequest) => Promise<PortResult> | PortResult;
+  readonly onEvent?: (event: ControlEvent) => void;
+  /** Extra attempts on the same resource after a retryable failure (default: the gateway's). */
+  readonly retries?: number;
 }): FakeControl {
   const calls: FakeControl['calls'][number][] = [];
   const turn = options.turn ?? (() => okTurn());
@@ -80,6 +83,8 @@ export function createFakeControl(options: {
     clock: () => new Date('2026-03-01T12:00:00.000Z'),
     newId: () => `dec-${String(++n)}`,
     logger: silentLogger,
+    ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
+    ...(options.retries === undefined ? {} : { retries: options.retries }),
   });
   return { gateway, calls };
 }

@@ -82,8 +82,14 @@ export interface CoworkDelegation {
   readonly outcome: string;
 }
 
+/** How the engine's control loop ran: through Nexar's gateway, or the interim direct key. */
+export type CoworkControl =
+  | { readonly path: 'gateway'; readonly controlDecisionId: string; readonly restarts: number }
+  | { readonly path: 'direct-key' };
+
 export type CoworkResult = Omit<DirectResult, 'fallback'> & {
   readonly delegations?: readonly CoworkDelegation[];
+  readonly control?: CoworkControl;
 };
 
 /** The longest goal the engineering plane accepts (ADR-025: same bound as the runner). */
@@ -142,6 +148,11 @@ export interface OperatingPorts {
   readonly lanes: {
     available(lane: 'cowork' | 'code', projectId: string): boolean;
     reason?(lane: 'cowork' | 'code', projectId: string): string | undefined;
+    /**
+     * A fixed id recorded as the fallback reason when the Cowork lane is unavailable, when it is more
+     * precise than the default `openworker-unavailable` (e.g. `openworker-control-unavailable`).
+     */
+    fallbackReason?(lane: 'cowork'): string | undefined;
     /** Whether an available lane can run this intent (default: yes). */
     supports?(lane: 'cowork' | 'code', kind: TaskKind): boolean;
     /** Whether the Code lane can run the report-only implementation plan (default: no). */
@@ -486,6 +497,14 @@ export class OperatingService {
     }
   }
 
+  private coworkFallbackReason(): string {
+    try {
+      return this.ports.lanes.fallbackReason?.('cowork') ?? 'openworker-unavailable';
+    } catch {
+      return 'openworker-unavailable';
+    }
+  }
+
   /**
    * Records where a turn will really execute (ADR-024 §9: never claim an orchestrator ran when it
    * did not). The Code lane runs only engineering intents the plane supports; any other turn that
@@ -499,7 +518,7 @@ export class OperatingService {
       decision.effectiveLane === 'direct' &&
       decision.fallbackReason === 'orchestrator-unavailable'
     ) {
-      return { ...decision, fallbackReason: 'openworker-unavailable' };
+      return { ...decision, fallbackReason: this.coworkFallbackReason() };
     }
     if (decision.effectiveLane !== 'code' || kind === 'coding') return decision;
     const supported =

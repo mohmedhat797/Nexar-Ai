@@ -182,6 +182,7 @@ async function start(): Promise<void> {
   // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
   // exists unless delegation is used. Stopped at quit.
   const coworkRef: { current?: CoworkService } = {};
+  const bridgeHostRef: { current?: BridgeHost } = {};
   // The Control Model Gateway (ADR-027 §7A) behind the host's `control` op: pi resources only, over the
   // engine's current registry snapshot and routing policy (read per call, so a config reload is picked up).
   const controlPorts = createControlModelTurnPorts(
@@ -203,6 +204,8 @@ async function start(): Promise<void> {
     clock: () => new Date(),
     newId: randomUUID,
     logger,
+    // controlFailed of a grant reads these (the host is created right after).
+    onEvent: (event) => bridgeHostRef.current?.noteControlEvent(event),
   });
   const bridgeHost = new BridgeHost({
     gateway: controlGateway,
@@ -215,8 +218,17 @@ async function start(): Promise<void> {
     // Delegated units of a Cowork turn are recorded on its result (ids and enums only).
     onEvent: (event) => coworkRef.current?.noteBridgeEvent(event),
   });
+  bridgeHostRef.current = bridgeHost;
+  // The loopback Chat Completions translator child (ADR-027 section 7A): created here, started on first
+  // need (a Cowork turn on the gateway path asks for its `baseUrl()`), ended at quit.
+  const controlGatewayChild = new ControlGatewayChild({
+    endpoint: () => bridgeHost.ensureStarted(),
+    logger,
+  });
   const cowork = new CoworkService({
     bridgeHost,
+    controlGateway,
+    controlChild: controlGatewayChild,
     settings,
     engine,
     keys,
@@ -242,12 +254,6 @@ async function start(): Promise<void> {
       ),
   });
   coworkRef.current = cowork;
-  // The loopback Chat Completions translator child (ADR-027 §7A): created here, started on first need
-  // (NXR-063 part b asks for its `baseUrl()`), ended at quit.
-  const controlGatewayChild = new ControlGatewayChild({
-    endpoint: () => bridgeHost.ensureStarted(),
-    logger,
-  });
   // Quitting ends the lanes' children (a plane run, a starting or running OpenWorker) as soon as it
   // begins, and the exit waits (bounded) for that before the sessions lease is given back (best
   // effort, so the next launch needs no stale recovery). Exiting first left a supervised server

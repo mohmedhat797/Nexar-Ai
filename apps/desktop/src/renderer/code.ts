@@ -25,6 +25,8 @@ export const COMMIT_NOTE =
 /** Fallback texts for a turn that ran with Nexar direct execution instead of the Code lane. */
 const FALLBACK_TEXT: Readonly<Record<string, string>> = {
   'openworker-unavailable': 'OpenWorker unavailable. Using Nexar direct execution.',
+  'openworker-control-unavailable':
+    'No control-compatible resource can run Cowork. Using Nexar direct execution.',
   'code-report-unavailable':
     'Read-only repository review ran with Nexar direct execution: the engineering plane has no report-only plan.',
   'code-engineering-only':

@@ -97,6 +97,27 @@ async function rejection(p: Promise<unknown>): Promise<NexarError> {
 }
 
 describe('ControlModelGateway', () => {
+  it('previews the resource begin would pin, without side effects', () => {
+    const { gateway, events } = setup({ a: () => ok(), b: () => ok() });
+    const pinned: ControlResourcePolicy = { mode: 'pinned', resourceId: 'b', fallback: 'none' };
+    expect(gateway.preview('openworker', pinned)).toEqual({ resourceId: 'b' });
+    expect(gateway.preview('openworker', undefined)?.resourceId).toBe(
+      gateway.begin('openworker', auto, lineage).resourceId,
+    );
+    // Only the explicit `begin` recorded and emitted a decision.
+    expect(events.map((e) => e.type)).toEqual(['control.decided']);
+  });
+
+  it('previews nothing when no resource qualifies or the policy is unusable', () => {
+    const { gateway, events } = setup({ a: () => ok() });
+    expect(
+      gateway.preview('openworker', { mode: 'pinned', resourceId: 'zz', fallback: 'none' }),
+    ).toBeUndefined();
+    expect(gateway.preview('openworker', { mode: 'pinned', fallback: 'auto' })).toBeUndefined();
+    const empty = setup({}, { candidates: [] });
+    expect(empty.gateway.preview('openworker', auto)).toBeUndefined();
+    expect(events).toEqual([]);
+  });
   it('pins the same resource across turns and stamps resourceId', async () => {
     const { gateway, calls, request } = setup({ a: () => ok(), b: () => ok() });
     const d = gateway.begin('openworker', auto, lineage);

@@ -28,6 +28,7 @@ const server = new FakeOpenWorkerServer({
   startDelayMs: Number(process.env.FAKE_OW_START_DELAY_MS ?? 0),
   neverReady: process.env.FAKE_OW_NEVER_READY === '1',
   failProviders: process.env.FAKE_OW_FAIL_PROVIDERS === '1',
+  refuseProviders: process.env.FAKE_OW_REFUSE_PROVIDERS === '1',
   onRecord: (entry) => record('records.jsonl', entry),
 });
 await server.listen();
