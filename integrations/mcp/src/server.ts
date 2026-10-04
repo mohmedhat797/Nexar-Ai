@@ -101,7 +101,7 @@ const WorkflowsInput = z.strictObject({ project: z.string().min(1).max(128).opti
  * JSON Schema of `schema` for `tools/list` but lets every call through to the handler, which
  * authenticates first, then validates, and writes exactly one audit record either way.
  */
-function advertised(schema: z.ZodType): StandardSchemaWithJSON<unknown, unknown> {
+export function advertised(schema: z.ZodType): StandardSchemaWithJSON<unknown, unknown> {
   const standard = schema['~standard'];
   return {
     '~standard': { ...standard, validate: (value: unknown) => ({ value }) },

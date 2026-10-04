@@ -104,6 +104,9 @@ importers:
       '@nexar/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@nexar/engine-gateway':
+        specifier: workspace:*
+        version: link:../../packages/engine-gateway
       '@nexar/host':
         specifier: workspace:*
         version: link:../../packages/host

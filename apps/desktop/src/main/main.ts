@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { userInfo } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
@@ -6,6 +7,7 @@ import { FileSessionStore } from '@nexar/sessions';
 import { checkProviderCredential, createNativeSubscriptions } from '@nexar/host';
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
+import { BridgeHost, createEngineExecutor, engineAllocator } from './bridge-host.js';
 import { CodePlane } from './code-plane.js';
 import { CoworkService, createScriptSpawn } from './cowork.js';
 import { ConfigStore } from './config-store.js';
@@ -195,6 +197,17 @@ async function start(): Promise<void> {
         { sessionId: request.sessionId, turnId: request.turnId },
       ),
   });
+  // The Intelligence Bridge endpoint (ADR-027 §9a): a per-launch local pipe/socket, never a port.
+  // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
+  // exists unless delegation is used. Stopped at quit.
+  const bridgeHost = new BridgeHost({
+    allocator: engineAllocator(engine),
+    executor: createEngineExecutor(engine),
+    clock: () => new Date(),
+    newId: randomUUID,
+    logger,
+    runtimeDir: join(runtimePath, 'bridge'),
+  });
   // Quitting ends the lanes' children (a plane run, a starting or running OpenWorker) as soon as it
   // begins, and the exit waits (bounded) for that before the sessions lease is given back (best
   // effort, so the next launch needs no stale recovery). Exiting first left a supervised server
@@ -209,6 +222,7 @@ async function start(): Promise<void> {
     app,
     async () => {
       await lanesStopped?.catch(() => undefined);
+      await bridgeHost.stop();
       if (sessions !== undefined) await sessionStore.releaseLease();
     },
     QUIT_CLEANUP_BOUND_MS,

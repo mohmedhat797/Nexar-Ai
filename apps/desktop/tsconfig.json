@@ -14,6 +14,7 @@
     { "path": "../../packages/artifacts" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/core" },
+    { "path": "../../packages/engine-gateway" },
     { "path": "../../packages/host" },
     { "path": "../../integrations/openworker" },
     { "path": "../../packages/operating" },
