@@ -457,6 +457,9 @@ importers:
       '@nexar/integration-echo':
         specifier: workspace:*
         version: link:../../integrations/echo
+      '@nexar/integration-openai-compat':
+        specifier: workspace:*
+        version: link:../../integrations/openai-compat
       '@nexar/integration-pi':
         specifier: workspace:*
         version: link:../../integrations/pi

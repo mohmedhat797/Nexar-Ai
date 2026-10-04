@@ -33,6 +33,7 @@ import {
 } from '@nexar/integration-claude-code';
 import { CodexExecutionAdapter, codexCliDiscoverySource } from '@nexar/integration-codex';
 import {
+  DEEPSEEK_HARNESS_ADAPTER_ID,
   DeepSeekHarnessExecutionAdapter,
   deepseekHarnessCliDiscoverySource,
 } from '@nexar/integration-deepseek-harness';
@@ -54,6 +55,7 @@ import {
   TelemetryQuotaSource,
 } from '@nexar/telemetry';
 import { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
+import { PlaneLaneEngine } from './lane-engine.js';
 import type { EngineeringRunnerPort, EngineeringSeams, HostEnvironment } from './seams.js';
 
 export interface Composition {
@@ -349,6 +351,7 @@ export async function composeEngineering(
   logger: Logger,
   seams: EngineeringSeams = {},
   availability?: () => Promise<SandboxAvailability>,
+  options: { readonly relayScript?: string } = {},
 ): Promise<EngineeringComposition> {
   const engineering = requireEngineeringConfig(loaded);
   const stateDir = nexarStateDir(loaded, io);
@@ -373,6 +376,25 @@ export async function composeEngineering(
       ...(availability === undefined ? {} : { availability }),
     });
 
+  // Engine gateway sessions (ADR-027 section 9b) exist only when a DeepSeek Harness resource does.
+  const hasEngine = runtime.registry
+    .snapshot()
+    .some((s) => s.descriptor.runtime.adapter === DEEPSEEK_HARNESS_ADAPTER_ID);
+  const laneTimeouts = loaded.config.projects.map((p) => p.engineering?.laneTimeoutMs ?? 0);
+  const controlPolicy = loaded.config.orchestration?.code?.controlResource;
+  const laneEngine = hasEngine
+    ? new PlaneLaneEngine({
+        runtime,
+        io,
+        logger,
+        stateDir,
+        // The grant outlives the longest lane by a minute; close revokes it earlier.
+        ttlMs: Math.max(30 * 60 * 1000, ...laneTimeouts) + 60_000,
+        ...(controlPolicy === undefined ? {} : { controlPolicy }),
+        ...(options.relayScript === undefined ? {} : { relayScript: options.relayScript }),
+      })
+    : undefined;
+
   const runner: EngineeringRunnerPort =
     seams?.runner ??
     new EngineeringRunner({
@@ -385,6 +407,7 @@ export async function composeEngineering(
       telemetry: engineeringTelemetry(loaded, io),
       logger,
       strategist: runtime.controller,
+      ...(laneEngine === undefined ? {} : { laneEngine }),
       stateDir,
       author: engineering.author,
       approvalTtlMs: engineering.approvalTtlMs,

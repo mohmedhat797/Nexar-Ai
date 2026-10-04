@@ -8,6 +8,7 @@ import {
   NexarError,
   toNexarError,
   type BridgeGrant,
+  type ControlEngine,
   type ControlResourcePolicy,
   type ControlTurnRequest,
   type IntelligenceRequest,
@@ -48,7 +49,7 @@ export interface BridgeGrantInput {
   readonly turnId: string;
   readonly correlationId: string;
   readonly projectId: string;
-  readonly engine: 'openworker';
+  readonly engine: ControlEngine;
   readonly access: 'read-only' | 'draft';
   readonly budgetUsd?: number;
   readonly maxUnits: number;

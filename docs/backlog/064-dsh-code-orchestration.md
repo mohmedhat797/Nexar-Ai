@@ -29,6 +29,10 @@ plane-local translator on a unix socket, socat into the sandbox; units via an AC
 - **064b:** the DSH lane on the plane: per-lane grant and pinned control decision
   (`orchestration.code.controlResource`), overlay route `nexar`, ACP `mcpServers` relay, fallback
   `executor: native`; fake DSH + E2E.
+  - 064b part b (plane sessions): `PlaneLaneEngine` opens a lane-private gateway/bridge session per
+    write lane; a control failure fails the lane (`PROVIDER_ERROR`, reason `control-resource-failed`).
+    Follow-up: restart of the lane from the worktree base on control failure (ADR-027 section 8,
+    boundary 3).
 
 ## Acceptance criteria
 

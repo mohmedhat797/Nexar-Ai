@@ -7,6 +7,12 @@ export {
   type EngineeringRunOptions,
   type WorktreeOps,
 } from './execution.js';
+export type {
+  LaneEngine,
+  LaneEngineLane,
+  LaneEngineSession,
+  LaneEngineUnavailable,
+} from './lane-engine.js';
 export { readTaskPatch, type TaskPatchOptions, type TaskPatchView } from './patch-view.js';
 export {
   PLAN_FILE,

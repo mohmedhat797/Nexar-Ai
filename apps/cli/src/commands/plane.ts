@@ -29,6 +29,7 @@ import {
   type EngineeringComposition,
 } from '../composition.js';
 import { EXIT, UsageError } from '../io.js';
+import { relayScriptPath } from '../relay-path.js';
 import { buildReadiness, buildResources, planIds } from '../plane-readiness.js';
 import { CLI_VERSION } from '../version.js';
 
@@ -159,6 +160,7 @@ async function serve(ctx: CommandContext): Promise<number> {
         ctx.logger,
         ctx.seams.engineering,
         ctx.seams.sandbox?.availability,
+        { relayScript: relayScriptPath() },
       );
       return { composition };
     })();

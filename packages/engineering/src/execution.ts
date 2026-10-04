@@ -30,6 +30,7 @@ import type {
   removeTaskWorktree,
 } from '@nexar/worktrees';
 import { networkFor, runCommand, type CommandRun } from './commands.js';
+import type { LaneEngine, LaneEngineSession, LaneEngineUnavailable } from './lane-engine.js';
 import type { ChangePlan, LoadedPlan, PlanLane, ReportPlan } from './plan.js';
 import { MAX_OUTCOME_LANES, boundReport } from './report.js';
 import {
@@ -143,6 +144,7 @@ export interface ExecutionDependencies {
   readonly approvalTtlMs: number;
   readonly worktrees: WorktreeOps;
   readonly strategist?: EngineeringStrategist;
+  readonly laneEngine?: LaneEngine;
 }
 
 export interface ExecutionTarget {
@@ -594,10 +596,40 @@ export class EngineeringExecution {
     let current: { taskId: string; startedMs: number } | undefined;
     const planned = this.planned.get(lane.id);
     // The plan's pick leads; the owner's lane preferences follow. Runtime routing still decides.
-    const preferred =
+    const plannedFirst =
       planned === undefined
         ? lane.preferred
         : [planned, ...(lane.preferred ?? []).filter((id) => id !== planned)];
+    // Only write lanes may get an engine gateway session (ADR-027 section 9b).
+    const engine = access === 'read-write' ? await this.openLaneEngine(lane, round) : undefined;
+    const session = engine !== undefined && 'session' in engine ? engine.session : undefined;
+    // The engine's resource leads so routing selects it when it can; routing still decides.
+    const preferred =
+      session === undefined
+        ? plannedFirst
+        : [
+            session.engineResourceId,
+            ...(plannedFirst ?? []).filter((id) => id !== session.engineResourceId),
+          ];
+    const executorFor = (routedResourceId: string | undefined, controlFailed = false) => {
+      if (engine === undefined) return {};
+      if (!('session' in engine)) {
+        return { executor: 'native' as const, executorReason: engine.reason };
+      }
+      const { gateway, engineResourceId } = engine.session;
+      const ids = {
+        engine: gateway.engine,
+        controlResourceId: gateway.controlResourceId,
+        controlDecisionId: gateway.controlDecisionId,
+      };
+      if (controlFailed) {
+        return { executor: 'engine' as const, executorReason: 'control-resource-failed', ...ids };
+      }
+      if (routedResourceId === undefined) return {};
+      return routedResourceId === engineResourceId
+        ? { executor: 'engine' as const, ...ids }
+        : { executor: 'native' as const, executorReason: 'engine-not-selected' };
+    };
 
     const attempt = async (excluded: readonly ResourceId[]) => {
       const task = nexar.createTask({
@@ -615,6 +647,9 @@ export class EngineeringExecution {
       current = { taskId: task.id, startedMs: clock().getTime() };
       return nexar.run(task, {
         workspace: { path: workspacePath, access, launcher },
+        ...(session === undefined
+          ? {}
+          : { gateway: session.gateway, gatewayResourceId: session.engineResourceId }),
         timeoutMs: this.target.settings.laneTimeoutMs,
         ...(this.options.signal === undefined ? {} : { signal: this.options.signal }),
       });
@@ -658,6 +693,7 @@ export class EngineeringExecution {
         latencyMs: outcome.record.latencyMs,
         outputSha256,
         ...(planned === undefined ? {} : { planned, fallback: planned !== resourceId }),
+        ...executorFor(resourceId),
       });
       this.laneExecutions.push({ role: lane.role, resourceId });
       if (lane.access === 'read-write') this.rwResources.add(toResourceId(resourceId));
@@ -678,8 +714,14 @@ export class EngineeringExecution {
       };
     } catch (error) {
       if (error instanceof TaskEnd) throw error;
-      const code = isNexarError(error) ? error.code : 'INTERNAL_ERROR';
       const aborted = this.options.signal?.aborted === true;
+      // A pinned control resource that failed ends the lane as a provider failure (restart is a follow-up).
+      const controlFailed = !aborted && session?.controlFailed?.() === true;
+      const code = controlFailed
+        ? 'PROVIDER_ERROR'
+        : isNexarError(error)
+          ? error.code
+          : 'INTERNAL_ERROR';
       const outcome: LaneRecord['outcome'] = aborted
         ? 'cancelled'
         : code === 'EXECUTION_TIMEOUT'
@@ -696,6 +738,7 @@ export class EngineeringExecution {
         errorCode: code,
         latencyMs: clock().getTime() - started,
         ...(planned === undefined ? {} : { planned }),
+        ...executorFor(undefined, controlFailed),
       });
       await this.step('lane.completed', {
         lane: lane.id,
@@ -706,6 +749,49 @@ export class EngineeringExecution {
       });
       if (aborted) throw new TaskEnd('cancelled', 'cancelled');
       throw new TaskEnd('failed', `lane.${lane.id}.${code}`);
+    } finally {
+      await this.closeLaneEngine(session);
+    }
+  }
+
+  /** Opens the lane's engine session, or says why there is none. Never throws. */
+  private async openLaneEngine(
+    lane: LaneSpec,
+    round: number,
+  ): Promise<{ session: LaneEngineSession } | { reason: LaneEngineUnavailable } | undefined> {
+    const { laneEngine } = this.deps;
+    if (laneEngine === undefined) return undefined;
+    try {
+      const opened = await laneEngine.open(
+        {
+          engineeringTaskId: this.target.taskId,
+          laneId: lane.id,
+          role: lane.role,
+          round,
+          projectId: this.target.project.id,
+          access: 'read-write',
+        },
+        this.options.signal ?? new AbortController().signal,
+      );
+      return 'unavailable' in opened ? { reason: opened.unavailable } : { session: opened };
+    } catch (error) {
+      this.deps.logger.warn('engine session could not be opened', {
+        taskId: this.target.taskId,
+        code: isNexarError(error) ? error.code : 'INTERNAL_ERROR',
+      });
+      return { reason: 'engine-unavailable' };
+    }
+  }
+
+  private async closeLaneEngine(session: LaneEngineSession | undefined): Promise<void> {
+    if (session === undefined) return;
+    try {
+      await session.close();
+    } catch (error) {
+      this.deps.logger.warn('engine session could not be closed', {
+        taskId: this.target.taskId,
+        code: isNexarError(error) ? error.code : 'INTERNAL_ERROR',
+      });
     }
   }
 
@@ -723,6 +809,11 @@ export class EngineeringExecution {
     outputSha256?: string;
     planned?: string;
     fallback?: boolean;
+    executor?: NonNullable<LaneRecord['executor']>;
+    engine?: NonNullable<LaneRecord['engine']>;
+    executorReason?: string;
+    controlResourceId?: string;
+    controlDecisionId?: string;
   }): void {
     this.lanes.push(lane);
   }

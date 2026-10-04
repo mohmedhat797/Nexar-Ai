@@ -27,6 +27,7 @@
     "@nexar/integration-deepseek-harness": "workspace:*",
     "@nexar/integration-delegate-skills": "workspace:*",
     "@nexar/integration-echo": "workspace:*",
+    "@nexar/integration-openai-compat": "workspace:*",
     "@nexar/integration-pi": "workspace:*",
     "@nexar/resource-registry": "workspace:*",
     "@nexar/sandbox": "workspace:*",

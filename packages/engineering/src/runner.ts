@@ -21,6 +21,7 @@ import {
   type EngineeringStrategist,
   type WorktreeOps,
 } from './execution.js';
+import type { LaneEngine } from './lane-engine.js';
 import type { PlanCatalog } from './plan.js';
 import { isEngineeringLineage, readEngineeringRecord } from './record.js';
 
@@ -52,6 +53,8 @@ export interface EngineeringRunnerDependencies {
   readonly worktrees?: WorktreeOps;
   /** Plans every lane's resource upfront (`strategy@1`); absent = lanes are routed one by one. */
   readonly strategist?: EngineeringStrategist;
+  /** Gives write lanes an engine gateway session (ADR-027 section 9b); absent = lanes run as before. */
+  readonly laneEngine?: LaneEngine;
 }
 
 /**
@@ -135,6 +138,7 @@ export class EngineeringRunner {
         approvalTtlMs: this.deps.approvalTtlMs ?? DEFAULT_APPROVAL_TTL_MS,
         worktrees: this.worktrees,
         ...(this.deps.strategist === undefined ? {} : { strategist: this.deps.strategist }),
+        ...(this.deps.laneEngine === undefined ? {} : { laneEngine: this.deps.laneEngine }),
       },
       {
         taskId: this.newId(),

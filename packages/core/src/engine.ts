@@ -11,6 +11,7 @@ import {
   valueOf,
   type CostEstimateRecord,
   type EngineeringWorkspace,
+  type ExecutionGateway,
   type ExecutionEvent,
   type ExecutionOutcome,
   type ExecutionRecord,
@@ -84,6 +85,13 @@ export interface RunOptions {
    * also name a working directory; the adapter receives the workspace in its execution context.
    */
   readonly workspace?: EngineeringWorkspace;
+  /**
+   * Engineering lanes only (ADR-027 section 9b): the lane's engine gateway session, handed to the adapter
+   * unchanged. Requires workspace. A secret: never logged. With gatewayResourceId it reaches the
+   * adapter only when routing selected that resource.
+   */
+  readonly gateway?: ExecutionGateway;
+  readonly gatewayResourceId?: string;
 }
 
 export interface RunOutcome {
@@ -255,6 +263,12 @@ export class Nexar {
   }
 
   async run(submitted: NexarTask, options: RunOptions = {}): Promise<RunOutcome> {
+    if (options.gateway !== undefined && options.workspace === undefined) {
+      throw new NexarError(
+        'VALIDATION_ERROR',
+        'A gateway session requires an engineering workspace',
+      );
+    }
     const workspace =
       options.workspace === undefined
         ? undefined
@@ -335,6 +349,10 @@ export class Nexar {
             logger: logger.child({ adapter: adapter.id }),
             ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
             ...(workspace === undefined ? {} : { workspace }),
+            ...(options.gateway !== undefined &&
+            (options.gatewayResourceId === undefined || options.gatewayResourceId === resourceId)
+              ? { gateway: options.gateway }
+              : {}),
           },
         ),
         signal,

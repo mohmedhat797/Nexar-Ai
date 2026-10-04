@@ -10,6 +10,7 @@ import {
   adapterId,
   projectId,
   resourceId,
+  type ControlResourcePolicy,
   type DiscoveryCredentialSource,
   type ResourceDescriptor,
   type ResourceId,
@@ -48,6 +49,10 @@ export interface NexarConfig {
   readonly engineering?: EngineeringConfig;
   /** Resource discovery (ADR-020 §9); defaults applied, disabled unless the file enables it. */
   readonly discovery: DiscoveryConfig;
+  /** Owner policy for orchestrating engines (ADR-027); absent when the file has no orchestration section. */
+  readonly orchestration?: {
+    readonly code?: { readonly controlResource?: ControlResourcePolicy };
+  };
 }
 
 /** Resolved discovery settings. Discovered ids are not referenceable from routing rules in v0.4. */
@@ -381,6 +386,30 @@ const DiscoverySchema = z.strictObject({
     .optional(),
 });
 
+const ControlResourceSchema = z
+  .strictObject({
+    mode: z.enum(['auto', 'pinned']),
+    resourceId: z.string().min(1).max(128).optional(),
+    fallback: z.enum(['auto', 'none']).default('auto'),
+  })
+  .refine((c) => (c.mode === 'pinned') === (c.resourceId !== undefined), {
+    message: 'resourceId is required when mode is pinned and not allowed otherwise',
+  });
+
+/** Drops the undefined keys zod leaves on optional fields. */
+function resolveOrchestration(
+  data: NonNullable<z.infer<typeof NexarConfigSchema>['orchestration']>,
+): NonNullable<NexarConfig['orchestration']> {
+  const policy = data.code?.controlResource;
+  if (policy === undefined) return {};
+  const { mode, resourceId, fallback } = policy;
+  return {
+    code: {
+      controlResource: { mode, fallback, ...(resourceId === undefined ? {} : { resourceId }) },
+    },
+  };
+}
+
 /** Zod schema of the JSON config file. Strict everywhere: unknown keys are errors. */
 export const NexarConfigSchema = z.strictObject({
   version: z.literal(1),
@@ -397,6 +426,11 @@ export const NexarConfigSchema = z.strictObject({
   projects: z.array(ProjectSchema).optional(),
   engineering: EngineeringSchema.optional(),
   discovery: DiscoverySchema.optional(),
+  orchestration: z
+    .strictObject({
+      code: z.strictObject({ controlResource: ControlResourceSchema.optional() }).optional(),
+    })
+    .optional(),
 });
 
 function configError(message: string, origin: string): NexarError {
@@ -579,6 +613,9 @@ export function parseConfig(
     telemetry: jsonlPath === undefined ? {} : { jsonlPath },
     projects,
     discovery,
+    ...(data.orchestration === undefined
+      ? {}
+      : { orchestration: resolveOrchestration(data.orchestration) }),
     ...(engineering === undefined
       ? {}
       : {

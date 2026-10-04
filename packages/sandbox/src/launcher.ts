@@ -16,7 +16,15 @@ import {
   validateToolchainPaths,
   type ValidatedMount,
 } from './mounts.js';
-import { buildBwrapArgs, SANDBOX_HOME, SANDBOX_PROXY_PORT, SANDBOX_WORKSPACE } from './profile.js';
+import {
+  buildBwrapArgs,
+  SANDBOX_BRIDGE_ENDPOINT,
+  SANDBOX_GATEWAY_BASE_URL,
+  SANDBOX_HOME,
+  SANDBOX_PROXY_PORT,
+  SANDBOX_RELAY_PATH,
+  SANDBOX_WORKSPACE,
+} from './profile.js';
 import { startEgressProxy, type EgressProxy, type ResolvedAddress } from './proxy.js';
 import { createRunDir, type RunDir } from './run-dir.js';
 import { validateServices } from './services.js';
@@ -160,6 +168,15 @@ export class SandboxLauncher implements ProcessLauncher {
         cwd: workspace,
         workspacePath: SANDBOX_WORKSPACE,
         isolation: 'sandbox',
+        ...(services === undefined
+          ? {}
+          : {
+              services: {
+                ...(services.gateway ? { gatewayBaseUrl: SANDBOX_GATEWAY_BASE_URL } : {}),
+                ...(services.bridge ? { bridgeEndpoint: SANDBOX_BRIDGE_ENDPOINT } : {}),
+                ...(services.relayScript === undefined ? {} : { relayPath: SANDBOX_RELAY_PATH }),
+              },
+            }),
         dispose,
       };
     } catch (error) {

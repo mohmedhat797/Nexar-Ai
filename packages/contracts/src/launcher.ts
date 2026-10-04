@@ -72,6 +72,12 @@ export interface PreparedLaunch {
   readonly workspacePath: string;
   /** The isolation actually applied; adapters re-check it before enabling write mode. */
   readonly isolation: 'none' | 'sandbox';
+  /** Where the mounted `LaunchSpec.services` appear to the launched process. Unset when none were mounted. */
+  readonly services?: {
+    readonly gatewayBaseUrl?: string;
+    readonly bridgeEndpoint?: string;
+    readonly relayPath?: string;
+  };
   /** Stops the proxy and removes per-launch state. Idempotent; call it after the process exits. */
   dispose(): Promise<void>;
 }

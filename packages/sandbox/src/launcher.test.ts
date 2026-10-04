@@ -7,7 +7,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LaunchServices, LaunchSpec } from '@nexar/contracts';
 import type { SandboxAvailability } from './availability.js';
 import { SandboxLauncher, type SandboxLauncherOptions } from './launcher.js';
-import { SANDBOX_GATEWAY_PORT } from './profile.js';
+import {
+  SANDBOX_BRIDGE_ENDPOINT,
+  SANDBOX_GATEWAY_BASE_URL,
+  SANDBOX_GATEWAY_PORT,
+  SANDBOX_RELAY_PATH,
+} from './profile.js';
 import { createRunDir } from './run-dir.js';
 
 const AVAILABLE: SandboxAvailability = {
@@ -263,6 +268,25 @@ describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
         expect(script.includes('proxy.sock')).toBe(network.mode === 'proxy');
         await prepared.dispose();
       }
+    });
+
+    it('reports where the services appear to the launched process', async () => {
+      const full = await launcher().prepare(spec({ services: services() }), signal());
+      expect(full.services).toEqual({
+        gatewayBaseUrl: SANDBOX_GATEWAY_BASE_URL,
+        bridgeEndpoint: SANDBOX_BRIDGE_ENDPOINT,
+        relayPath: SANDBOX_RELAY_PATH,
+      });
+      await full.dispose();
+      const gatewayOnly = await launcher().prepare(
+        spec({ services: { dir: svc, gateway: true, bridge: false } }),
+        signal(),
+      );
+      expect(gatewayOnly.services).toEqual({ gatewayBaseUrl: SANDBOX_GATEWAY_BASE_URL });
+      await gatewayOnly.dispose();
+      const none = await launcher().prepare(spec(), signal());
+      expect(none.services).toBeUndefined();
+      await none.dispose();
     });
 
     it('sets NO_PROXY only for the gateway service and strips caller values otherwise', async () => {

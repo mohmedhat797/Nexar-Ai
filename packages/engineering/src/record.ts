@@ -1,6 +1,11 @@
 import { chmod, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { NexarError, type EngineeringLineage, type UsageReport } from '@nexar/contracts';
+import {
+  NexarError,
+  type ControlEngine,
+  type EngineeringLineage,
+  type UsageReport,
+} from '@nexar/contracts';
 
 /**
  * Durable summary of an engineering task (ADR-019 section 10). Allowlisted fields only: ids,
@@ -29,6 +34,17 @@ export interface LaneRecord {
   readonly planned?: string;
   /** True when the lane ran on another resource than planned. */
   readonly fallback?: boolean;
+  /**
+   * Write lanes of a task with an engine gateway attempt (ADR-027 section 9): whether the lane ran
+   * orchestrated by an engine or 
+ative. Absent when no engine was configured.
+   */
+  readonly executor?: 'engine' | 'native';
+  readonly engine?: ControlEngine;
+  /** engine-unavailable, control-unavailable, engine-not-selected or control-resource-failed. */
+  readonly executorReason?: string;
+  readonly controlResourceId?: string;
+  readonly controlDecisionId?: string;
 }
 
 /** Stamp of the upfront resource plan (`strategy@1`): ids, codes and counts only. */

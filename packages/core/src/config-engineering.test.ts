@@ -226,3 +226,35 @@ describe('config: routing.resourceIntelligence', () => {
     }
   });
 });
+
+describe('orchestration.code.controlResource', () => {
+  const parse = (orchestration: unknown) =>
+    parseConfig({ ...config(), orchestration }, 'test', { baseDir: '/base' });
+
+  it('is absent by default', () => {
+    expect(parseConfig(config(), 'test', { baseDir: '/base' }).orchestration).toBeUndefined();
+  });
+
+  it('accepts auto and pinned policies, defaulting the fallback', () => {
+    expect(parse({ code: { controlResource: { mode: 'auto' } } }).orchestration).toEqual({
+      code: { controlResource: { mode: 'auto', fallback: 'auto' } },
+    });
+    expect(
+      parse({
+        code: { controlResource: { mode: 'pinned', resourceId: 'codex', fallback: 'none' } },
+      }).orchestration?.code?.controlResource,
+    ).toEqual({ mode: 'pinned', resourceId: 'codex', fallback: 'none' });
+    expect(parse({}).orchestration).toEqual({});
+  });
+
+  it.each([
+    ['pinned without a resource', { code: { controlResource: { mode: 'pinned' } } }],
+    ['auto with a resource', { code: { controlResource: { mode: 'auto', resourceId: 'codex' } } }],
+    ['an unknown mode', { code: { controlResource: { mode: 'sticky' } } }],
+    ['an unknown fallback', { code: { controlResource: { mode: 'auto', fallback: 'maybe' } } }],
+    ['an unknown key', { code: { controlResource: { mode: 'auto', extra: 1 } } }],
+    ['an unknown engine key', { cowork: {} }],
+  ])('rejects %s', (_name, orchestration) => {
+    expect(() => parse(orchestration)).toThrow(NexarError);
+  });
+});
