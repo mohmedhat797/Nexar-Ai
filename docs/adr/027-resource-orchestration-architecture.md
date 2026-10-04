@@ -218,6 +218,35 @@ Therefore:
 - **Approvals:** OpenWorker's permission request for exactly `mcp__nexar__nexar_intelligence_submit`
   and `..._status` is allowed by Nexar policy and recorded; every other MCP tool stays denied.
 
+### 9b. NXR-064 transport decision (2026-10-04)
+
+Spike evidence: [`dsh-control-routing.md`](../research/upstream/dsh-control-routing.md) (DSH
+`0.2.0-rc.2`, `639ed01`). Code lanes already run `dsh --profile acp` inside the bwrap sandbox, so:
+
+- **Control route:** the Nexar-rendered DSH patch overlay declares one pi-ai route, `nexar`
+  (`api: openai-completions`, `baseURL: http://127.0.0.1:<in-sandbox port>/v1`,
+  `models: [{ id: nexar-control }]`, `apiKeyEnv: NEXAR_CONTROL_TOKEN`), and the ACP session selects
+  it. DSH needs no `DEEPSEEK_API_KEY` on this path.
+- **Plane hosting:** the plane process that runs the lane hosts, for that lane only, the same bridge
+  endpoint and Chat Completions translator Desktop uses (moved to shared packages), each on a `0600`
+  unix socket in the lane's private `0700` run directory. No TCP port on the plane host; the plane is
+  not Desktop main, and a private unix socket is the same class as the egress proxy socket.
+- **Into the sandbox:** the launcher mounts the run directory (as it does for `proxy.sock`), bridges
+  `127.0.0.1:<in-sandbox port>` → `gateway.sock` with socat (proxy-mode pattern) and sets
+  `NO_PROXY=127.0.0.1` only when this service is mounted; otherwise Node's env proxy
+  (`NODE_USE_ENV_PROXY=1`) would send loopback calls to the egress proxy, which denies them. The
+  egress allowlist is unchanged: the gateway adds no external host.
+- **Units:** ACP `session/new` mounts one stdio MCP server, `nexar` (the bundled relay, read-only
+  mount, run by the sandbox's Node), with `NEXAR_BRIDGE_ENDPOINT` = the in-sandbox `bridge.sock` path
+  and the lane token. Child units run on plane resources with no workspace (§7B).
+- **Grant:** one grant per lane run, control decision pinned per lane loop (§8), revoked when the lane
+  ends. The token reaches DSH through the sandbox environment (the launcher's `--setenv` known gap
+  applies; host trusted, token lane-scoped and short-lived).
+- **No control resource:** the lane runs the NRC-selected native agent (`executor: native`,
+  NXR-055 path), recorded. Plane `model-turn` resources today are pi catalog models with plane API
+  keys and owner-declared local endpoints; subscription CLI agents (Claude Code, Codex) are native
+  agents, not control resources, until NXR-067 adds experimental subscription model adapters.
+
 ### 10. Two-stage resource intelligence
 
 - **Stage 1, `strategy@1`.** It plans a `WorkGraph`: a lane plan, or a turn ledger for dynamic

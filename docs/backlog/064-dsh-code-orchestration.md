@@ -17,6 +17,19 @@ DSH is only a lane resource needing `DEEPSEEK_API_KEY`; its planning and sub-age
 - Work units through the bridge; DSH sub-agent providers not used as Nexar routes.
 - Without a DSH control resource: native-agent lanes (NXR-055 path), recorded as `executor: native`.
 
+## Decision and split (2026-10-04)
+
+Spike done: [ADR-027 §9b](../adr/027-resource-orchestration-architecture.md), evidence in
+[`dsh-control-routing.md`](../research/upstream/dsh-control-routing.md). Pi-ai route `nexar` →
+plane-local translator on a unix socket, socat into the sandbox; units via an ACP-mounted stdio relay.
+
+- **064a:** move the bridge endpoint host and the Chat Completions translator into shared packages
+  (Desktop unchanged in behaviour); sandbox launcher "Nexar services" mount (`gateway.sock` socat
+  bridge, `bridge.sock`, read-only relay, `NO_PROXY=127.0.0.1` only then).
+- **064b:** the DSH lane on the plane: per-lane grant and pinned control decision
+  (`orchestration.code.controlResource`), overlay route `nexar`, ACP `mcpServers` relay, fallback
+  `executor: native`; fake DSH + E2E.
+
 ## Acceptance criteria
 
 - [ ] Fake DSH orchestrates a lane: control turns via the plane gateway, one unit via the bridge to a fake subscription agent; sandbox, patch policy, gates, review, approval, commit unchanged.
