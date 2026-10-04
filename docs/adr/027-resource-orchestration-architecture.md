@@ -238,7 +238,12 @@ Spike evidence: [`dsh-control-routing.md`](../research/upstream/dsh-control-rout
   egress allowlist is unchanged: the gateway adds no external host.
 - **Units:** ACP `session/new` mounts one stdio MCP server, `nexar` (the bundled relay, read-only
   mount, run by the sandbox's Node), with `NEXAR_BRIDGE_ENDPOINT` = the in-sandbox `bridge.sock` path
-  and the lane token. Child units run on plane resources with no workspace (§7B).
+  and the lane token. Child units run on plane resources with no workspace (§7B). DSH normalizes the relay's
+  tool names (`nexar.intelligence_submit` → `mcp__nexar__nexar_intelligence_submit_<hash>`, per
+  `dsh-mcp-client` `publicToolName`); Nexar's ACP permission policy allows exactly those two
+  computed names in gateway mode. The relay is offered only when the plane's Node is inside a
+  configured toolchain mount (visible in the sandbox at the same path); otherwise the lane runs on
+  the gateway without the bridge, since DSH rolls back a session whose MCP server cannot start.
 - **Grant:** one grant per lane run, control decision pinned per lane loop (§8), revoked when the lane
   ends. The token reaches DSH through the sandbox environment (the launcher's `--setenv` known gap
   applies; host trusted, token lane-scoped and short-lived).

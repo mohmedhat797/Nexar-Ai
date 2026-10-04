@@ -18,6 +18,15 @@ import type { JsonRpcNotification, JsonRpcReply, JsonRpcStdioClient } from '../j
 import { parseRuntimeOptions } from '../options.js';
 import { isAuthFailureText } from '../run-collector.js';
 import type { BinarySpec, RuntimeProcess } from '../runtime-process.js';
+import {
+  GATEWAY_ROUTE,
+  acpModelValue,
+  bridgeMcpServer,
+  bridgeToolNames,
+  isGatewayMode,
+  requireGatewayEndpoints,
+  resolveNodeCommand,
+} from './gateway.js';
 import { prepareAcpLaunch, spawnPrepared } from './launch.js';
 import { parseAcpOptions } from './options.js';
 import { PermissionBroker } from './permissions.js';
@@ -45,6 +54,8 @@ export interface AcpRunDeps {
   readonly approvals?: { readonly gate: ApprovalGate; readonly store?: ApprovalStore } | undefined;
   readonly initializeTimeoutMs: number;
   readonly defaultTimeoutMs: number;
+  /** Absolute in-sandbox path of the Node that runs the bridge relay (see `resolveNodeCommand`). */
+  readonly nodeCommand?: string | undefined;
 }
 
 /** Runs one engineering task on `dsh --profile acp`, answering every permission request via approvals. */
@@ -74,9 +85,18 @@ export async function executeAcp(
   let broker: PermissionBroker | undefined;
   let promptSettled: Promise<void> | undefined;
   const sources: CredentialSources = { env: deps.env, resolveSecret: deps.resolveSecret };
-  assertKeystoreCredentialStored(resource, sources);
-  const credential = resolveOwnCredential(resource, sources);
-  const secrets = credential === undefined || credential === '' ? [] : [credential];
+  // Gateway mode (ADR-027 section 9b): the lane's loop runs on Nexar's control route, with no DSH credential.
+  const gateway = isGatewayMode(context.gateway) ? context.gateway : undefined;
+  let secrets: string[];
+  if (gateway === undefined) {
+    assertKeystoreCredentialStored(resource, sources);
+    const credential = resolveOwnCredential(resource, sources);
+    secrets = credential === undefined || credential === '' ? [] : [credential];
+  } else {
+    secrets = [gateway.token];
+  }
+  const provider = gateway === undefined ? runtime.provider : GATEWAY_ROUTE.provider;
+  const model = gateway === undefined ? runtime.model : GATEWAY_ROUTE.model;
 
   try {
     prepared = await guard.race(
@@ -88,20 +108,35 @@ export async function executeAcp(
           dshStateDir: join(deps.stateDir, 'acp', String(resource.id)),
           sources,
           allowHosts: acp.allowHosts,
+          gateway,
         },
         context.signal,
       ),
     );
     if (guard.interrupted) throw new NexarError('EXECUTION_CANCELLED', 'execution was cancelled');
 
+    let mcpServers: Record<string, unknown>[] = [];
+    if (gateway !== undefined) {
+      const { bridge } = requireGatewayEndpoints(gateway, prepared);
+      if (bridge !== undefined) {
+        const node = resolveNodeCommand(deps.nodeCommand, deps.binary.command);
+        // dsh rolls back a session whose MCP server cannot start, so an unknown in-sandbox Node means
+        // no bridge for this lane (the control loop still runs on the gateway), never a guessed path.
+        if (node === undefined)
+          logger.warn('dsh bridge not offered', { reason: 'node-unavailable' });
+        else mcpServers = [bridgeMcpServer(node, bridge, gateway.token)];
+      }
+    }
+
     emit({ type: 'status', message: 'Launching DeepSeek Harness (ACP)' });
     logger.info('launching dsh', {
       command: deps.binary.command,
       profile: 'acp',
       access: workspace.access,
-      provider: runtime.provider,
-      model: runtime.model,
+      provider,
+      model,
       permissions: acp.permissions.mode,
+      ...(gateway === undefined ? {} : { gateway: true, bridge: mcpServers.length > 0 }),
     });
     proc = spawnPrepared(prepared);
     const client = proc.client;
@@ -174,7 +209,7 @@ export async function executeAcp(
       await guard.race(
         client.request(
           'session/new',
-          { cwd: prepared.workspacePath, mcpServers: [] },
+          { cwd: prepared.workspacePath, mcpServers },
           { timeoutMs: deps.initializeTimeoutMs },
         ),
       ),
@@ -195,13 +230,23 @@ export async function executeAcp(
       taskId: String(task.id),
       projectId: task.projectId === undefined ? undefined : String(task.projectId),
       logger,
+      bridgeTools: mcpServers.length === 0 ? undefined : bridgeToolNames(),
     });
     emit({ type: 'status', message: 'DeepSeek Harness runtime ready' });
 
-    const configs: [string, string | undefined][] = [
-      ['model', runtime.model],
-      ['reasoning_effort', runtime.reasoningEffort],
-    ];
+    // The `model` value is the opaque JSON pair DSH advertises; the control route has no reasoning option.
+    const configs: [string, string | undefined][] =
+      gateway === undefined
+        ? [
+            [
+              'model',
+              runtime.model === undefined
+                ? undefined
+                : acpModelValue(runtime.provider, runtime.model),
+            ],
+            ['reasoning_effort', runtime.reasoningEffort],
+          ]
+        : [['model', acpModelValue(GATEWAY_ROUTE.provider, GATEWAY_ROUTE.model)]];
     for (const [configId, value] of configs) {
       if (value === undefined) continue;
       await guard.race(
@@ -255,7 +300,7 @@ export async function executeAcp(
         outputTokens: unavailable('ACP does not report billed tokens'),
         costUsd: cost,
       },
-      resolved: { provider: runtime.provider, model: runtime.model, runtimeVersion: 'dsh-acp' },
+      resolved: { provider, model, runtimeVersion: 'dsh-acp' },
       retries: 0,
     };
   } catch (e) {

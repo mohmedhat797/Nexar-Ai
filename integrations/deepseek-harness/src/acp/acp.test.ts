@@ -543,7 +543,12 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     expect(sent).toMatch(/^BE CAREFUL\n\n--- .* ---\n\ndo it$/);
     const configs = record.requests.filter((r) => r.method === 'session/set_config_option');
     expect(configs.map((c) => c.params)).toEqual([
-      { sessionId: 'sess-1', configId: 'model', value: 'deepseek-v4-flash' },
+      // dsh-acp's model option value is the JSON [provider, model] pair (model-control.ts, 639ed01).
+      {
+        sessionId: 'sess-1',
+        configId: 'model',
+        value: JSON.stringify(['deepseek-official', 'deepseek-v4-flash']),
+      },
       { sessionId: 'sess-1', configId: 'reasoning_effort', value: 'high' },
     ]);
   });

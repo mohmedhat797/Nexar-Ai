@@ -1,4 +1,4 @@
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ApprovalGate, FileApprovalStore, type ApprovalStore } from '@nexar/approvals';
 import { LocalArtifactStore } from '@nexar/artifacts';
@@ -132,6 +132,22 @@ export function loadHostConfig(
   });
 }
 
+/**
+ * This process's Node when a toolchain mount contains it, so a relay started inside the sandbox can
+ * run on it (ADR-027 section 9b); otherwise none, and DSH lanes get no bridge rather than a guess.
+ */
+export function sandboxVisibleNode(
+  toolchainPaths: readonly string[],
+  execPath: string = process.execPath,
+): string | undefined {
+  return toolchainPaths.some((root) => {
+    const rel = relative(root, execPath);
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  })
+    ? execPath
+    : undefined;
+}
+
 /** Every execution adapter the host knows about; the secret resolver reaches pi and DSH only. */
 export function createAdapters(
   io: HostEnvironment,
@@ -139,10 +155,13 @@ export function createAdapters(
   options: {
     readonly approvals?: { readonly gate: ApprovalGate; readonly store: ApprovalStore };
     readonly resolveSecret?: SecretResolver;
+    /** Engineering toolchain mounts: the sandbox shows them at the same paths (ADR-019). */
+    readonly toolchainPaths?: readonly string[];
   } = {},
 ): readonly ExecutionAdapter[] {
   const secrets =
     options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret };
+  const nodeCommand = sandboxVisibleNode(options.toolchainPaths ?? []);
   return [
     new EchoExecutionAdapter(),
     new ClaudeCodeExecutionAdapter({ env: io.env }),
@@ -152,6 +171,7 @@ export function createAdapters(
       env: io.env,
       stateDir: join(configDir, '.nexar', 'runtimes', 'deepseek-harness'),
       ...(options.approvals === undefined ? {} : { approvals: options.approvals }),
+      ...(nodeCommand === undefined ? {} : { nodeCommand }),
       ...secrets,
     }),
     new PiExecutionAdapter({ env: io.env, ...secrets }),
@@ -218,7 +238,12 @@ export async function compose(
     resources = merged.resources;
     discovery = { reports: result.reports, collisions: merged.collisions };
   }
-  const adapters = createAdapters(io, configDir, options);
+  const adapters = createAdapters(io, configDir, {
+    ...options,
+    ...(loaded.config.engineering === undefined
+      ? {}
+      : { toolchainPaths: loaded.config.engineering.toolchainPaths }),
+  });
   // Without a telemetry file nothing can be accounted: quota stays unknown rather than "0 used".
   const telemetryPath =
     loaded.source === 'default'

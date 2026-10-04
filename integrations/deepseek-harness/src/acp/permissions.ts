@@ -17,6 +17,12 @@ export interface PermissionBrokerOptions {
   readonly taskId?: string | undefined;
   readonly projectId?: string | undefined;
   readonly logger: Logger;
+  /**
+   * Gateway sessions only: the exact normalized tool names of the Intelligence Bridge relay. They are
+   * allowed by policy (recorded like an allow-listed tool); every other tool keeps `policy`.
+   * Arguments are never inspected.
+   */
+  readonly bridgeTools?: readonly string[] | undefined;
 }
 
 interface PermissionRequest {
@@ -118,9 +124,11 @@ export class PermissionBroker {
     // Nothing Nexar could answer an approval with: do not bother a human.
     if (!request.options.some((o) => o.kind === 'allow_once')) return 'reject';
 
+    const policyAllows =
+      this.options.bridgeTools?.includes(tool) === true ||
+      (policy.mode === 'allow-listed' && policy.allowTools.includes(tool));
     if (
-      policy.mode === 'allow-listed' &&
-      policy.allowTools.includes(tool) &&
+      policyAllows &&
       store !== undefined &&
       // An allow needs its audit record; if it cannot be written, fall through to `ask`.
       (await this.record(action, ctx, 'allowed'))
@@ -129,7 +137,7 @@ export class PermissionBroker {
       return 'allow';
     }
 
-    // `ask`, or an allow-listed policy that does not cover this tool.
+    // `ask`, or a policy that does not cover this tool.
     if (gate === undefined) return 'reject';
     const grant = await gate.request(action, {
       ...ctx,
