@@ -344,6 +344,91 @@ describe('desktop to plane schemas', () => {
   });
 });
 
+describe('resources feature (additive to nexar-plane/1)', () => {
+  const resource = {
+    id: 'claude-code',
+    connection: {
+      id: 'anthropic.subscription',
+      provider: 'anthropic',
+      method: 'subscription',
+      authClass: 'vendor-native',
+      support: 'official',
+    },
+    auth: 'authenticated',
+    availability: 'available',
+    control: { openworker: false, dsh: true },
+  };
+  const initialize = { type: 'initialize', protocol: PLANE_PROTOCOL };
+  const withResources = (resources: unknown) => ({
+    ...ready,
+    readiness: { ...readiness, resources },
+  });
+  const ok = (frame: unknown) => planeFrameSchema.safeParse(frame).success;
+
+  it('accepts initialize with and without features', () => {
+    expect(desktopFrameSchema.safeParse(initialize).success).toBe(true);
+    expect(desktopFrameSchema.parse(initialize)).toEqual(initialize);
+    expect(desktopFrameSchema.safeParse({ ...initialize, features: ['resources'] }).success).toBe(
+      true,
+    );
+    expect(desktopFrameSchema.safeParse({ ...initialize, features: [] }).success).toBe(true);
+  });
+  it.each([
+    ['an unknown feature', ['gateways']],
+    ['a duplicate feature', ['resources', 'resources']],
+    ['a non-array', 'resources'],
+    ['too many features', Array.from({ length: 9 }, () => 'resources')],
+  ])('rejects initialize with %s', (_name, features) => {
+    expect(desktopFrameSchema.safeParse({ ...initialize, features }).success).toBe(false);
+  });
+  it('keeps readiness without resources valid and accepts a resource list', () => {
+    expect(ok(ready)).toBe(true);
+    expect(ok(withResources([]))).toBe(true);
+    expect(ok(withResources([resource]))).toBe(true);
+    expect(
+      ok(
+        withResources([
+          {
+            id: 'local-model',
+            auth: 'not-required',
+            availability: 'unknown',
+            control: { openworker: false, dsh: false },
+          },
+        ]),
+      ),
+    ).toBe(true);
+  });
+  it('accepts exactly 64 resources and rejects 65', () => {
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ ...resource, id: `r${String(i)}` }));
+    expect(ok(withResources(many(64)))).toBe(true);
+    expect(ok(withResources(many(65)))).toBe(false);
+  });
+  it.each([
+    ['an extra key', { ...resource, detail: 'x' }],
+    [
+      'an extra connection key',
+      { ...resource, connection: { ...resource.connection, token: 't' } },
+    ],
+    ['a bad id', { ...resource, id: 'Bad Id' }],
+    ['a path-like id', { ...resource, id: '../etc' }],
+    ['a bad auth', { ...resource, auth: 'yes' }],
+    ['a bad availability', { ...resource, availability: 'up' }],
+    ['a bad method', { ...resource, connection: { ...resource.connection, method: 'ssh' } }],
+    ['a bad auth class', { ...resource, connection: { ...resource.connection, authClass: 'x' } }],
+    ['a bad support', { ...resource, connection: { ...resource.connection, support: 'x' } }],
+    [
+      'an oversize provider',
+      { ...resource, connection: { ...resource.connection, provider: 'p'.repeat(201) } },
+    ],
+    ['a missing control', { ...resource, control: undefined }],
+    ['a partial control', { ...resource, control: { openworker: true } }],
+    ['a non-boolean control', { ...resource, control: { openworker: 1, dsh: true } }],
+  ])('rejects a resource with %s', (_name, bad) => {
+    expect(ok(withResources([bad]))).toBe(false);
+  });
+});
+
 describe('runTitle', () => {
   it('takes the first visible line of the owner text', () => {
     expect(runTitle('Add a Validation section\nwith details')).toBe('Add a Validation section');

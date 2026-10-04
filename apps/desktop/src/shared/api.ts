@@ -179,6 +179,17 @@ export interface ProjectPlaneDto {
   readonly planeProject?: string;
 }
 
+/** One resource of the engineering plane, read-only. Ids and enums only (ADR-027 section 11). */
+export interface PlaneResourceDto {
+  readonly id: string;
+  readonly provider?: string;
+  readonly method?: 'subscription' | 'api' | 'local' | 'custom';
+  readonly support?: 'official' | 'experimental';
+  readonly auth: 'authenticated' | 'unauthenticated' | 'not-required' | 'unknown';
+  readonly availability: 'available' | 'degraded' | 'unavailable' | 'unknown';
+  readonly control: { readonly openworker: boolean; readonly dsh: boolean };
+}
+
 /** The engineering plane's state. Ids and fixed texts only; never a path, distro or command. */
 export interface PlaneStatusDto {
   readonly state: PlaneStateDto;
@@ -187,6 +198,8 @@ export interface PlaneStatusDto {
   readonly kernel?: string;
   /** Plane project ids the owner can map Desktop projects to. */
   readonly projects: readonly string[];
+  /** The plane's resources; absent when the plane (older) does not report them. */
+  readonly planeResources?: readonly PlaneResourceDto[];
   readonly checkedAt: string;
   /** Present when the call named a Desktop project. */
   readonly project?: ProjectPlaneDto;

@@ -188,6 +188,50 @@ describe('probe states', () => {
     expect(log.lines.join('\n')).not.toContain(dir);
   });
 
+  it('asks for the resources feature and exposes the plane resources read-only', async () => {
+    const { plane: p } = plane(fakeLauncher({ NEXAR_FAKE_PLANE_RESOURCES: '1' }));
+    const status = await p.status();
+    expect(status.state).toBe('ready');
+    expect(status.planeResources).toEqual([
+      {
+        id: 'claude-code',
+        provider: 'anthropic',
+        method: 'subscription',
+        support: 'official',
+        auth: 'authenticated',
+        availability: 'available',
+        control: { openworker: false, dsh: false },
+      },
+      {
+        id: 'pi:deepseek-chat',
+        provider: 'deepseek',
+        method: 'api',
+        support: 'official',
+        auth: 'unknown',
+        availability: 'unknown',
+        control: { openworker: true, dsh: true },
+      },
+    ]);
+    const init = (await readLog()).find((e) => e.event === 'frame' && e.type === 'initialize');
+    expect(init?.frame).toMatchObject({ features: ['resources'] });
+    // Only whitelisted keys reach the DTO: no connection id, auth class, path or detail text.
+    const keys = new Set((status.planeResources ?? []).flatMap((r) => Object.keys(r)));
+    expect([...keys].sort()).toEqual(
+      ['auth', 'availability', 'control', 'id', 'method', 'provider', 'support'].sort(),
+    );
+    const text = JSON.stringify(status);
+    expect(text).not.toContain(dir);
+    expect(text).not.toContain('authClass');
+    expect(text).not.toContain('anthropic.subscription');
+  });
+
+  it('leaves planeResources undefined for an older plane that sends none', async () => {
+    const { plane: p } = plane(fakeLauncher());
+    const status = await p.status();
+    expect(status.state).toBe('ready');
+    expect(status).not.toHaveProperty('planeResources');
+  });
+
   it('shares one probe between concurrent callers', async () => {
     const launcher = fakeLauncher();
     const { plane: p } = plane(launcher);
@@ -390,7 +434,11 @@ describe('run', () => {
       new AbortController().signal,
     );
     const frames = (await readLog()).flatMap((e) => (e.frame === undefined ? [] : [e.frame]));
-    expect(frames[0]).toEqual({ type: 'initialize', protocol: 'nexar-plane/1' });
+    expect(frames[0]).toEqual({
+      type: 'initialize',
+      protocol: 'nexar-plane/1',
+      features: ['resources'],
+    });
     expect(frames[1]).toEqual({
       type: 'run',
       runId: `run_${'1'.padStart(32, '0')}`,

@@ -15,7 +15,9 @@
 //   NEXAR_FAKE_PLANE_REPORT    `big` makes the report large; `truncated` flags it truncated
 //   NEXAR_FAKE_PLANE_LANES     `1` makes a committed outcome list its lanes
 //   NEXAR_FAKE_PLANE_PROJECTS  comma separated plane project ids (default `plane-proj`)
-//   NEXAR_FAKE_PLANE_DIFF      `big` makes the diff large and truncated
+//   NEXAR_FAKE_PLANE_RESOURCES `1` reports `readiness.resources` to a Desktop that sent
+//                              `features: ['resources']` (an older Desktop never receives it)
+//   NEXAR_FAKE_PLANE_DIFF    `big` makes the diff large and truncated
 //   NEXAR_FAKE_PLANE_LOG       when set, a JSON-lines log of the frames received and of the
 //                              environment variable NAMES this process started with
 import { appendFileSync } from 'node:fs';
@@ -31,6 +33,35 @@ const TASK_ID = 'task_fake_1';
 const APPROVAL_ID = `apr_${'f'.repeat(32)}`;
 const COMMIT = 'c'.repeat(40);
 const PATCH_SHA = 'a'.repeat(64);
+
+const FAKE_RESOURCES = [
+  {
+    id: 'claude-code',
+    connection: {
+      id: 'anthropic.subscription',
+      provider: 'anthropic',
+      method: 'subscription',
+      authClass: 'vendor-native',
+      support: 'official',
+    },
+    auth: 'authenticated',
+    availability: 'available',
+    control: { openworker: false, dsh: false },
+  },
+  {
+    id: 'pi:deepseek-chat',
+    connection: {
+      id: 'deepseek.api',
+      provider: 'deepseek',
+      method: 'api',
+      authClass: 'official-api',
+      support: 'official',
+    },
+    auth: 'unknown',
+    availability: 'unknown',
+    control: { openworker: true, dsh: true },
+  },
+];
 
 function log(entry) {
   if (logPath !== undefined) appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
@@ -252,7 +283,13 @@ function handle(frame) {
         type: 'ready',
         protocol: scenario === 'bad-ready' ? 'nexar-plane/2' : 'nexar-plane/1',
         planeVersion: '0.0.0-fake',
-        readiness: readiness(),
+        // Like the real plane: `resources` only for a Desktop that asked for the feature.
+        readiness:
+          process.env.NEXAR_FAKE_PLANE_RESOURCES === '1' &&
+          Array.isArray(frame.features) &&
+          frame.features.includes('resources')
+            ? { ...readiness(), resources: FAKE_RESOURCES }
+            : readiness(),
       });
       return;
     }

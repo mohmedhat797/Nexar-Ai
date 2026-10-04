@@ -10,6 +10,7 @@ import {
   type DiffFrame,
   type PlaneFrame,
   type PlaneReadiness,
+  type PlaneResource,
   type ProgressEvent,
   type RunOutcome,
 } from '@nexar/plane-protocol';
@@ -17,6 +18,7 @@ import { MAX_OUTCOME_CHARS, type TurnEngineering } from '@nexar/sessions';
 import type {
   ApprovalDto,
   CodeDiffDto,
+  PlaneResourceDto,
   PlaneStateDto,
   PlaneStatusDto,
   ProjectPlaneDto,
@@ -108,6 +110,24 @@ export function stateFromReadiness(readiness: PlaneReadiness): PlaneStateDto {
     return 'engineering-unavailable';
   }
   return 'ready';
+}
+
+/** A plane resource as the renderer sees it: the validated enums and ids, copied field by field. */
+function resourceDto(resource: PlaneResource): PlaneResourceDto {
+  const { connection } = resource;
+  return {
+    id: resource.id,
+    ...(connection === undefined
+      ? {}
+      : {
+          provider: plain(connection.provider),
+          method: connection.method,
+          support: connection.support,
+        }),
+    auth: resource.auth,
+    availability: resource.availability,
+    control: { openworker: resource.control.openworker, dsh: resource.control.dsh },
+  };
 }
 
 /** How a connection that ended or failed before `ready` maps to a state. */
@@ -316,7 +336,9 @@ export class CodePlane {
 
   private statusOf(
     state: PlaneStateDto,
-    extra: Partial<Pick<PlaneStatus, 'planeVersion' | 'kernel' | 'projects'>> = {},
+    extra: Partial<
+      Pick<PlaneStatus, 'planeVersion' | 'kernel' | 'projects' | 'planeResources'>
+    > = {},
     reason: string = PLANE_REASONS[state],
   ): PlaneStatus {
     return {
@@ -325,6 +347,7 @@ export class CodePlane {
       projects: extra.projects ?? [],
       ...(extra.planeVersion === undefined ? {} : { planeVersion: extra.planeVersion }),
       ...(extra.kernel === undefined ? {} : { kernel: extra.kernel }),
+      ...(extra.planeResources === undefined ? {} : { planeResources: extra.planeResources }),
       checkedAt: new Date(this.now()).toISOString(),
     };
   }
@@ -394,6 +417,9 @@ export class CodePlane {
       planeVersion: plain(ready.planeVersion),
       kernel: plain(ready.readiness.kernel),
       projects: ready.readiness.projects,
+      ...(ready.readiness.resources === undefined
+        ? {}
+        : { planeResources: ready.readiness.resources.map(resourceDto) }),
     });
   }
 
@@ -405,7 +431,7 @@ export class CodePlane {
     | { readonly ok: false; readonly state: PlaneStateDto }
   > {
     try {
-      conn.send({ type: 'initialize', protocol: PLANE_PROTOCOL });
+      conn.send({ type: 'initialize', protocol: PLANE_PROTOCOL, features: ['resources'] });
     } catch {
       return { ok: false, state: 'protocol-mismatch' };
     }

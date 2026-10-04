@@ -29,7 +29,7 @@ import {
   type EngineeringComposition,
 } from '../composition.js';
 import { EXIT, UsageError } from '../io.js';
-import { buildReadiness, planIds } from '../plane-readiness.js';
+import { buildReadiness, buildResources, planIds } from '../plane-readiness.js';
 import { CLI_VERSION } from '../version.js';
 
 const USAGE = 'nexar plane serve --stdio';
@@ -426,8 +426,17 @@ async function serve(ctx: CommandContext): Promise<number> {
           ctx.seams.plane?.approvalStore ??
           new FileApprovalStore(join(nexarStateDir(loaded, ctx.io), 'approvals'));
         const readiness = await buildReadiness(loaded, ctx.io, ctx.seams);
+        // Only a Desktop that asked for it gets the field: an older strict schema rejects it.
+        const resources = frame.features?.includes('resources')
+          ? await buildResources(loaded, ctx.io, ctx.logger, ctx.seams)
+          : undefined;
         initialized = true;
-        send({ type: 'ready', protocol: PLANE_PROTOCOL, planeVersion: CLI_VERSION, readiness });
+        send({
+          type: 'ready',
+          protocol: PLANE_PROTOCOL,
+          planeVersion: CLI_VERSION,
+          readiness: resources === undefined ? readiness : { ...readiness, resources },
+        });
       } catch (error) {
         sendError(codeOf(error));
         return EXIT.failure;
