@@ -16,6 +16,7 @@ import { _electron as electron, type ElectronApplication, type Page } from 'play
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NexarApi } from '../src/shared/api.js';
 import { CHANNELS } from '../src/shared/channels.js';
+import { seedE2EConfig } from './harness.js';
 
 const MAIN = fileURLToPath(new URL('../dist/main/main.js', import.meta.url));
 const EXECUTABLE = process.env['NEXAR_DESKTOP_EXECUTABLE'];
@@ -163,6 +164,7 @@ beforeAll(async () => {
   launcher = join(base, 'main-fixture.mjs');
   trace = join(userData, 'ipc-trace.jsonl');
   await mkdir(projectDir);
+  await seedE2EConfig(userData);
   // Record real IPC through a public API wrapper in a temporary launcher, never production code.
   await writeFile(
     launcher,
