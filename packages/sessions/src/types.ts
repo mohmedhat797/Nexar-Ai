@@ -41,12 +41,20 @@ export interface LaneDecision {
 
 export type TurnTaskState = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 
+/** One unit an engine delegated through the Intelligence Bridge: ids and an enum only. */
+export interface TurnDelegation {
+  readonly unitId: string;
+  readonly resourceId?: string;
+  readonly outcome: string;
+}
+
 export interface TurnTaskLink {
   readonly taskId: string;
   readonly state: TurnTaskState;
   readonly resourceId?: string;
   readonly policyId?: string;
   readonly fallback?: boolean;
+  readonly delegations?: readonly TurnDelegation[];
 }
 
 /** Why a turn received the context it did (ADR-024 §10); never holds content. */

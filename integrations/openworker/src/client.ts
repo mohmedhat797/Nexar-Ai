@@ -14,7 +14,16 @@ export interface OpenWorkerConnection {
   onClose(handler: () => void): void;
 }
 
+/** A stdio MCP server entry for OpenWorker's `/v1/mcp`. `env` values may be secrets: never logged. */
+export interface McpServerLaunch {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly env: Readonly<Record<string, string>>;
+}
+
 export interface OpenWorkerClient {
+  registerMcpServer(name: string, launch: McpServerLaunch): Promise<void>;
+  deleteMcpServer(name: string): Promise<void>;
   attachRoot(sessionId: string, path: string, writable: boolean): Promise<void>;
   openSession(
     sessionId: string,
@@ -52,7 +61,7 @@ export class OpenWorkerHttpClient implements OpenWorkerClient {
   }
 
   /** Resolves the parsed JSON body (or `undefined` when empty); rejects without detail on non-2xx. */
-  async request(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+  async request(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<unknown> {
     let response: Response;
     try {
       response = await this.#fetch(`http://127.0.0.1:${this.#port}${path}`, {
@@ -97,6 +106,26 @@ export class OpenWorkerHttpClient implements OpenWorkerClient {
       path,
       writable,
     });
+  }
+
+  /**
+   * Registers a stdio MCP server. Every tool of it needs approval upstream (the policy then allows
+   * only the exact bridge tools). The entry holds the turn's token: delete it after the turn.
+   */
+  async registerMcpServer(name: string, launch: McpServerLaunch): Promise<void> {
+    await this.request('POST', '/v1/mcp', {
+      name,
+      config: {
+        command: launch.command,
+        args: [...launch.args],
+        env: { ...launch.env },
+        requires_approval: true,
+      },
+    });
+  }
+
+  async deleteMcpServer(name: string): Promise<void> {
+    await this.request('DELETE', `/v1/mcp/${encodeURIComponent(name)}`);
   }
 
   openSession(

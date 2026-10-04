@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
@@ -18,7 +19,8 @@ export type FakeScenario =
   | 'close-mid-turn'
   | 'no-ready'
   | 'declined-requests'
-  | 'question';
+  | 'question'
+  | 'delegate';
 
 export interface FakeServerOptions {
   readonly token: string;
@@ -36,6 +38,32 @@ export interface FakeServerOptions {
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
 type Frame = Record<string, unknown>;
+
+interface McpConfig {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly env: Readonly<Record<string, string>>;
+  readonly requires_approval: boolean;
+}
+
+const DELEGATE_SUBMIT = 'mcp__nexar__nexar_intelligence_submit';
+const DELEGATE_STATUS = 'mcp__nexar__nexar_intelligence_status';
+const DELEGATE_POLL_MS = 200;
+const DELEGATE_MAX_MS = 60_000;
+
+function isMcpConfig(value: unknown): value is McpConfig {
+  if (typeof value !== 'object' || value === null) return false;
+  const c = value as Record<string, unknown>;
+  return (
+    typeof c['command'] === 'string' &&
+    Array.isArray(c['args']) &&
+    c['args'].every((a) => typeof a === 'string') &&
+    typeof c['env'] === 'object' &&
+    c['env'] !== null &&
+    Object.values(c['env']).every((v) => typeof v === 'string') &&
+    typeof c['requires_approval'] === 'boolean'
+  );
+}
 
 function encodeText(text: string): Buffer {
   const payload = Buffer.from(text);
@@ -100,6 +128,8 @@ export class FakeOpenWorkerServer {
   readonly frames: Frame[] = [];
   readonly roots: { readonly sessionId: string; readonly body: unknown }[] = [];
   readonly providers: unknown[] = [];
+  /** Registered /v1/mcp entries by name (the env may hold a secret: never recorded). */
+  readonly mcpServers = new Map<string, McpConfig>();
   readonly requests: { readonly method: string; readonly path: string; readonly status: number }[] =
     [];
   readonly upgrades: { readonly url: string; readonly authorized: boolean }[] = [];
@@ -173,6 +203,25 @@ export class FakeOpenWorkerServer {
         this.providers.push(body);
         return reply(200, { ok: true });
       }
+      if (method === 'POST' && path === '/v1/mcp') {
+        const entry = body as { name?: unknown; config?: unknown } | undefined;
+        if (typeof entry?.name !== 'string' || !isMcpConfig(entry.config)) {
+          return reply(422, { error: 'mcp' });
+        }
+        this.mcpServers.set(entry.name, entry.config);
+        this.#options.onRecord?.({
+          kind: 'mcp-register',
+          body: { name: entry.name, envNames: Object.keys(entry.config.env).sort() },
+        });
+        return reply(200, { ok: true });
+      }
+      const mcp = /^\/v1\/mcp\/([^/]+)$/.exec(path);
+      if (method === 'DELETE' && mcp !== null) {
+        const name = decodeURIComponent(mcp[1]!);
+        if (!this.mcpServers.delete(name)) return reply(404, { error: 'not-found' });
+        this.#options.onRecord?.({ kind: 'mcp-delete', body: { name } });
+        return reply(200, { ok: true });
+      }
       const roots = /^\/v1\/sessions\/([^/]+)\/roots$/.exec(path);
       if (method === 'POST' && roots !== null) {
         this.roots.push({ sessionId: decodeURIComponent(roots[1]!), body });
@@ -236,6 +285,121 @@ export class FakeOpenWorkerServer {
     return new Promise((resolve) => this.#waiters.push({ type, resolve }));
   }
 
+  /**
+   * Delegates one unit through the registered relay, as OpenWorker would: ask permission for the
+   * bridge tool (by its mapped name), and only when allowed launch the registered command with its
+   * env, speak minimal MCP over stdio, poll the status, and write the returned text as a draft.
+   */
+  async #delegate(send: (frame: Frame | string) => void, workspace: string): Promise<void> {
+    send({ type: 'turn_start' });
+    const ask = async (name: string): Promise<boolean> => {
+      send({
+        type: 'permission_required',
+        name,
+        arguments: { input: 'SECRET-ARGUMENT' },
+        reason: 'mcp',
+        category: 'mcp',
+      });
+      return (await this.#next('approval'))['decision'] === 'allow';
+    };
+    if (!(await ask(DELEGATE_SUBMIT))) {
+      send({ type: 'assistant_message', text: 'Delegation was not allowed' });
+      send({ type: 'turn_done' });
+      return;
+    }
+    const config = this.mcpServers.get('nexar');
+    const text = config === undefined ? undefined : await this.#runRelay(config, ask);
+    if (text !== undefined && text !== '') writeFileSync(join(workspace, 'draft.md'), text);
+    send({
+      type: 'assistant_message',
+      text: text === undefined ? 'Delegation failed' : 'Delegated unit done',
+    });
+    send({ type: 'turn_done' });
+  }
+
+  /** Minimal MCP client over the relay's stdio (newline-delimited JSON-RPC). */
+  async #runRelay(
+    config: McpConfig,
+    ask: (name: string) => Promise<boolean>,
+  ): Promise<string | undefined> {
+    const child = spawn(config.command, [...config.args], {
+      env: { PATH: process.env['PATH'] ?? '', ...config.env },
+      stdio: ['pipe', 'pipe', 'ignore'],
+      windowsHide: true,
+    });
+    child.stdin.on('error', () => undefined);
+    const waiting = new Map<number, (message: Record<string, unknown>) => void>();
+    let buffered = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      buffered += chunk;
+      for (let i = buffered.indexOf('\n'); i !== -1; i = buffered.indexOf('\n')) {
+        const line = buffered.slice(0, i);
+        buffered = buffered.slice(i + 1);
+        try {
+          const message = JSON.parse(line) as Record<string, unknown>;
+          waiting.get(message['id'] as number)?.(message);
+        } catch {
+          /* Not a frame. */
+        }
+      }
+    });
+    let counter = 0;
+    const write = (message: Record<string, unknown>): void => {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`);
+    };
+    const rpc = (method: string, params: unknown): Promise<Record<string, unknown>> =>
+      new Promise((resolve, reject) => {
+        const id = ++counter;
+        const timer = setTimeout(() => reject(new Error('mcp timeout')), 30_000);
+        waiting.set(id, (message) => {
+          clearTimeout(timer);
+          waiting.delete(id);
+          resolve(message);
+        });
+        child.once('exit', () => reject(new Error('relay exited')));
+        write({ id, method, params });
+      });
+    // The relay's text block holds JSON; an `isError` result is `{ error: code }`.
+    const call = async (name: string, args: unknown): Promise<Record<string, unknown>> => {
+      const response = await rpc('tools/call', { name, arguments: args });
+      const result = response['result'] as { content?: { text?: string }[] } | undefined;
+      return JSON.parse(result?.content?.[0]?.text ?? '{}') as Record<string, unknown>;
+    };
+    try {
+      await rpc('initialize', {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: { name: 'fake-openworker', version: '0.0.0' },
+      });
+      write({ method: 'notifications/initialized' });
+      await rpc('tools/list', {});
+      const submitted = await call('nexar.intelligence_submit', {
+        unitId: 'u1',
+        input: 'Draft a short project status note.',
+        access: process.env['NEXAR_FAKE_OPENWORKER_DELEGATE_ACCESS'] ?? 'read-only',
+      });
+      if (typeof submitted['jobId'] !== 'string') return undefined;
+      if (!(await ask(DELEGATE_STATUS))) return undefined;
+      const deadline = Date.now() + DELEGATE_MAX_MS;
+      while (Date.now() < deadline) {
+        const status = await call('nexar.intelligence_status', { jobId: submitted['jobId'] });
+        if (status['state'] === 'done') {
+          const result = status['result'] as { text?: unknown } | undefined;
+          return typeof result?.text === 'string' ? result.text : undefined;
+        }
+        if (status['state'] !== 'running') return undefined;
+        await new Promise((resolve) => setTimeout(resolve, DELEGATE_POLL_MS));
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    } finally {
+      child.stdin.end();
+      child.kill();
+    }
+  }
+
   async #turn(
     socket: Duplex,
     send: (frame: Frame | string) => void,
@@ -272,6 +436,8 @@ export class FakeOpenWorkerServer {
         send({ type: 'turn_start' });
         send({ type: 'question_requested', question: 'Which file?' });
         return;
+      case 'delegate':
+        return this.#delegate(send, workspace);
       default:
         break;
     }

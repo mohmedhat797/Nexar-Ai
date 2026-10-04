@@ -1,9 +1,65 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryApprovalStore } from '@nexar/approvals';
-import { COWORK_RULES, decidePermission, isWriteTool, recordCoworkDecision } from './policy.js';
+import {
+  COWORK_RULES,
+  DELEGATION_TOOLS,
+  decidePermission,
+  isWriteTool,
+  recordCoworkDecision,
+} from './policy.js';
 
 const posix = { scratchRoot: '/data/scratch/t1', platform: 'linux' as const };
 const win = { scratchRoot: 'C:\\Scratch\\T1', platform: 'win32' as const };
+
+const SUBMIT = 'mcp__nexar__nexar_intelligence_submit';
+const STATUS = 'mcp__nexar__nexar_intelligence_status';
+
+describe('decidePermission: delegation tools', () => {
+  const delegation = { delegationTools: DELEGATION_TOOLS };
+
+  it.each([SUBMIT, STATUS])('allows the exact bridge tool %s, also in read only mode', (name) => {
+    const allowed = { decision: 'allow', ruleId: COWORK_RULES.delegation };
+    expect(DELEGATION_TOOLS).toEqual([SUBMIT, STATUS]);
+    expect(decidePermission({ name }, { ...posix, ...delegation })).toEqual(allowed);
+    expect(decidePermission({ name }, { ...posix, ...delegation, readOnly: true })).toEqual(
+      allowed,
+    );
+  });
+
+  it.each([
+    `${SUBMIT}2`,
+    `${SUBMIT} `,
+    SUBMIT.toUpperCase(),
+    'mcp__nexar__nexar_route',
+    'mcp__other__nexar_intelligence_submit',
+    'mcp__nexar__nexar_intelligence_cancel',
+    'nexar.intelligence_submit',
+    'run_shell',
+  ])('denies the look-alike or other tool %s', (name) => {
+    expect(decidePermission({ name }, { ...posix, ...delegation })).toMatchObject({
+      decision: 'deny',
+    });
+    expect(decidePermission({ name }, { ...posix, ...delegation, readOnly: true })).toMatchObject({
+      decision: 'deny',
+      ruleId: COWORK_RULES.readOnly,
+    });
+  });
+
+  it('allows nothing without the option, and never reads arguments or target', () => {
+    expect(decidePermission({ name: SUBMIT }, posix)).toEqual({
+      decision: 'deny',
+      ruleId: COWORK_RULES.toolNotAllowed,
+    });
+    const hostile = {
+      name: SUBMIT,
+      target: '/etc/passwd',
+      get arguments(): never {
+        throw new Error('arguments were read');
+      },
+    };
+    expect(decidePermission(hostile, { ...posix, ...delegation }).decision).toBe('allow');
+  });
+});
 
 describe('decidePermission', () => {
   it.each([

@@ -1,3 +1,5 @@
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ElectronApplication, Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -212,6 +214,71 @@ describe('Nexar Desktop Cowork lane', () => {
 
     await harness.close(app);
   });
+  it('delegates a unit from the OpenWorker turn through the bridge relay to a Nexar resource', async () => {
+    const userData = harness.newUserData('delegating-openworker');
+    const env = {
+      NEXAR_DESKTOP_TEST_OPENWORKER: FAKE_OPENWORKER,
+      NEXAR_FAKE_OPENWORKER_SCENARIO: 'delegate',
+    };
+    const { app, page } = await harness.launch(userData, env);
+    await addProject(app, page, harness.projectDir);
+
+    await page.getByTestId('nav-settings').click();
+    await page.getByRole('tab', { name: 'Providers' }).click();
+    const row = page.getByTestId('provider-deepseek');
+    await isVisible(row);
+    await expect
+      .poll(
+        () => row.getByRole('button', { name: 'Save DeepSeek API key from clipboard' }).count(),
+        POLL,
+      )
+      .toBe(1);
+    const secure = await app.evaluate(
+      ({ safeStorage }) =>
+        safeStorage.isEncryptionAvailable() &&
+        (process.platform !== 'linux' ||
+          ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(
+            safeStorage.getSelectedStorageBackend(),
+          )),
+    );
+    if (!secure) {
+      // Same as the other scenarios: no OS encryption, no stored key, no Cowork turn.
+      await harness.close(app);
+      return;
+    }
+    await app.evaluate(async ({ clipboard }, key) => {
+      await clipboard.writeText(key);
+    }, SENTINEL);
+    await row.getByRole('button', { name: 'Save DeepSeek API key from clipboard' }).click();
+    await hasText(row, 'ending in Z4k2');
+    const access = page.getByTestId('openworker-access-deepseek');
+    await expect.poll(() => access.isDisabled(), POLL).toBe(false);
+    await access.click(); // controlled input: state follows main's reply (polled below)
+    await expect.poll(() => access.isChecked(), POLL).toBe(true);
+
+    await page.getByTestId('nav-chat').click();
+    await page.getByTestId('mode-cowork').click();
+    await waitForReady(page);
+    await newCoworkTurn(page);
+    const turn = page.getByTestId('turn').first();
+    await expect.poll(() => turn.getAttribute('data-state'), POLL).toBe('succeeded');
+    await hasText(page.getByTestId('lane-effective'), 'Lane: cowork');
+    await hasText(page.getByTestId('lane-orchestrator'), 'Orchestrated by OpenWorker');
+    await isVisible(page.getByTestId('artifact-card'));
+    expect(await page.locator('body').innerText()).not.toContain(SENTINEL);
+
+    // The delegated unit ran on a Nexar resource (the echo test double): its answer is the draft.
+    const artifacts = join(harness.projectDir, '.nexar', 'artifacts');
+    const drafts: string[] = [];
+    for (const task of await readdir(artifacts)) {
+      const file = join(artifacts, task, 'drafts', 'draft.md');
+      drafts.push(await readFile(file, 'utf8').catch(() => ''));
+    }
+    expect(drafts.some((text) => text.includes('Draft a short project status note.'))).toBe(true);
+
+    await harness.close(app);
+  });
+
   it('shows why OpenWorker is unavailable and runs the request with Nexar direct execution', async () => {
     const userData = harness.newUserData('without-openworker');
     const { app, page } = await harness.launch(userData);

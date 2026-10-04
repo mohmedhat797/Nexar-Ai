@@ -172,7 +172,22 @@ async function start(): Promise<void> {
   // `NEXAR_DESKTOP_TEST_OPENWORKER` is given. Neither variable is ever set in production.
   const testOpenWorker = process.env['NEXAR_DESKTOP_TEST_OPENWORKER'];
   const underTestOverride = userDataOverride !== undefined && userDataOverride !== '';
+  // The Intelligence Bridge endpoint (ADR-027 §9a): a per-launch local pipe/socket, never a port.
+  // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
+  // exists unless delegation is used. Stopped at quit.
+  const coworkRef: { current?: CoworkService } = {};
+  const bridgeHost = new BridgeHost({
+    allocator: engineAllocator(engine),
+    executor: createEngineExecutor(engine),
+    clock: () => new Date(),
+    newId: randomUUID,
+    logger,
+    runtimeDir: join(runtimePath, 'bridge'),
+    // Delegated units of a Cowork turn are recorded on its result (ids and enums only).
+    onEvent: (event) => coworkRef.current?.noteBridgeEvent(event),
+  });
   const cowork = new CoworkService({
+    bridgeHost,
     settings,
     engine,
     keys,
@@ -197,17 +212,7 @@ async function start(): Promise<void> {
         { sessionId: request.sessionId, turnId: request.turnId },
       ),
   });
-  // The Intelligence Bridge endpoint (ADR-027 §9a): a per-launch local pipe/socket, never a port.
-  // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
-  // exists unless delegation is used. Stopped at quit.
-  const bridgeHost = new BridgeHost({
-    allocator: engineAllocator(engine),
-    executor: createEngineExecutor(engine),
-    clock: () => new Date(),
-    newId: randomUUID,
-    logger,
-    runtimeDir: join(runtimePath, 'bridge'),
-  });
+  coworkRef.current = cowork;
   // Quitting ends the lanes' children (a plane run, a starting or running OpenWorker) as soon as it
   // begins, and the exit waits (bounded) for that before the sessions lease is given back (best
   // effort, so the next launch needs no stale recovery). Exiting first left a supervised server

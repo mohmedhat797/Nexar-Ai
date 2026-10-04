@@ -14,6 +14,7 @@ import {
 import {
   COWORK_ERROR_CODES,
   OpenWorkerSupervisor,
+  DELEGATION_TOOLS,
   collectDrafts,
   decidePermission,
   isWriteTool,
@@ -23,10 +24,13 @@ import {
   type OpenWorkerState,
   type OpenWorkerStatus,
 } from '@nexar/integration-openworker';
-import type { CoworkRequest, CoworkResult } from '@nexar/operating';
+import type { BridgeEvent } from '@nexar/engine-gateway';
+import type { CoworkDelegation, CoworkRequest, CoworkResult } from '@nexar/operating';
 import { providerCredentialNames } from '@nexar/host';
 import type { CoworkStatusDto } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
+import type { BridgeHost } from './bridge-host.js';
+import { relayLaunch, type RelayLaunch } from './bridge-relay-path.js';
 import { NoArgs, defineChannel, type CallContext, type ChannelDefinition } from './channel.js';
 import type { DesktopKeyStore } from './desktop-key-store.js';
 import type { EngineHost } from './engine-host.js';
@@ -70,6 +74,15 @@ export const DEFAULT_COWORK_TIMINGS: CoworkTimings = {
 };
 
 const MAX_APPROVAL_LABEL_CHARS = 80;
+
+/** The name OpenWorker registers the Intelligence Bridge relay under: it fixes the tool prefix. */
+const BRIDGE_SERVER_NAME = 'nexar';
+const BRIDGE_MAX_UNITS = 16;
+const MAX_DELEGATIONS = 32;
+
+/** One fixed line, outside the untrusted context: where a substantive unit may be delegated. */
+export const DELEGATION_INSTRUCTION =
+  'Nexar: delegate substantive drafting, analysis or review units with nexar.intelligence_submit, then poll nexar.intelligence_status with the returned jobId until the unit is done.';
 
 /** A model-chosen file name as a short, single-line label (no control characters). */
 function writeLabel(target: string | undefined): string {
@@ -140,6 +153,10 @@ export interface CoworkServiceOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly timings?: Partial<CoworkTimings>;
   readonly now?: () => number;
+  /** The Intelligence Bridge (ADR-027 section 9a). Absent: turns run without delegation. */
+  readonly bridgeHost?: Pick<BridgeHost, 'ensureStarted' | 'mint' | 'revoke'>;
+  /** How OpenWorker launches the bridge relay. Default: this app's own bundled relay. */
+  readonly relay?: () => RelayLaunch;
   /** The task for a turn, with Nexar-set lineage and these resources excluded. */
   readonly createTask: (
     request: CoworkRequest,
@@ -175,6 +192,16 @@ export function createScriptSpawn(
   }) as unknown as typeof nodeSpawn;
 }
 
+interface OpenDelegation {
+  grantId: string;
+  /** True once the relay is registered and the turn may delegate. */
+  active: boolean;
+  /** True once a registration was attempted: cleanup must delete the entry. */
+  registering: boolean;
+}
+
+type Client = NonNullable<ReturnType<OpenWorkerSupervisor['client']>>;
+
 export class CoworkService {
   private readonly timings: CoworkTimings;
   private readonly now: () => number;
@@ -184,6 +211,10 @@ export class CoworkService {
   private inflight: Promise<CoworkStatus> | undefined;
   private readonly active = new Set<AbortController>();
   private disposed = false;
+  /** Serializes turns while delegation is active (one bridge grant and one MCP entry at a time). */
+  private turnLock: Promise<unknown> = Promise.resolve();
+  /** Delegated units per open grant, filled from bridge events (ids and enums only). */
+  private readonly delegated = new Map<string, CoworkDelegation[]>();
 
   constructor(private readonly options: CoworkServiceOptions) {
     this.timings = { ...DEFAULT_COWORK_TIMINGS, ...options.timings };
@@ -355,7 +386,28 @@ export class CoworkService {
 
   // ---- turn -----------------------------------------------------------------------------------
 
-  async run(request: CoworkRequest, signal: AbortSignal): Promise<CoworkResult> {
+  /** Feeds a bridge event; only a completed unit of an open grant of this service is recorded. */
+  noteBridgeEvent(event: BridgeEvent): void {
+    const units = this.delegated.get(event.grantId);
+    if (units === undefined || event.type !== 'bridge.completed') return;
+    if (event.unitId === undefined || event.outcome === undefined) return;
+    if (units.length >= MAX_DELEGATIONS) return;
+    units.push({
+      unitId: event.unitId,
+      ...(event.resourceId === undefined ? {} : { resourceId: event.resourceId }),
+      outcome: event.outcome,
+    });
+  }
+
+  run(request: CoworkRequest, signal: AbortSignal): Promise<CoworkResult> {
+    if (this.options.bridgeHost === undefined) return this.runTurn(request, signal);
+    const turn = (): Promise<CoworkResult> => this.runTurn(request, signal);
+    const next = this.turnLock.then(turn, turn);
+    this.turnLock = next.catch(() => undefined);
+    return next;
+  }
+
+  private async runTurn(request: CoworkRequest, signal: AbortSignal): Promise<CoworkResult> {
     if (this.disposed) throw new NexarError('INTEGRATION_UNAVAILABLE', 'Desktop is shutting down');
     if (signal.aborted)
       throw new NexarError('EXECUTION_CANCELLED', 'The Cowork turn was cancelled');
@@ -412,15 +464,18 @@ export class CoworkService {
     this.active.add(controller);
     const scratchParent = join(this.options.stateDir, 'scratch');
     let scratch: string | undefined;
+    let delegation: OpenDelegation | undefined;
     try {
       await mkdir(scratchParent, { recursive: true, mode: 0o700 });
       scratch = await realpath(await mkdtemp(join(scratchParent, 'turn-')));
       const scratchRoot = scratch;
       const recordings: Promise<unknown>[] = [];
+      delegation = await this.openDelegation(client, request, readOnly);
+      const delegating = delegation?.active === true;
       request.onProgress('status', 'Running Cowork');
       const turn = await runCoworkTurn(client, {
         sessionId: request.turnId,
-        prompt: request.prompt,
+        prompt: delegating ? `${request.prompt}\n\n${DELEGATION_INSTRUCTION}` : request.prompt,
         model: `${chosen.provider}:${chosen.model}`,
         scratchDir: scratchRoot,
         projectRoot: root,
@@ -430,7 +485,11 @@ export class CoworkService {
         mode: readOnly ? 'discuss' : 'interactive',
         onProgress: (identifier) => request.onProgress('progress', `Cowork: ${identifier}`),
         decide: (permission) => {
-          const outcome = decidePermission(permission, { scratchRoot, readOnly });
+          const outcome = decidePermission(permission, {
+            scratchRoot,
+            readOnly,
+            ...(delegating ? { delegationTools: DELEGATION_TOOLS } : {}),
+          });
           // Ask before every write: a scratch write the policy would allow waits for the owner.
           // Everything else stays decided by policy; settings only narrow.
           if (
@@ -473,21 +532,91 @@ export class CoworkService {
 
       // Read only Cowork imports no draft, whatever the scratch folder holds.
       const artifacts = readOnly ? [] : await this.importDrafts(request, task, scratchRoot);
+      const delegations =
+        delegation === undefined ? [] : [...(this.delegated.get(delegation.grantId) ?? [])];
       return {
         taskId: task.id,
         text: turn.text,
         artifacts,
         resourceId: decision.selected.resourceId,
         policyId: `${decision.policy.name}@${decision.policy.version}`,
+        ...(delegations.length === 0 ? {} : { delegations }),
       };
     } finally {
       signal.removeEventListener('abort', forward);
       this.active.delete(controller);
+      if (delegation !== undefined) await this.closeDelegation(client, delegation);
       if (scratch !== undefined) {
         await rm(scratch, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }).catch(
           () => undefined,
         );
       }
+    }
+  }
+
+  /**
+   * Opens the turn's bridge grant and registers the relay with OpenWorker (the token lives only in
+   * that private registration). A failure never fails the turn: it runs without delegation.
+   */
+  private async openDelegation(
+    client: Client,
+    request: CoworkRequest,
+    readOnly: boolean,
+  ): Promise<OpenDelegation | undefined> {
+    const host = this.options.bridgeHost;
+    if (host === undefined) return undefined;
+    const open: OpenDelegation = { grantId: '', active: false, registering: false };
+    try {
+      const endpoint = await host.ensureStarted();
+      const grant = host.mint({
+        sessionId: request.sessionId,
+        turnId: request.turnId,
+        correlationId: request.correlation.correlationId,
+        projectId: request.projectId,
+        engine: 'openworker',
+        access: readOnly ? 'read-only' : 'draft',
+        ...(request.maxCostUsd === undefined ? {} : { budgetUsd: request.maxCostUsd }),
+        maxUnits: BRIDGE_MAX_UNITS,
+        ttlMs: this.timings.turnTimeoutMs,
+      });
+      open.grantId = grant.grantId;
+      this.delegated.set(grant.grantId, []);
+      const launch = (this.options.relay ?? relayLaunch)();
+      open.registering = true;
+      await client.registerMcpServer(BRIDGE_SERVER_NAME, {
+        command: launch.command,
+        args: launch.args,
+        env: {
+          ...launch.env,
+          NEXAR_BRIDGE_ENDPOINT: endpoint,
+          NEXAR_BRIDGE_TOKEN: grant.token,
+        },
+      });
+      open.active = true;
+      return open;
+    } catch (error) {
+      this.options.logger.warn('cowork delegation unavailable', { code: codeOf(error) });
+      await this.closeDelegation(client, open);
+      return undefined;
+    }
+  }
+
+  /** Best effort, in this order: the MCP entry (it holds the token), then the grant. */
+  private async closeDelegation(client: Client, open: OpenDelegation): Promise<void> {
+    if (open.registering) {
+      try {
+        await client.deleteMcpServer(BRIDGE_SERVER_NAME);
+      } catch (error) {
+        this.options.logger.warn('cowork delegation cleanup failed', { code: codeOf(error) });
+      }
+    }
+    if (open.grantId !== '') {
+      try {
+        this.options.bridgeHost?.revoke(open.grantId);
+      } catch (error) {
+        this.options.logger.warn('cowork delegation revoke failed', { code: codeOf(error) });
+      }
+      this.delegated.delete(open.grantId);
     }
   }
 

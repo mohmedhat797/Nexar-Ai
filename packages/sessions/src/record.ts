@@ -87,6 +87,16 @@ const taskSchema = z.strictObject({
   resourceId: label(128).optional(),
   policyId: label(128).optional(),
   fallback: z.boolean().optional(),
+  delegations: z
+    .array(
+      z.strictObject({
+        unitId: label(64),
+        resourceId: label(128).optional(),
+        outcome: label(32),
+      }),
+    )
+    .max(32)
+    .optional(),
 });
 
 const artifactSchema = z.strictObject({

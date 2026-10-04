@@ -1,15 +1,25 @@
 import type { ChildProcess } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Logger } from '@nexar/contracts';
+import { build } from 'esbuild';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { measured, type Logger, type RouteDecision } from '@nexar/contracts';
+import type { BridgeEvent } from '@nexar/engine-gateway';
 import type { Turn } from '@nexar/sessions';
 import type { BridgeResult, CoworkStatusDto, SessionDto, SubmitTurnResult } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
 import type { ProviderRow } from '../shared/providers.js';
 import { createBridge } from './bridge.js';
-import { CoworkService, createScriptSpawn, type CoworkTimings } from './cowork.js';
+import { BridgeHost, type BridgeGrantInput } from './bridge-host.js';
+import type { RelayLaunch } from './bridge-relay-path.js';
+import {
+  CoworkService,
+  DELEGATION_INSTRUCTION,
+  createScriptSpawn,
+  type CoworkTimings,
+} from './cowork.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
 import { createEngineHost, type EngineHost } from './engine-host.js';
 import { ProviderService } from './providers.js';
@@ -98,6 +108,116 @@ const capture: Logger = (() => {
   return logger;
 })();
 
+/** A real BridgeHost (stub allocator and executor) whose calls are logged in order. */
+interface Delegation {
+  readonly host: Pick<BridgeHost, 'ensureStarted' | 'mint' | 'revoke'>;
+  readonly relay: () => RelayLaunch;
+  readonly attach: (cowork: CoworkService) => void;
+  readonly calls: string[];
+  readonly grants: BridgeGrantInput[];
+  readonly tokens: string[];
+  /** For each revoke: had the fake server already seen the MCP entry deleted? */
+  readonly deletedBeforeRevoke: boolean[];
+  /** Grants open at once, at most. */
+  maxOpen: number;
+}
+
+let relayFile: string;
+let relayDir: string;
+
+beforeAll(async () => {
+  relayDir = await mkdtemp(join(tmpdir(), 'nexar-relay-'));
+  relayFile = join(relayDir, 'bridge-relay.cjs');
+  await build({
+    entryPoints: [
+      fileURLToPath(
+        new URL('../../../../integrations/mcp/src/bridge-relay-main.ts', import.meta.url),
+      ),
+    ],
+    outfile: relayFile,
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    // The same options as scripts/build.mjs.
+    define: { 'import.meta.url': '__importMetaUrl' },
+    banner: { js: "const __importMetaUrl = require('node:url').pathToFileURL(__filename).href;" },
+    logLevel: 'silent',
+  });
+});
+afterAll(() => rm(relayDir, { recursive: true, force: true }));
+
+function delegation(): Delegation {
+  const runtimeDir = join(dirname(h.userData), 'bridge-runtime');
+  let sink: ((event: BridgeEvent) => void) | undefined;
+  let n = 0;
+  const real = new BridgeHost({
+    allocator: {
+      allocate: (ledger) =>
+        Promise.resolve({
+          decision: {
+            outcome: 'selected',
+            selected: { resourceId: 'res-a' },
+          } as unknown as RouteDecision,
+          ledger,
+        }),
+    },
+    executor: () =>
+      Promise.resolve({
+        text: 'DELEGATED-ANSWER',
+        resourceId: 'res-a',
+        usage: { inputTokens: measured(1), outputTokens: measured(1), costUsd: measured(0) },
+      }),
+    clock: () => new Date(),
+    newId: () => `g${String(++n)}`,
+    logger: capture,
+    runtimeDir,
+    onEvent: (event) => sink?.(event),
+  });
+  const d: Delegation = {
+    calls: [],
+    grants: [],
+    tokens: [],
+    deletedBeforeRevoke: [],
+    maxOpen: 0,
+    attach: (cowork) => {
+      sink = (event) => cowork.noteBridgeEvent(event);
+    },
+    relay: () => ({
+      command: process.execPath,
+      args: [relayFile],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    }),
+    host: undefined as never,
+  };
+  let open = 0;
+  const host: Delegation['host'] = {
+    ensureStarted: () => {
+      d.calls.push('ensureStarted');
+      return real.ensureStarted();
+    },
+    mint: (input) => {
+      d.calls.push('mint');
+      d.grants.push(input);
+      const grant = real.mint(input);
+      d.tokens.push(grant.token);
+      d.maxOpen = Math.max(d.maxOpen, ++open);
+      return grant;
+    },
+    revoke: (grantId) => {
+      d.calls.push('revoke');
+      open -= 1;
+      void readFile(join(dirname(h.userData), 'ow-runtime', 'records.jsonl'), 'utf8')
+        .then((text) => d.deletedBeforeRevoke.push(text.includes('mcp-delete')))
+        .catch(() => d.deletedBeforeRevoke.push(false));
+      real.revoke(grantId);
+    },
+  };
+  Object.assign(d, { host });
+  services.push({ dispose: () => real.stop() } as CoworkService);
+  return d;
+}
+
 interface Setup {
   readonly allowed?: readonly string[];
   readonly saved?: Readonly<Record<string, string>>;
@@ -106,6 +226,7 @@ interface Setup {
   readonly timings?: Partial<CoworkTimings>;
   readonly createTaskSpy?: (request: Parameters<typeof newTask>[1], correlation: unknown) => void;
   readonly onSpawn?: (args: readonly string[], child: ChildProcess) => void;
+  readonly delegation?: Delegation;
 }
 
 async function setup(options: Setup = {}) {
@@ -130,6 +251,9 @@ async function setup(options: Setup = {}) {
     ...(options.disabled === true ? { disabled: true } : {}),
     spawn,
     timings: { ...TIMINGS, ...options.timings },
+    ...(options.delegation === undefined
+      ? {}
+      : { bridgeHost: options.delegation.host, relay: options.delegation.relay }),
     createTask: (request, excludedResourceIds) => {
       options.createTaskSpy?.(request, request.correlation);
       return newTask(
@@ -148,6 +272,7 @@ async function setup(options: Setup = {}) {
     },
   });
   services.push(cowork);
+  options.delegation?.attach(cowork);
   const providers = new ProviderService({
     keys,
     config: h.config,
@@ -671,6 +796,194 @@ describe('providers:setOpenWorkerAccess', () => {
     expect((await call(CHANNELS.coworkRefresh, { executable: '/bin/sh' })).ok).toBe(false);
     const status = await call<CoworkStatusDto>(CHANNELS.coworkRefresh);
     expect(status).toMatchObject({ ok: true, value: { state: 'configuration-missing' } });
+  });
+});
+
+describe('Cowork delegation through the Intelligence Bridge (NXR-059b)', () => {
+  const DELEGATE = { NEXAR_FAKE_OPENWORKER_SCENARIO: 'delegate' };
+  const names = async (): Promise<string[]> => (await records()).map((r) => String(r['kind']));
+
+  it('registers the relay, delegates a unit, imports the draft and cleans up in order', async () => {
+    const delegating = delegation();
+    const { cowork, call } = await setup({ env: DELEGATE, delegation: delegating });
+    await cowork.refresh();
+    const { sessionId, turnId } = await turnOf(call);
+    const turn = await settled(sessionId);
+
+    expect(turn).toMatchObject({
+      state: 'succeeded',
+      outcome: { text: 'Delegated unit done' },
+      tasks: [
+        {
+          state: 'succeeded',
+          delegations: [{ unitId: 'u1', resourceId: 'res-a', outcome: 'succeeded' }],
+        },
+      ],
+    });
+    const taskId = turn.tasks[0]?.taskId as string;
+    const draft = join(h.projectDir, '.nexar', 'artifacts', taskId, 'drafts', 'draft.md');
+    expect(await readFile(draft, 'utf8')).toBe('DELEGATED-ANSWER');
+
+    // The grant: draft access, the turn's lineage, the unit cap and the turn timeout as ttl.
+    expect(delegating.grants).toEqual([
+      {
+        sessionId,
+        turnId,
+        correlationId: turnId,
+        projectId,
+        engine: 'openworker',
+        access: 'draft',
+        maxUnits: 16,
+        ttlMs: 20_000,
+      },
+    ]);
+    // Register, then (after the turn) delete, then revoke.
+    expect(delegating.calls).toEqual(['ensureStarted', 'mint', 'revoke']);
+    expect(await names()).toEqual(expect.arrayContaining(['mcp-register', 'mcp-delete']));
+    const seen = await records();
+    expect(seen.find((r) => r['kind'] === 'mcp-register')?.['body']).toEqual({
+      name: 'nexar',
+      envNames: ['ELECTRON_RUN_AS_NODE', 'NEXAR_BRIDGE_ENDPOINT', 'NEXAR_BRIDGE_TOKEN'],
+    });
+    const kinds = await names();
+    expect(kinds.indexOf('mcp-register')).toBeLessThan(kinds.indexOf('user_message'));
+    expect(kinds.indexOf('mcp-delete')).toBeGreaterThan(kinds.indexOf('user_message'));
+    await expect.poll(() => delegating.deletedBeforeRevoke).toEqual([true]);
+
+    // The fixed Nexar line follows the request, outside it.
+    const message = seen.find((r) => r['kind'] === 'user_message');
+    const text = (message?.['body'] as { text: string }).text;
+    expect(text.endsWith(`\n\n${DELEGATION_INSTRUCTION}`)).toBe(true);
+    expect(text.split(DELEGATION_INSTRUCTION)).toHaveLength(2);
+    expect(text.indexOf('</untrusted-input>')).toBeLessThan(text.indexOf(DELEGATION_INSTRUCTION));
+
+    // Policy: the two exact bridge tools were allowed and recorded under cowork.delegation.
+    const policy = (await engine.approvals().list()).filter(
+      (r) => r.actionType === 'cowork.tool-call',
+    );
+    expect(policy.map((r) => r.summary).sort()).toEqual([
+      'Cowork mcp__nexar__nexar_intelligence_status: allowed by policy',
+      'Cowork mcp__nexar__nexar_intelligence_submit: allowed by policy',
+    ]);
+    expect(policy.every((r) => r.metadata?.['ruleId'] === 'cowork.delegation')).toBe(true);
+
+    // The token is only ever in the private registration: nowhere Nexar logs or records.
+    const everything = JSON.stringify([
+      logs,
+      h.events,
+      h.sessionEvents,
+      await h.sessionStore.get(sessionId),
+      await engine.approvals().list(),
+      seen,
+    ]);
+    for (const token of delegating.tokens) expect(everything).not.toContain(token);
+    expect(everything).not.toContain('SECRET-ARGUMENT');
+  });
+
+  it('read only: the grant is read only, the delegated unit runs, no draft is imported', async () => {
+    await h.deps.settings.setBehavior({ cowork: { permission: 'read-only' } });
+    const delegating = delegation();
+    const { cowork, call } = await setup({ env: DELEGATE, delegation: delegating });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    const turn = await settled(sessionId);
+
+    expect(delegating.grants.map((g) => g.access)).toEqual(['read-only']);
+    expect(turn.state).toBe('succeeded');
+    expect(turn.artifacts).toHaveLength(0);
+    expect(turn.tasks[0]?.delegations).toEqual([
+      { unitId: 'u1', resourceId: 'res-a', outcome: 'succeeded' },
+    ]);
+  });
+
+  it('deletes the MCP entry and revokes the grant when the turn fails', async () => {
+    const delegating = delegation();
+    const { cowork, call } = await setup({
+      env: { NEXAR_FAKE_OPENWORKER_SCENARIO: 'error' },
+      delegation: delegating,
+    });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    expect((await settled(sessionId)).state).toBe('failed');
+    expect(delegating.calls).toEqual(['ensureStarted', 'mint', 'revoke']);
+    expect(await names()).toContain('mcp-delete');
+    await expect.poll(() => delegating.deletedBeforeRevoke).toEqual([true]);
+  });
+
+  it('deletes the MCP entry and revokes the grant when the turn is cancelled', async () => {
+    const delegating = delegation();
+    const { cowork, call } = await setup({
+      env: { NEXAR_FAKE_OPENWORKER_SCENARIO: 'hang' },
+      delegation: delegating,
+    });
+    await cowork.refresh();
+    const { sessionId, turnId } = await turnOf(call);
+    await expect.poll(async () => (await names()).includes('user_message')).toBe(true);
+    expect(await call(CHANNELS.sessionsCancel, { sessionId, turnId })).toMatchObject({ ok: true });
+    expect((await settled(sessionId)).state).toBe('cancelled');
+    expect(delegating.calls).toEqual(['ensureStarted', 'mint', 'revoke']);
+    expect(await names()).toContain('mcp-delete');
+    await expect.poll(() => delegating.deletedBeforeRevoke).toEqual([true]);
+  });
+
+  it('serializes concurrent turns: one grant and one MCP entry at a time', async () => {
+    const delegating = delegation();
+    const { cowork, call } = await setup({ env: DELEGATE, delegation: delegating });
+    await cowork.refresh();
+    const first = await turnOf(call);
+    const second = await turnOf(call, 'Draft another summary');
+    expect((await settled(first.sessionId)).state).toBe('succeeded');
+    expect((await settled(second.sessionId)).state).toBe('succeeded');
+    expect(delegating.maxOpen).toBe(1);
+    expect(delegating.calls).toEqual([
+      'ensureStarted',
+      'mint',
+      'revoke',
+      'ensureStarted',
+      'mint',
+      'revoke',
+    ]);
+    expect((await names()).filter((k) => k === 'mcp-register')).toHaveLength(2);
+  });
+
+  it('runs the turn without delegation when the bridge cannot start', async () => {
+    const delegating = delegation();
+    const failing: Delegation = {
+      ...delegating,
+      host: {
+        ...delegating.host,
+        ensureStarted: () => Promise.reject(new Error('SECRET-PIPE-DETAIL')),
+      },
+    };
+    const { cowork, call } = await setup({ delegation: failing });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    const turn = await settled(sessionId);
+    expect(turn).toMatchObject({ state: 'succeeded', outcome: { text: 'Cowork done' } });
+    expect(turn.tasks[0]?.delegations).toBeUndefined();
+    expect(await names()).not.toContain('mcp-register');
+    expect(logs.join('\n')).not.toContain('SECRET-PIPE-DETAIL');
+    expect(logs.join('\n')).toContain('cowork delegation unavailable');
+  });
+
+  it('changes nothing without a bridge host', async () => {
+    const { cowork, call } = await setup();
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call);
+    const turn = await settled(sessionId);
+    expect(turn).toMatchObject({ state: 'succeeded', outcome: { text: 'Cowork done' } });
+    expect(turn.tasks[0]?.delegations).toBeUndefined();
+    const seen = await records();
+    expect(seen.map((r) => r['kind'])).not.toContain('mcp-register');
+    const message = seen.find((r) => r['kind'] === 'user_message');
+    const text = (message?.['body'] as { text: string }).text;
+    expect(text).toContain('Draft a summary');
+    expect(text).not.toContain('Nexar: delegate');
+    // Delegation tools are denied by policy when no grant was opened.
+    const policy = (await engine.approvals().list()).filter(
+      (r) => r.actionType === 'cowork.tool-call',
+    );
+    expect(policy.some((r) => r.summary.includes('nexar'))).toBe(false);
   });
 });
 

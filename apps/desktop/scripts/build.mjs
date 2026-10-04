@@ -33,4 +33,19 @@ await build({
   logLevel: 'info',
 });
 
+// The Intelligence Bridge relay (ADR-027 section 9a): launched by OpenWorker as a plain Node script
+// (ELECTRON_RUN_AS_NODE), so it is one self-contained CommonJS file with nothing resolved at run time.
+await build({
+  entryPoints: [at('../../integrations/mcp/src/bridge-relay-main.ts')],
+  outfile: at('dist/main/bridge-relay.cjs'),
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  target: 'node22',
+  // Source modules read `import.meta.url`; in CommonJS it is this file's own URL.
+  define: { 'import.meta.url': '__importMetaUrl' },
+  banner: { js: "const __importMetaUrl = require('node:url').pathToFileURL(__filename).href;" },
+  logLevel: 'info',
+});
+
 await viteBuild({ configFile: at('vite.config.ts'), logLevel: 'info' });

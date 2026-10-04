@@ -75,7 +75,16 @@ const DEFAULT_BEHAVIOR: BehaviorProfile = {
 /** A Cowork turn (ADR-026): the same request as a direct one; its correlation is already delegated. */
 export type CoworkRequest = DirectRequest & { readonly permission: CoworkPermission };
 
-export type CoworkResult = Omit<DirectResult, 'fallback'>;
+/** A unit a Cowork engine delegated through the Intelligence Bridge (ids and an enum only). */
+export interface CoworkDelegation {
+  readonly unitId: string;
+  readonly resourceId?: string;
+  readonly outcome: string;
+}
+
+export type CoworkResult = Omit<DirectResult, 'fallback'> & {
+  readonly delegations?: readonly CoworkDelegation[];
+};
 
 /** The longest goal the engineering plane accepts (ADR-025: same bound as the runner). */
 export const MAX_CODE_GOAL_CHARS = 20_000;
@@ -686,12 +695,13 @@ export class OperatingService {
         onTask: link,
         onProgress,
       };
-      const result: DirectResult = viaCowork
-        ? await executeCowork(
-            { ...request, permission: behavior.cowork.permission },
-            controller.signal,
-          )
-        : await this.ports.executeDirect(request, controller.signal);
+      const result: DirectResult & { readonly delegations?: CoworkResult['delegations'] } =
+        viaCowork
+          ? await executeCowork(
+              { ...request, permission: behavior.cowork.permission },
+              controller.signal,
+            )
+          : await this.ports.executeDirect(request, controller.signal);
 
       await link(result.taskId);
       if (result.artifacts.length > 0) {
@@ -704,6 +714,9 @@ export class OperatingService {
         ...(result.resourceId === undefined ? {} : { resourceId: result.resourceId }),
         ...(result.policyId === undefined ? {} : { policyId: result.policyId }),
         ...(result.fallback === undefined ? {} : { fallback: result.fallback }),
+        ...(result.delegations === undefined || result.delegations.length === 0
+          ? {}
+          : { delegations: result.delegations }),
       });
       await store.completeTurn(sessionId, turnId, {
         state: cancelled ? 'cancelled' : 'succeeded',

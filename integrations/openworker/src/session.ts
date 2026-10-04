@@ -94,7 +94,7 @@ function validRequest(request: CoworkTurnRequest): boolean {
  * reported as `failed` with a fixed code. Progress carries identifiers only, never arguments or text.
  */
 export async function runCoworkTurn(
-  client: OpenWorkerClient,
+  client: Pick<OpenWorkerClient, 'attachRoot' | 'openSession'>,
   request: CoworkTurnRequest,
 ): Promise<CoworkTurnResult> {
   if (!validRequest(request)) {

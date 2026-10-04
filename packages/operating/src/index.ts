@@ -38,6 +38,7 @@ export type {
   CodeResult,
   CoworkPermission,
   CoworkRequest,
+  CoworkDelegation,
   CoworkResult,
   DirectRequest,
   DirectResult,

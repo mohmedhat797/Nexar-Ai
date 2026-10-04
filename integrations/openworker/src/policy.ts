@@ -20,7 +20,14 @@ export const COWORK_RULES = {
   targetMissing: 'cowork.target-missing.deny',
   targetOutsideScratch: 'cowork.target-outside-scratch.deny',
   readOnly: 'cowork.read-only.deny',
+  delegation: 'cowork.delegation',
 } as const;
+
+/** OpenWorker's names for the relay's two tools: `mcp__<server>__<tool>`, other characters as `_`. */
+export const DELEGATION_TOOLS: readonly string[] = [
+  'mcp__nexar__nexar_intelligence_submit',
+  'mcp__nexar__nexar_intelligence_status',
+];
 
 const WRITE_TOOLS: ReadonlySet<string> = new Set([
   'write_file',
@@ -63,8 +70,17 @@ export function decidePermission(
     readonly platform?: NodeJS.Platform;
     /** Read only Cowork (NXR-053): every request is denied, whatever the tool. */
     readonly readOnly?: boolean;
+    /**
+     * The exact mapped names of the Intelligence Bridge tools (ADR-027 §9a). Matched by equality on
+     * the name only, also in read only Cowork: a delegated unit is a read only intelligence call
+     * whose access the turn's grant enforces.
+     */
+    readonly delegationTools?: readonly string[];
   },
 ): PermissionDecision {
+  if (options.delegationTools?.includes(request.name) === true) {
+    return { decision: 'allow', ruleId: COWORK_RULES.delegation };
+  }
   if (options.readOnly === true) return { decision: 'deny', ruleId: COWORK_RULES.readOnly };
   if (!WRITE_TOOLS.has(request.name)) {
     return { decision: 'deny', ruleId: COWORK_RULES.toolNotAllowed };
