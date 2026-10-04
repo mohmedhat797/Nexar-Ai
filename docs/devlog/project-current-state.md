@@ -101,24 +101,34 @@ The previous next task (install OpenWorker and give it an API key) is superseded
 
 ## v0.6 progress (PR #39, `feat/nexar-resource-orchestration`)
 
-| Unit                                                  | State           | Commits                                                                                                                                                                                                      |
-| ----------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| ADR-027 rev. 2, plan, spike, ADR-022 auth amendment   | done            | `12c6e00`, `ec33f1a`, `5fcbc86`                                                                                                                                                                              |
-| NXR-060 Provider connections + compatibility metadata | done (CI green) | `2b5edd4` echo default removed + migration, `1363dc8` connections + `model-turn`, `ebb8c37` E2E seed (echo explicit, real CLIs excluded), `b58484f` plane resources over `nexar-plane/1`                     |
-| NXR-061 Resource Strategy Planner                     | done            | `ae320e2` pure `strategy@1`, `23fa38c` Code lanes planned upfront (records `planned`/`fallback`)                                                                                                             |
-| NXR-062 Engine Gateway                                | done (CI green) | `42ba31b` Control Model Gateway + pi `ModelTurnPort`, `d33a65b` Intelligence Execution Bridge                                                                                                                |
-| NXR-059 OpenWorker → Nexar delegation                 | done (CI green) | `7123b61` bridge host (local IPC endpoint) + stdio MCP relay, `872b9b1` transport decision, `7bd4631` Cowork delegation wiring + E2E                                                                         |
-| NXR-063 OpenWorker NexarProvider                      | done            | `43e9fbe` host `control` op + loopback Chat Completions translator child, `3bdda5c` per-turn gateway provider, control policy setting, restart-on-control-failure, `openworker-control-unavailable` fallback |
+| Unit                                                  | State                                   | Commits                                                                                                                                                                                                                                              |
+| ----------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ADR-027 rev. 2, plan, spike, ADR-022 auth amendment   | done                                    | `12c6e00`, `ec33f1a`, `5fcbc86`                                                                                                                                                                                                                      |
+| NXR-060 Provider connections + compatibility metadata | done (CI green)                         | `2b5edd4` echo default removed + migration, `1363dc8` connections + `model-turn`, `ebb8c37` E2E seed (echo explicit, real CLIs excluded), `b58484f` plane resources over `nexar-plane/1`                                                             |
+| NXR-061 Resource Strategy Planner                     | done                                    | `ae320e2` pure `strategy@1`, `23fa38c` Code lanes planned upfront (records `planned`/`fallback`)                                                                                                                                                     |
+| NXR-062 Engine Gateway                                | done (CI green)                         | `42ba31b` Control Model Gateway + pi `ModelTurnPort`, `d33a65b` Intelligence Execution Bridge                                                                                                                                                        |
+| NXR-059 OpenWorker → Nexar delegation                 | done (CI green)                         | `7123b61` bridge host (local IPC endpoint) + stdio MCP relay, `872b9b1` transport decision, `7bd4631` Cowork delegation wiring + E2E                                                                                                                 |
+| NXR-063 OpenWorker NexarProvider                      | done                                    | `43e9fbe` host `control` op + loopback Chat Completions translator child, `3bdda5c` per-turn gateway provider, control policy setting, restart-on-control-failure, `openworker-control-unavailable` fallback                                         |
+| NXR-064 DSH Code orchestration                        | done (CI green, incl. real-bwrap smoke) | `9d69ef5`+`830dd17` spike + ADR-027 §9b, `31d5745` shared endpoint/translator + sandbox services mount, `ccfde2f` lane-private engine sessions + honest `executor` records, `e0f3073` DSH on the gateway (no `DEEPSEEK_API_KEY`, bridge via ACP MCP) |
 
 Desktop note: the next Desktop start migrates the owner's config (backup `nexar.config.json.bak-<timestamp>`),
 removing the `local-echo` default so Auto routes to discovered resources (signed-in Claude Code).
 
 ## NEXT EXACT TASK
 
-**NXR-064 — DSH through the plane's Engine Gateway** ([backlog](../backlog/064-dsh-code-orchestration.md)):
-DSH's control loop and its units go through the plane's gateway on plane resources (ADR-027 §9, §11),
-inside the `EngineeringRunner` envelope; without a DSH control resource the lane runs the
-NRC-selected native agent as `executor: native`. Then 065 → (067) → 066.
+**NXR-065 — Providers and orchestration UX** ([backlog](../backlog/065-providers-ux-consolidation.md)):
+Desktop surfaces connections/resources (incl. plane resources read-only), the control-resource
+policy for Cowork and Code, and lane/turn records (`control`, `executor`, reasons). Carry the new
+lane record fields over the plane protocol. Then (067) → 066.
 
-Owner note: the Cowork control-resource setting exists in `desktop-settings.json`
-(`orchestration.cowork.controlResource`, default Auto) but has no UI until NXR-065.
+Owner notes:
+
+- Cowork's control setting lives in `desktop-settings.json` (`orchestration.cowork.controlResource`,
+  default Auto); Code's in the plane config (`orchestration.code.controlResource`). No UI until 065.
+- A control resource needs `model-turn`: a pi model with an API key, or a local endpoint with
+  `toolCalling`. Subscription CLIs (Claude Code, Codex) are native agents, so Code lanes run
+  `executor: native` until such a resource exists (or NXR-067).
+- DSH's bridge needs the plane's Node inside `engineering.toolchainPaths`; otherwise DSH lanes run on
+  the gateway without delegation.
+- Follow-ups: lane restart from the worktree base on control failure (ADR-027 §8); live checks of
+  pi-ai with the single-chunk SSE and `--patch` with `--profile acp` (NXR-066).
