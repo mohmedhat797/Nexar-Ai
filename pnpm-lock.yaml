@@ -89,6 +89,10 @@ importers:
       '@nexar/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
+    devDependencies:
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
 
   apps/desktop:
     dependencies:
@@ -110,6 +114,9 @@ importers:
       '@nexar/host':
         specifier: workspace:*
         version: link:../../packages/host
+      '@nexar/integration-openai-compat':
+        specifier: workspace:*
+        version: link:../../integrations/openai-compat
       '@nexar/integration-openworker':
         specifier: workspace:*
         version: link:../../integrations/openworker
@@ -263,6 +270,9 @@ importers:
       '@nexar/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@nexar/engine-gateway':
+        specifier: workspace:*
+        version: link:../../packages/engine-gateway
       '@nexar/integration-echo':
         specifier: workspace:*
         version: link:../echo
@@ -272,6 +282,12 @@ importers:
       '@nexar/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
+
+  integrations/openai-compat:
+    dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   integrations/openworker:
     dependencies:
@@ -375,6 +391,9 @@ importers:
       '@nexar/resource-controller':
         specifier: workspace:*
         version: link:../resource-controller
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/engineering:
     dependencies:
@@ -414,6 +433,9 @@ importers:
       '@nexar/core':
         specifier: workspace:*
         version: link:../core
+      '@nexar/engine-gateway':
+        specifier: workspace:*
+        version: link:../engine-gateway
       '@nexar/engineering':
         specifier: workspace:*
         version: link:../engineering

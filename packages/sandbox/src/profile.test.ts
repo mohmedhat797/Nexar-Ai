@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { NexarError } from '@nexar/contracts';
-import { buildBwrapArgs, PROXY_BRIDGE_SCRIPT, type BwrapProfileInput } from './profile.js';
+import {
+  buildBridgeScript,
+  buildBwrapArgs,
+  PROXY_BRIDGE_SCRIPT,
+  SANDBOX_BRIDGE_ENDPOINT,
+  SANDBOX_GATEWAY_BASE_URL,
+  SANDBOX_GATEWAY_PORT,
+  SANDBOX_PROXY_PORT,
+  SANDBOX_RELAY_PATH,
+  SANDBOX_SERVICES_DIR,
+  type BwrapProfileInput,
+} from './profile.js';
 
 const base: BwrapProfileInput = {
   workspace: '/data/ws',
@@ -157,6 +168,71 @@ describe('buildBwrapArgs', () => {
     const withoutRunDir: Record<string, unknown> = { ...base };
     delete withoutRunDir['runDir'];
     expect(() => buildBwrapArgs(withoutRunDir as unknown as BwrapProfileInput)).toThrow(NexarError);
+  });
+
+  describe('Nexar services', () => {
+    const services = {
+      dir: '/data/svc',
+      gateway: true,
+      bridge: true,
+      relayScript: '/data/relay.cjs',
+    };
+
+    it('exports the in-sandbox constants', () => {
+      expect(SANDBOX_SERVICES_DIR).toBe('/run/nexar-services');
+      expect(SANDBOX_GATEWAY_PORT).not.toBe(SANDBOX_PROXY_PORT);
+      expect(SANDBOX_GATEWAY_BASE_URL).toBe(`http://127.0.0.1:${SANDBOX_GATEWAY_PORT}/v1`);
+      expect(SANDBOX_BRIDGE_ENDPOINT).toBe('/run/nexar-services/bridge.sock');
+      expect(SANDBOX_RELAY_PATH).toBe('/opt/nexar/bridge-relay.cjs');
+    });
+
+    it('binds the directory and the relay script read-only, before the remount', () => {
+      const withServices = buildBwrapArgs({ ...base, services });
+      const remount = withServices.indexOf('--remount-ro');
+      const dir = indexOfSeq(withServices, '--ro-bind', '/data/svc', '/run/nexar-services');
+      const relay = indexOfSeq(
+        withServices,
+        '--ro-bind',
+        '/data/relay.cjs',
+        '/opt/nexar/bridge-relay.cjs',
+      );
+      expect(dir).toBeGreaterThan(-1);
+      expect(relay).toBeGreaterThan(-1);
+      expect(Math.max(dir, relay)).toBeLessThan(remount);
+      const bridgeOnly = buildBwrapArgs({
+        ...base,
+        network: 'none',
+        services: { dir: '/data/svc', gateway: false, bridge: true },
+      });
+      expect(bridgeOnly).toContain('/run/nexar-services');
+      expect(bridgeOnly).not.toContain('/opt/nexar/bridge-relay.cjs');
+      // No gateway: no socat, the command runs directly.
+      expect(bridgeOnly.slice(bridgeOnly.indexOf('--') + 1)[0]).toBe('/usr/bin/agent');
+    });
+
+    it('bridges the gateway socket with a bounded readiness wait, in proxy and none mode', () => {
+      const script = buildBridgeScript({ proxy: false, gateway: true });
+      expect(script).toContain(
+        `socat TCP-LISTEN:${SANDBOX_GATEWAY_PORT},bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/nexar-services/gateway.sock`,
+      );
+      expect(script).toContain(`socat -u OPEN:/dev/null TCP:127.0.0.1:${SANDBOX_GATEWAY_PORT}`);
+      expect(script).toContain('-lt 50');
+      expect(script.endsWith('exec "$@"')).toBe(true);
+      expect(script).not.toContain('proxy.sock');
+      for (const network of ['none', 'proxy'] as const) {
+        const built = buildBwrapArgs({ ...base, network, services });
+        const tail = built.slice(built.indexOf('--') + 1);
+        expect(tail.slice(0, 2)).toEqual(['/bin/sh', '-c']);
+        expect(tail[2]).toContain('gateway.sock');
+        expect(tail[2]?.includes('proxy.sock')).toBe(network === 'proxy');
+        expect(tail.slice(3)).toEqual(['sh', '/usr/bin/agent', '--flag', "va'lue; rm -rf /"]);
+      }
+    });
+
+    it('keeps the proxy-only script free of the gateway', () => {
+      expect(PROXY_BRIDGE_SCRIPT).toBe(buildBridgeScript({ proxy: true, gateway: false }));
+      expect(PROXY_BRIDGE_SCRIPT).not.toContain('gateway');
+    });
   });
 
   it('is deterministic', () => {

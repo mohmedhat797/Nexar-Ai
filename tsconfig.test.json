@@ -7,6 +7,7 @@
     "declarationMap": false,
     "types": ["node"],
     "paths": {
+      "@nexar/engine-gateway/testing": ["./packages/engine-gateway/src/control-test-kit.ts"],
       "@nexar/integration-*": ["./integrations/*/src/index.ts"],
       "@nexar/cli": ["./apps/cli/src/index.ts"],
       "@nexar/*": ["./packages/*/src/index.ts"]

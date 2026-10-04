@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/require-await -- injected async seams in tests need no await */
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { LaunchSpec } from '@nexar/contracts';
+import type { LaunchServices, LaunchSpec } from '@nexar/contracts';
 import type { SandboxAvailability } from './availability.js';
 import { SandboxLauncher, type SandboxLauncherOptions } from './launcher.js';
+import { SANDBOX_GATEWAY_PORT } from './profile.js';
 import { createRunDir } from './run-dir.js';
 
 const AVAILABLE: SandboxAvailability = {
@@ -220,6 +221,129 @@ describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
     expect(existsSync(join(runBase, dirName ?? '', 'proxy.sock'))).toBe(true);
     await prepared.dispose();
     expect(existsSync(join(runBase, dirName ?? ''))).toBe(false);
+  });
+
+  describe('Nexar services', () => {
+    let svc: string;
+    let relay: string;
+    beforeEach(async () => {
+      svc = join(root, 'svc');
+      relay = join(root, 'relay.cjs');
+      await mkdir(svc, { mode: 0o700 });
+      await chmod(svc, 0o700);
+      await writeFile(relay, '// relay');
+    });
+    const services = (patch: Partial<LaunchServices> = {}): LaunchServices => ({
+      dir: svc,
+      gateway: true,
+      bridge: true,
+      relayScript: relay,
+      ...patch,
+    });
+
+    it('mounts the directory and relay read-only and bridges the gateway in both network modes', async () => {
+      for (const network of [
+        { mode: 'none' },
+        { mode: 'proxy', allowHosts: ['api.example.com'] },
+      ] as const) {
+        const prepared = await launcher().prepare(
+          spec({ network, services: services() }),
+          signal(),
+        );
+        const { args } = prepared;
+        const at = (...seq: string[]): number =>
+          args.findIndex((_, i) => seq.every((item, j) => args[i + j] === item));
+        expect(at('--ro-bind', svc, '/run/nexar-services')).toBeGreaterThan(-1);
+        expect(at('--ro-bind', relay, '/opt/nexar/bridge-relay.cjs')).toBeGreaterThan(-1);
+        const script = args[args.indexOf('-c') + 1] ?? '';
+        expect(script).toContain(
+          `TCP-LISTEN:${SANDBOX_GATEWAY_PORT},bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/nexar-services/gateway.sock`,
+        );
+        expect(script).toContain('-lt 50');
+        expect(script.includes('proxy.sock')).toBe(network.mode === 'proxy');
+        await prepared.dispose();
+      }
+    });
+
+    it('sets NO_PROXY only for the gateway service and strips caller values otherwise', async () => {
+      const withGateway = await launcher().prepare(
+        spec({ env: { NO_PROXY: '*' }, services: services() }),
+        signal(),
+      );
+      expect(envOf(withGateway.args)['NO_PROXY']).toBe('127.0.0.1');
+      expect(envOf(withGateway.args)['no_proxy']).toBe('127.0.0.1');
+      await withGateway.dispose();
+      for (const patch of [{ gateway: false }, undefined]) {
+        const prepared = await launcher().prepare(
+          spec({
+            env: { NO_PROXY: '*', no_proxy: '*' },
+            network: { mode: 'proxy', allowHosts: ['api.example.com'] },
+            ...(patch === undefined ? {} : { services: services(patch) }),
+          }),
+          signal(),
+        );
+        expect(envOf(prepared.args)['NO_PROXY']).toBeUndefined();
+        expect(envOf(prepared.args)['no_proxy']).toBeUndefined();
+        await prepared.dispose();
+      }
+    });
+
+    it('bridge-only services need no socat and run the command directly', async () => {
+      const noSocat: SandboxAvailability = {
+        available: true,
+        bwrapPath: '/usr/bin/bwrap',
+        detail: 'ok',
+      };
+      const prepared = await launcher({ availability: async () => noSocat }).prepare(
+        spec({ services: services({ gateway: false }) }),
+        signal(),
+      );
+      expect(prepared.args).toContain('/run/nexar-services');
+      expect(prepared.args.join(' ')).not.toContain('socat');
+      expect(prepared.args.slice(prepared.args.indexOf('--') + 1)[0]).toBe('/usr/bin/true');
+      await prepared.dispose();
+    });
+
+    it('needs socat for the gateway service', async () => {
+      const noSocat: SandboxAvailability = {
+        available: true,
+        bwrapPath: '/usr/bin/bwrap',
+        detail: 'ok',
+      };
+      const error = await rejection(
+        launcher({ availability: async () => noSocat }).prepare(
+          spec({ services: services() }),
+          signal(),
+        ),
+      );
+      expect(error.code).toBe('SANDBOX_UNAVAILABLE');
+      expect(await readdir(runBase)).toEqual([]);
+    });
+
+    it('rejects an invalid services spec before creating or spawning anything', async () => {
+      await mkdir(join(root, 'open'), { mode: 0o777 });
+      await chmod(join(root, 'open'), 0o755);
+      await symlink(svc, join(root, 'link'));
+      await mkdir(join(root, 'sub'));
+      await writeFile(join(root, 'file'), 'x');
+      const cases: LaunchServices[] = [
+        services({ gateway: false, bridge: false }),
+        services({ dir: 'relative/dir' }),
+        services({ dir: join(root, 'missing') }),
+        services({ dir: join(root, 'file') }),
+        services({ dir: join(root, 'link') }),
+        services({ dir: join(root, 'open') }),
+        services({ relayScript: 'relay.cjs' }),
+        services({ relayScript: join(root, 'missing.cjs') }),
+        services({ relayScript: join(root, 'sub') }),
+      ];
+      for (const bad of cases) {
+        const error = await rejection(launcher().prepare(spec({ services: bad }), signal()));
+        expect(error.code).toBe('VALIDATION_ERROR');
+        expect(error.message).not.toContain(root);
+        expect(await readdir(runBase)).toEqual([]);
+      }
+    });
   });
 
   it('rejects invalid environment entries', async () => {

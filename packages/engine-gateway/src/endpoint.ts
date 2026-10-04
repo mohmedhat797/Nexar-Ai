@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmod, lstat, mkdir, unlink } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import {
   INTELLIGENCE_LIMITS,
@@ -14,19 +14,17 @@ import {
   type Logger,
   type NexarErrorCode,
 } from '@nexar/contracts';
+import type { StrategySettings } from '@nexar/resource-controller';
 import {
   IntelligenceBridge,
-  type ControlModelGateway,
   type BridgeAllocator,
   type BridgeEvent,
   type ChildExecutor,
-  type ControlEvent,
-} from '@nexar/engine-gateway';
-import type { StrategySettings } from '@nexar/resource-controller';
-import type { EngineHost } from './engine-host.js';
+} from './bridge.js';
+import type { ControlEvent, ControlModelGateway } from './gateway.js';
 
 /*
- * The Desktop end of the Intelligence Bridge (ADR-027 section 9a): a local pipe or socket (never a
+ * The host end of the Intelligence Bridge (Desktop main, or the plane that runs a lane) (ADR-027 section 9a): a local pipe or socket (never a
  * port) over which the stdio relay reaches the IntelligenceBridge. Authentication is one token per
  * grant; lineage, project, access and budget come from the grant, never from a request.
  */
@@ -65,6 +63,12 @@ export interface BridgeHostOptions {
   readonly logger: Logger;
   /** The private (0700) runtime directory; the socket file lives here on POSIX. */
   readonly runtimeDir: string;
+  /**
+   * POSIX only: listen exactly here instead of on a random name in 
+untimeDir. The parent must
+   * already exist as a real (non-symlink) directory; the socket is created 0600.
+   */
+  readonly endpointPath?: string;
   readonly platform?: NodeJS.Platform;
   readonly limits?: Partial<BridgeEndpointLimits>;
   readonly strategySettings?: StrategySettings;
@@ -307,13 +311,20 @@ export class BridgeHost {
   /** Listens on a fresh per-launch pipe or socket and returns its path. */
   async start(): Promise<string> {
     if (this.server !== undefined) throw new NexarError('CONFLICT', 'The bridge host is started');
-    const name = `bridge-${randomBytes(16).toString('hex')}`;
+    const { endpointPath } = this.options;
     let path: string;
     if (this.platform === 'win32') {
-      path = `\\\\.\\pipe\\nexar-${name}`;
+      if (endpointPath !== undefined) {
+        throw new NexarError('VALIDATION_ERROR', 'A fixed bridge endpoint path needs unix sockets');
+      }
+      path = `\\\\.\\pipe\\nexar-bridge-${randomBytes(16).toString('hex')}`;
+    } else if (endpointPath !== undefined) {
+      path = endpointPath;
+      await checkFixedPath(path);
+      await removeStaleSocket(path);
     } else {
       await mkdir(this.options.runtimeDir, { recursive: true, mode: 0o700 });
-      path = join(this.options.runtimeDir, `${name}.sock`);
+      path = join(this.options.runtimeDir, `bridge-${randomBytes(16).toString('hex')}.sock`);
       await removeStaleSocket(path);
     }
     const server = createServer((socket) => this.accept(socket));
@@ -500,6 +511,22 @@ export class BridgeHost {
   }
 }
 
+/** A fixed endpoint path must be absolute and sit directly in an existing, real directory. */
+async function checkFixedPath(path: string): Promise<void> {
+  if (!isAbsolute(path)) {
+    throw new NexarError('VALIDATION_ERROR', 'The bridge endpoint path must be absolute');
+  }
+  let parent;
+  try {
+    parent = await lstat(dirname(path));
+  } catch {
+    throw new NexarError('VALIDATION_ERROR', 'The bridge endpoint directory does not exist');
+  }
+  if (parent.isSymbolicLink() || !parent.isDirectory()) {
+    throw new NexarError('POLICY_REJECTED', 'The bridge endpoint directory is not usable');
+  }
+}
+
 /** Removes a leftover file at `path` only when it is a socket this user owns. */
 async function removeStaleSocket(path: string): Promise<void> {
   let stats;
@@ -513,37 +540,4 @@ async function removeStaleSocket(path: string): Promise<void> {
     throw new NexarError('POLICY_REJECTED', 'The bridge endpoint path is not usable');
   }
   await unlink(path);
-}
-
-/**
- * The child executor over the Nexar engine: `createTask` + `run`, no engineering workspace, under
- * the desktop's `project-only` workspace policy. Lineage reaches the task as metadata (ids only).
- */
-export function createEngineExecutor(engine: EngineHost): ChildExecutor {
-  return async (input, signal) => {
-    const { nexar } = engine.composition().runtime;
-    const task = nexar.createTask({
-      kind: input.kind,
-      prompt: input.prompt,
-      systemPrompt: input.systemPrompt,
-      projectId: input.projectId,
-      origin: input.origin,
-      requirements: input.requirements,
-      metadata: { ...input.metadata },
-    });
-    const outcome = await nexar.run(task, { signal });
-    return {
-      text: outcome.result.text,
-      usage: outcome.record.usage,
-      resourceId: outcome.record.resourceId,
-    };
-  };
-}
-
-/** The allocator Desktop hands the host: the engine's own resource controller. */
-export function engineAllocator(engine: EngineHost): BridgeAllocator {
-  return {
-    allocate: (ledger, unit, settings) =>
-      engine.composition().runtime.controller.allocate(ledger, unit, settings),
-  };
 }

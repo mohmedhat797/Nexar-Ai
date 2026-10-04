@@ -20,6 +20,9 @@
       "path": "../core"
     },
     {
+      "path": "../engine-gateway"
+    },
+    {
       "path": "../engineering"
     },
     {

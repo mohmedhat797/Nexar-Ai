@@ -21,6 +21,7 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/engine-gateway" },
     { "path": "../../packages/host" },
+    { "path": "../../integrations/openai-compat" },
     { "path": "../../integrations/openworker" },
     { "path": "../../packages/operating" },
     { "path": "../../packages/plane-protocol" },

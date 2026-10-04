@@ -3,16 +3,17 @@ import { userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { isNexarError } from '@nexar/contracts';
-import { ControlModelGateway } from '@nexar/engine-gateway';
+import { BridgeHost, ControlModelGateway } from '@nexar/engine-gateway';
 import { FileSessionStore } from '@nexar/sessions';
 import {
   checkProviderCredential,
   createControlModelTurnPorts,
+  createEngineExecutor,
   createNativeSubscriptions,
+  engineAllocator,
 } from '@nexar/host';
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
-import { BridgeHost, createEngineExecutor, engineAllocator } from './bridge-host.js';
 import { CodePlane } from './code-plane.js';
 import { ControlGatewayChild } from './control-gateway-child.js';
 import { CoworkService, createScriptSpawn } from './cowork.js';

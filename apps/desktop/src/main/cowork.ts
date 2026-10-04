@@ -26,7 +26,12 @@ import {
   type OpenWorkerState,
   type OpenWorkerStatus,
 } from '@nexar/integration-openworker';
-import type { BridgeEvent, ControlModelGateway } from '@nexar/engine-gateway';
+import type {
+  BridgeEvent,
+  BridgeGrantInput,
+  BridgeHost,
+  ControlModelGateway,
+} from '@nexar/engine-gateway';
 import type {
   CoworkControl,
   CoworkDelegation,
@@ -36,7 +41,6 @@ import type {
 import { providerCredentialNames } from '@nexar/host';
 import type { CoworkStatusDto } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
-import type { BridgeGrantInput, BridgeHost } from './bridge-host.js';
 import { relayLaunch, type RelayLaunch } from './bridge-relay-path.js';
 import { NoArgs, defineChannel, type CallContext, type ChannelDefinition } from './channel.js';
 import type { DesktopKeyStore } from './desktop-key-store.js';

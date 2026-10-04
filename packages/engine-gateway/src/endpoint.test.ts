@@ -1,4 +1,5 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,14 +12,9 @@ import {
   type RouteDecision,
   type StrategyLedger,
 } from '@nexar/contracts';
-import type {
-  BridgeAllocator,
-  ChildExecution,
-  ChildExecutor,
-  ChildTaskInput,
-  ControlModelGateway,
-} from '@nexar/engine-gateway';
-import { BridgeHost, type BridgeEndpointLimits, type BridgeGrantInput } from './bridge-host.js';
+import type { BridgeAllocator, ChildExecution, ChildExecutor, ChildTaskInput } from './bridge.js';
+import { BridgeHost, type BridgeEndpointLimits, type BridgeGrantInput } from './endpoint.js';
+import type { ControlModelGateway } from './gateway.js';
 import { createFakeControl, okTurn } from './control-test-kit.js';
 
 const START = new Date('2026-03-01T12:00:00.000Z');
@@ -369,6 +365,88 @@ describe('BridgeHost', () => {
   it('rejects a bad ttl', async () => {
     await make();
     expect(() => host.mint({ ...grantInput, ttlMs: 0 })).toThrow(NexarError);
+  });
+
+  describe('endpointPath', () => {
+    const makeAt = (endpointPath: string, platform?: NodeJS.Platform): BridgeHost =>
+      (host = new BridgeHost({
+        allocator,
+        executor,
+        clock: () => new Date(now),
+        newId: () => 'id',
+        logger,
+        runtimeDir: join(dir, 'runtime'),
+        endpointPath,
+        ...(platform === undefined ? {} : { platform }),
+      }));
+    const rejects = async (code: string): Promise<void> => {
+      await expect(host.start()).rejects.toMatchObject({ code });
+    };
+
+    it.skipIf(process.platform === 'win32')(
+      'listens exactly there with mode 0600 and serves requests',
+      async () => {
+        const services = join(dir, 'services');
+        await mkdir(services, { mode: 0o700 });
+        const path = join(services, 'bridge.sock');
+        makeAt(path);
+        expect(await host.start()).toBe(path);
+        expect(host.endpoint()).toBe(path);
+        expect((await stat(path)).mode & 0o777).toBe(0o600);
+        const conn = await open();
+        const reply = await conn.call({ v: 1, id: 'x', token: 'nope', op: 'status', jobId: 'j' });
+        expect(reply).toEqual({ id: 'x', ok: false, code: 'AUTH_REQUIRED' });
+        await host.stop();
+        await expect(stat(path)).rejects.toThrow();
+      },
+    );
+
+    it.skipIf(process.platform === 'win32')(
+      'refuses a missing, symlinked or relative parent without echoing the path',
+      async () => {
+        makeAt(join(dir, 'missing', 'bridge.sock'));
+        await rejects('VALIDATION_ERROR');
+        const real = join(dir, 'real');
+        await mkdir(real);
+        await symlink(real, join(dir, 'link'));
+        makeAt(join(dir, 'link', 'bridge.sock'));
+        await expect(host.start()).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
+        makeAt('bridge.sock');
+        const error = await host.start().catch((e: unknown) => e);
+        expect(error).toMatchObject({ code: 'VALIDATION_ERROR' });
+        expect(String((error as Error).message)).not.toContain(dir);
+      },
+    );
+
+    it.skipIf(process.platform === 'win32')('refuses an existing non-socket file', async () => {
+      const path = join(dir, 'bridge.sock');
+      await writeFile(path, 'x');
+      makeAt(path);
+      await rejects('POLICY_REJECTED');
+    });
+
+    it.skipIf(process.platform === 'win32')('removes a stale socket it owns', async () => {
+      const path = join(dir, 'bridge.sock');
+      // A killed process leaves its socket file behind (a clean close would unlink it).
+      const child = spawn(process.execPath, [
+        '-e',
+        `require('node:net').createServer().listen(process.argv[1], () => console.log('up'))`,
+        path,
+      ]);
+      await new Promise<void>((resolve) => child.stdout.once('data', () => resolve()));
+      const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+      child.kill('SIGKILL');
+      await exited;
+      expect((await stat(path)).isSocket()).toBe(true);
+      makeAt(path);
+      expect(await host.start()).toBe(path);
+      expect((await stat(path)).isSocket()).toBe(true);
+    });
+
+    it('is a validation error on win32', async () => {
+      makeAt('/tmp/bridge.sock', 'win32');
+      await rejects('VALIDATION_ERROR');
+    });
   });
 
   describe('control op', () => {

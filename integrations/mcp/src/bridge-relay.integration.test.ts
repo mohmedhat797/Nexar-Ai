@@ -4,9 +4,8 @@ import { join } from 'node:path';
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { measured, type Logger, type RouteDecision } from '@nexar/contracts';
-import type { ChildTaskInput } from '@nexar/engine-gateway';
-// The relay is exercised against the real Desktop endpoint and bridge; only the engine is faked.
-import { BridgeHost } from '../../../apps/desktop/src/main/bridge-host.js';
+// The relay is exercised against the real bridge endpoint and bridge; only the engine is faked.
+import { BridgeHost, type ChildTaskInput } from '@nexar/engine-gateway';
 import { createBridgeRelayServer } from './bridge-relay.js';
 
 const silent: Logger = {

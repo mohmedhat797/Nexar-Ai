@@ -7,7 +7,7 @@ import {
   type ModelTurnPort,
   type ResourceSnapshot,
 } from '@nexar/contracts';
-import { ControlModelGateway, type ControlEvent } from '@nexar/engine-gateway';
+import { ControlModelGateway, type ControlEvent } from './gateway.js';
 import {
   DEFAULT_RESOURCE_INTELLIGENCE_SETTINGS,
   DEFAULT_TASK_KIND_RULES,

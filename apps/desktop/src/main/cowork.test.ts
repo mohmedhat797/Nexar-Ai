@@ -12,15 +12,19 @@ import {
   type ModelTurnPortRequest,
   type RouteDecision,
 } from '@nexar/contracts';
-import type { BridgeEvent, ControlModelGateway } from '@nexar/engine-gateway';
+import {
+  BridgeHost,
+  type BridgeEvent,
+  type BridgeGrantInput,
+  type ControlModelGateway,
+} from '@nexar/engine-gateway';
+import { createFakeControl, okTurn } from '@nexar/engine-gateway/testing';
 import type { Turn } from '@nexar/sessions';
 import type { BridgeResult, CoworkStatusDto, SessionDto, SubmitTurnResult } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
 import type { ProviderRow } from '../shared/providers.js';
 import { createBridge } from './bridge.js';
-import { BridgeHost, type BridgeGrantInput } from './bridge-host.js';
 import { ControlGatewayChild } from './control-gateway-child.js';
-import { createFakeControl, okTurn } from './control-test-kit.js';
 import type { RelayLaunch } from './bridge-relay-path.js';
 import {
   CoworkService,

@@ -1,16 +1,15 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { request, type Server } from 'node:http';
+import { request } from 'node:http';
 import { createServer, type Server as NetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { BridgeHost } from '../main/bridge-host.js';
-import { createFakeControl, okTurn, silentLogger } from '../main/control-test-kit.js';
-import { createControlGatewayServer } from './server.js';
+import { BridgeHost } from '@nexar/engine-gateway';
+import { createFakeControl, okTurn, silentLogger } from '@nexar/engine-gateway/testing';
 
 const SENTINEL = 'SENTINEL-prompt-and-args';
 const TOKEN = 'tok-0123456789abcdef';
@@ -532,35 +531,6 @@ describe('control gateway translator', () => {
     } finally {
       probe.child.stdin?.end();
     }
-  });
-});
-
-describe('control gateway server limits', () => {
-  let dir: string;
-  let endpoint: FakeEndpoint;
-  let server: Server;
-  let port: number;
-
-  beforeAll(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'nexar-control-gateway-limits-'));
-    endpoint = await FakeEndpoint.start(dir);
-    server = createControlGatewayServer({ endpoint: endpoint.path, maxBodyBytes: 2048 });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    port = (server.address() as { port: number }).port;
-  });
-  afterAll(async () => {
-    server.close();
-    server.closeAllConnections();
-    await endpoint.stop();
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  it('refuses a body over the cap with 413 and contacts nothing', async () => {
-    const big = sdkRequest({ messages: [{ role: 'user', content: 'x'.repeat(4096) }] });
-    const reply = await chat(port, big).catch(() => undefined);
-    // The server drops the connection after answering; a client that is still writing may see a reset.
-    if (reply !== undefined) expect(reply.status).toBe(413);
-    expect(endpoint.frames).toHaveLength(0);
   });
 });
 

@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { ControlGatewayChild } from './control-gateway-child.js';
-import { silentLogger } from './control-test-kit.js';
+import { silentLogger } from '@nexar/engine-gateway/testing';
 
 class FakeChild extends EventEmitter {
   readonly stdin = new PassThrough();

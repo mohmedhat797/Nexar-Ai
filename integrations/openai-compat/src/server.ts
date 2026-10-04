@@ -30,6 +30,12 @@ export interface ControlGatewayServerOptions {
   /** Bound on one bridge exchange. Default 5 minutes. */
   readonly turnTimeoutMs?: number;
   readonly maxBodyBytes?: number;
+  /**
+   * The port the Host header must name (127.0.0.1:<port> / localhost:<port>). Default: the
+   * server's own TCP port. Set it when the server listens on a unix socket and the client reaches
+   * it through a TCP bridge on another port.
+   */
+  readonly allowedHostPort?: number;
 }
 
 type Outcome =
@@ -129,10 +135,16 @@ export function createControlGatewayServer(options: ControlGatewayServerOptions)
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const address = server.address();
-    const port = typeof address === 'object' && address !== null ? address.port : 0;
+    const port =
+      options.allowedHostPort ??
+      (typeof address === 'object' && address !== null ? address.port : 0);
     const host = req.headers.host;
-    // DNS-rebinding guard: only the literal loopback names on our own port.
-    if (host !== `127.0.0.1:${String(port)}` && host !== `localhost:${String(port)}`) {
+    // DNS-rebinding guard: only the literal loopback names on the expected port.
+    // Port 0 means "no TCP port known" (a socket listener without `allowedHostPort`): nothing matches.
+    if (
+      port === 0 ||
+      (host !== `127.0.0.1:${String(port)}` && host !== `localhost:${String(port)}`)
+    ) {
       return fail(res, new HttpFailure(403, 'permission_error', 'host_not_allowed'));
     }
     const path = (req.url ?? '').split('?')[0];

@@ -1,7 +1,17 @@
 /* eslint-disable @typescript-eslint/require-await -- injected async seams in tests need no await */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import http from 'node:http';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +19,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { EgressEvent, LaunchSpec } from '@nexar/contracts';
 import { checkSandboxAvailability } from './availability.js';
 import { SandboxLauncher } from './launcher.js';
+import {
+  SANDBOX_BRIDGE_ENDPOINT,
+  SANDBOX_GATEWAY_BASE_URL,
+  SANDBOX_GATEWAY_PORT,
+} from './profile.js';
 import { runSandboxSelfTest } from './selftest.js';
 
 const availability = await checkSandboxAvailability();
@@ -158,6 +173,74 @@ describe.skipIf(!realAvailable)('SandboxLauncher (real bubblewrap)', () => {
       await run(proxySpec('true'));
       expect(await readdir(join(root, 'run'))).toEqual([]);
     });
+  });
+
+  describe.skipIf(!socatAvailable)('Nexar services', () => {
+    let svc: string;
+    let relay: string;
+    let gatewayServer: http.Server;
+    let bridgeServer: net.Server;
+    let gatewayHits: string[];
+
+    beforeEach(async () => {
+      svc = join(root, 'svc');
+      relay = join(root, 'relay.cjs');
+      gatewayHits = [];
+      await mkdir(svc, { mode: 0o700 });
+      await chmod(svc, 0o700);
+      await writeFile(relay, '// relay');
+      gatewayServer = http.createServer((req, res) => {
+        gatewayHits.push(`${req.method ?? ''} ${req.url ?? ''} ${req.headers.host ?? ''}`);
+        res.setHeader('content-type', 'application/json');
+        res.end('{"gateway":"ok"}');
+      });
+      await new Promise<void>((resolve) =>
+        gatewayServer.listen(join(svc, 'gateway.sock'), resolve),
+      );
+      bridgeServer = net.createServer((socket) => socket.on('error', () => undefined));
+      await new Promise<void>((resolve) => bridgeServer.listen(join(svc, 'bridge.sock'), resolve));
+    });
+    afterEach(async () => {
+      gatewayServer.closeAllConnections();
+      await new Promise((resolve) => gatewayServer.close(resolve));
+      await new Promise((resolve) => bridgeServer.close(resolve));
+    });
+
+    const request =
+      `printf 'GET /v1/models HTTP/1.1\\r\\nHost: 127.0.0.1:${String(SANDBOX_GATEWAY_PORT)}\\r\\n` +
+      `Connection: close\\r\\n\\r\\n' | socat -t 2 - TCP:127.0.0.1:${String(SANDBOX_GATEWAY_PORT)}`;
+
+    for (const network of [
+      { mode: 'none' },
+      { mode: 'proxy', allowHosts: ['allowed.example'] },
+    ] as const) {
+      it(`reaches the gateway and bridge sockets in network mode ${network.mode}`, async () => {
+        const result = await run(
+          sh(
+            [
+              request,
+              `socat -u OPEN:/dev/null UNIX-CONNECT:${SANDBOX_BRIDGE_ENDPOINT} && echo bridge-ok`,
+              '[ -r /opt/nexar/bridge-relay.cjs ] && echo relay-ok',
+              'echo "env:$NO_PROXY:$no_proxy:$NODE_USE_ENV_PROXY"',
+              'echo base:' + SANDBOX_GATEWAY_BASE_URL,
+              'touch /run/nexar-services/probe 2>/dev/null && echo SERVICES_WRITABLE',
+            ].join('; '),
+            { network, services: { dir: svc, gateway: true, bridge: true, relayScript: relay } },
+          ),
+        );
+        expect(result.stdout).toContain('{"gateway":"ok"}');
+        expect(result.stdout).toContain('bridge-ok');
+        expect(result.stdout).toContain('relay-ok');
+        expect(result.stdout).toContain('base:http://127.0.0.1:3129/v1');
+        // Node's env proxy (NODE_USE_ENV_PROXY=1 in proxy mode) must skip loopback.
+        expect(result.stdout).toContain(
+          `env:127.0.0.1:127.0.0.1:${network.mode === 'proxy' ? '1' : ''}`,
+        );
+        expect(result.stdout).not.toContain('SERVICES_WRITABLE');
+        expect(gatewayHits).toEqual([`GET /v1/models 127.0.0.1:${String(SANDBOX_GATEWAY_PORT)}`]);
+        expect(events).toEqual([]);
+      });
+    }
   });
 
   it('kills background processes when the bwrap process is killed', async () => {

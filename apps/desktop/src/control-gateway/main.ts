@@ -1,5 +1,5 @@
 import type { AddressInfo } from 'node:net';
-import { createControlGatewayServer } from './server.js';
+import { createControlGatewayServer } from '@nexar/integration-openai-compat';
 
 // The entry Desktop launches (bundled as CommonJS, no top-level await). Its only configuration is one
 // JSON line on stdin, `{ endpoint }`; it prints one JSON line, `{ port }`, once it is listening, and

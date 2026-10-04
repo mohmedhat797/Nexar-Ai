@@ -15,8 +15,21 @@ function workspaceAliases(): Record<string, string> {
       const manifest = join(groupDir, entry.name, 'package.json');
       const entryPoint = join(groupDir, entry.name, 'src', 'index.ts');
       if (!entry.isDirectory() || !existsSync(manifest) || !existsSync(entryPoint)) continue;
-      const { name } = JSON.parse(readFileSync(manifest, 'utf8')) as { name?: string };
-      if (name?.startsWith('@nexar/')) aliases[name] = entryPoint;
+      const { name, exports } = JSON.parse(readFileSync(manifest, 'utf8')) as {
+        name?: string;
+        exports?: Record<string, { default?: string }>;
+      };
+      if (!name?.startsWith('@nexar/')) continue;
+      // Subpath exports (e.g. `@nexar/engine-gateway/testing`) first: the first matching alias wins.
+      for (const [subpath, target] of Object.entries(exports ?? {})) {
+        const built = /^\.\/dist\/(.+)\.js$/.exec(target.default ?? '');
+        const source =
+          built === null ? undefined : join(groupDir, entry.name, 'src', `${built[1]}.ts`);
+        if (subpath !== '.' && source !== undefined && existsSync(source)) {
+          aliases[`${name}/${subpath.slice(2)}`] = source;
+        }
+      }
+      aliases[name] = entryPoint;
     }
   }
   return aliases;
