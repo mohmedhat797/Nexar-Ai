@@ -12,7 +12,7 @@
     { "from": "engineering/plans", "to": "engineering/plans", "filter": ["**/*"] }
   ],
   "asar": true,
-  "asarUnpack": ["dist/main/bridge-relay.cjs"],
+  "asarUnpack": ["dist/main/bridge-relay.cjs", "dist/main/control-gateway.cjs"],
   "npmRebuild": false,
   "artifactName": "Nexar-${version}-windows-${arch}-setup.${ext}",
   "win": {

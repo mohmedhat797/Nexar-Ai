@@ -48,4 +48,16 @@ await build({
   logLevel: 'info',
 });
 
+// The loopback Chat Completions translator (ADR-027 section 7A): a supervised child of the main process,
+// launched the same way (ELECTRON_RUN_AS_NODE), so it is one self-contained CommonJS file too.
+await build({
+  entryPoints: [at('src/control-gateway/main.ts')],
+  outfile: at('dist/main/control-gateway.cjs'),
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  target: 'node22',
+  logLevel: 'info',
+});
+
 await viteBuild({ configFile: at('vite.config.ts'), logLevel: 'info' });

@@ -7,7 +7,12 @@
     "lib": ["ES2023"],
     "types": ["node"]
   },
-  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts"],
+  "include": [
+    "src/main/**/*.ts",
+    "src/control-gateway/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts"
+  ],
   "exclude": ["**/*.test.ts", "dist"],
   "references": [
     { "path": "../../packages/approvals" },

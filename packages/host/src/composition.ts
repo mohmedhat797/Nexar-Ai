@@ -9,7 +9,9 @@ import {
   type EgressEvent,
   type ExecutionAdapter,
   type Logger,
+  type ModelTurnPort,
   type ProcessLauncher,
+  type ResourceDescriptor,
   type SecretResolver,
   type TelemetrySink,
 } from '@nexar/contracts';
@@ -37,7 +39,9 @@ import {
 import { DelegateSkillsExecutionAdapter } from '@nexar/integration-delegate-skills';
 import { EchoExecutionAdapter } from '@nexar/integration-echo';
 import {
+  PI_ADAPTER_ID,
   PiExecutionAdapter,
+  PiModelTurnPort,
   localEndpointDiscoverySource,
   piCatalogDiscoverySource,
 } from '@nexar/integration-pi';
@@ -154,6 +158,21 @@ export function createAdapters(
       stateDir: join(configDir, '.nexar', 'runtimes', 'delegate-skills'),
     }),
   ];
+}
+
+/**
+ * Model-turn ports for the Control Model Gateway (ADR-027 section 7A): pi resources only; any other
+ * resource has no port, so it can never be pinned as a control resource.
+ */
+export function createControlModelTurnPorts(
+  io: HostEnvironment,
+  options: { readonly resolveSecret?: SecretResolver } = {},
+): (descriptor: ResourceDescriptor) => ModelTurnPort | undefined {
+  const port = new PiModelTurnPort({
+    env: io.env,
+    ...(options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret }),
+  });
+  return (descriptor) => (descriptor.runtime.adapter === PI_ADAPTER_ID ? port : undefined);
 }
 
 /**

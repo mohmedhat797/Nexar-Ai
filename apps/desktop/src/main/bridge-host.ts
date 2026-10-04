@@ -8,12 +8,15 @@ import {
   NexarError,
   toNexarError,
   type BridgeGrant,
+  type ControlResourcePolicy,
+  type ControlTurnRequest,
   type IntelligenceRequest,
   type Logger,
   type NexarErrorCode,
 } from '@nexar/contracts';
 import {
   IntelligenceBridge,
+  type ControlModelGateway,
   type BridgeAllocator,
   type BridgeEvent,
   type ChildExecutor,
@@ -34,7 +37,8 @@ export interface BridgeEndpointLimits {
 }
 
 export const DEFAULT_ENDPOINT_LIMITS: BridgeEndpointLimits = {
-  maxFrameBytes: 512 * 1024,
+  // Room for a 4 MiB control turn (CONTROL_TURN_LIMITS.maxRequestBytes) plus the envelope.
+  maxFrameBytes: 4 * 1024 * 1024 + 64 * 1024,
   maxConnections: 4,
   idleTimeoutMs: 150_000,
 };
@@ -64,9 +68,12 @@ export interface BridgeHostOptions {
   readonly limits?: Partial<BridgeEndpointLimits>;
   readonly strategySettings?: StrategySettings;
   readonly onEvent?: (event: BridgeEvent) => void;
+  /** The Control Model Gateway behind the `control` op; without it the op is POLICY_REJECTED. */
+  readonly gateway?: ControlModelGateway;
 }
 
 interface StoredGrant {
+  readonly controlDecisionId?: string;
   readonly tokenHash: Buffer;
   readonly expiresAtMs: number;
   readonly grant: BridgeGrant;
@@ -91,6 +98,40 @@ const SubmitArgs = z.strictObject({
   timeoutMs: z.number().int().positive().max(INTELLIGENCE_LIMITS.maxTimeoutMs).optional(),
 });
 
+const ControlArgs = z.strictObject({
+  messages: z
+    .array(
+      z.strictObject({
+        role: z.enum(['system', 'user', 'assistant', 'tool']),
+        content: z.string().optional(),
+        toolCalls: z
+          .array(
+            z.strictObject({
+              id: z.string().min(1).max(128),
+              name: z.string().min(1).max(64),
+              arguments: z.record(z.string(), z.unknown()),
+            }),
+          )
+          .optional(),
+        toolCallId: z.string().min(1).max(128).optional(),
+        extras: z.record(z.string(), z.unknown()).optional(),
+      }),
+    )
+    .min(1),
+  tools: z
+    .array(
+      z.strictObject({
+        name: z.string().min(1).max(64),
+        description: z.string().optional(),
+        parameters: z.record(z.string(), z.unknown()),
+      }),
+    )
+    .optional(),
+  settings: z
+    .strictObject({ maxOutputTokens: z.number().int().positive().max(1_000_000).optional() })
+    .optional(),
+});
+
 const Envelope = {
   v: z.literal(1),
   id: z.string().min(1).max(64),
@@ -99,6 +140,7 @@ const Envelope = {
 const RequestSchema = z.discriminatedUnion('op', [
   z.strictObject({ ...Envelope, op: z.literal('submit'), request: SubmitArgs }),
   z.strictObject({ ...Envelope, op: z.literal('status'), jobId: z.string().min(1).max(128) }),
+  z.strictObject({ ...Envelope, op: z.literal('control'), turn: ControlArgs }),
 ]);
 
 type Response =
@@ -115,6 +157,7 @@ export class BridgeHost {
   private readonly sockets = new Set<Socket>();
   private readonly limits: BridgeEndpointLimits;
   private readonly platform: NodeJS.Platform;
+  private abort = new AbortController();
   private server: Server | undefined;
   private path: string | undefined;
 
@@ -141,12 +184,30 @@ export class BridgeHost {
   }
 
   /** Opens a turn-scoped grant. The token is returned once; only its hash is kept. */
-  mint(input: BridgeGrantInput): { readonly grantId: string; readonly token: string } {
+  mint(
+    input: BridgeGrantInput,
+    control?: { readonly policy: ControlResourcePolicy },
+  ): { readonly grantId: string; readonly token: string; readonly controlDecisionId?: string } {
     if (!Number.isInteger(input.ttlMs) || input.ttlMs < 1) {
       throw new NexarError('VALIDATION_ERROR', 'ttlMs must be a positive integer');
     }
     this.sweep();
+    const { gateway } = this.options;
+    if (control !== undefined && gateway === undefined) {
+      throw new NexarError('POLICY_REJECTED', 'Control is not available');
+    }
     const grantId = this.options.newId();
+    const lineage = {
+      rootSessionId: input.sessionId,
+      turnId: input.turnId,
+      correlationId: input.correlationId,
+      depth: 1,
+    };
+    // Throws NO_ELIGIBLE_RESOURCE before anything is opened; the caller decides on a fallback.
+    const controlDecisionId =
+      control === undefined || gateway === undefined
+        ? undefined
+        : gateway.begin(input.engine, control.policy, lineage).controlDecisionId;
     const token = randomBytes(32).toString('hex');
     const expiresAtMs = this.options.clock().getTime() + input.ttlMs;
     const grant: BridgeGrant = {
@@ -162,21 +223,19 @@ export class BridgeHost {
     };
     this.bridge.open(grant);
     this.grants.set(grantId, {
+      ...(controlDecisionId === undefined ? {} : { controlDecisionId }),
       tokenHash: sha256(token),
       expiresAtMs,
       grant,
-      lineage: {
-        rootSessionId: input.sessionId,
-        turnId: input.turnId,
-        correlationId: input.correlationId,
-        depth: 1,
-        chain: ['nexar', input.engine],
-      },
+      lineage: { ...lineage, chain: ['nexar', input.engine] },
     });
-    return { grantId, token };
+    return { grantId, token, ...(controlDecisionId === undefined ? {} : { controlDecisionId }) };
   }
 
   revoke(grantId: string): void {
+    const stored = this.grants.get(grantId);
+    if (stored?.controlDecisionId !== undefined)
+      this.options.gateway?.end(stored.controlDecisionId);
     this.grants.delete(grantId);
     this.bridge.close(grantId);
   }
@@ -226,6 +285,8 @@ export class BridgeHost {
   async stop(): Promise<void> {
     const { server, path } = this;
     this.server = undefined;
+    this.abort.abort();
+    this.abort = new AbortController();
     for (const id of [...this.grants.keys()]) this.revoke(id);
     for (const socket of this.sockets) socket.destroy();
     this.sockets.clear();
@@ -246,9 +307,18 @@ export class BridgeHost {
       return;
     }
     this.sockets.add(socket);
-    socket.on('close', () => this.sockets.delete(socket));
+    // A dropped connection (the translator's HTTP client went away) cancels its in-flight turn.
+    const closed = new AbortController();
+    socket.on('close', () => {
+      this.sockets.delete(socket);
+      closed.abort();
+    });
     socket.on('error', () => socket.destroy());
-    socket.setTimeout(this.limits.idleTimeoutMs, () => socket.destroy());
+    // A model turn can outlast the idle bound; only an idle connection is closed.
+    let inflight = 0;
+    socket.setTimeout(this.limits.idleTimeoutMs, () => {
+      if (inflight === 0) socket.destroy();
+    });
 
     let pending = Buffer.alloc(0);
     let closing = false;
@@ -273,13 +343,20 @@ export class BridgeHost {
         pending = pending.subarray(end + 1);
         if (line.length > this.limits.maxFrameBytes) return refuse('VALIDATION_ERROR');
         const text = line.toString('utf8');
-        chain = chain.then(() => reply(this.handle(text)));
+        chain = chain.then(async () => {
+          inflight++;
+          try {
+            reply(await this.handle(text, AbortSignal.any([this.abort.signal, closed.signal])));
+          } finally {
+            inflight--;
+          }
+        });
       }
       if (pending.length > this.limits.maxFrameBytes) refuse('VALIDATION_ERROR');
     });
   }
 
-  private handle(text: string): Response {
+  private async handle(text: string, signal: AbortSignal): Promise<Response> {
     let raw: unknown;
     try {
       raw = JSON.parse(text);
@@ -301,6 +378,29 @@ export class BridgeHost {
     try {
       if (request.op === 'status') {
         return { id, ok: true, value: this.bridge.status(stored.grant.grantId, request.jobId) };
+      }
+      if (request.op === 'control') {
+        const { gateway } = this.options;
+        if (gateway === undefined || stored.controlDecisionId === undefined) {
+          return this.fail(id, 'POLICY_REJECTED');
+        }
+        const { lineage } = stored;
+        const value = await gateway.turn(
+          {
+            lineage: {
+              rootSessionId: lineage.rootSessionId,
+              turnId: lineage.turnId,
+              correlationId: lineage.correlationId,
+              depth: lineage.depth,
+            },
+            engine: stored.grant.engine,
+            controlDecisionId: stored.controlDecisionId,
+            // Zod's optional keys carry `undefined`; the gateway re-validates the bounds.
+            ...(request.turn as Pick<ControlTurnRequest, 'messages' | 'tools' | 'settings'>),
+          },
+          signal,
+        );
+        return { id, ok: true, value };
       }
       const a = request.request;
       const submitted = this.bridge.submit(stored.grant.grantId, {

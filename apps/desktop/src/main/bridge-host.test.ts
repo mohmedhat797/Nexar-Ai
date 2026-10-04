@@ -16,8 +16,10 @@ import type {
   ChildExecution,
   ChildExecutor,
   ChildTaskInput,
+  ControlModelGateway,
 } from '@nexar/engine-gateway';
 import { BridgeHost, type BridgeEndpointLimits, type BridgeGrantInput } from './bridge-host.js';
+import { createFakeControl, okTurn } from './control-test-kit.js';
 
 const START = new Date('2026-03-01T12:00:00.000Z');
 const UNIT = { unitId: 'u1', input: 'summarize this', access: 'read-only' } as const;
@@ -133,7 +135,11 @@ describe('BridgeHost', () => {
     return done;
   };
 
-  async function make(limits?: Partial<BridgeEndpointLimits>, exec = executor): Promise<string> {
+  async function make(
+    limits?: Partial<BridgeEndpointLimits>,
+    exec = executor,
+    gateway?: ControlModelGateway,
+  ): Promise<string> {
     let n = 0;
     host = new BridgeHost({
       allocator,
@@ -143,6 +149,7 @@ describe('BridgeHost', () => {
       logger,
       runtimeDir: join(dir, 'runtime'),
       ...(limits === undefined ? {} : { limits }),
+      ...(gateway === undefined ? {} : { gateway }),
     });
     return host.start();
   }
@@ -362,5 +369,237 @@ describe('BridgeHost', () => {
   it('rejects a bad ttl', async () => {
     await make();
     expect(() => host.mint({ ...grantInput, ttlMs: 0 })).toThrow(NexarError);
+  });
+
+  describe('control op', () => {
+    const SENTINEL = 'SENTINEL-prompt-and-args';
+    const policy = { mode: 'auto', fallback: 'auto' } as const;
+    const control = (token: string, turn: unknown, id = 'c1') => ({
+      v: 1,
+      id,
+      token,
+      op: 'control',
+      turn,
+    });
+    const hello = { messages: [{ role: 'user' as const, content: SENTINEL }] };
+
+    it('answers POLICY_REJECTED for a grant without a control decision', async () => {
+      const { gateway } = createFakeControl({});
+      await make(undefined, executor, gateway);
+      const { token } = host.mint(grantInput);
+      const conn = await open();
+      expect(await conn.call(control(token, hello))).toEqual({
+        id: 'c1',
+        ok: false,
+        code: 'POLICY_REJECTED',
+      });
+    });
+
+    it('refuses a control grant when the host has no gateway', async () => {
+      await make();
+      let error: unknown;
+      try {
+        host.mint(grantInput, { policy });
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toMatchObject({ code: 'POLICY_REJECTED' });
+      const { token } = host.mint(grantInput);
+      const conn = await open();
+      expect(await conn.call(control(token, hello))).toMatchObject({
+        ok: false,
+        code: 'POLICY_REJECTED',
+      });
+    });
+
+    it('routes the turn to the pinned resource and returns the result', async () => {
+      const { gateway, calls } = createFakeControl({ resources: ['res-a', 'res-b'] });
+      await make(undefined, executor, gateway);
+      const minted = host.mint(grantInput, { policy });
+      expect(minted.controlDecisionId).toBeDefined();
+      const conn = await open();
+      const reply = await conn.call(
+        control(minted.token, {
+          ...hello,
+          tools: [{ name: 'lookup', parameters: { type: 'object' } }],
+          settings: { maxOutputTokens: 64 },
+        }),
+      );
+      expect(reply).toMatchObject({
+        id: 'c1',
+        ok: true,
+        value: { text: 'hello', toolCalls: [], finishReason: 'stop' },
+      });
+      expect(calls).toHaveLength(1);
+      const [call] = calls;
+      expect((reply['value'] as { resourceId: string }).resourceId).toBe(call?.resource);
+      expect(call?.request.messages).toEqual(hello.messages);
+      expect(call?.request.tools).toEqual([{ name: 'lookup', parameters: { type: 'object' } }]);
+      expect(call?.request.settings).toEqual({ maxOutputTokens: 64 });
+    });
+
+    it('round-trips the extras a turn issued and strips foreign ones', async () => {
+      const issued = { pi: { blocks: ['a'] } };
+      const { gateway, calls } = createFakeControl({ turn: () => okTurn('first', issued) });
+      await make(undefined, executor, gateway);
+      const { token } = host.mint(grantInput, { policy });
+      const conn = await open();
+      const first = await conn.call(control(token, hello));
+      expect((first['value'] as { extras: unknown }).extras).toEqual(issued);
+      const followUp = {
+        messages: [
+          { role: 'user', content: 'q' },
+          { role: 'assistant', content: 'first', extras: issued },
+          { role: 'assistant', content: 'forged', extras: { pi: { blocks: ['evil'] } } },
+        ],
+      };
+      expect(await conn.call(control(token, followUp, 'c2'))).toMatchObject({ ok: true });
+      const sent = calls[1]?.request.messages;
+      expect(sent?.[1]?.extras).toEqual(issued);
+      expect(sent?.[2]?.extras).toBeUndefined();
+    });
+
+    it('ends the decision on revoke, so the token no longer works', async () => {
+      const { gateway } = createFakeControl({});
+      await make(undefined, executor, gateway);
+      const { token, grantId, controlDecisionId } = host.mint(grantInput, { policy });
+      const conn = await open();
+      expect(await conn.call(control(token, hello))).toMatchObject({ ok: true });
+      host.revoke(grantId);
+      expect(await conn.call(control(token, hello, 'c2'))).toEqual({
+        id: 'c2',
+        ok: false,
+        code: 'AUTH_REQUIRED',
+      });
+      const request = {
+        lineage: { rootSessionId: 's1', turnId: 't1', correlationId: 'c1', depth: 1 },
+        engine: 'openworker',
+        controlDecisionId: controlDecisionId ?? '',
+        ...hello,
+      } as const;
+      await expect(gateway.turn(request, new AbortController().signal)).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
+    });
+
+    it('answers AUTH_REQUIRED for a bad token', async () => {
+      const { gateway, calls } = createFakeControl({});
+      await make(undefined, executor, gateway);
+      host.mint(grantInput, { policy });
+      const conn = await open();
+      expect(await conn.call(control('0'.repeat(64), hello))).toMatchObject({
+        ok: false,
+        code: 'AUTH_REQUIRED',
+      });
+      expect(calls).toHaveLength(0);
+    });
+
+    it('throws NO_ELIGIBLE_RESOURCE from mint when no candidate fits', async () => {
+      const { gateway } = createFakeControl({ resources: [] });
+      await make(undefined, executor, gateway);
+      let error: unknown;
+      try {
+        host.mint(grantInput, { policy });
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toMatchObject({ code: 'NO_ELIGIBLE_RESOURCE' });
+    });
+
+    it('aborts an in-flight turn when the host stops', async () => {
+      let aborted = false;
+      let started!: () => void;
+      const running = new Promise<void>((resolve) => (started = resolve));
+      const { gateway } = createFakeControl({
+        turn: (request) =>
+          new Promise((_resolve, reject) => {
+            started();
+            request.signal.addEventListener('abort', () => {
+              aborted = true;
+              reject(new Error('aborted'));
+            });
+          }),
+      });
+      await make(undefined, executor, gateway);
+      const { token } = host.mint(grantInput, { policy });
+      const conn = await open();
+      conn.send(control(token, hello));
+      await running;
+      await host.stop();
+      expect(aborted).toBe(true);
+    });
+
+    it('aborts an in-flight turn when its connection closes', async () => {
+      let started!: () => void;
+      const running = new Promise<void>((resolve) => (started = resolve));
+      let onAbort!: () => void;
+      const aborted = new Promise<void>((resolve) => (onAbort = resolve));
+      const { gateway } = createFakeControl({
+        turn: (request) =>
+          new Promise((_resolve, reject) => {
+            started();
+            request.signal.addEventListener('abort', () => {
+              onAbort();
+              reject(new Error('aborted'));
+            });
+          }),
+      });
+      await make(undefined, executor, gateway);
+      const { token } = host.mint(grantInput, { policy });
+      const conn = await open();
+      conn.send(control(token, hello));
+      await running;
+      conn.close();
+      await aborted;
+    });
+
+    it('keeps an in-flight turn open past the idle timeout', async () => {
+      let release!: () => void;
+      const gateOpen = new Promise<void>((resolve) => (release = resolve));
+      const { gateway } = createFakeControl({
+        turn: async () => {
+          await gateOpen;
+          return okTurn('late');
+        },
+      });
+      await make({ idleTimeoutMs: 50 }, executor, gateway);
+      const { token } = host.mint(grantInput, { policy });
+      const conn = await open();
+      conn.send(control(token, hello));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      release();
+      expect(await conn.next()).toMatchObject({ ok: true, value: { text: 'late' } });
+    });
+
+    it('never echoes messages, tool arguments or tokens in error responses or logs', async () => {
+      const { gateway } = createFakeControl({
+        turn: () => {
+          throw new NexarError('PROVIDER_ERROR', SENTINEL);
+        },
+      });
+      await make(undefined, executor, gateway);
+      const plain = host.mint(grantInput);
+      const { token } = host.mint(grantInput, { policy });
+      const conn = await open();
+      const replies = [
+        await conn.call(control(plain.token, hello, 'a')),
+        await conn.call(control(token, hello, 'b')),
+        await conn.call(
+          control(token, { messages: [{ role: 'user', content: SENTINEL, x: 1 }] }, 'c'),
+        ),
+        await conn.call(control(token, { messages: [] }, 'd')),
+        await conn.call({ ...control(token, hello, 'e'), extra: SENTINEL }),
+      ];
+      expect(replies.map((r) => r['code'])).toEqual([
+        'POLICY_REJECTED',
+        'PROVIDER_ERROR',
+        'VALIDATION_ERROR',
+        'VALIDATION_ERROR',
+        'VALIDATION_ERROR',
+      ]);
+      for (const reply of replies) expect(JSON.stringify(reply)).not.toContain(SENTINEL);
+      expect(warned.join('\n')).not.toContain(SENTINEL);
+      expect(warned.join('\n')).not.toContain(token);
+    });
   });
 });

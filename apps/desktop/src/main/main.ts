@@ -1,14 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { userInfo } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { isNexarError } from '@nexar/contracts';
+import { ControlModelGateway } from '@nexar/engine-gateway';
 import { FileSessionStore } from '@nexar/sessions';
-import { checkProviderCredential, createNativeSubscriptions } from '@nexar/host';
+import {
+  checkProviderCredential,
+  createControlModelTurnPorts,
+  createNativeSubscriptions,
+} from '@nexar/host';
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
 import { BridgeHost, createEngineExecutor, engineAllocator } from './bridge-host.js';
 import { CodePlane } from './code-plane.js';
+import { ControlGatewayChild } from './control-gateway-child.js';
 import { CoworkService, createScriptSpawn } from './cowork.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost } from './engine-host.js';
@@ -176,7 +182,30 @@ async function start(): Promise<void> {
   // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
   // exists unless delegation is used. Stopped at quit.
   const coworkRef: { current?: CoworkService } = {};
+  // The Control Model Gateway (ADR-027 §7A) behind the host's `control` op: pi resources only, over the
+  // engine's current registry snapshot and routing policy (read per call, so a config reload is picked up).
+  const controlPorts = createControlModelTurnPorts(
+    { env: engineEnv, cwd: dirname(config.path) },
+    { resolveSecret: keys.resolveSecret },
+  );
+  const controlGateway = new ControlModelGateway({
+    ports: controlPorts,
+    candidates: () => engine.composition().runtime.registry.snapshot(),
+    policy: {
+      get name() {
+        return engine.composition().runtime.policy.name;
+      },
+      get version() {
+        return engine.composition().runtime.policy.version;
+      },
+      evaluate: (input) => engine.composition().runtime.policy.evaluate(input),
+    },
+    clock: () => new Date(),
+    newId: randomUUID,
+    logger,
+  });
   const bridgeHost = new BridgeHost({
+    gateway: controlGateway,
     allocator: engineAllocator(engine),
     executor: createEngineExecutor(engine),
     clock: () => new Date(),
@@ -213,6 +242,12 @@ async function start(): Promise<void> {
       ),
   });
   coworkRef.current = cowork;
+  // The loopback Chat Completions translator child (ADR-027 §7A): created here, started on first need
+  // (NXR-063 part b asks for its `baseUrl()`), ended at quit.
+  const controlGatewayChild = new ControlGatewayChild({
+    endpoint: () => bridgeHost.ensureStarted(),
+    logger,
+  });
   // Quitting ends the lanes' children (a plane run, a starting or running OpenWorker) as soon as it
   // begins, and the exit waits (bounded) for that before the sessions lease is given back (best
   // effort, so the next launch needs no stale recovery). Exiting first left a supervised server
@@ -227,6 +262,7 @@ async function start(): Promise<void> {
     app,
     async () => {
       await lanesStopped?.catch(() => undefined);
+      await controlGatewayChild.stop();
       await bridgeHost.stop();
       if (sessions !== undefined) await sessionStore.releaseLease();
     },
