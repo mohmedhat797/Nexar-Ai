@@ -88,7 +88,7 @@ async function start(): Promise<void> {
   installWebContentsLockdown();
 
   const logger = createStderrLogger();
-  const config = new ConfigStore(join(userData, 'nexar.config.json'));
+  const config = new ConfigStore(join(userData, 'nexar.config.json'), logger);
   await config.ensure();
   const settings = new SettingsStore(join(userData, 'desktop-settings.json'));
   // The installed app's catalogs are shipped beside app.asar, outside the workspace layout.

@@ -108,6 +108,31 @@ beforeAll(async () => {
   projectDir = join(base, 'my-project with spaces');
   await mkdir(join(projectDir, 'notes'), { recursive: true });
   await writeFile(join(projectDir, 'readme-seed.txt'), 'seeded file content\n');
+  // The first-run config configures no resource; the scenario routes through the echo test double,
+  // so it is declared explicitly (the shape the old first run wrote, which also exercises migration).
+  await mkdir(userData, { recursive: true });
+  await writeFile(
+    join(userData, 'nexar.config.json'),
+    JSON.stringify({
+      version: 1,
+      resources: [
+        {
+          id: 'local-echo',
+          displayName: 'Local Echo',
+          kind: { type: 'model', provider: 'nexar', model: 'echo', access: 'local' },
+          capabilities: ['text-generation', 'reasoning', 'knowledge-work', 'coding', 'tool-use'],
+          runtime: { adapter: 'echo', locality: 'local' },
+          auth: { mode: 'none' },
+          cost: { model: 'free' },
+          dataLocality: 'local',
+        },
+      ],
+      routing: { policy: 'resource-intelligence', defaultResourceId: 'local-echo' },
+      telemetry: { jsonlPath: '.nexar/telemetry.jsonl' },
+      discovery: { enabled: true },
+      projects: [],
+    }),
+  );
 });
 
 afterAll(async () => {

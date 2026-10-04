@@ -111,7 +111,7 @@ describe('schemas', () => {
 });
 
 describe('first run, app and settings', () => {
-  it('writes a valid default config', async () => {
+  it('writes a valid config; the harness declares the echo test double on top of it', async () => {
     const raw = JSON.parse(await h.config.readText()) as Record<string, unknown>;
     const parsed = parseConfig(raw, 'test', { baseDir: h.userData });
     expect(parsed.routing.policy).toBe('resource-intelligence');
