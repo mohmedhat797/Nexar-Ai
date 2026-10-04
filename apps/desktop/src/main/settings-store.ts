@@ -189,7 +189,7 @@ const BehaviorSchema = z
     code: value.code ?? { permission: DEFAULT_CODE_PERMISSION },
   }));
 
-/** What a ehavior:set call may carry: any subset of known values, nothing else. */
+/** What a `behavior:set call may carry: any subset of known values, nothing else. */
 export const BehaviorPatchSchema = z.strictObject({
   cowork: z
     .strictObject({
@@ -210,7 +210,7 @@ export const DEFAULT_BEHAVIOR: BehaviorSettings = {
   code: { permission: DEFAULT_CODE_PERMISSION },
 };
 
-/** A damaged ehavior section fails closed (no turn starts on it) and is preserved verbatim. */
+/** A damaged `behavior section fails closed (no turn starts on it) and is preserved verbatim. */
 export type BehaviorResult =
   { readonly valid: true; readonly value: BehaviorSettings } | { readonly valid: false };
 
