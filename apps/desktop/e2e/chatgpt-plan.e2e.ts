@@ -126,7 +126,14 @@ describe('Nexar Desktop ChatGPT plan', () => {
       .toBe(false);
     await page.getByTestId('nav-resources').click();
     await isVisible(page.getByTestId('resources-table'));
-    expect(await page.getByTestId('resources-table').innerText()).not.toContain('chatgpt-plan:');
+    // Opening the page reloads the list asynchronously; the previous rows show until it arrives.
+    await expect
+      .poll(
+        async () =>
+          (await page.getByTestId('resources-table').innerText()).includes('chatgpt-plan:'),
+        POLL,
+      )
+      .toBe(false);
     expect(responses.requests).toHaveLength(0);
     await harness.close(app);
   });
