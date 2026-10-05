@@ -29,6 +29,90 @@ function truncate(text: string): string {
     : text;
 }
 
+/** Why a ChatGPT plan call failed; ids only, never any part of the provider's response. */
+export type ChatGptPlanFailureReason =
+  | 'invalid-user'
+  | 'usage-limit-exceeded'
+  | 'plan-not-eligible'
+  | 'unsupported-capability'
+  | 'usage-unavailable'
+  | 'route-not-supported';
+
+interface PlanFailure {
+  readonly marker: string;
+  readonly reason: ChatGptPlanFailureReason;
+  readonly code: 'AUTH_REQUIRED' | 'QUOTA_EXHAUSTED' | 'PROVIDER_ERROR';
+  readonly message: string;
+  readonly retryable: boolean;
+}
+
+// The documented Sign in with ChatGPT error codes (token-sharing errors-and-recovery). Fixed
+// messages only: the body, which may echo request content, is never forwarded.
+const PLAN_FAILURES: readonly PlanFailure[] = [
+  {
+    marker: 'subscription_sharing_invalid_user',
+    reason: 'invalid-user',
+    code: 'AUTH_REQUIRED',
+    message: 'The ChatGPT sign-in was rejected',
+    retryable: false,
+  },
+  {
+    marker: 'subscription_sharing_usage_limit_exceeded',
+    reason: 'usage-limit-exceeded',
+    code: 'QUOTA_EXHAUSTED',
+    message: 'The ChatGPT plan usage limit was reached. Check your usage in ChatGPT settings.',
+    retryable: false,
+  },
+  {
+    marker: 'subscription_sharing_user_not_eligible',
+    reason: 'plan-not-eligible',
+    code: 'AUTH_REQUIRED',
+    message: 'This ChatGPT plan cannot be used by Nexar',
+    retryable: false,
+  },
+  {
+    marker: 'subscription_sharing_unsupported_capability',
+    reason: 'unsupported-capability',
+    code: 'PROVIDER_ERROR',
+    message: 'The ChatGPT plan does not support this request',
+    retryable: false,
+  },
+  {
+    marker: 'subscription_sharing_usage_unavailable',
+    reason: 'usage-unavailable',
+    code: 'PROVIDER_ERROR',
+    message: 'ChatGPT plan usage is temporarily unavailable',
+    retryable: true,
+  },
+  {
+    marker: 'subscription_sharing_route_not_supported',
+    reason: 'route-not-supported',
+    code: 'PROVIDER_ERROR',
+    message: 'The ChatGPT plan cannot be used for this request',
+    retryable: false,
+  },
+  {
+    marker: 'chatpass_v2_scope_not_authorized',
+    reason: 'route-not-supported',
+    code: 'PROVIDER_ERROR',
+    message: 'The ChatGPT plan cannot be used for this request',
+    retryable: false,
+  },
+];
+
+/** The ChatGPT plan failure named by the documented error code in `raw`, if any. */
+export function chatGptPlanFailure(
+  raw: string,
+  details: Readonly<Record<string, unknown>> = {},
+): NexarError | undefined {
+  const found = PLAN_FAILURES.find((f) => raw.includes(f.marker));
+  if (found === undefined) return undefined;
+  return new NexarError(found.code, found.message, {
+    retryable: found.retryable,
+    details: { ...details, reason: found.reason },
+  });
+}
+
 export function failureFor(
   message: PiAssistantMessageLike,
   secrets: readonly string[],
@@ -36,6 +120,8 @@ export function failureFor(
   const raw = message.errorMessage ?? 'pi-ai reported an error without a message';
   const text = truncate(redactSecrets(raw, secrets));
   const details = { provider: message.provider, model: message.model };
+  const plan = chatGptPlanFailure(raw, details);
+  if (plan !== undefined) return plan;
   if (AUTH_PATTERN.test(raw)) return new NexarError('AUTH_REQUIRED', text, { details });
   if (QUOTA_PATTERN.test(raw)) return new NexarError('QUOTA_EXHAUSTED', text, { details });
   return new NexarError('PROVIDER_ERROR', text, { details });
@@ -98,6 +184,8 @@ export function toThrownNexarError(
     return new NexarError('EXECUTION_CANCELLED', 'Execution was cancelled', { cause: e });
   }
   const mapped = toNexarError(e, 'PROVIDER_ERROR');
+  const plan = chatGptPlanFailure(mapped.message);
+  if (plan !== undefined) return plan;
   const text = truncate(redactSecrets(mapped.message, secrets));
   return new NexarError(mapped.code, text, { cause: e });
 }

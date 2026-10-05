@@ -10,6 +10,7 @@ describe('upstream isolation (ADR-008)', () => {
     expect(Object.keys(mod).sort()).toEqual(
       [
         'DEFAULT_ALLOWED_PROVIDERS',
+        'DEFAULT_CHATGPT_PLAN_MODEL',
         'LOCAL_ENDPOINTS_SOURCE_ID',
         'PI_ADAPTER_ID',
         'PI_AI_VERSION',
@@ -18,6 +19,7 @@ describe('upstream isolation (ADR-008)', () => {
         'checkProviderApiKey',
         'PiExecutionAdapter',
         'PiModelTurnPort',
+        'chatGptPlanModelResource',
         'localEndpointDiscoverySource',
         'piCatalogDiscoverySource',
         'piModelResource',

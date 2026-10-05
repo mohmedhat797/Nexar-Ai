@@ -63,6 +63,11 @@ export interface ChatGptPlanDeps {
   readonly clock?: () => number;
   /** Bound on the owner finishing in the browser. Default 10 minutes. */
   readonly signInTimeoutMs?: number;
+  /**
+   * Called (no arguments, no data) after the connection appears or disappears: sign-in, disconnect,
+   * or an expired grant. Desktop uses it to republish the plan's resources.
+   */
+  readonly onChange?: () => void;
 }
 
 type Idle =
@@ -147,6 +152,7 @@ export class ChatGptPlanService {
     try {
       await this.signInOnce(controller.signal);
       this.idle = { state: 'signed-out' };
+      this.notifyChange();
     } catch (error) {
       if (controller.signal.aborted && !timedOut) {
         this.idle = { state: 'signed-out', reason: 'cancelled' };
@@ -185,18 +191,31 @@ export class ChatGptPlanService {
     }
     this.idle = { state: 'signed-out', reason: 'disconnected' };
     this.deps.logger.info('chatgpt-plan.disconnected', {});
+    this.notifyChange();
     return this.currentStatus();
   }
 
-  /** A valid access token, refreshed (once, however many callers) when under three minutes remain. */
-  async accessToken(): Promise<string> {
+  /**
+   * A valid access token, refreshed (once, however many callers) when under three minutes remain.
+   * `refresh` forces a new token after the provider rejected the current one; a caller that finds the
+   * token already replaced by a concurrent refresh gets that one (the refresh token rotates, so it
+   * must not be spent twice).
+   */
+  async accessToken(options: { readonly refresh?: boolean } = {}): Promise<string> {
     const current = this.require();
-    if (current.expiresAt - this.now() > REFRESH_MARGIN_MS) return current.accessToken;
+    const forced = options.refresh === true;
+    if (!forced && current.expiresAt - this.now() > REFRESH_MARGIN_MS) return current.accessToken;
     try {
       return await this.locked(async () => {
         // Re-read: a concurrent caller may already have refreshed, or the owner disconnected.
         const latest = this.require();
-        if (latest.expiresAt - this.now() > REFRESH_MARGIN_MS) return latest.accessToken;
+        if (
+          forced
+            ? latest.accessToken !== current.accessToken
+            : latest.expiresAt - this.now() > REFRESH_MARGIN_MS
+        ) {
+          return latest.accessToken;
+        }
         return (await this.refresh(latest)).accessToken;
       });
     } catch (error) {
@@ -208,6 +227,14 @@ export class ChatGptPlanService {
   dispose(): void {
     this.disposed = true;
     this.signIn?.controller.abort();
+  }
+
+  private notifyChange(): void {
+    try {
+      this.deps.onChange?.();
+    } catch {
+      /* A failing listener never affects the connection. */
+    }
   }
 
   private currentStatus(): ChatGptPlanStatus {
@@ -315,6 +342,7 @@ export class ChatGptPlanService {
       await this.deps.keys.removeBlob(CHATGPT_PLAN_CONNECTION).catch(() => undefined);
       this.idle = { state: 'signed-out', reason: 'expired' };
       this.deps.logger.warn('chatgpt-plan.expired', {});
+      this.notifyChange();
       throw new NexarError('AUTH_REQUIRED', 'The ChatGPT sign-in expired');
     }
     // The refresh token has rotated: whatever happens to the ID token, the new tokens must be kept.

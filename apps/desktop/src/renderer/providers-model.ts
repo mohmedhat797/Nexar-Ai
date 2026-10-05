@@ -16,11 +16,19 @@ interface CardSpec {
   readonly apiProvider?: ApiProviderId;
   readonly subscription?: SubscriptionRuntimeId;
   readonly local?: true;
+  /** Sign in with ChatGPT (the owner's ChatGPT plan, NXR-067). */
+  readonly chatgptPlan?: true;
 }
 
 const CARD_SPECS: readonly CardSpec[] = [
   { id: 'anthropic', label: 'Anthropic', apiProvider: 'anthropic', subscription: 'claude-code' },
-  { id: 'openai', label: 'OpenAI', apiProvider: 'openai', subscription: 'codex' },
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    apiProvider: 'openai',
+    subscription: 'codex',
+    chatgptPlan: true,
+  },
   { id: 'google', label: 'Google / Gemini', apiProvider: 'google', subscription: 'antigravity' },
   { id: 'deepseek', label: 'DeepSeek', apiProvider: 'deepseek' },
   { id: 'mistral', label: 'Mistral', apiProvider: 'mistral' },
@@ -37,6 +45,8 @@ export interface ProviderCard {
   readonly apiKey?: ProviderRow | undefined;
   /** The Local / Custom card: its method is the local-endpoints view. */
   readonly local: boolean;
+  /** The card shows the ChatGPT plan method (OpenAI). */
+  readonly chatgptPlan: boolean;
   /** Registry resources whose connection names this provider. */
   readonly resourceCount: number;
   /** True when Desktop supports no method for this provider (the card shows a fixed reason). */
@@ -69,8 +79,10 @@ export function groupProviderCards(input: {
       subscription,
       apiKey,
       local,
+      chatgptPlan: spec.chatgptPlan === true,
       resourceCount,
-      notAvailable: !local && apiKey === undefined && subscription === undefined,
+      notAvailable:
+        !local && !spec.chatgptPlan && apiKey === undefined && subscription === undefined,
     };
   });
 }

@@ -3,5 +3,9 @@ export { createEngineExecutor, engineAllocator, type BridgeRuntimeSource } from 
 export { PlaneLaneEngine, type PlaneLaneEngineOptions } from './lane-engine.js';
 export { createNativeSubscriptions } from './subscriptions.js';
 export { checkProviderCredential } from './provider-check.js';
-export { PI_PROVIDER_CREDENTIAL_NAMES as providerCredentialNames } from '@nexar/integration-pi';
+export {
+  DEFAULT_CHATGPT_PLAN_MODEL,
+  PI_PROVIDER_CREDENTIAL_NAMES as providerCredentialNames,
+  chatGptPlanModelResource,
+} from '@nexar/integration-pi';
 export type { EngineeringRunnerPort, EngineeringSeams, HostEnvironment } from './seams.js';

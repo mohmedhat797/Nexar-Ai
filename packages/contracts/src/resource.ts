@@ -44,7 +44,33 @@ export interface RuntimeBinding {
 export type CredentialRef =
   | { readonly source: 'env'; readonly name: string }
   | { readonly source: 'keystore'; readonly name: string }
+  /** A host-managed account connection (ADR-022 amendment 2026-10-05); only {@link CONNECTION_CREDENTIAL_NAMES}. */
+  | { readonly source: 'connection'; readonly name: ConnectionCredentialName }
   | { readonly source: 'runtime-managed'; readonly description: string };
+
+/** The only connection a `connection` credential may name: the owner's ChatGPT plan. */
+export const CONNECTION_CREDENTIAL_NAMES = ['chatgpt-plan'] as const;
+
+/** One of {@link CONNECTION_CREDENTIAL_NAMES}. */
+export type ConnectionCredentialName = (typeof CONNECTION_CREDENTIAL_NAMES)[number];
+
+/** True for the credential reference of the ChatGPT plan connection (strict: source and name). */
+export function isChatGptPlanCredential(
+  credential: CredentialRef,
+): credential is { readonly source: 'connection'; readonly name: 'chatgpt-plan' } {
+  return credential.source === 'connection' && credential.name === 'chatgpt-plan';
+}
+
+/**
+ * Resolves a `connection` credential to a short-lived access token (`undefined` = not connected).
+ * Injected by the host (Desktop main only); `refresh` forces a new token after a 401. Callers must
+ * never store or log the result.
+ */
+export type ConnectionCredentialResolver = (
+  descriptor: ResourceDescriptor,
+  signal: AbortSignal,
+  options?: { readonly refresh?: boolean },
+) => Promise<string | undefined>;
 
 /** Valid names for `env` and `keystore` credential references (also the child variable name). */
 export const CREDENTIAL_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;

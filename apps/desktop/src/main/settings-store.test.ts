@@ -335,3 +335,52 @@ describe('Orchestration settings (NXR-063)', () => {
     expect(kept['orchestration']).toEqual(damaged);
   });
 });
+
+describe('ChatGPT plan models (NXR-067)', () => {
+  const modelsOf = async (section: unknown) => {
+    await writeFile(path, JSON.stringify({ ...base, chatgptPlan: section }));
+    return new SettingsStore(path).getChatGptPlan();
+  };
+
+  it('defaults to gpt-5.2 when the file or the section is missing', async () => {
+    expect(await new SettingsStore(path).getChatGptPlan()).toEqual({
+      valid: true,
+      value: { models: ['gpt-5.2'] },
+    });
+    await writeFile(path, JSON.stringify(base));
+    expect(await new SettingsStore(path).getChatGptPlan()).toMatchObject({ valid: true });
+  });
+
+  it('accepts the owner list, de-duplicated', async () => {
+    expect(await modelsOf({ models: ['gpt-5.2', 'gpt-5.4', 'gpt-5.2'] })).toEqual({
+      valid: true,
+      value: { models: ['gpt-5.2', 'gpt-5.4'] },
+    });
+  });
+
+  it.each([
+    ['an empty list', { models: [] }],
+    ['an uppercase id', { models: ['GPT-5'] }],
+    ['a path-like id', { models: ['../x'] }],
+    ['an id with a colon', { models: ['a:b'] }],
+    ['a non-string id', { models: [5] }],
+    ['an unknown key', { models: ['gpt-5.2'], extra: true }],
+    ['a non-object section', 'gpt-5.2'],
+    ['more than sixteen models', { models: Array.from({ length: 17 }, (_, i) => `m${String(i)}`) }],
+  ])('treats %s as damaged', async (_label, section) => {
+    expect(await modelsOf(section)).toEqual({ valid: false });
+  });
+
+  it('keeps the owner section verbatim and the appearance keys when other settings are saved', async () => {
+    const section = { models: ['gpt-5.4'] };
+    await writeFile(path, JSON.stringify({ ...base, chatgptPlan: section }));
+    const store = new SettingsStore(path);
+    await store.set({ theme: 'dark' });
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
+      theme: 'dark',
+      chatgptPlan: section,
+    });
+    // The section does not turn the appearance keys into defaults.
+    expect(await new SettingsStore(path).get()).toMatchObject({ theme: 'dark', mode: 'cowork' });
+  });
+});

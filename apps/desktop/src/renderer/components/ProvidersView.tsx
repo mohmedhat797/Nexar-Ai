@@ -3,6 +3,7 @@ import type { ApiProviderId, ProviderRow, ResourceRow, SubscriptionRow } from '.
 import { call, errorText, nexar } from '../bridge.js';
 import { NOT_AVAILABLE_REASON, groupProviderCards } from '../providers-model.js';
 import { useCodeStatus } from '../useCodeStatus.js';
+import { ChatGptPlanMethod } from './ChatGptPlanMethod.js';
 import { LocalEndpointsView } from './LocalEndpointsView.js';
 import { PlaneResources } from './PlaneResources.js';
 
@@ -500,6 +501,7 @@ export function ProvidersView({ resources }: { resources: readonly ResourceRow[]
                   onOpenWorkerAccess={setOpenWorkerAccess}
                 />
               )}
+              {card.chatgptPlan && <ChatGptPlanMethod />}
               {card.local && <LocalEndpointsView />}
               {card.notAvailable && ready && (
                 <p className="muted" data-testid={`provider-unavailable-${card.id}`}>

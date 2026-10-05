@@ -34,6 +34,8 @@ export interface PiRequestOptionsLike {
   readonly temperature?: number;
   readonly reasoning?: PiReasoningLevel;
   readonly apiKey?: string;
+  /** Test seam (plan calls only): pi-ai's per-request `fetch`. */
+  readonly fetch?: typeof fetch;
 }
 
 /** The content-block fields this package reads; provider-private ones feed extras. */

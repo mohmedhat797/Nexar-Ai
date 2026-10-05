@@ -17,6 +17,7 @@ import {
   type BehaviorPatch,
   type BehaviorSettings,
 } from '../shared/behavior.js';
+import { DEFAULT_CHATGPT_PLAN_MODEL } from '@nexar/host';
 import { API_PROVIDER_IDS } from '../shared/providers.js';
 import { writeFileAtomic } from './atomic-write.js';
 
@@ -166,6 +167,31 @@ function parseOrchestration(raw: unknown): OrchestrationResult {
   return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
 }
 
+// ---- ChatGPT plan models (NXR-067) ------------------------------------------------------------
+
+/** Model ids the owner lists for the ChatGPT plan; the same slug alphabet resource ids use. */
+const PlanModelSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+const ChatGptPlanSchema = z
+  .strictObject({ models: z.array(PlanModelSchema).min(1).max(16) })
+  .transform((value): ChatGptPlanSettings => ({ models: [...new Set(value.models)] }));
+
+/** Which models a connected ChatGPT plan is offered as. Owner-edited (`chatgptPlan.models`). */
+export interface ChatGptPlanSettings {
+  readonly models: readonly string[];
+}
+
+export const DEFAULT_CHATGPT_PLAN: ChatGptPlanSettings = { models: [DEFAULT_CHATGPT_PLAN_MODEL] };
+
+/** A damaged `chatgptPlan` section publishes no plan resources and is preserved verbatim. */
+export type ChatGptPlanResult =
+  { readonly valid: true; readonly value: ChatGptPlanSettings } | { readonly valid: false };
+
+function parseChatGptPlan(raw: unknown): ChatGptPlanResult {
+  if (raw === undefined) return { valid: true, value: DEFAULT_CHATGPT_PLAN };
+  const parsed = ChatGptPlanSchema.safeParse(raw);
+  return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
+}
+
 // ---- AI behavior (NXR-053) --------------------------------------------------------------------
 
 const ResourceIdSchema = z.string().regex(BEHAVIOR_RESOURCE_PATTERN);
@@ -272,6 +298,9 @@ interface Loaded {
   readonly cowork: CoworkConfigResult;
   readonly orchestrationRaw: unknown;
   readonly orchestration: OrchestrationResult;
+  /** Owner-edited; never written by Nexar, kept verbatim. */
+  readonly chatgptPlanRaw: unknown;
+  readonly chatgptPlan: ChatGptPlanResult;
 }
 
 function parseCodePlane(raw: unknown): CodePlaneConfigResult {
@@ -299,10 +328,11 @@ export class SettingsStore {
     let coworkRaw: unknown;
     let behaviorRaw: unknown;
     let orchestrationRaw: unknown;
+    let chatgptPlanRaw: unknown;
     try {
       const file = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
       if (typeof file === 'object' && file !== null && !Array.isArray(file)) {
-        const { codePlane, cowork, behavior, orchestration, ...rest } = file as Record<
+        const { codePlane, cowork, behavior, orchestration, chatgptPlan, ...rest } = file as Record<
           string,
           unknown
         >;
@@ -312,6 +342,7 @@ export class SettingsStore {
         coworkRaw = Object.hasOwn(file, 'cowork') ? cowork : undefined;
         behaviorRaw = Object.hasOwn(file, 'behavior') ? behavior : undefined;
         orchestrationRaw = Object.hasOwn(file, 'orchestration') ? orchestration : undefined;
+        chatgptPlanRaw = Object.hasOwn(file, 'chatgptPlan') ? chatgptPlan : undefined;
       }
     } catch {
       // Missing or unreadable: defaults.
@@ -326,6 +357,8 @@ export class SettingsStore {
       behavior: parseBehavior(behaviorRaw),
       orchestrationRaw,
       orchestration: parseOrchestration(orchestrationRaw),
+      chatgptPlanRaw,
+      chatgptPlan: parseChatGptPlan(chatgptPlanRaw),
     };
     return this.current;
   }
@@ -360,6 +393,7 @@ export class SettingsStore {
           ...coworkSection,
           ...behaviorSection,
           ...orchestrationSection,
+          ...(next.chatgptPlanRaw === undefined ? {} : { chatgptPlan: next.chatgptPlanRaw }),
         },
         null,
         2,
@@ -447,6 +481,11 @@ export class SettingsStore {
       await this.write({ ...loaded, behaviorRaw: value, behavior: { valid: true, value } });
       return value;
     });
+  }
+
+  /** Main-process only: the validated ChatGPT plan model list (owner-edited). */
+  async getChatGptPlan(): Promise<ChatGptPlanResult> {
+    return (await this.load()).chatgptPlan;
   }
 
   /** Main-process only: the validated orchestration settings. */

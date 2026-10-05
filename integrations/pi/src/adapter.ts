@@ -1,10 +1,11 @@
-import { NexarError } from '@nexar/contracts';
+import { NexarError, isNexarError } from '@nexar/contracts';
 import type {
   ExecutionAdapter,
   ExecutionContext,
   ExecutionRequest,
   ExecutionResult,
   ResourceDescriptor,
+  ConnectionCredentialResolver,
   ResourceState,
   SecretResolver,
 } from '@nexar/contracts';
@@ -15,6 +16,7 @@ import {
   createLocalEndpointModels,
 } from './pi-models.js';
 import type { PiModelLike, PiModelsLike } from './pi-models.js';
+import { usesChatGptPlan, withChatGptPlanToken } from './connection-credential.js';
 import { PI_ADAPTER_ID } from './resource.js';
 import { configError, parseRuntimeOptions, readPiCredential } from './runtime-options.js';
 import type { PiRuntimeOptions } from './runtime-options.js';
@@ -31,6 +33,13 @@ export interface PiExecutionAdapterOptions {
    * reference counts as not stored; the environment is never consulted for it.
    */
   readonly resolveSecret?: SecretResolver;
+  /**
+   * Resolves the ChatGPT plan connection to a short-lived access token (Desktop main only). Without
+   * it a connection credential is refused (POLICY_REJECTED), as every subscription mode is.
+   */
+  readonly resolveCredential?: ConnectionCredentialResolver;
+  /** Test seam: the `fetch` pi-ai uses for plan calls. Production never sets it. */
+  readonly fetch?: typeof fetch;
   /** Providers this adapter may call. Defaults to {@link DEFAULT_ALLOWED_PROVIDERS}. */
   readonly allowedProviders?: readonly string[];
   /** Clock (epoch ms) for message and probe timestamps. Defaults to `Date.now`. */
@@ -50,6 +59,10 @@ export class PiExecutionAdapter implements ExecutionAdapter {
 
   private readonly env: NodeJS.ProcessEnv;
   private readonly resolveSecret: SecretResolver | undefined;
+  private readonly resolveCredential: ConnectionCredentialResolver | undefined;
+  private readonly fetchImpl: typeof fetch | undefined;
+  /** Resources the provider refused as not eligible; the next probe reports them unauthenticated. */
+  private readonly notEligible = new Set<string>();
   private readonly allowedProviders: readonly string[];
   private readonly now: () => number;
   private readonly injected: PiModelsLike | undefined;
@@ -60,6 +73,8 @@ export class PiExecutionAdapter implements ExecutionAdapter {
     this.injected = options.models;
     this.env = options.env ?? process.env;
     this.resolveSecret = options.resolveSecret;
+    this.resolveCredential = options.resolveCredential;
+    this.fetchImpl = options.fetch;
     this.allowedProviders = options.allowedProviders ?? DEFAULT_ALLOWED_PROVIDERS;
     this.now = options.now ?? Date.now;
   }
@@ -89,6 +104,22 @@ export class PiExecutionAdapter implements ExecutionAdapter {
         }
       }
       const auth = target.auth;
+      if (usesChatGptPlan(target)) {
+        // Probes never call the model or the token endpoint: connected means the host offers the seam.
+        if (this.notEligible.has(resource.id)) {
+          return {
+            availability: 'available',
+            auth: 'unauthenticated',
+            detail: 'plan-not-eligible',
+            observedAt,
+          };
+        }
+        return {
+          availability: 'available',
+          auth: this.resolveCredential === undefined ? 'unauthenticated' : 'authenticated',
+          observedAt,
+        };
+      }
       const authState =
         auth.mode === 'none'
           ? 'not-required'
@@ -111,6 +142,17 @@ export class PiExecutionAdapter implements ExecutionAdapter {
     if (options.baseUrl === undefined) this.assertProviderAllowed(kind.provider, resource);
     if (context.signal.aborted) {
       throw new NexarError('EXECUTION_CANCELLED', 'Execution was cancelled');
+    }
+    if (this.resolveCredential !== undefined && usesChatGptPlan(target)) {
+      const resolver = this.resolveCredential;
+      try {
+        return await withChatGptPlanToken(resolver, resource, context.signal, (token) =>
+          this.runModel(target, request, context, options, token, true),
+        );
+      } catch (e) {
+        if (isPlanNotEligible(e)) this.notEligible.add(resource.id);
+        throw e;
+      }
     }
 
     let apiKey: string | undefined;
@@ -135,8 +177,19 @@ export class PiExecutionAdapter implements ExecutionAdapter {
         );
       }
     }
-    const secrets = apiKey === undefined ? [] : [apiKey];
+    return this.runModel(target, request, context, options, apiKey, false);
+  }
 
+  private async runModel(
+    target: ModelResource,
+    request: ExecutionRequest,
+    context: ExecutionContext,
+    options: PiRuntimeOptions,
+    apiKey: string | undefined,
+    plan: boolean,
+  ): Promise<ExecutionResult> {
+    const { kind } = target;
+    const secrets = apiKey === undefined ? [] : [apiKey];
     try {
       const models = await this.modelsFor(target, options);
       const model = models.getModel(kind.provider, kind.model);
@@ -146,7 +199,7 @@ export class PiExecutionAdapter implements ExecutionAdapter {
           model: kind.model,
         });
       }
-      const message = await this.complete(models, model, request, context, options, apiKey);
+      const message = await this.complete(models, model, request, context, options, apiKey, plan);
       return toExecutionResult(message, {
         secrets,
         ...(context.onEvent === undefined ? {} : { onEvent: context.onEvent }),
@@ -164,6 +217,7 @@ export class PiExecutionAdapter implements ExecutionAdapter {
     context: ExecutionContext,
     options: PiRuntimeOptions,
     apiKey: string | undefined,
+    plan: boolean,
   ): ReturnType<PiModelsLike['completeSimple']> {
     const { input } = request.task;
     return models.completeSimple(
@@ -174,8 +228,10 @@ export class PiExecutionAdapter implements ExecutionAdapter {
       },
       {
         signal: context.signal,
-        ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
+        // The plan route rejects `max_output_tokens`; pi-ai omits it there, and so does Nexar.
+        ...(options.maxTokens === undefined || plan ? {} : { maxTokens: options.maxTokens }),
         ...(options.reasoning === undefined ? {} : { reasoning: options.reasoning }),
+        ...(plan && this.fetchImpl !== undefined ? { fetch: this.fetchImpl } : {}),
         ...(apiKey !== undefined
           ? { apiKey }
           : options.baseUrl !== undefined
@@ -195,6 +251,7 @@ export class PiExecutionAdapter implements ExecutionAdapter {
   }
 
   private assertAuthModeAllowed(resource: ResourceDescriptor): void {
+    if (this.resolveCredential !== undefined && usesChatGptPlan(resource)) return;
     if (resource.auth.mode === 'oauth' || resource.auth.mode === 'subscription') {
       throw new NexarError(
         'POLICY_REJECTED',
@@ -244,4 +301,8 @@ export class PiExecutionAdapter implements ExecutionAdapter {
     }
     return Promise.resolve(models);
   }
+}
+
+function isPlanNotEligible(e: unknown): boolean {
+  return isNexarError(e) && e.details?.['reason'] === 'plan-not-eligible';
 }

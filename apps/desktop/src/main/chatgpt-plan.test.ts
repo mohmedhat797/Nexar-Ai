@@ -552,3 +552,48 @@ describe('IPC channels', () => {
     }
   });
 });
+
+describe('forced refresh and change notifications (NXR-067 b)', () => {
+  it('a forced refresh replaces a token the provider rejected, once for concurrent callers', async () => {
+    const service = make();
+    await service.connect();
+    const rejected = await service.accessToken();
+    const [a, b] = await Promise.all([
+      service.accessToken({ refresh: true }),
+      service.accessToken({ refresh: true }),
+    ]);
+    expect(a).not.toBe(rejected);
+    // The refresh token rotates, so it must not be spent twice.
+    expect(b).toBe(a);
+    expect(refreshes()).toHaveLength(1);
+  });
+
+  it('tells its listener when the connection appears, disappears or expires, with no data', async () => {
+    const onChange = vi.fn();
+    const service = make({ onChange });
+    await service.connect();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0]).toEqual([]);
+    await service.disconnect();
+    expect(onChange).toHaveBeenCalledTimes(2);
+
+    await service.connect();
+    fake.tokenReply = (form) =>
+      form['grant_type'] === 'refresh_token'
+        ? { status: 400, body: { error: 'invalid_grant' } }
+        : undefined;
+    await expect(service.accessToken({ refresh: true })).rejects.toMatchObject({
+      code: 'AUTH_REQUIRED',
+    });
+    expect(onChange).toHaveBeenCalledTimes(4);
+  });
+
+  it('keeps working when the listener throws', async () => {
+    const service = make({
+      onChange: () => {
+        throw new Error('listener failed');
+      },
+    });
+    await expect(service.connect()).resolves.toMatchObject({ state: 'connected' });
+  });
+});

@@ -3,6 +3,7 @@ import { userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { isNexarError } from '@nexar/contracts';
+import { createOpenAiAccountClient } from '@nexar/integration-openai-account';
 import { BridgeHost, ControlModelGateway } from '@nexar/engine-gateway';
 import { FileSessionStore } from '@nexar/sessions';
 import {
@@ -18,9 +19,11 @@ import { CodePlane } from './code-plane.js';
 import { ControlGatewayChild } from './control-gateway-child.js';
 import { CoworkService, createScriptSpawn } from './cowork.js';
 import { ConfigStore } from './config-store.js';
-import { createEngineHost } from './engine-host.js';
+import { createEngineHost, type EngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
 import { ChatGptPlanService } from './chatgpt-plan.js';
+import { chatGptPlanResources } from './chatgpt-plan-resources.js';
+import { chatGptTestHooks } from './chatgpt-test-hooks.js';
 import { installationId } from './installation-id.js';
 import { ProviderService } from './providers.js';
 import { SigninCallbackSupervisor } from './signin-callback-child.js';
@@ -120,13 +123,43 @@ async function start(): Promise<void> {
   }
   const keys = new DesktopKeyStore({ userData, encryption: safeStorage });
   traceStartup('stores');
+  const underTestOverride = userDataOverride !== undefined && userDataOverride !== '';
+  // The ChatGPT plan connection (ADR-022 amendment 2026-10-05): sign-ins start only from the owner's click;
+  // the loopback callback lives in a per-sign-in child, never in this process. Its resources are
+  // republished (a recomposition) whenever the connection appears or disappears.
+  const planTest = chatGptTestHooks(process.env, underTestOverride);
+  const engineRef: { current?: EngineHost } = {};
+  const chatgptPlan = new ChatGptPlanService({
+    keys,
+    callback: new SigninCallbackSupervisor(),
+    openExternal: planTest?.openExternal ?? ((url) => shell.openExternal(url)),
+    installationId: () => installationId(userData),
+    logger,
+    ...(planTest === undefined
+      ? {}
+      : { client: createOpenAiAccountClient({ issuer: planTest.issuer }) }),
+    onChange: () => void engineRef.current?.reload().catch(() => undefined),
+  });
+  app.on('before-quit', () => chatgptPlan.dispose());
+  // The token seam reaches the pi adapter and the control ports here only; the CLI and the plane get none.
+  const planConnections = {
+    resolve: (
+      _descriptor: unknown,
+      _signal: AbortSignal,
+      options?: { readonly refresh?: boolean },
+    ) => chatgptPlan.accessToken(options?.refresh === true ? { refresh: true } : {}),
+    ...(planTest?.responsesFetch === undefined ? {} : { fetch: planTest.responsesFetch }),
+  };
   const engine = await createEngineHost({
     configPath: config.path,
     env: engineEnv,
     logger,
     resolveSecret: keys.resolveSecret,
+    connections: planConnections,
+    extraResources: () => chatGptPlanResources(chatgptPlan, settings),
     trace: traceStartup,
   });
+  engineRef.current = engine;
   const providers = new ProviderService({
     keys,
     clipboard,
@@ -140,16 +173,6 @@ async function start(): Promise<void> {
     createNativeSubscriptions({ env: engineEnv, cwd: app.getPath('home') }),
   );
   app.on('before-quit', () => subscriptions.dispose());
-  // The ChatGPT plan connection (ADR-022 amendment 2026-10-05): sign-ins start only from the owner's click;
-  // the loopback callback lives in a per-sign-in child, never in this process.
-  const chatgptPlan = new ChatGptPlanService({
-    keys,
-    callback: new SigninCallbackSupervisor(),
-    openExternal: (url) => shell.openExternal(url),
-    installationId: () => installationId(userData),
-    logger,
-  });
-  app.on('before-quit', () => chatgptPlan.dispose());
 
   // Operating Sessions (ADR-024): this process is the single writer. If another Nexar process holds
   // the lease, sessions stay unavailable (every session channel answers CONFLICT) instead of racing it.
@@ -191,7 +214,6 @@ async function start(): Promise<void> {
   // `NEXAR_DESKTOP_USER_DATA` override OpenWorker is never launched unless the fake named by
   // `NEXAR_DESKTOP_TEST_OPENWORKER` is given. Neither variable is ever set in production.
   const testOpenWorker = process.env['NEXAR_DESKTOP_TEST_OPENWORKER'];
-  const underTestOverride = userDataOverride !== undefined && userDataOverride !== '';
   // The Intelligence Bridge endpoint (ADR-027 §9a): a per-launch local pipe/socket, never a port.
   // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
   // exists unless delegation is used. Stopped at quit.
@@ -201,7 +223,7 @@ async function start(): Promise<void> {
   // engine's current registry snapshot and routing policy (read per call, so a config reload is picked up).
   const controlPorts = createControlModelTurnPorts(
     { env: engineEnv, cwd: dirname(config.path) },
-    { resolveSecret: keys.resolveSecret },
+    { resolveSecret: keys.resolveSecret, connections: planConnections },
   );
   const controlGateway = new ControlModelGateway({
     ports: controlPorts,

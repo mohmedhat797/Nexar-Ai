@@ -11,7 +11,12 @@ export type {
   PiReasoningLevel,
   PiRequestOptionsLike,
 } from './pi-models.js';
-export { PI_ADAPTER_ID, piModelResource } from './resource.js';
+export {
+  DEFAULT_CHATGPT_PLAN_MODEL,
+  PI_ADAPTER_ID,
+  chatGptPlanModelResource,
+  piModelResource,
+} from './resource.js';
 export type { PiModelResourceInput } from './resource.js';
 export {
   PI_CATALOG_SOURCE_ID,

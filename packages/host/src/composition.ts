@@ -4,6 +4,7 @@ import { ApprovalGate, FileApprovalStore, type ApprovalStore } from '@nexar/appr
 import { LocalArtifactStore } from '@nexar/artifacts';
 import {
   NexarError,
+  type ConnectionCredentialResolver,
   type DiscoverySource,
   type DiscoverySourceReport,
   type EgressEvent,
@@ -148,6 +149,28 @@ export function sandboxVisibleNode(
     : undefined;
 }
 
+/**
+ * The owner's account connections as the pi adapter sees them (Desktop main only; the CLI and the
+ * plane pass none, so a connection credential is refused there).
+ */
+export interface ConnectionSeam {
+  readonly resolve: ConnectionCredentialResolver;
+  /** Test seam: the `fetch` plan calls go through. Production never sets it. */
+  readonly fetch?: typeof fetch;
+}
+
+function connectionOptions(connections: ConnectionSeam | undefined): {
+  readonly resolveCredential?: ConnectionCredentialResolver;
+  readonly fetch?: typeof fetch;
+} {
+  return connections === undefined
+    ? {}
+    : {
+        resolveCredential: connections.resolve,
+        ...(connections.fetch === undefined ? {} : { fetch: connections.fetch }),
+      };
+}
+
 /** Every execution adapter the host knows about; the secret resolver reaches pi and DSH only. */
 export function createAdapters(
   io: HostEnvironment,
@@ -155,6 +178,7 @@ export function createAdapters(
   options: {
     readonly approvals?: { readonly gate: ApprovalGate; readonly store: ApprovalStore };
     readonly resolveSecret?: SecretResolver;
+    readonly connections?: ConnectionSeam;
     /** Engineering toolchain mounts: the sandbox shows them at the same paths (ADR-019). */
     readonly toolchainPaths?: readonly string[];
   } = {},
@@ -174,7 +198,7 @@ export function createAdapters(
       ...(nodeCommand === undefined ? {} : { nodeCommand }),
       ...secrets,
     }),
-    new PiExecutionAdapter({ env: io.env, ...secrets }),
+    new PiExecutionAdapter({ env: io.env, ...secrets, ...connectionOptions(options.connections) }),
     new DelegateSkillsExecutionAdapter({
       env: io.env,
       stateDir: join(configDir, '.nexar', 'runtimes', 'delegate-skills'),
@@ -188,10 +212,11 @@ export function createAdapters(
  */
 export function createControlModelTurnPorts(
   io: HostEnvironment,
-  options: { readonly resolveSecret?: SecretResolver } = {},
+  options: { readonly resolveSecret?: SecretResolver; readonly connections?: ConnectionSeam } = {},
 ): (descriptor: ResourceDescriptor) => ModelTurnPort | undefined {
   const port = new PiModelTurnPort({
     env: io.env,
+    ...connectionOptions(options.connections),
     ...(options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret }),
   });
   return (descriptor) => (descriptor.runtime.adapter === PI_ADAPTER_ID ? port : undefined);
@@ -216,12 +241,23 @@ export async function compose(
      * Harness adapters. The CLI passes none, so a keystore reference there is `AUTH_REQUIRED`.
      */
     readonly resolveSecret?: SecretResolver;
+    /** The owner's account connections (Desktop main only), handed to the pi adapter. */
+    readonly connections?: ConnectionSeam;
+    /**
+     * Resources published by the host itself (Desktop: the connected ChatGPT plan). Configured
+     * resources win an id collision, as for discovered ones.
+     */
+    readonly extraResources?: readonly ResourceDescriptor[];
   } = {},
 ): Promise<Composition> {
   const configDir = stateBaseDir(loaded, io);
   // Configured resources always win; discovered ones only add new ids (ADR-020 §9).
   const discoveryConfig = loaded.config.discovery;
-  let resources = mergeDiscovered(loaded.config.resources, []).resources;
+  const hostBatch =
+    options.extraResources === undefined || options.extraResources.length === 0
+      ? []
+      : [{ source: 'host', descriptors: options.extraResources }];
+  let resources = mergeDiscovered(loaded.config.resources, hostBatch).resources;
   let discovery: Composition['discovery'];
   if (discoveryConfig.enabled || options.discover === 'always') {
     const { sources, disabled } = discoverySources(discoveryConfig, io.env);
@@ -232,7 +268,7 @@ export async function compose(
       timeoutMs: discoveryConfig.timeoutMs,
     });
     const result = await service.discover();
-    const merged = mergeDiscovered(loaded.config.resources, result.batches, {
+    const merged = mergeDiscovered(loaded.config.resources, [...result.batches, ...hostBatch], {
       excludeIds: discoveryConfig.excludeIds,
     });
     resources = merged.resources;

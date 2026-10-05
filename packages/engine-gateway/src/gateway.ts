@@ -193,7 +193,8 @@ export class ControlModelGateway {
             ? e
             : toNexarError(e, 'PROVIDER_ERROR');
         if (error.code === 'EXECUTION_CANCELLED') throw error;
-        if (RETRYABLE.has(error.code) && attempt < attempts) {
+        // A provider that says the same body can never succeed (`retryable: false`) is not asked again.
+        if (RETRYABLE.has(error.code) && error.retryable && attempt < attempts) {
           this.emit('control.retry', decision, { attempt, code: error.code });
           continue;
         }

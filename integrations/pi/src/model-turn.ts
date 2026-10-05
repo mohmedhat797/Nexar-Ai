@@ -9,6 +9,7 @@ import {
   type ModelTurnPort,
   type ModelTurnPortRequest,
   type ModelTurnTool,
+  type ConnectionCredentialResolver,
   type ResourceDescriptor,
   type SecretResolver,
 } from '@nexar/contracts';
@@ -26,6 +27,7 @@ import type {
   PiModelsLike,
   PiRequestOptionsLike,
 } from './pi-models.js';
+import { usesChatGptPlan, withChatGptPlanToken } from './connection-credential.js';
 import { PI_ADAPTER_ID } from './resource.js';
 import { failureFor, toThrownNexarError } from './result.js';
 import { configError, parseRuntimeOptions, readPiCredential } from './runtime-options.js';
@@ -37,6 +39,10 @@ export interface PiModelTurnPortOptions {
   readonly models?: PiModelsLike;
   readonly env?: NodeJS.ProcessEnv;
   readonly resolveSecret?: SecretResolver;
+  /** The ChatGPT plan connection's token seam (Desktop main only); see the adapter option. */
+  readonly resolveCredential?: ConnectionCredentialResolver;
+  /** Test seam: the `fetch` pi-ai uses for plan calls. Production never sets it. */
+  readonly fetch?: typeof fetch;
   readonly allowedProviders?: readonly string[];
   /** Clock (epoch ms) for message timestamps. Defaults to `Date.now`. */
   readonly now?: () => number;
@@ -293,6 +299,8 @@ function toTurnResult(message: PiAssistantMessageLike): TurnResult {
 export class PiModelTurnPort implements ModelTurnPort {
   private readonly env: NodeJS.ProcessEnv;
   private readonly resolveSecret: SecretResolver | undefined;
+  private readonly resolveCredential: ConnectionCredentialResolver | undefined;
+  private readonly fetchImpl: typeof fetch | undefined;
   private readonly allowedProviders: readonly string[];
   private readonly now: () => number;
   private readonly injected: PiModelsLike | undefined;
@@ -303,6 +311,8 @@ export class PiModelTurnPort implements ModelTurnPort {
     this.injected = options.models;
     this.env = options.env ?? process.env;
     this.resolveSecret = options.resolveSecret;
+    this.resolveCredential = options.resolveCredential;
+    this.fetchImpl = options.fetch;
     this.allowedProviders = options.allowedProviders ?? DEFAULT_ALLOWED_PROVIDERS;
     this.now = options.now ?? Date.now;
   }
@@ -318,7 +328,8 @@ export class PiModelTurnPort implements ModelTurnPort {
       throw configError('Resource is not a pi model resource', { resource: descriptor.id });
     }
     const kind: ModelKind = descriptor.kind;
-    if (descriptor.auth.mode === 'oauth' || descriptor.auth.mode === 'subscription') {
+    const plan = this.resolveCredential !== undefined && usesChatGptPlan(descriptor);
+    if (!plan && (descriptor.auth.mode === 'oauth' || descriptor.auth.mode === 'subscription')) {
       throw new NexarError(
         'POLICY_REJECTED',
         'subscription auth via pi-ai is disabled; use a native agent resource',
@@ -337,6 +348,11 @@ export class PiModelTurnPort implements ModelTurnPort {
     }
     if (signal.aborted) throw new NexarError('EXECUTION_CANCELLED', 'Turn was cancelled');
 
+    if (plan && this.resolveCredential !== undefined) {
+      return withChatGptPlanToken(this.resolveCredential, descriptor, signal, (token) =>
+        this.attempt(request, kind, options, token, true),
+      );
+    }
     let apiKey: string | undefined;
     if (descriptor.auth.mode === 'api-key') {
       apiKey = readPiCredential(descriptor.auth.credential, this.env, this.resolveSecret);
@@ -346,8 +362,18 @@ export class PiModelTurnPort implements ModelTurnPort {
         });
       }
     }
-    const secrets = apiKey === undefined ? [] : [apiKey];
+    return this.attempt(request, kind, options, apiKey, false);
+  }
 
+  private async attempt(
+    request: ModelTurnPortRequest,
+    kind: ModelKind,
+    options: PiRuntimeOptions,
+    apiKey: string | undefined,
+    plan: boolean,
+  ): Promise<TurnResult> {
+    const { descriptor, signal } = request;
+    const secrets = apiKey === undefined ? [] : [apiKey];
     try {
       const models = await this.modelsFor(descriptor, kind, options);
       const model = models.getModel(kind.provider, kind.model);
@@ -357,14 +383,15 @@ export class PiModelTurnPort implements ModelTurnPort {
           model: kind.model,
         });
       }
-      const maxTokens = request.settings?.maxOutputTokens ?? options.maxTokens;
+      // The plan route rejects `max_output_tokens` and `temperature`; neither is sent there.
+      const maxTokens = plan ? undefined : (request.settings?.maxOutputTokens ?? options.maxTokens);
+      const temperature = plan ? undefined : request.settings?.temperature;
       const requestOptions: PiRequestOptionsLike = {
         signal,
         ...(maxTokens === undefined ? {} : { maxTokens }),
-        ...(request.settings?.temperature === undefined
-          ? {}
-          : { temperature: request.settings.temperature }),
+        ...(temperature === undefined ? {} : { temperature }),
         ...(options.reasoning === undefined ? {} : { reasoning: options.reasoning }),
+        ...(plan && this.fetchImpl !== undefined ? { fetch: this.fetchImpl } : {}),
         ...(apiKey !== undefined
           ? { apiKey }
           : options.baseUrl !== undefined

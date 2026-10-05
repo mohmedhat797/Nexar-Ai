@@ -127,6 +127,8 @@ const CredentialSchema = z.discriminatedUnion('source', [
     source: z.literal('keystore'),
     name: z.string().max(CREDENTIAL_NAME_MAX_LENGTH).regex(CREDENTIAL_NAME_PATTERN),
   }),
+  // Valid only for the one connection Desktop manages (the owner's ChatGPT plan).
+  z.strictObject({ source: z.literal('connection'), name: z.literal('chatgpt-plan') }),
   z.strictObject({ source: z.literal('runtime-managed'), description: z.string().min(1) }),
 ]);
 

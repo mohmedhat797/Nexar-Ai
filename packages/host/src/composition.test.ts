@@ -14,6 +14,7 @@ import { noopLogger } from '@nexar/telemetry';
 import {
   builtinEngineeringPlansDir,
   builtinWorkflowsDir,
+  chatGptPlanModelResource,
   compose,
   createAdapters,
   discoverySources,
@@ -111,6 +112,33 @@ describe('createAdapters', () => {
   });
 });
 
+describe('connection seam', () => {
+  const resolve = (): Promise<string> => Promise.resolve('plan-token-sentinel');
+
+  it('reaches the pi adapter only; the CLI composition gives none', () => {
+    const holders = createAdapters(host, cwd, { connections: { resolve } })
+      .filter((a) => Object.values(a).some((v) => v === resolve))
+      .map((a) => String(a.id));
+    expect(holders).toEqual(['pi']);
+    expect(createAdapters(host, cwd).some((a) => Object.values(a).some((v) => v === resolve))).toBe(
+      false,
+    );
+  });
+
+  it('merges host resources after config and discovery; configured ids win', async () => {
+    const loaded = await loadHostConfig(host, undefined);
+    const plan = chatGptPlanModelResource('gpt-5.2');
+    const clash = { ...plan, id: resourceId('local-echo') };
+    const composition = await compose(loaded, host, noopLogger, { extraResources: [plan, clash] });
+    const ids = composition.runtime.registry.list().map((r) => String(r.id));
+    expect(ids).toContain('chatgpt-plan:gpt-5.2');
+    expect(ids.filter((id) => id === 'local-echo')).toHaveLength(1);
+    expect(
+      composition.runtime.registry.list().find((r) => String(r.id) === 'local-echo')?.runtime
+        .adapter,
+    ).toBe('echo');
+  });
+});
 describe('compose with a secret resolver', () => {
   it('accepts a resolver and still builds the runtime', async () => {
     const loaded = await loadHostConfig(host, undefined);

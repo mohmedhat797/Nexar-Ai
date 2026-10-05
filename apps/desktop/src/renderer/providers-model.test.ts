@@ -82,6 +82,13 @@ describe('groupProviderCards', () => {
     expect(card('mistral')?.resourceCount).toBe(0);
   });
 
+  it('offers the ChatGPT plan method on the OpenAI card only', () => {
+    expect(cards.filter((c) => c.chatgptPlan).map((c) => c.id)).toEqual(['openai']);
+    // Even without an API key or a Codex row, the card has a method.
+    const bare = groupProviderCards({ keys: [], subscriptions: [], resources: [] });
+    expect(bare.find((c) => c.id === 'openai')?.notAvailable).toBe(false);
+  });
+
   it('marks a provider without any supported method as not available', () => {
     expect(card('openrouter')?.notAvailable).toBe(true);
     expect(card('google')?.notAvailable).toBe(true);
