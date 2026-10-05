@@ -41,6 +41,13 @@ const SubmitInput = z.strictObject({
     .string()
     .regex(UNIT_ID)
     .describe('Unique id for this unit within the turn (letters, digits, _ . : -; at most 64).'),
+  reviewOf: z
+    .string()
+    .regex(UNIT_ID)
+    .optional()
+    .describe(
+      'The unitId of an earlier unit this unit reviews; Nexar then runs it on a different resource when possible.',
+    ),
   kind: z.string().min(1).max(64).optional().describe('Task kind. Default "general".'),
   capabilities: z
     .array(z.string().min(1).max(64))

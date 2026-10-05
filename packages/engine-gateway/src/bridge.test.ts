@@ -83,11 +83,21 @@ function setup(options: SetupOptions = {}) {
   const executor: ChildExecutor =
     options.executor ??
     ((input) => Promise.resolve(execution(input.requirements.preferredResourceIds?.[0] ?? 'a')));
+  const reasonCodes: Record<string, string[]> = {};
   const allocator: BridgeAllocator = {
-    allocate: (ledger, unit) =>
-      Promise.resolve(
-        allocateNext({ ledger, unit, candidates, policy: routingPolicy(), now: NOW }),
-      ),
+    allocate: (ledger, unit) => {
+      const allocated = allocateNext({
+        ledger,
+        unit,
+        candidates,
+        policy: routingPolicy(),
+        now: NOW,
+      });
+      if (allocated.decision.outcome === 'selected') {
+        reasonCodes[unit.unitId] = allocated.decision.selected.reasons.map((r) => r.code);
+      }
+      return Promise.resolve(allocated);
+    },
   };
   const logger: Logger = { ...silent, info: (msg, fields) => logged.push({ msg, fields }) };
   const bridge = new IntelligenceBridge({
@@ -103,15 +113,16 @@ function setup(options: SetupOptions = {}) {
     ...(options.maxJobsPerGrant === undefined ? {} : { maxJobsPerGrant: options.maxJobsPerGrant }),
   });
   bridge.open({ ...grant, ...options.grant });
-  return { bridge, calls, events, logged };
+  return { bridge, calls, events, logged, reasonCodes };
 }
 
 async function settled(
   bridge: IntelligenceBridge,
   jobId: string,
+  grantId = 'g1',
 ): Promise<Extract<BridgeJobStatus, { state: 'done' }>> {
   for (let i = 0; i < 200; i++) {
-    const status = bridge.status('g1', jobId);
+    const status = bridge.status(grantId, jobId);
     if (status.state === 'done') return status;
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
@@ -223,6 +234,79 @@ describe('IntelligenceBridge', () => {
     const { jobId } = bridge.submit('g1', request());
     expect(() => bridge.submit('g1', request())).toThrow(/Duplicate/);
     await settled(bridge, jobId);
+  });
+
+  describe('reviewOf', () => {
+    // `a` is free and `b` is paid, so without review diversity both units would land on `a`.
+    const cheapAndDear = [snap('a'), snap('b', { cost: { model: 'subscription' } })];
+
+    it('keeps the reviewing unit off the reviewed unit’s resource when another is eligible', async () => {
+      const { bridge, reasonCodes } = setup({ candidates: cheapAndDear });
+      const draft = await settled(bridge, bridge.submit('g1', request({ unitId: 'draft' })).jobId);
+      const review = await settled(
+        bridge,
+        bridge.submit('g1', request({ unitId: 'review', reviewOf: 'draft' })).jobId,
+      );
+      expect(draft.result.resourceId).toBe('a');
+      expect(review.result.resourceId).toBe('b');
+      expect(reasonCodes['draft']).not.toContain('strategy.diversity');
+    });
+
+    it('allocates a reviewer submitted while the reviewed unit is still running', async () => {
+      const { bridge } = setup({
+        candidates: cheapAndDear,
+        executor: async (input) => {
+          await new Promise((r) => setTimeout(r, 5));
+          return execution(input.requirements.preferredResourceIds?.[0] ?? 'a');
+        },
+      });
+      const draft = bridge.submit('g1', request({ unitId: 'draft' }));
+      const review = bridge.submit('g1', request({ unitId: 'review', reviewOf: 'draft' }));
+      const [d, r] = [await settled(bridge, draft.jobId), await settled(bridge, review.jobId)];
+      expect(r.result.resourceId).not.toBe(d.result.resourceId);
+    });
+
+    it('uses the same resource and records the reason when it is the only one eligible', async () => {
+      const { bridge, reasonCodes } = setup({ candidates: [snap('a')] });
+      await settled(bridge, bridge.submit('g1', request({ unitId: 'draft' })).jobId);
+      const review = await settled(
+        bridge,
+        bridge.submit('g1', request({ unitId: 'review', reviewOf: 'draft' })).jobId,
+      );
+      expect(review.result.resourceId).toBe('a');
+      expect(reasonCodes['review']).toContain('strategy.diversity');
+    });
+
+    it('rejects an unknown, self or other-grant reviewOf with a fixed reason', async () => {
+      const { bridge, events } = setup({ candidates: cheapAndDear });
+      const reasonOf = (r: IntelligenceRequest) => rejection(() => bridge.submit('g1', r));
+      expect(reasonOf(request({ unitId: 'review', reviewOf: 'draft' }))).toBe(
+        'unknown-reviewed-unit',
+      );
+      expect(reasonOf(request({ unitId: 'review', reviewOf: 'review' }))).toBe(
+        'unknown-reviewed-unit',
+      );
+      expect(() => bridge.submit('g1', request({ unitId: 'x', reviewOf: 'bad id' }))).toThrow(
+        /reviewOf/,
+      );
+
+      // A unit of another grant is not a unit of this one.
+      bridge.open({ ...grant, grantId: 'g2', turnId: 't2' });
+      const other = request({ unitId: 'foreign' });
+      const { jobId } = bridge.submit('g2', {
+        ...other,
+        lineage: { ...other.lineage, turnId: 't2' },
+      });
+      await settled(bridge, jobId, 'g2');
+      expect(reasonOf(request({ unitId: 'review', reviewOf: 'foreign' }))).toBe(
+        'unknown-reviewed-unit',
+      );
+      expect(
+        events.filter((e) => e.reason === 'unknown-reviewed-unit').every((e) => e.unitId),
+      ).toBe(true);
+      // None of them consumed a unit slot.
+      expect(bridge.submit('g1', request({ unitId: 'draft' })).jobId).toBeDefined();
+    });
   });
 
   it('caps units at maxJobsPerGrant', () => {

@@ -346,7 +346,7 @@ async function expectSowTelemetry(userData: string): Promise<void> {
     'analysis',
     'analysis',
     'documentation',
-    'review',
+    'analysis',
   ]);
   for (const run of unitRuns) {
     expect(run.outcome).toBe('succeeded');
@@ -438,11 +438,7 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
     SOW_TIMEOUT,
   );
 
-  // KNOWN GAP (NXR-066 finding): the bridge's submit request has no `reviewOf`, so the strategy never
-  // learns which unit a `review` unit reviews and cannot apply review diversity; every unit lands on
-  // the cheapest resource (`local-echo`). `it.fails` keeps the suite green while the gap is open and
-  // turns red the moment diversity works, which is when this must become a plain `it`.
-  it.fails(
+  it(
     '1b. the review unit runs on a different resource than the draft unit',
     async () => {
       const userData = harness.newUserData('sow-diversity');

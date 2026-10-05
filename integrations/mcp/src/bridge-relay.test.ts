@@ -90,6 +90,18 @@ describe('bridge relay', () => {
     for (const tool of tools) expect((tool.description ?? '').length).toBeLessThanOrEqual(1024);
   });
 
+  it('lists reviewOf in the submit schema and forwards it', async () => {
+    const client = await connectClient();
+    const { tools } = await client.listTools();
+    const submitTool = tools.find((t) => t.name === 'nexar.intelligence_submit');
+    expect(Object.keys(submitTool?.inputSchema.properties ?? {})).toContain('reviewOf');
+    await client.callTool({
+      name: 'nexar.intelligence_submit',
+      arguments: { unitId: 'u2', reviewOf: 'u1', input: 'x', access: 'read-only' },
+    });
+    expect(frames[0]).toMatchObject({ op: 'submit', request: { unitId: 'u2', reviewOf: 'u1' } });
+  });
+
   it('forwards submit and status as one request each and returns one JSON text block', async () => {
     const client = await connectClient();
     const submit = await client.callTool({

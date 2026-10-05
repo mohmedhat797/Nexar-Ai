@@ -61,7 +61,13 @@ const SOW_UNITS = [
   { unitId: 'extract', kind: 'analysis', capabilities: ['knowledge-work'], access: 'read-only' },
   { unitId: 'synthesize', kind: 'analysis', capabilities: ['reasoning'], access: 'read-only' },
   { unitId: 'draft', kind: 'documentation', capabilities: ['text-generation'], access: 'draft' },
-  { unitId: 'review', kind: 'review', capabilities: ['reasoning'], access: 'read-only' },
+  {
+    unitId: 'review',
+    kind: 'analysis',
+    capabilities: ['reasoning'],
+    access: 'read-only',
+    reviewOf: 'draft',
+  },
 ] as const;
 const DELEGATE_MAX_MS = 60_000;
 

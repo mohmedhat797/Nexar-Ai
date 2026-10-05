@@ -106,6 +106,21 @@ describe('validateIntelligenceRequest', () => {
     ).not.toThrow();
   });
 
+  it('accepts a well-formed reviewOf and rejects a malformed one', () => {
+    expect(() => check({ reviewOf: 'draft' })).not.toThrow();
+    expect(() => check({ reviewOf: 'x'.repeat(64) })).not.toThrow();
+    for (const reviewOf of [
+      '',
+      'x'.repeat(65),
+      'has space',
+      'a/b',
+      'a\nb',
+      7 as unknown as string,
+    ]) {
+      expect(() => check({ reviewOf })).toThrow(/reviewOf/);
+    }
+  });
+
   it('rejects bad unit ids', () => {
     for (const unitId of ['', 'x'.repeat(65), 'has space', 'a/b', 'a\nb']) {
       expect(() => check({ unitId })).toThrow(/unitId/);

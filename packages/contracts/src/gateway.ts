@@ -210,6 +210,8 @@ export interface IntelligenceLineage extends ControlLineage {
 export interface IntelligenceRequest {
   readonly lineage: IntelligenceLineage;
   readonly unitId: string;
+  /** The `unitId` of an earlier unit of the same grant that this unit reviews (review diversity). */
+  readonly reviewOf?: string;
   readonly kind: TaskKind;
   readonly requirements: {
     readonly capabilities: readonly Capability[];
@@ -265,6 +267,12 @@ const UNIT_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 export function validateIntelligenceRequest(request: IntelligenceRequest): void {
   if (typeof request.unitId !== 'string' || !UNIT_ID.test(request.unitId)) {
     throw invalid('unitId must match ^[A-Za-z0-9_.:-]{1,64}$');
+  }
+  if (
+    request.reviewOf !== undefined &&
+    (typeof request.reviewOf !== 'string' || !UNIT_ID.test(request.reviewOf))
+  ) {
+    throw invalid('reviewOf must match ^[A-Za-z0-9_.:-]{1,64}$');
   }
   if (typeof request.kind !== 'string' || request.kind.length === 0 || request.kind.length > 64) {
     throw invalid('kind must be a non-empty string of at most 64 characters');

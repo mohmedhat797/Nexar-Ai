@@ -92,6 +92,7 @@ const UNIT_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 const SubmitArgs = z.strictObject({
   unitId: z.string().regex(UNIT_ID),
+  reviewOf: z.string().regex(UNIT_ID).optional(),
   kind: z.string().min(1).max(64).optional(),
   capabilities: z.array(z.string().min(1).max(64)).max(16).optional(),
   qualityClass: z.enum(['basic', 'standard', 'high']).optional(),
@@ -468,6 +469,7 @@ export class BridgeHost {
       const submitted = this.bridge.submit(stored.grant.grantId, {
         lineage: stored.lineage,
         unitId: a.unitId,
+        ...(a.reviewOf === undefined ? {} : { reviewOf: a.reviewOf }),
         kind: a.kind ?? 'general',
         requirements: {
           capabilities: a.capabilities ?? [],

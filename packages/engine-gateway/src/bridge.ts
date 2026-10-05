@@ -82,7 +82,8 @@ export type RejectionReason =
   | 'depth-exceeded'
   | 'scope-widening'
   | 'unit-limit'
-  | 'budget-exhausted';
+  | 'budget-exhausted'
+  | 'unknown-reviewed-unit';
 
 export interface IntelligenceBridgeOptions {
   readonly allocator: BridgeAllocator;
@@ -252,6 +253,14 @@ export class IntelligenceBridge {
       this.emit('bridge.rejected', { grantId, unitId: request.unitId, code: 'VALIDATION_ERROR' });
       throw new NexarError('VALIDATION_ERROR', 'Duplicate unit id');
     }
+    // Allocations are serialized in submission order, so an earlier unit's allocation always
+    // precedes this one's: no waiting is needed for the ledger to know the reviewed resource.
+    if (
+      request.reviewOf !== undefined &&
+      (request.reviewOf === request.unitId || !state.unitIds.has(request.reviewOf))
+    ) {
+      fail('unknown-reviewed-unit', 'reviewOf must name an earlier unit of this grant');
+    }
 
     const jobId = this.options.newId();
     const job: Job = { unitId: request.unitId, abort: new AbortController() };
@@ -373,6 +382,7 @@ export class IntelligenceBridge {
       const cap = this.remainingCap(state, request);
       const unit: WorkUnit = {
         unitId: request.unitId,
+        ...(request.reviewOf === undefined ? {} : { reviewOf: request.reviewOf }),
         task: {
           id: taskId(`${grant.turnId}:${request.unitId}`),
           kind: request.kind,

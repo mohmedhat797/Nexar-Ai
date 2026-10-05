@@ -278,6 +278,25 @@ describe('BridgeHost', () => {
     expect(executed).toHaveLength(0);
   });
 
+  it('accepts reviewOf only as a well-formed id of an earlier unit of the grant', async () => {
+    await make();
+    const { token } = host.mint(grantInput);
+    const conn = await open();
+    expect(await conn.call(submit(token))).toMatchObject({ ok: true });
+    expect(
+      await conn.call(submit(token, { ...UNIT, unitId: 'u2', reviewOf: 'u1' }, 'r2')),
+    ).toMatchObject({ ok: true });
+    expect(
+      await conn.call(submit(token, { ...UNIT, unitId: 'u3', reviewOf: 'nope' }, 'r3')),
+    ).toEqual({ id: 'r3', ok: false, code: 'POLICY_REJECTED' });
+    expect(
+      await conn.call(submit(token, { ...UNIT, unitId: 'u4', reviewOf: 'bad id' }, 'r4')),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_ERROR' });
+    expect(
+      await conn.call(submit(token, { ...UNIT, unitId: 'u5', reviewOf: 1 }, 'r5')),
+    ).toMatchObject({ ok: false, code: 'VALIDATION_ERROR' });
+  });
+
   it('never lets a request widen the grant access', async () => {
     await make();
     const { token } = host.mint(grantInput);
