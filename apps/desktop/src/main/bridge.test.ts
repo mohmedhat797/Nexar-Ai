@@ -299,8 +299,9 @@ describe('project files', () => {
       expect(result.ok && result.value.entries).toHaveLength(500);
       expect(result.ok && result.value.truncated).toBe(true);
     },
-    // The 520 real fixture files and containment reads encounter Windows antivirus scanning.
-    process.platform === 'win32' ? 15_000 : undefined,
+    // The 520 real fixture files and containment reads encounter Windows antivirus scanning; a
+    // GitHub Windows runner took 21.5 s (run 37255914090), so the budget is generous there.
+    process.platform === 'win32' ? 60_000 : undefined,
   );
 
   it('previews UTF-8 text files', async () => {
