@@ -19,6 +19,10 @@
 //                              `features: ['resources']` (an older Desktop never receives it)
 //   NEXAR_FAKE_PLANE_CONTROL   `1` adds `readiness.control` (the Code control policy) next to the resources
 //   NEXAR_FAKE_PLANE_LANE_FACTS `1` adds the executor facts to the lanes of a committed or reported outcome
+//   NEXAR_FAKE_PLANE_ACCEPTANCE `engine` | `native` makes the commit that follows an approval list a
+//                              feature and a review lane on different resources with executor facts:
+//                              `engine` has the feature lane driven by DSH on a control resource,
+//                              `native` has it fall back with `control-unavailable`
 //   NEXAR_FAKE_PLANE_DIFF    `big` makes the diff large and truncated
 //   NEXAR_FAKE_PLANE_LOG       when set, a JSON-lines log of the frames received and of the
 //                              environment variable NAMES this process started with
@@ -159,6 +163,29 @@ function runReport(runId, plan = false) {
       },
     ],
   });
+}
+
+/** The acceptance lane set (NXR-066): feature and review on different resources, with executor facts. */
+function acceptanceLanes() {
+  const set = process.env.NEXAR_FAKE_PLANE_ACCEPTANCE;
+  if (set !== 'engine' && set !== 'native') return {};
+  return {
+    lanes: [
+      {
+        role: 'feature',
+        resourceId: 'dsh:deepseek',
+        ...(set === 'engine'
+          ? { executor: 'engine', engine: 'dsh', controlResourceId: 'pi:deepseek-chat' }
+          : { executor: 'native', executorReason: 'control-unavailable' }),
+      },
+      {
+        role: 'review',
+        resourceId: 'claude-code:sonnet',
+        executor: 'native',
+        executorReason: 'engine-not-selected',
+      },
+    ],
+  };
 }
 
 function handleRun(frame) {
@@ -371,6 +398,7 @@ function handle(frame) {
             status: 'committed',
             branch: 'nexar/task-fake-1',
             commit: COMMIT,
+            ...acceptanceLanes(),
           });
         } else {
           completed(runId, { taskId: TASK_ID, status: 'not-accepted', reason: 'owner-denied' });

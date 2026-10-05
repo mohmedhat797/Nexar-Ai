@@ -21,7 +21,8 @@ export type FakeScenario =
   | 'declined-requests'
   | 'question'
   | 'delegate'
-  | 'control-loop';
+  | 'control-loop'
+  | 'sow';
 
 export interface FakeServerOptions {
   readonly token: string;
@@ -51,6 +52,17 @@ interface McpConfig {
 const DELEGATE_SUBMIT = 'mcp__nexar__nexar_intelligence_submit';
 const DELEGATE_STATUS = 'mcp__nexar__nexar_intelligence_status';
 const DELEGATE_POLL_MS = 200;
+
+/** One relay tool call: the parsed JSON of its text block. */
+type RelayCall = (name: string, args: unknown) => Promise<Record<string, unknown>>;
+
+/** The four units of the `sow` scenario: id, task kind, capabilities and access, in dependency order. */
+const SOW_UNITS = [
+  { unitId: 'extract', kind: 'analysis', capabilities: ['knowledge-work'], access: 'read-only' },
+  { unitId: 'synthesize', kind: 'analysis', capabilities: ['reasoning'], access: 'read-only' },
+  { unitId: 'draft', kind: 'documentation', capabilities: ['text-generation'], access: 'draft' },
+  { unitId: 'review', kind: 'review', capabilities: ['reasoning'], access: 'read-only' },
+] as const;
 const DELEGATE_MAX_MS = 60_000;
 
 function isMcpConfig(value: unknown): value is McpConfig {
@@ -300,14 +312,9 @@ export class FakeOpenWorkerServer {
     return new Promise((resolve) => this.#waiters.push({ type, resolve }));
   }
 
-  /**
-   * Delegates one unit through the registered relay, as OpenWorker would: ask permission for the
-   * bridge tool (by its mapped name), and only when allowed launch the registered command with its
-   * env, speak minimal MCP over stdio, poll the status, and write the returned text as a draft.
-   */
-  async #delegate(send: (frame: Frame | string) => void, workspace: string): Promise<void> {
-    send({ type: 'turn_start' });
-    const ask = async (name: string): Promise<boolean> => {
+  /** Asks the owner-side policy for one bridge tool call (by its mapped name); true when allowed. */
+  #asker(send: (frame: Frame | string) => void): (name: string) => Promise<boolean> {
+    return async (name) => {
       send({
         type: 'permission_required',
         name,
@@ -317,6 +324,16 @@ export class FakeOpenWorkerServer {
       });
       return (await this.#next('approval'))['decision'] === 'allow';
     };
+  }
+
+  /**
+   * Delegates one unit through the registered relay, as OpenWorker would: ask permission for the
+   * bridge tool (by its mapped name), and only when allowed launch the registered command with its
+   * env, speak minimal MCP over stdio, poll the status, and write the returned text as a draft.
+   */
+  async #delegate(send: (frame: Frame | string) => void, workspace: string): Promise<void> {
+    send({ type: 'turn_start' });
+    const ask = this.#asker(send);
     if (!(await ask(DELEGATE_SUBMIT))) {
       send({ type: 'assistant_message', text: 'Delegation was not allowed' });
       send({ type: 'turn_done' });
@@ -332,11 +349,47 @@ export class FakeOpenWorkerServer {
     send({ type: 'turn_done' });
   }
 
-  /** Minimal MCP client over the relay's stdio (newline-delimited JSON-RPC). */
-  async #runRelay(
+  /** One unit through the relay: submit, ask for status, poll until done. */
+  #runRelay(
     config: McpConfig,
     ask: (name: string) => Promise<boolean>,
   ): Promise<string | undefined> {
+    return this.#relaySession(config, async (call) => {
+      const submitted = await call('nexar.intelligence_submit', {
+        unitId: 'u1',
+        input: 'Draft a short project status note.',
+        access: process.env['NEXAR_FAKE_OPENWORKER_DELEGATE_ACCESS'] ?? 'read-only',
+      });
+      return this.#pollUnit(call, submitted, ask);
+    });
+  }
+
+  /** Asks for the status tool, then polls the unit's job; the text of a finished unit, else undefined. */
+  async #pollUnit(
+    call: RelayCall,
+    submitted: Record<string, unknown>,
+    ask: (name: string) => Promise<boolean>,
+  ): Promise<string | undefined> {
+    if (typeof submitted['jobId'] !== 'string') return undefined;
+    if (!(await ask(DELEGATE_STATUS))) return undefined;
+    const deadline = Date.now() + DELEGATE_MAX_MS;
+    while (Date.now() < deadline) {
+      const status = await call('nexar.intelligence_status', { jobId: submitted['jobId'] });
+      if (status['state'] === 'done') {
+        const result = status['result'] as { text?: unknown } | undefined;
+        return typeof result?.text === 'string' ? result.text : undefined;
+      }
+      if (status['state'] !== 'running') return undefined;
+      await new Promise((resolve) => setTimeout(resolve, DELEGATE_POLL_MS));
+    }
+    return undefined;
+  }
+
+  /** Minimal MCP client over the relay's stdio (newline-delimited JSON-RPC). */
+  async #relaySession<T>(
+    config: McpConfig,
+    work: (call: RelayCall) => Promise<T>,
+  ): Promise<T | undefined> {
     const child = spawn(config.command, [...config.args], {
       env: { PATH: process.env['PATH'] ?? '', ...config.env },
       stdio: ['pipe', 'pipe', 'ignore'],
@@ -389,24 +442,7 @@ export class FakeOpenWorkerServer {
       });
       write({ method: 'notifications/initialized' });
       await rpc('tools/list', {});
-      const submitted = await call('nexar.intelligence_submit', {
-        unitId: 'u1',
-        input: 'Draft a short project status note.',
-        access: process.env['NEXAR_FAKE_OPENWORKER_DELEGATE_ACCESS'] ?? 'read-only',
-      });
-      if (typeof submitted['jobId'] !== 'string') return undefined;
-      if (!(await ask(DELEGATE_STATUS))) return undefined;
-      const deadline = Date.now() + DELEGATE_MAX_MS;
-      while (Date.now() < deadline) {
-        const status = await call('nexar.intelligence_status', { jobId: submitted['jobId'] });
-        if (status['state'] === 'done') {
-          const result = status['result'] as { text?: unknown } | undefined;
-          return typeof result?.text === 'string' ? result.text : undefined;
-        }
-        if (status['state'] !== 'running') return undefined;
-        await new Promise((resolve) => setTimeout(resolve, DELEGATE_POLL_MS));
-      }
-      return undefined;
+      return await work(call);
     } catch {
       return undefined;
     } finally {
@@ -424,6 +460,7 @@ export class FakeOpenWorkerServer {
     send: (frame: Frame | string) => void,
     workspace: string,
     userMessage: Frame,
+    between?: () => Promise<string>,
   ): Promise<void> {
     send({ type: 'turn_start' });
     const entry = this.providers
@@ -486,15 +523,48 @@ export class FakeOpenWorkerServer {
         // "Executed" locally: the note is only kept in memory.
         messages.push({ role: 'tool', tool_call_id: call.id, content: 'noted' });
       }
+      // The delegating scenario does its work between the tool call and the final control turn.
+      const delegated = await between?.();
       const second = await complete();
       const text = second['content'];
       if (typeof text !== 'string' || text === '') throw new Error('control-loop: no final text');
-      writeFileSync(join(workspace, 'draft.md'), text);
+      writeFileSync(join(workspace, 'draft.md'), delegated ?? text);
       send({ type: 'assistant_message', text: 'Control loop done' });
       send({ type: 'turn_done' });
     } catch {
       send({ type: 'error', message: 'control-loop-failed' });
     }
+  }
+
+  /**
+   * The `sow` scenario's delegation: the four units go through the relay in dependency order, each
+   * fed the previous unit's text, with permission asked for every bridge call. Returns the text of
+   * the `draft` unit; any refusal or failed unit throws, which ends the turn with an error.
+   */
+  async #sowUnits(send: (frame: Frame | string) => void): Promise<string> {
+    const ask = this.#asker(send);
+    const config = this.mcpServers.get('nexar');
+    if (config === undefined) throw new Error('sow: no bridge registered');
+    const texts = new Map<string, string>();
+    const done = await this.#relaySession(config, async (call) => {
+      let previous = 'the project documents';
+      for (const unit of SOW_UNITS) {
+        if (!(await ask(DELEGATE_SUBMIT))) return false;
+        const submitted = await call('nexar.intelligence_submit', {
+          ...unit,
+          capabilities: [...unit.capabilities],
+          input: `Unit ${unit.unitId}, working from: ${previous}`,
+        });
+        const text = await this.#pollUnit(call, submitted, ask);
+        if (text === undefined) return false;
+        texts.set(unit.unitId, text);
+        previous = text;
+      }
+      return true;
+    });
+    const draft = texts.get('draft');
+    if (done !== true || draft === undefined || draft === '') throw new Error('sow: unit failed');
+    return draft;
   }
 
   async #turn(
@@ -538,6 +608,8 @@ export class FakeOpenWorkerServer {
         return this.#delegate(send, workspace);
       case 'control-loop':
         return this.#controlLoop(send, workspace, userMessage);
+      case 'sow':
+        return this.#controlLoop(send, workspace, userMessage, () => this.#sowUnits(send));
       default:
         break;
     }
