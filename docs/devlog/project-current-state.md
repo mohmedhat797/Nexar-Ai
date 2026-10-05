@@ -110,25 +110,27 @@ The previous next task (install OpenWorker and give it an API key) is superseded
 | NXR-059 OpenWorker → Nexar delegation                 | done (CI green)                         | `7123b61` bridge host (local IPC endpoint) + stdio MCP relay, `872b9b1` transport decision, `7bd4631` Cowork delegation wiring + E2E                                                                                                                 |
 | NXR-063 OpenWorker NexarProvider                      | done                                    | `43e9fbe` host `control` op + loopback Chat Completions translator child, `3bdda5c` per-turn gateway provider, control policy setting, restart-on-control-failure, `openworker-control-unavailable` fallback                                         |
 | NXR-064 DSH Code orchestration                        | done (CI green, incl. real-bwrap smoke) | `9d69ef5`+`830dd17` spike + ADR-027 §9b, `31d5745` shared endpoint/translator + sandbox services mount, `ccfde2f` lane-private engine sessions + honest `executor` records, `e0f3073` DSH on the gateway (no `DEEPSEEK_API_KEY`, bridge via ACP MCP) |
+| NXR-065 Providers and orchestration UX                | done (CI green)                         | `c3333ea` control policy/candidates/lane facts over IPC + plane protocol, `cc7246e` provider cards, Orchestration section, resource details, executor facts in the UI                                                                                |
+| NXR-067 ChatGPT plan (official token sharing)         | done (CI green)                         | `dc9e585` decision (Sign in with ChatGPT replaces the experimental Codex-client route), `bf222e6` connection (PKCE, callback child, key store, refresh), `b481b27` `chatgpt-plan:*` model-turn resources + Providers UI                              |
+| NXR-066 Acceptance                                    | offline done; owner live pending        | `1658a9a` offline acceptance E2Es, `122d978` `reviewOf` for delegated units (review diversity), `2f1f5c7` live runbook                                                                                                                               |
 
 Desktop note: the next Desktop start migrates the owner's config (backup `nexar.config.json.bak-<timestamp>`),
 removing the `local-echo` default so Auto routes to discovered resources (signed-in Claude Code).
 
 ## NEXT EXACT TASK
 
-**NXR-065 — Providers and orchestration UX** ([backlog](../backlog/065-providers-ux-consolidation.md)):
-Desktop surfaces connections/resources (incl. plane resources read-only), the control-resource
-policy for Cowork and Code, and lane/turn records (`control`, `executor`, reasons). Carry the new
-lane record fields over the plane protocol. Then (067) → 066.
+**NXR-066b — owner live acceptance**, following
+[`evidence/nxr-066-live-acceptance-runbook.md`](evidence/nxr-066-live-acceptance-runbook.md): connect
+providers once (Claude Code; ChatGPT plan via Sign in with ChatGPT), Auto everywhere, one Cowork SOW,
+one small Code change, the integrated flow; evidence in `evidence/nxr-066-owner-acceptance.md`. Owner-
+initiated only (real subscriptions and plan allowance); no push. PR #39 stays draft until the owner
+accepts v0.6. Do not start NXR-054, Memory, Automation, Mobile or the control plane before that.
 
 Owner notes:
 
-- Cowork's control setting lives in `desktop-settings.json` (`orchestration.cowork.controlResource`,
-  default Auto); Code's in the plane config (`orchestration.code.controlResource`). No UI until 065.
-- A control resource needs `model-turn`: a pi model with an API key, or a local endpoint with
-  `toolCalling`. Subscription CLIs (Claude Code, Codex) are native agents, so Code lanes run
-  `executor: native` until such a resource exists (or NXR-067).
-- DSH's bridge needs the plane's Node inside `engineering.toolchainPaths`; otherwise DSH lanes run on
-  the gateway without delegation.
-- Follow-ups: lane restart from the worktree base on control failure (ADR-027 §8); live checks of
-  pi-ai with the single-chunk SSE and `--patch` with `--profile acp` (NXR-066).
+- Expected today on Code: `executor: native` with `control-unavailable` (subscriptions are native
+  agents on the plane; ChatGPT plan sign-in on the plane is a follow-up).
+- Open live questions: function tools on the ChatGPT token route; pi-ai with the single-chunk SSE and
+  DSH `--patch` with `--profile acp`.
+- Follow-ups: lane restart on control failure (ADR-027 §8); plane ChatGPT sign-in; local Node 24
+  worker crashes (repo pins Node 22).

@@ -137,7 +137,9 @@ They share infrastructure (lineage, identity, telemetry) and serve different pur
     shape.
   - `extras` stay opaque, scoped to the decision, and are never forwarded to another resource.
 - **B. Intelligence Execution Bridge.** It executes bounded work units.
-  - Request: `IntelligenceRequest{lineage, unitId, requirements, input, access, timeout, budget}`.
+  - Request: `IntelligenceRequest{lineage, unitId, reviewOf?, requirements, input, access, timeout, budget}`;
+    `reviewOf` names an earlier unit of the same grant, so the strategy keeps the review on a
+    different resource when one is eligible.
   - Result: `IntelligenceResult{text, draftRefs, usage, decisionId, errorCode}`.
   - The resource is chosen by the strategy ledger and NRC revalidation.
   - NXR-059 is this bridge's OpenWorker transport.
