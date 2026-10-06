@@ -4,6 +4,26 @@ The decision is [ADR-027](../adr/027-resource-orchestration-architecture.md), re
 compatibility evidence is in [`subscription-control-compatibility.md`](../research/upstream/subscription-control-compatibility.md).
 Baseline: `main @ 76de2e1` (PR #36 merged), audited on 2026-10-04 against source, not only ADRs.
 
+## Dynamic inventory revision (2026-10-06)
+
+The baseline audit below is historical. NXR-059–065 and NXR-067a are implemented on draft PR #39;
+NXR-067b is partial, and NXR-066b is blocked by NXR-068. The owner smoke confirmed authentication
+but the account route rejected the assumed model; OpenWorker's unavailability is a separate host
+prerequisite. Current implementation/evidence is in
+[`project-current-state.md`](../devlog/project-current-state.md).
+
+[ADR-028](../adr/028-dynamic-provider-sessions-and-model-inventory.md) inserts a provider runtime
+inventory layer before the registry: provider → connection → runtime/route → inventory → stable
+model-level resources → existing strategy/NRC → Engine Gateway. It preserves ADR-027 engines and
+control-loop pinning. [NXR-068](../backlog/068-dynamic-provider-model-catalogs.md) proceeds in bounded
+units: contracts/materialization, OpenAI account catalog/execution first, Claude native inventory,
+Google native inventory, UI and regression. No static default model or generic vendor catalog
+establishes subscription availability. API/local pi-ai stays, ACP and Goose engine migration defer.
+
+Architecture documentation is pushed and CI-verified before implementation. Every subsequent
+coherent unit passes focused tests and the full gate, is reviewed, committed, pushed, and checked
+at the exact PR head. Live auth and quota acceptance wait for owner initiation after NXR-068.
+
 ## 1. Current-state audit (what the code does today)
 
 | Flow               | Implementation                                                                                                                                                                                                    | Who chooses the resource                                                                                                 |

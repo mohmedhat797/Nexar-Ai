@@ -36,3 +36,6 @@ ADR (or amend status) when you change one.
 
 Template: Status · Context · Decision · Rationale · Alternatives considered · Consequences · Risks ·
 Follow-up work.
+
+[ADR-028: Dynamic Provider Sessions and Model Inventory](028-dynamic-provider-sessions-and-model-inventory.md)
+is accepted (2026-10-06); implementation NXR-068 blocks v0.6 live acceptance.

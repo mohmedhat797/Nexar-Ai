@@ -4,6 +4,12 @@
 
 ## Decision (2026-10-05)
 
+**Reconciliation (2026-10-06):** 067a sign-in is implemented, CI-green and owner-reported successful.
+067b is **partially implemented; requires revision through NXR-068**. Its resource publication uses
+`chatgptPlan.models` with a static default, not discovered account/route availability. The live
+rejection of that model invalidates the old publication assumption, not the authentication evidence.
+NXR-067 remains in the backlog; native-agent models and account-backed model turns are separate.
+
 ChatGPT goes first through OpenAI's **official** "Sign in with ChatGPT" token sharing
 ([research](../research/upstream/chatgpt-sign-in-token-sharing.md), ADR-022 amendment 2026-10-05):
 an `official-account` connection whose access token calls the public Responses API. The

@@ -4,6 +4,11 @@
 
 ## Objective
 
+**Status (2026-10-06):** 066a offline acceptance implemented; **066b BLOCKED on NXR-068**.
+The owner reported successful ChatGPT sign-in, but the first Cowork smoke fell back to Direct because
+OpenWorker was unavailable and then the account route rejected Nexar's assumed `gpt-5.2`. The
+OpenWorker prerequisite and model inventory defect are independent. No v0.6 acceptance or merge.
+
 Prove ADR-027 offline, then live on the owner machine.
 
 ## Problem

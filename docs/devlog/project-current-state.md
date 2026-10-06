@@ -5,7 +5,68 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-04, repository reconciliation)
+## Snapshot (2026-10-06, provider-inventory reconciliation)
+
+Local HEAD, `origin/feat/nexar-resource-orchestration` and draft PR
+[#39](https://github.com/mohmedhat797/Nexar-Ai/pull/39) match
+`57e0c3d7254f8ea925100954b784f47a2ffd1a32`; working tree was clean before this revision.
+Exact-head [CI 37256667335](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37256667335)
+passed Ubuntu, Windows and secret scan. PR #36 is merged at `76de2e1`; PR #39 remains draft.
+
+NXR-068 architecture checkpoint: ADR-028, upstream comparison, backlog and blocked runbook are
+reviewed. Full local `pnpm check` passed on Node 22.23.3 / pnpm 10.33.0 (3,814 passed, 158 skipped,
+build passed). An earlier Node 24 run crashed one Vitest worker; the repository specifies Node 22.
+Implementation begins only after this documentation commit is pushed and its exact-head CI passes.
+
+**v0.6 is implemented offline, not owner-accepted. NXR-066b is blocked on NXR-068.** The owner's
+first Cowork smoke reported two independent findings: OpenWorker unavailable on Windows (environment
+acceptance), and account-backed inference rejecting the assumed `gpt-5.2` (provider architecture).
+ChatGPT sign-in succeeded; connection success did not establish model availability. No live
+authentication or allowance-consuming tests are authorized implicitly by this continuation.
+
+### Implementation-state audit
+
+- **059:** authenticated turn-scoped local IPC bridge, stdio MCP relay, OpenWorker registration,
+  bounded delegated units and lineage; implemented with offline tests.
+- **060:** first-run echo migration, `ProviderConnection`, connection/support metadata, `model-turn`
+  compatibility, plane resource reporting; implemented. Provider and connection ids are separate,
+  but native discovery currently infers one default connection per runtime.
+- **061:** pure `strategy@1`, plan allocation, ledger and runtime revalidation; implemented.
+- **062:** Control Model Gateway (pinned decisions, tool turns, explicit restart) and Intelligence
+  Execution Bridge; implemented. Neither owns provider authentication.
+- **063:** supervised loopback translator child and OpenWorker control through Nexar, units through
+  the bridge; implemented. OpenWorker is still the Cowork engine; its unavailability is separate.
+- **064:** plane-local gateway/relay, DSH ACP control overlay, native fallback with executor facts;
+  implemented. Automatic Code lane restart from base after control failure remains follow-up work.
+- **065:** provider-family cards, compatible control picker, policy IPC, plane read-only facts;
+  implemented. Providers does not yet show connection-specific live model inventories.
+- **066a:** offline orchestration acceptance implemented (`4feddd7`, `122d978`); **066b blocked**.
+- **067a:** Nexar-owned ChatGPT PKCE sign-in, supervised callback, encrypted tokens, refresh and
+  disconnect implemented (`bf222e6`) and owner-reported sign-in succeeded.
+- **067b:** partially implemented (`b481b27`): model turns through pi-ai, but production resources
+  come from owner-edited `chatgptPlan.models`, defaulting to `gpt-5.2`. This is not discovery and must
+  be revised through NXR-068. Function-tool compatibility remains live-unverified.
+
+Current resource model is ADR-007 descriptor/state, with connection metadata from ADR-027. API/local
+models remain pi-ai catalog/owner-listed endpoint resources. Native Claude Code, Codex and Antigravity
+are agent resources; invocation model flags exist, but no connection-specific inventory is exposed.
+Claude authentication uses its vendor CLI; Codex native authentication is distinct from Nexar's
+ChatGPT plan connection and cannot prove the account Responses route's models. Antigravity has an
+experimental `agy` executor and a model-list probe; Desktop sign-in/status remains unsupported or
+unknown. Its model list must not be equated with authentication.
+
+### Discrepancies and gaps
+
+The older snapshot below and README's "coming next" Desktop section are historical; implementation
+has advanced. Backlog 059–065 checkboxes are design acceptance lists, not the current implementation
+ledger. The old NXR-066 runbook's fixed `chatgpt-plan:gpt-5.2` expectation is invalid. NXR-067's
+"model discovery" description contradicts `chatgpt-plan-resources.ts` and `settings-store.ts`.
+pi execution/probes also require the static catalog, so merely fetching a new model id would still
+fail for a model missing from the pinned pi catalog. There is no route-scoped inventory cache,
+freshness, model rejection invalidation or refresh/picker IPC yet. Existing config reload replaces
+the composition; inventory refresh must preserve pinned control-loop boundaries.
+
+The older snapshot and Operating Layer details below remain historical context.
 
 | Item                           | Value                                                                                                                                                                                                                                       |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -16,7 +77,7 @@ Update this file at every milestone checkpoint.
 | Open PRs after the merge       | none                                                                                                                                                                                                                                        |
 | Remote branches kept           | `feat/nexar-v0.2-personal-work`, `feat/nexar-v0.3-engineering-machine`, `feat/nexar-v0.4-resource-intelligence`, `claude/eager-ptolemy-j5bbnj`, `feat/nexar-operating-layer`: all fully contained in `main` (kept by repository convention) |
 
-## Milestones
+## Historical milestone ledger (2026-10-04)
 
 | Milestone                                  | State                              | Notes                                                                                                                                                                                                           |
 | ------------------------------------------ | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -99,7 +160,7 @@ auth (Nexar's own isolated login, never harvested; Antigravity excluded by its t
 evidence: [`subscription-control-compatibility.md`](../research/upstream/subscription-control-compatibility.md).
 The previous next task (install OpenWorker and give it an API key) is superseded.
 
-## v0.6 progress (PR #39, `feat/nexar-resource-orchestration`)
+## v0.6 implementation history (superseded status: see the 2026-10-06 audit above)
 
 | Unit                                                  | State                                   | Commits                                                                                                                                                                                                                                              |
 | ----------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -119,12 +180,13 @@ removing the `local-echo` default so Auto routes to discovered resources (signed
 
 ## NEXT EXACT TASK
 
-**NXR-066b — owner live acceptance**, following
-[`evidence/nxr-066-live-acceptance-runbook.md`](evidence/nxr-066-live-acceptance-runbook.md): connect
-providers once (Claude Code; ChatGPT plan via Sign in with ChatGPT), Auto everywhere, one Cowork SOW,
-one small Code change, the integrated flow; evidence in `evidence/nxr-066-owner-acceptance.md`. Owner-
-initiated only (real subscriptions and plan allowance); no push. PR #39 stays draft until the owner
-accepts v0.6. Do not start NXR-054, Memory, Automation, Mobile or the control plane before that.
+**NXR-068 — Dynamic Provider Model Catalogs.** Research current T3 Code, Goose and official runtime
+interfaces; record ADR-028, the bounded implementation plan and the live acceptance blocker. Commit
+and push the architecture checkpoint, wait for exact-head CI, then implement contracts,
+materialization and the OpenAI account-specific inventory first, followed by Anthropic, Google and
+the inventory/selection UI. NXR-066b resumes only after NXR-068 passes CI, with fresh owner initiation.
+PR #39 stays draft and must not be merged. Scheduler, Memory, Automation, Mobile and control plane
+remain deferred.
 
 Owner notes:
 

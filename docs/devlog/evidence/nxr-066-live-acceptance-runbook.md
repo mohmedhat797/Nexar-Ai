@@ -6,6 +6,10 @@ never prompts, outputs, tokens or account identifiers).
 
 ## 0. Preconditions
 
+**Blocked (2026-10-06):** finish NXR-068 and exact-head CI before resuming this runbook. The owner's
+first smoke confirmed ChatGPT authentication but exposed an unsupported assumed model and unavailable
+OpenWorker. Use only a fresh model returned for the selected account and route.
+
 - PR #39 head is green in CI; Desktop built from `feat/nexar-resource-orchestration`
   (`pnpm install && pnpm build`, then `pnpm --filter @nexar/desktop start`). First start migrates the
   config (backup `nexar.config.json.bak-<timestamp>`).
@@ -21,8 +25,9 @@ never prompts, outputs, tokens or account identifiers).
 2. **OpenAI → ChatGPT plan (Sign in with ChatGPT)** → **Connect**. Sign in in the browser and
    **allow plan usage** for Nexar. Status becomes "Connected" with plan sharing on. (Uses the
    ChatGPT plan's allowance; manage or revoke it in ChatGPT settings.)
-3. Resources → details: `chatgpt-plan:gpt-5.2` is listed with `model-turn`, connection
-   OpenAI / subscription / official; Claude Code is a native agent (work resource).
+3. Refresh the ChatGPT plan inventory. Record its returned model slug, freshness and resource id.
+   Resources → details: that resource has `model-turn`, connection OpenAI / subscription / official;
+   Claude Code is a native agent (work resource). Empty or stale inventory blocks this step.
 4. Settings → Providers → **Engineering plane**: plane resources listed read-only.
 
 ## 2. Orchestration — Auto
@@ -30,12 +35,19 @@ never prompts, outputs, tokens or account identifiers).
 Settings → AI behavior → Orchestration: Cowork control **Auto** (shows "Auto → chatgpt-plan:…"),
 fallback **Auto**. Code shows the plane's policy read-only.
 
+### First resumed smoke — read-only
+
+Before SOW, start a conversation in the project and ask: **"Review the files in this project and
+give me a short summary. Do not modify any files."** Record the fresh connection/route/model/resource,
+selection reason and outcome; confirm zero file modifications and no fabricated model. If inventory
+or execution fails, record the fixed reason and refresh outcome before proceeding to Cowork.
+
 ## 3. Cowork SOW (acceptance §14.2)
 
 New Cowork conversation in a project with documents. Prompt: **"Create a professional SOW using this
 project."** Expect and record:
 
-- lane `cowork` (no fallback); Control line "Nexar gateway on chatgpt-plan:gpt-5.2";
+- lane `cowork` (no fallback); Control line identifies the fresh resource recorded in step 1.3;
 - OpenWorker delegated ≥ 1 unit through Nexar, at least one on the Claude Code subscription
   (unit ids, resource ids, outcomes);
 - a draft artifact saved by Nexar;
