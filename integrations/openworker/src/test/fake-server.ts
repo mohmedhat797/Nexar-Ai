@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
@@ -62,9 +62,27 @@ type RelayCall = (name: string, args: unknown) => Promise<Record<string, unknown
 
 /** The four units of the `sow` scenario: id, task kind, capabilities and access, in dependency order. */
 const SOW_UNITS = [
-  { unitId: 'extract', kind: 'analysis', capabilities: ['knowledge-work'], access: 'read-only' },
-  { unitId: 'synthesize', kind: 'analysis', capabilities: ['reasoning'], access: 'read-only' },
-  { unitId: 'draft', kind: 'documentation', capabilities: ['text-generation'], access: 'draft' },
+  {
+    unitId: 'extract',
+    kind: 'analysis',
+    capabilities: ['knowledge-work'],
+    access: 'read-only',
+    reviewOf: 'none',
+  },
+  {
+    unitId: 'synthesize',
+    kind: 'analysis',
+    capabilities: ['reasoning'],
+    access: 'read-only',
+    reviewOf: 'none',
+  },
+  {
+    unitId: 'draft',
+    kind: 'documentation',
+    capabilities: ['text-generation'],
+    access: 'draft',
+    reviewOf: 'none',
+  },
   {
     unitId: 'review',
     kind: 'analysis',
@@ -292,8 +310,19 @@ export class FakeOpenWorkerServer {
     this.#sockets.add(socket);
     socket.on('close', () => this.#sockets.delete(socket));
     socket.on('error', () => undefined);
-    const workspace =
-      new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('workspace') ?? '';
+    const url = new URL(req.url ?? '', 'http://127.0.0.1');
+    const workspace = url.searchParams.get('workspace') ?? '';
+    const sessionMatch = url.pathname.match(/\/ws\/session\/([^/?]+)/);
+    const sessionId = sessionMatch ? decodeURIComponent(sessionMatch[1] ?? '') : '';
+    const scratchBase = process.env['COWORKER_SCRATCH_BASE'];
+    const activeWorkspace = scratchBase && sessionId ? join(scratchBase, sessionId) : workspace;
+    if (activeWorkspace !== '') {
+      try {
+        mkdirSync(activeWorkspace, { recursive: true });
+      } catch {
+        /* ignore */
+      }
+    }
     const send = (frame: Frame | string): void => {
       if (!socket.destroyed)
         socket.write(
@@ -315,7 +344,7 @@ export class FakeOpenWorkerServer {
           const index = this.#waiters.findIndex((waiter) => waiter.type === frame['type']);
           if (index >= 0) this.#waiters.splice(index, 1)[0]!.resolve(frame);
           else if (frame['type'] === 'user_message')
-            void this.#turn(socket, send, workspace, frame);
+            void this.#turn(socket, send, activeWorkspace, frame);
         }
       }
     });

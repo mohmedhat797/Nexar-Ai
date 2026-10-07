@@ -280,7 +280,7 @@ describe('BridgeHost', () => {
 
   it('accepts reviewOf only as a well-formed id of an earlier unit of the grant', async () => {
     await make();
-    const { token } = host.mint(grantInput);
+    const { token } = host.mint({ ...grantInput, maxUnits: 10 });
     const conn = await open();
     expect(await conn.call(submit(token))).toMatchObject({ ok: true });
     expect(
@@ -295,6 +295,19 @@ describe('BridgeHost', () => {
     expect(
       await conn.call(submit(token, { ...UNIT, unitId: 'u5', reviewOf: 1 }, 'r5')),
     ).toMatchObject({ ok: false, code: 'VALIDATION_ERROR' });
+    // Sentinel reviewOf values are normalized to undefined
+    expect(
+      await conn.call(submit(token, { ...UNIT, unitId: 'u6', reviewOf: 'none' }, 'r6')),
+    ).toMatchObject({ ok: true });
+    expect(
+      await conn.call(submit(token, { ...UNIT, unitId: 'u7', reviewOf: 'null' }, 'r7')),
+    ).toMatchObject({ ok: true });
+    expect(
+      await conn.call(submit(token, { ...UNIT, unitId: 'u8', reviewOf: '' }, 'r8')),
+    ).toMatchObject({ ok: true });
+    expect(
+      await conn.call(submit(token, { ...UNIT, unitId: 'u9', reviewOf: null }, 'r9')),
+    ).toMatchObject({ ok: true });
   });
 
   it('never lets a request widen the grant access', async () => {

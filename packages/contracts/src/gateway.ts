@@ -263,6 +263,21 @@ export const INTELLIGENCE_LIMITS = {
 
 const UNIT_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 
+/**
+ * Normalizes sentinel or empty reviewOf values (e.g. from OpenWorker) to undefined.
+ * Non-sentinel values (whether valid unit IDs or malformed) are preserved for validation.
+ */
+export function normalizeReviewOf(value: unknown): unknown {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '' || trimmed.toLowerCase() === 'none' || trimmed.toLowerCase() === 'null') {
+      return undefined;
+    }
+  }
+  return value;
+}
+
 /** Validates the bounds of an intelligence request. Content is never echoed in the error. */
 export function validateIntelligenceRequest(request: IntelligenceRequest): void {
   if (typeof request.unitId !== 'string' || !UNIT_ID.test(request.unitId)) {

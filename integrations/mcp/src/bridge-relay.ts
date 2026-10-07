@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { McpServer, type CallToolResult } from '@modelcontextprotocol/server';
 import { StdioServerTransport, serveStdio } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
-import { NEXAR_ERROR_CODES, type NexarErrorCode } from '@nexar/contracts';
+import { NEXAR_ERROR_CODES, normalizeReviewOf, type NexarErrorCode } from '@nexar/contracts';
 import { advertised } from './server.js';
 import { redirectConsoleToStderr } from './stdio.js';
 
@@ -41,13 +41,16 @@ const SubmitInput = z.strictObject({
     .string()
     .regex(UNIT_ID)
     .describe('Unique id for this unit within the turn (letters, digits, _ . : -; at most 64).'),
-  reviewOf: z
-    .string()
-    .regex(UNIT_ID)
-    .optional()
-    .describe(
-      'The unitId of an earlier unit this unit reviews; Nexar then runs it on a different resource when possible.',
-    ),
+  reviewOf: z.preprocess(
+    normalizeReviewOf,
+    z
+      .string()
+      .regex(UNIT_ID)
+      .optional()
+      .describe(
+        'The unitId of an earlier unit this unit reviews; Nexar then runs it on a different resource when possible.',
+      ),
+  ),
   kind: z.string().min(1).max(64).optional().describe('Task kind. Default "general".'),
   capabilities: z
     .array(z.string().min(1).max(64))

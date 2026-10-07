@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CONTROL_TURN_LIMITS,
   INTELLIGENCE_LIMITS,
+  normalizeReviewOf,
   validateControlTurnRequest,
   validateIntelligenceRequest,
 } from './gateway.js';
@@ -151,5 +152,27 @@ describe('validateIntelligenceRequest', () => {
     } catch (e) {
       expect(String((e as Error).message)).not.toContain('SENTINEL');
     }
+  });
+});
+
+describe('normalizeReviewOf', () => {
+  it('normalizes sentinels and empty strings to undefined', () => {
+    expect(normalizeReviewOf('none')).toBeUndefined();
+    expect(normalizeReviewOf('None')).toBeUndefined();
+    expect(normalizeReviewOf('NONE')).toBeUndefined();
+    expect(normalizeReviewOf('null')).toBeUndefined();
+    expect(normalizeReviewOf('Null')).toBeUndefined();
+    expect(normalizeReviewOf('NULL')).toBeUndefined();
+    expect(normalizeReviewOf('')).toBeUndefined();
+    expect(normalizeReviewOf('   ')).toBeUndefined();
+    expect(normalizeReviewOf(null)).toBeUndefined();
+    expect(normalizeReviewOf(undefined)).toBeUndefined();
+  });
+
+  it('preserves non-sentinel values for downstream validation', () => {
+    expect(normalizeReviewOf('draft')).toBe('draft');
+    expect(normalizeReviewOf('u1')).toBe('u1');
+    expect(normalizeReviewOf('bad id')).toBe('bad id');
+    expect(normalizeReviewOf(123)).toBe(123);
   });
 });

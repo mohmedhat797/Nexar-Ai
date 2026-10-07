@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import {
   NexarError,
   measured,
+  type ArtifactRef,
   type Logger,
   type ModelTurnPortRequest,
   type RouteDecision,
@@ -383,6 +384,7 @@ interface Setup {
   readonly createTaskSpy?: (request: Parameters<typeof newTask>[1], correlation: unknown) => void;
   readonly onSpawn?: (args: readonly string[], child: ChildProcess) => void;
   readonly delegation?: Delegation;
+  readonly openWorkerScratchBase?: string | undefined;
 }
 
 async function setup(options: Setup = {}) {
@@ -404,6 +406,9 @@ async function setup(options: Setup = {}) {
     keys,
     logger: capture,
     stateDir: join(dirname(h.userData), 'ow-runtime'),
+    ...(options.openWorkerScratchBase === undefined
+      ? {}
+      : { openWorkerScratchBase: options.openWorkerScratchBase }),
     ...(options.disabled === true ? { disabled: true } : {}),
     spawn,
     timings: { ...TIMINGS, ...options.timings },
@@ -510,6 +515,121 @@ describe('Cowork lane', () => {
     expect(coworkRecords.every((r) => r.taskId === taskId && r.projectId === projectId)).toBe(true);
     // The scratch directory is removed after the import.
     expect(await readdirSafe(join(dirname(h.userData), 'ow-runtime', 'scratch'))).toEqual([]);
+  });
+
+  it('imports an OpenWorker conversation workspace draft, rejecting outside files and ignoring unrelated files', async () => {
+    const scratchBase = await mkdtemp(join(tmpdir(), 'ow-scratch-base-'));
+    const outside = await mkdtemp(join(tmpdir(), 'ow-outside-'));
+    try {
+      const { cowork } = await setup({
+        openWorkerScratchBase: scratchBase,
+        env: { COWORKER_SCRATCH_BASE: scratchBase },
+      });
+      const task = newTask(
+        engine,
+        {
+          projectId,
+          kind: 'documentation',
+          prompt: 'Create a professional SOW using this project.',
+        },
+        'turn_sow_123',
+        { sessionId: 'ses_test', turnId: 'turn_sow_123' },
+      );
+      const request = {
+        sessionId: 'ses_test',
+        turnId: 'turn_sow_123',
+        projectId,
+        prompt: 'Create a professional SOW using this project.',
+        kind: 'documentation',
+        permission: 'drafts-only' as const,
+        correlation: {},
+        onProgress: () => undefined,
+        onTask: () => Promise.resolve(),
+      };
+
+      // Set up conversation workspace for turn_sow_123
+      const wsDir = join(scratchBase, 'turn_sow_123');
+      await mkdir(wsDir, { recursive: true });
+
+      // Valid SOW draft in conversation workspace (Criterion F)
+      const sowFile = join(wsDir, 'statement-of-work-live.md');
+      await writeFile(sowFile, '# Statement of Work\nLive validation');
+
+      // Unrelated files that must NOT be imported (Criterion H):
+      // 1. tool-output log file
+      await mkdir(join(wsDir, 'tool-output'), { recursive: true });
+      await writeFile(join(wsDir, 'tool-output', '0011-read_file-content.txt'), 'internal log');
+      // 2. worker directory file
+      await mkdir(join(wsDir, 'workers'), { recursive: true });
+      await writeFile(join(wsDir, 'workers', 'worker.md'), 'worker subtask');
+      // 3. hidden file
+      await writeFile(join(wsDir, '.hidden.md'), 'hidden');
+      // 4. non-draft extension
+      await writeFile(join(wsDir, 'script.py'), 'print(1)');
+
+      // Symlink pointing outside the trusted workspace boundary (Criterion G)
+      await writeFile(join(outside, 'outside-secret.md'), 'SECRET');
+      try {
+        await symlink(
+          join(outside, 'outside-secret.md'),
+          join(wsDir, 'symlink-outside.md'),
+          'file',
+        );
+      } catch {
+        /* Windows without symlink privileges */
+      }
+
+      // Legacy scratch directory with a draft (Criterion J)
+      const scratchDir = await mkdtemp(join(tmpdir(), 'ow-scratch-dir-'));
+      await writeFile(join(scratchDir, 'legacy-scratch-draft.md'), 'LEGACY-DRAFT');
+
+      // Record source project file before import (Criterion I)
+      const projectReadme = join(h.projectDir, 'README.md');
+      await writeFile(projectReadme, '# Original Project');
+      const readmeBefore = await readFile(projectReadme, 'utf8');
+
+      // Import drafts
+      const imported = await (
+        cowork as unknown as {
+          importDrafts: (
+            r: typeof request,
+            t: typeof task,
+            s: string,
+            sid?: string,
+          ) => Promise<readonly ArtifactRef[]>;
+        }
+      ).importDrafts(request, task, scratchDir, 'turn_sow_123');
+
+      // Criteria verification:
+      // F: SOW draft in conversation workspace imported correctly!
+      expect(imported).toHaveLength(2);
+      const labels = imported
+        .map((r: ArtifactRef) => (r.label ?? r.uri).replace(/\\/g, '/'))
+        .sort();
+      expect(labels.some((l) => l.endsWith('statement-of-work-live.md'))).toBe(true);
+
+      // J: Legacy scratch directory draft imported!
+      expect(labels.some((l) => l.endsWith('legacy-scratch-draft.md'))).toBe(true);
+
+      // H: Unrelated files are NOT imported!
+      expect(labels.some((l) => l.includes('0011-read_file-content.txt'))).toBe(false);
+      expect(labels.some((l) => l.includes('worker.md'))).toBe(false);
+      expect(labels.some((l) => l.includes('.hidden.md'))).toBe(false);
+      expect(labels.some((l) => l.includes('script.py'))).toBe(false);
+
+      // G: Draft outside boundary is NOT imported!
+      expect(labels.some((l) => l.includes('symlink-outside.md'))).toBe(false);
+      expect(labels.some((l) => l.includes('outside-secret.md'))).toBe(false);
+
+      // I: Source project files remain unchanged!
+      const readmeAfter = await readFile(projectReadme, 'utf8');
+      expect(readmeAfter).toBe(readmeBefore);
+
+      await rm(scratchDir, { recursive: true, force: true });
+    } finally {
+      await rm(scratchBase, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it('sends only the chosen provider key, with the provider:model, to the private server', async () => {

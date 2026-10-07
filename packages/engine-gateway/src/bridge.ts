@@ -5,6 +5,7 @@ import {
   taskId,
   toNexarError,
   valueOf,
+  normalizeReviewOf,
   validateIntelligenceRequest,
   type BridgeGrant,
   type IntelligenceRequest,
@@ -209,7 +210,18 @@ export class IntelligenceBridge {
     for (const job of state.jobs.values()) job.abort.abort();
   }
 
-  submit(grantId: string, request: IntelligenceRequest): { jobId: string } {
+  submit(grantId: string, rawRequest: IntelligenceRequest): { jobId: string } {
+    const reviewOf = normalizeReviewOf(rawRequest.reviewOf) as string | undefined;
+    const request: IntelligenceRequest =
+      reviewOf === rawRequest.reviewOf
+        ? rawRequest
+        : {
+            ...rawRequest,
+            ...(reviewOf === undefined ? {} : { reviewOf }),
+          };
+    if (reviewOf === undefined && 'reviewOf' in request) {
+      delete (request as { reviewOf?: string }).reviewOf;
+    }
     const state = this.grants.get(grantId);
     if (state === undefined) {
       this.emit('bridge.rejected', { grantId, reason: 'grant-mismatch' });

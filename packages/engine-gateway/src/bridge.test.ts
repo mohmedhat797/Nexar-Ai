@@ -277,6 +277,16 @@ describe('IntelligenceBridge', () => {
       expect(reasonCodes['review']).toContain('strategy.diversity');
     });
 
+    it('normalizes sentinel reviewOf values ("none", "null", "", whitespace) to undefined', () => {
+      const { bridge } = setup({ candidates: cheapAndDear });
+      const s1 = bridge.submit('g1', request({ unitId: 'u1', reviewOf: 'none' }));
+      expect(s1.jobId).toBeDefined();
+      const s2 = bridge.submit('g1', request({ unitId: 'u2', reviewOf: 'null' }));
+      expect(s2.jobId).toBeDefined();
+      const s3 = bridge.submit('g1', request({ unitId: 'u3', reviewOf: '   ' }));
+      expect(s3.jobId).toBeDefined();
+    });
+
     it('rejects an unknown, self or other-grant reviewOf with a fixed reason', async () => {
       const { bridge, events } = setup({ candidates: cheapAndDear });
       const reasonOf = (r: IntelligenceRequest) => rejection(() => bridge.submit('g1', r));

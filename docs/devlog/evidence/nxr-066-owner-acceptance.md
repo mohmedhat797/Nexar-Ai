@@ -85,6 +85,30 @@ Owner initially started live acceptance on 2026-10-07 at the maintenance head
   Desktop/plane builds and SOW revalidation. At this checkpoint the correction is undeployed;
   exact-head CI above covers 12d7ea1 only. No further provider/model call before the corrected build
   is deployed and its full exact-head CI is green. Record those receipts in the local handoff.
+- **SOW live retry observations (944b602):** session `ses_bc471dc526ea480b28b551b6c26a1f2d`,
+  turn `turn_9647b6fdef341c284b992681fd9f525f`, task `task_dba3a362-b73e-40df-8872-f6feb830023e`.
+  OpenWorker reached Cowork on fresh NRC resource `gpt-5.6-luna`, but failed acceptance due to two
+  verified protocol defects:
+  1. Bridge rejection of delegation sentinel: OpenWorker 0.3.1 sent `reviewOf: "none"`, which Nexar treated
+     as a real unit ID and rejected with `unknown-reviewed-unit` (`review-target-missing`).
+  2. Zero draft artifacts imported: OpenWorker 0.3.1 wrote `statement-of-work-nxr-055-live-validation.md`
+     into its conversation workspace directory (`~/OpenWorker/<sessionId>`) rather than Desktop's private
+     scratch parent directory, leaving zero drafts recognized by Nexar. Source project files remained unmodified.
+- **Protocol adaptation fix & local gates:**
+  1. Delegation normalization: Added `normalizeReviewOf` in `@nexar/contracts`, `@nexar/engine-gateway`,
+     and `@nexar/integration-mcp` to normalize `"none"`, `"null"`, `""`, whitespace, and `null` to `undefined`,
+     while strictly preserving real review unit IDs and rejecting malformed/non-existent targets.
+  2. Workspace draft import: Added `openWorkerWorkspaceDir` resolution and updated `collectDrafts` and
+     Desktop `importDrafts` to inspect both scratch and workspace directories with canonical `realpath`
+     containment checks, ignoring `tool-output/`, `workers/`, and hidden files without weakening source write policy.
+  3. Offline regression tests (Criteria A–J) added and passing in contracts, engine-gateway, mcp,
+     openworker, and desktop cowork suites.
+  4. Local quality gates:
+     - `pnpm check`: PASS (3,988 passed / 158 skipped, 195 test files; format, lint, boundaries, typecheck, test, build).
+     - Source Desktop E2E: PASS (8/8 files, 22/22 tests).
+     - Windows packaging: PASS (`release/desktop/win-unpacked/Nexar.exe` and NSIS installer).
+     - Packaged Desktop E2E: PASS (8/8 files, 22/22 tests).
+     - Gitleaks (8.28.0 scanner-only): PASS (no leaks found).
 - **Code:** live preflight ready at 17:41:05.248 UTC; project `nxr-055-validation` maps to
   `nxr055-validation`. Initially native Claude authenticated and native Codex unauthenticated. Owner device-auth
   attempted by the owner, but failed before issuance of a device code. Read-only probes found DNS

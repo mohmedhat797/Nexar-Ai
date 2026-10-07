@@ -100,6 +100,23 @@ describe('bridge relay', () => {
       arguments: { unitId: 'u2', reviewOf: 'u1', input: 'x', access: 'read-only' },
     });
     expect(frames[0]).toMatchObject({ op: 'submit', request: { unitId: 'u2', reviewOf: 'u1' } });
+    frames.length = 0;
+
+    for (const sentinel of ['none', 'null', '', '   ', null]) {
+      await client.callTool({
+        name: 'nexar.intelligence_submit',
+        arguments: { unitId: 'u3', reviewOf: sentinel, input: 'x', access: 'read-only' },
+      });
+      expect(frames[0]).toMatchObject({ op: 'submit', request: { unitId: 'u3' } });
+      expect((frames[0]?.['request'] as Record<string, unknown>)['reviewOf']).toBeUndefined();
+      frames.length = 0;
+    }
+
+    const bad = await client.callTool({
+      name: 'nexar.intelligence_submit',
+      arguments: { unitId: 'u4', reviewOf: 'bad id', input: 'x', access: 'read-only' },
+    });
+    expect(textOf(bad)).toEqual({ text: { error: 'VALIDATION_ERROR' }, isError: true });
   });
 
   it('forwards submit and status as one request each and returns one JSON text block', async () => {

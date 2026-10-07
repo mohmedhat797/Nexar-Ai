@@ -1,6 +1,6 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, isAbsolute, join, relative, sep } from 'node:path';
 import { ApprovalGate } from '@nexar/approvals';
 import { LocalArtifactStore, type ArtifactMediaType } from '@nexar/artifacts';
 import {
@@ -21,8 +21,10 @@ import {
   decidePermission,
   isWriteTool,
   openWorkerProviderFor,
+  openWorkerWorkspaceDir,
   recordCoworkDecision,
   runCoworkTurn,
+  type DraftFile,
   type OpenWorkerState,
   type OpenWorkerStatus,
 } from '@nexar/integration-openworker';
@@ -187,6 +189,8 @@ export interface CoworkServiceOptions {
     request: CoworkRequest,
     excludedResourceIds: readonly string[],
   ) => NexarTask;
+  /** Custom base directory for OpenWorker scratch workspaces (test override). */
+  readonly openWorkerScratchBase?: string | undefined;
 }
 
 const MISSING_STATUS: CoworkStatus = {
@@ -578,10 +582,13 @@ export class CoworkService {
       request.onProgress('status', 'Running Cowork');
       let restarts = 0;
       let turn: Awaited<ReturnType<typeof runCoworkTurn>>;
+      let currentSessionId = request.turnId;
       for (;;) {
+        currentSessionId =
+          restarts === 0 ? request.turnId : `${request.turnId}-r${String(restarts)}`;
         turn = await runCoworkTurn(client, {
           // A restart is a whole new upstream session: the loop is never switched mid-way.
-          sessionId: restarts === 0 ? request.turnId : `${request.turnId}-r${String(restarts)}`,
+          sessionId: currentSessionId,
           prompt: delegating ? `${request.prompt}\n\n${DELEGATION_INSTRUCTION}` : request.prompt,
           model: selected.kind === 'gateway' ? CONTROL_MODEL : selected.route.model,
           scratchDir: scratchRoot,
@@ -663,7 +670,9 @@ export class CoworkService {
       }
 
       // Read only Cowork imports no draft, whatever the scratch folder holds.
-      const artifacts = readOnly ? [] : await this.importDrafts(request, task, scratchRoot);
+      const artifacts = readOnly
+        ? []
+        : await this.importDrafts(request, task, scratchRoot, currentSessionId);
       const delegations =
         delegation === undefined ? [] : [...(this.delegated.get(delegation.grantId) ?? [])];
       const picked =
@@ -935,34 +944,69 @@ export class CoworkService {
     request: CoworkRequest,
     task: NexarTask,
     scratch: string,
+    sessionId?: string,
   ): Promise<ArtifactRef[]> {
     const { runtime } = this.options.engine.composition();
-    const { files } = await collectDrafts(scratch);
+    const candidateDirs: string[] = [scratch];
+    if (sessionId !== undefined) {
+      try {
+        const ws = openWorkerWorkspaceDir(sessionId, {
+          scratchBase: this.options.openWorkerScratchBase,
+        });
+        candidateDirs.push(ws);
+      } catch {
+        /* invalid session id format, omit */
+      }
+    }
     const store = new LocalArtifactStore({ projects: runtime.projects });
     const refs: ArtifactRef[] = [];
-    for (const file of files) {
-      const mediaType = Object.hasOwn(DRAFT_MEDIA, extname(file.name).toLowerCase())
-        ? DRAFT_MEDIA[extname(file.name).toLowerCase()]
-        : undefined;
-      if (mediaType === undefined) continue;
+    const seenNames = new Set<string>();
+
+    for (const dir of candidateDirs) {
+      let files: readonly DraftFile[];
       try {
-        // Re-check at open time: only a plain, unlinked, unchanged-size regular file is imported.
-        const info = await lstat(file.path);
-        if (!info.isFile() || info.isSymbolicLink() || info.nlink > 1 || info.size !== file.size) {
-          continue;
+        const collected = await collectDrafts(dir);
+        files = collected.files;
+      } catch {
+        continue;
+      }
+      for (const file of files) {
+        if (seenNames.has(file.name)) continue;
+        const mediaType = Object.hasOwn(DRAFT_MEDIA, extname(file.name).toLowerCase())
+          ? DRAFT_MEDIA[extname(file.name).toLowerCase()]
+          : undefined;
+        if (mediaType === undefined) continue;
+        try {
+          // Re-check at open time: only a plain, unlinked, unchanged-size regular file is imported.
+          const info = await lstat(file.path);
+          if (
+            !info.isFile() ||
+            info.isSymbolicLink() ||
+            info.nlink > 1 ||
+            info.size !== file.size
+          ) {
+            continue;
+          }
+          const canonicalFile = await realpath(file.path);
+          const canonicalDir = await realpath(dir);
+          const rel = relative(canonicalDir, canonicalFile);
+          if (rel === '' || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) {
+            continue;
+          }
+          refs.push(
+            await store.store({
+              projectId: asProjectId(request.projectId),
+              taskId: task.id,
+              filename: file.name.replaceAll('/', '-'),
+              content: await readFile(canonicalFile),
+              mediaType,
+              draft: true,
+            }),
+          );
+          seenNames.add(file.name);
+        } catch (error) {
+          this.options.logger.warn('cowork draft import failed', { code: codeOf(error) });
         }
-        refs.push(
-          await store.store({
-            projectId: asProjectId(request.projectId),
-            taskId: task.id,
-            filename: file.name.replaceAll('/', '-'),
-            content: await readFile(file.path),
-            mediaType,
-            draft: true,
-          }),
-        );
-      } catch (error) {
-        this.options.logger.warn('cowork draft import failed', { code: codeOf(error) });
       }
     }
     if (refs.length > 0) {
