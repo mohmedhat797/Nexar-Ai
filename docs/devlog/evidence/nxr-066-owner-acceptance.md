@@ -1,33 +1,108 @@
-# NXR-066b owner acceptance — started, catalog size blocker
+# NXR-066b owner acceptance — smoke passed, SOW write compatibility blocked
 
 Prepared 2026-10-07 for implementation generation `0244d974704b9350a2ddec873872514db8d5de1a`.
 The preparation handoff records the OpenWorker 0.3.1 maintenance SHA, its CI run and both build
 identities; require that exact-head CI before owner live acceptance.
-Owner explicitly started live acceptance on 2026-10-07 at the maintenance head
-`feb36dc59572c40ef13afd79a4d0ded519dfd9e7`. This is **not a completed acceptance record**. Follow the
+Owner initially started live acceptance on 2026-10-07 at the maintenance head
+`feb36dc59572c40ef13afd79a4d0ded519dfd9e7`, then resumed at the catalog-correction head
+`12d7ea183deea08cbcc19a38384b6649c7186ab1`. This is **not a completed acceptance record**. Follow the
 [owner runbook](nxr-066-live-acceptance-runbook.md), including its STOP boundary.
 
 ## Gates and environment
 
-- [x] Full exact-head CI: [37553210679 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37553210679/attempts/2), Ubuntu/Windows/secret scan passed.
-- [x] Full exact-head maintenance CI: [37631118802 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37631118802/attempts/1), Ubuntu/Windows/secrets, source/packaged E2E, installer/SHA256 upload passed.
+- [x] Full exact-head CI for deployed `12d7ea1`: [37657555559 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37657555559/attempts/1), Ubuntu/Windows/secrets, source/packaged E2E, installer/SHA256 upload passed.
+      Earlier runs [37553210679 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37553210679/attempts/2)
+      and [37631118802 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37631118802/attempts/1)
+      cover their historical preparation heads only.
 - [x] Windows OpenWorker **0.3.1** (`>=0.3.1 <0.4.0`) and private-server startup verified; separate 0.3.0 retained.
-- [x] Desktop built at the maintenance SHA; owner authorized existing-profile launch in this live session.
-- [x] Plane built at the same SHA; preparation doctor and 7/7 sandbox selftests passed.
-      Live Desktop `refreshCode` confirmed project `nxr-055-validation` mapped to `nxr055-validation`, state `ready`, checked 2026-10-07 16:19:50 UTC.
+- [x] Desktop built at `12d7ea1`; owner authorized existing-profile launch in this live session.
+- [x] Plane built at `12d7ea1`; doctor and 7/7 sandbox selftests passed.
+      Live Desktop `refreshCode` confirmed project `nxr-055-validation` mapped to `nxr055-validation`,
+      state `ready`, both Claude/Codex authenticated, checked 2026-10-07 18:23:20.722 UTC.
 - [x] Owner explicitly initiated the live stages after the runbook STOP boundary.
 
 ## Owner results
 
-| Stage                   | Record only                                                                                                 | Result                                              |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Connections/inventories | Connection id, route, returned model/resource ids, freshness, reason codes                                  | Connected; catalog exceeds current byte ceiling     |
-| Read-only smoke         | Task id, lane, resource/model, selection reason, timing, outcome; zero modifications                        | Not run; inventory prerequisite failed              |
-| Cowork SOW              | Task/unit ids, control resource, subscription unit resource, lane, outcomes, draft artifact id              | Not run                                             |
-| Code                    | Task id, lane resources, executor/fallback reason, sandbox/gate/review status, approval id, local commit id | Preflight ready; model turn/approval/commit not run |
-| Integrated flow         | Conversation/turn/task ids, lane decisions, resources, outcomes                                             | Not run                                             |
+| Stage                   | Record only                                                                                                 | Result                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Connections/inventories | Connection id, route, returned model/resource ids, freshness, reason codes                                  | PASS; fresh authenticated account catalog at 12d7ea1 |
+| Read-only smoke         | Task id, lane, resource/model, selection reason, timing, outcome; zero modifications                        | PASS; gateway, source unchanged                      |
+| Cowork SOW              | Task/unit ids, control resource, subscription unit resource, lane, outcomes, draft artifact id              | Incomplete; succeeded but no delegation/draft        |
+| Code                    | Task id, lane resources, executor/fallback reason, sandbox/gate/review status, approval id, local commit id | Preflight ready; model turn/approval/commit not run  |
+| Integrated flow         | Conversation/turn/task ids, lane decisions, resources, outcomes                                             | Not run                                              |
 
-### Live observations (2026-10-07)
+### Resumed live observations (2026-10-07, 12d7ea1)
+
+- **Full exact-head CI:** [37657555559 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37657555559/attempts/1),
+  SHA `12d7ea183deea08cbcc19a38384b6649c7186ab1`, all three jobs successful; Ubuntu finished
+  17:22:04 UTC, Windows including packaged E2E / installer/SHA256 upload finished 17:33:11 UTC.
+- Matching clean detached Desktop and plane builds passed. Plane doctor and 7/7 sandbox selftests;
+  validation `main @ 40f02fb`, config hash and hardening preserved. OpenWorker ready `0.3.1`.
+- Owner connection retained: `connected`, sharing enabled. Account source `official-api`,
+  auth `authenticated`, status `fresh`. Startup observed 17:37:39.801 UTC; explicit refresh after
+  pin/Auto validation observed 17:40:21.979 UTC. Four returned slugs: `gpt-6-astra`, `gpt-5.6-sol`,
+  `gpt-5.6-terra`, `gpt-5.6-luna`. Native Claude metadata refreshed 17:39:22.758 UTC, 12 entries.
+- Temporary pin of a fresh compatible resource, return to Auto, and fresh inventory verified.
+  Actual Auto control resource: `inventory:048a60e3b9b7892e466eff536385c50a2168da981a4d3ac61cd0f4c44ba0f2b3`
+  / `gpt-5.6-luna`, connection `openai.chatgpt-plan`, runtime `pi`, route `openai.responses.account`.
+- **Read-only smoke:** session `ses_70ffdaab22ac7ad08366d4208375e736`,
+  turn `turn_9b8794b087cbbe1d98cb5ccde05a8dd1`, task `task_a4aa2ba7-b756-4e91-8000-660e1a7af1a6`;
+  17:41:50.040–17:42:45.668 UTC, `succeeded`, lane `cowork` without fallback,
+  policy `control@1:auto`, control path `gateway` on the resource above, zero restarts / artifacts.
+  UI submitted the exact runbook smoke once. Source file set/hash unchanged; original drafts-only
+  permission restored after temporary read-only. No generated content is included here.
+- **SOW:** session `ses_03d6ea01051f20bb30ac55435243187a`,
+  turn `turn_2e71e456a5dd128c207f1c4075ce4e93`, task `task_72766780-70d4-484b-a9d5-c1feb9fff64a`;
+  17:45:09.733–17:48:39.134 UTC, `succeeded`, intent `documentation`, lane `cowork`,
+  no fallback, same Auto gateway resource, zero restarts. **No delegated units and no draft artifact
+  were recorded. This is not SOW acceptance.** Owner review confirms two workspace writes were
+  declined. Source unchanged. No further SOW or dependent live call submitted.
+- **SOW policy receipts:** `apr_1854a62497f3f8aee7f915a355ce2b3e` (17:47:23.556 UTC) and
+  `apr_45cf324e848eed640e4a46b5a93d6708` (17:48:14.677 UTC) both deny `write_file` with
+  `cowork.target-missing.deny`. The owner did not decline an approval. The two earlier submit-tool
+  permissions, `apr_befd3520998465ba17a39235ecd33c10` (17:45:46.327 UTC) and
+  `apr_41da9b686e4e7f073cd6a98a6ba4fdbb` (17:45:54.715 UTC), were allowed by `cowork.delegation`.
+  Allowed tool submissions do not establish successful delegated execution; no completed unit was
+  recorded and that failure remains unresolved.
+- **Write protocol finding:** pinned upstream 0.3.1 emits `permission_required.data.arguments`,
+  with single-file writes using `arguments.path`; Nexar at 12d7ea1 only reads top-level `target`.
+  See the [corrected compatibility note](../../research/upstream/openworker-0.3.1-compatibility.md).
+  A bounded local correction reduces only `write_file` / `replace_in_file` paths into the existing
+  policy, rejects conflicting/malformed destinations and retains legacy target-only support.
+  Default offline frames now match upstream without the invented top-level write target.
+  Targeted session/policy/Desktop Cowork tests pass **117/117**. Full local `pnpm check` passes:
+  **3,981 passed / 158 expected skips**, 195 passed / 16 skipped files; formatting, lint, boundaries,
+  typechecking and build passed. Full source Desktop E2E passes **22/22**; Windows unsigned installer
+  packaging passes, SHA256 manifest independently matches, Authenticode `NotSigned`. Packaged
+  Desktop E2E passes **22/22**. An initial E2E suite failed owner-state preservation while the live
+  app remained open; all turns were verified inactive and the app closed before isolated reruns.
+  A subsequent integrated-flow lane-confirmation timeout did not reproduce in the isolated scenario
+  or the complete final suite. Original assertions and test-file hash preserved; no gate weakened.
+  After explicit scanner-only owner authorization, only the existing Gitleaks executable was added
+  to lean-ctx's allowlist, keeping its defaults and restricted mode. Gitleaks 8.28.0 scanned the current
+  unstaged diff with `stdin --redact --no-banner`: **PASS, no leaks found** (2026-10-07).
+  Owner authorized correction/evidence review, commit and push, then full exact-head CI, matching
+  Desktop/plane builds and SOW revalidation. At this checkpoint the correction is undeployed;
+  exact-head CI above covers 12d7ea1 only. No further provider/model call before the corrected build
+  is deployed and its full exact-head CI is green. Record those receipts in the local handoff.
+- **Code:** live preflight ready at 17:41:05.248 UTC; project `nxr-055-validation` maps to
+  `nxr055-validation`. Initially native Claude authenticated and native Codex unauthenticated. Owner device-auth
+  attempted by the owner, but failed before issuance of a device code. Read-only probes found DNS
+  resolved while HTTPS to OpenAI and GitHub timed out in the plane; Windows reached OpenAI.
+  After the owner closed their VPN, plane probes returned GitHub HTTP 200 and OpenAI generic-root
+  HEAD HTTP 403 with TLS verification successful. Connectivity recovered; a root HEAD response is
+  not authentication proof. The owner then completed device-auth; Desktop `refreshCode` at
+  **18:23:20.722 UTC** verified both `claude-code` and `codex` available/authenticated, project/plane
+  `ready`. Both remain native-agent resources, not model-turn controls. No login initiated by the agent.
+  No Code turn, engineering write, approval or local commit.
+  Integrated flow remains pending; PR stays draft, no merge/release/acceptance push.
+- The live app was closed with every project session inactive before isolated gates. Sign-ins were
+  not disconnected; drafts-only and Auto retained. Resume only after the next authorized publication,
+  exact-head CI and matching-build checkpoint.
+- Delegation counts come from Nexar's bounded session receipt because the public DTO omits them.
+  Only ids, fixed states, routes, timings and counts were extracted; no credentials or content exported.
+
+### Historical live observations (2026-10-07, feb36dc)
 
 - Initially ChatGPT plan status was `connected`, sharing enabled. Account identity is
   `openai.chatgpt-plan` / `pi` / `openai.responses.account` on Desktop.
@@ -85,10 +160,11 @@ Node **22.23.3** / pnpm **10.33.0**, final local patch, 2026-10-07:
 - Diagnostic Desktop closed with all sessions inactive. The helper's next launch uses the original
   built main; no active diagnostic wrapper remains. Owner sign-in was not disconnected.
 
-**Owner approved publishing this correction and evidence to draft PR #39**, requiring full exact-head
-CI, matching Desktop/plane builds and resumed acceptance. The prior deployed acceptance generation
-is `feb36dc`; its CI does not cover this correction. Require the corrected head's full CI and matching
-Desktop/plane builds, then a fresh account catalog, before resuming controlled live smoke/SOW/Code.
+**Owner approved publishing the catalog correction and evidence to draft PR #39.** This completed at
+`12d7ea1`, with full exact-head CI, matching Desktop/plane builds, fresh inventory and resumed smoke/SOW,
+as recorded above. The owner separately authorized publishing the write-permission correction and
+acceptance evidence after diff review. Its local gates pass, but the CI and deployed builds above cover
+12d7ea1 only; require the correction's own full exact-head CI and matching builds before another live SOW.
 No new implementation milestone started. This authorization covers source maintenance; the runbook's
 no-push boundary still applies to acceptance-generated engineering commits.
 

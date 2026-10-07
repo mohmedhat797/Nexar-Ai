@@ -21,6 +21,7 @@ export type FakeScenario =
   | 'declined-requests'
   | 'question'
   | 'network-access'
+  | 'permission-paths'
   | 'delegate'
   | 'control-loop'
   | 'sow';
@@ -636,6 +637,42 @@ export class FakeOpenWorkerServer {
         send({ type: 'assistant_message', text: 'Network request answered' });
         send({ type: 'turn_done' });
         return;
+      case 'permission-paths':
+        send({ type: 'turn_start' });
+        for (const permission of [
+          {
+            name: 'write_file',
+            arguments: { path: join(workspace, 'draft.md'), content: 'SECRET-ARGUMENT' },
+          },
+          {
+            name: 'replace_in_file',
+            arguments: { path: 'draft.md', old: 'SECRET-ARGUMENT', new: 'SECRET-ARGUMENT' },
+          },
+          { name: 'write_file', arguments: { path: '../outside.md' } },
+          { name: 'write_file', arguments: { content: 'SECRET-ARGUMENT' } },
+          { name: 'write_file', arguments: { path: null } },
+          { name: 'write_file', arguments: { path: '' } },
+          { name: 'write_file', arguments: ['draft.md'] },
+          {
+            name: 'write_file',
+            arguments: { path: '../outside.md' },
+            target: join(workspace, 'draft.md'),
+          },
+          {
+            name: 'write_file',
+            arguments: { path: 'draft.md' },
+            target: join(workspace, 'draft.md'),
+          },
+          { name: 'apply_patch', arguments: { path: 'draft.md', patch: 'SECRET-ARGUMENT' } },
+          { name: 'run_shell', arguments: { path: 'draft.md', command: 'SECRET-ARGUMENT' } },
+          { name: 'write_file', target: join(workspace, 'draft.md') },
+        ]) {
+          send({ type: 'permission_required', category: 'file', ...permission });
+          await this.#next('approval');
+        }
+        send({ type: 'assistant_message', text: 'Permissions answered' });
+        send({ type: 'turn_done' });
+        return;
       case 'delegate':
         return this.#delegate(send, workspace);
       case 'control-loop':
@@ -650,10 +687,9 @@ export class FakeOpenWorkerServer {
     send({
       type: 'permission_required',
       name: 'write_file',
-      arguments: { path: 'draft.md', content: 'SECRET-ARGUMENT' },
+      arguments: { path: join(workspace, 'draft.md'), content: 'SECRET-ARGUMENT' },
       reason: 'write',
       category: 'file',
-      target: join(workspace, 'draft.md'),
     });
     const approval = await this.#next('approval');
     if (this.#options.writeDraft === true && approval['decision'] === 'allow') {

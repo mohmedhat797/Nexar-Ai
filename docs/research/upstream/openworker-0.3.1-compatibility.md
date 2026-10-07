@@ -12,13 +12,38 @@ published **2026-10-05 21:12:52 UTC**, annotated tag object
 `git rev-list --count v0.3.0..v0.3.1` gives **53 commits**; diff: 93 files,
 9,185 insertions / 195 deletions. No upstream code was executed during research.
 
-**Source compatibility passes for Nexar's existing seam; no protocol migration.** Adopt the
+**Initial route/startup compatibility checks passed; live acceptance later exposed a permission
+payload mismatch, described below.** Adopt the
 runtime security/maintenance floor **`>=0.3.1 <0.4.0`**, preferred acceptance target **0.3.1**,
 and strengthen the existing offline fixtures. This note precedes implementation edits. Patch-range
 acceptance is a version policy, not proof that every future patch has been inspected. Keep bounded
 startup, private state, per-launch token, approval policy and explicit fallback intact.
 
 ## HTTP, WebSocket and provider contract
+
+### Live acceptance correction: single-file write permission fields
+
+At acceptance head `12d7ea1`, two real SOW `write_file` attempts were denied with
+`cowork.target-missing.deny`. The initial offline normal frame had invented a top-level `target`.
+Pinned upstream [engine.py, permission emission](https://github.com/andrewyng/openworker/blob/b9b35036668dfb1653f3aa35bafb9aeea6d47c3c/coworker/engine.py#L1765)
+emits name, arguments, reason and category in the event payload; it does not add that target.
+Its [single-file path mapping](https://github.com/andrewyng/openworker/blob/b9b35036668dfb1653f3aa35bafb9aeea6d47c3c/coworker/permissions.py#L161)
+uses `arguments.path` for `write_file` and `replace_in_file`.
+
+The local acceptance-blocker correction reduces only those single-file paths into Nexar's existing
+scratch policy, without retaining or forwarding content/other arguments. Conflicting destinations,
+missing/malformed paths, traversal/outside paths and read-only writes remain denied. Legacy
+target-only frames remain supported; patch/diff targets are not inferred from arbitrary arguments.
+The normal fixture now uses the tagged upstream shape, including Desktop draft-import coverage.
+Targeted tests pass 117/117; full `pnpm check` passes 3,981 tests with 158 expected skips.
+Full source and packaged Desktop E2E each pass 22/22; unsigned Windows packaging/SHA256 pass.
+The local unstaged-diff Gitleaks 8.28.0 scan passes with redaction after explicit scanner-only owner
+authorization. Owner separately authorized correction/evidence publication after review. The correction
+is undeployed at this evidence checkpoint; new exact-head CI and matching builds must precede another
+live SOW or provider/model call. This finding does not establish why
+delegation produced no completed unit.
+
+### Initially inspected routes and lifecycle
 
 Inspected both tagged versions of `coworker/server/app.py`, `manager.py`, `run.py`,
 `coworker/providers/__init__.py`, provider descriptors and MCP configuration code, against Nexar's

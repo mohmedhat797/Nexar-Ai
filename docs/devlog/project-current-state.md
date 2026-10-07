@@ -5,7 +5,50 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-07, NXR-066b live acceptance started)
+## Snapshot (2026-10-07, NXR-066b live resumed at 12d7ea1)
+
+Current acceptance head **`12d7ea183deea08cbcc19a38384b6649c7186ab1`**, draft/open PR #39.
+Owner approved source correction/evidence publication, full CI, matching build update and resumed
+live acceptance. [Full exact-head CI 37657555559 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37657555559/attempts/1)
+passed Ubuntu, Windows, secrets, source/packaged E2E, Windows packaging and installer/SHA256 upload,
+completed 2026-10-07 17:33:11 UTC. Catalog-only 1 MiB bound fixes the observed 362,153-byte response;
+OAuth stays at 64 KiB. No new implementation milestone, merge or release.
+
+Clean detached acceptance Desktop and `nexar-plane` rebuilt at the same head. Plane doctor and
+7/7 sandbox checks passed; validation/config/hardening preserved. OpenWorker ready **0.3.1**.
+Existing owner sign-in retained. Account inventory is **fresh/authenticated**, four returned models
+(`gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`); explicit live pin/return to Auto and
+refresh verified. Claude metadata refreshed (12 entries); listing alone is not execution acceptance.
+Cowork control/fallback Auto selects the returned Luna resource; Code control remains native fallback.
+
+**Controlled read-only smoke PASS**, through Cowork / gateway, no fallback or restarts, no artifacts,
+source file set/hash unchanged. Temporary read-only policy restored to original drafts-only.
+**SOW acceptance incomplete:** its turn succeeded through the same gateway, but recorded **zero
+delegated units and zero draft artifacts**. Owner review confirms two declined writes; policy receipts
+both report `cowork.target-missing.deny`. Pinned upstream emits `arguments.path`; Nexar at this head
+reads top-level `target`. A bounded local correction and upstream-shaped fixtures passed 117 targeted
+tests, full `pnpm check` (**3,981 passed / 158 expected skips**) and full source Desktop E2E **22/22**.
+Unsigned Windows packaging/SHA256 and packaged Desktop E2E **22/22** pass. After explicit scanner-only
+owner authorization, the existing Gitleaks 8.28.0 scanned the current unstaged diff with redaction:
+**PASS, no leaks found**. Earlier E2E isolation/confirmation failures are recorded in the worksheet;
+no assertion weakened and no diagnostic test changes retained.
+Owner authorized reviewing, committing and pushing this correction plus acceptance evidence, followed
+by full exact-head CI, matching Desktop/plane builds and bounded SOW revalidation. At this evidence
+checkpoint, the correction has not been deployed; the CI above covers 12d7ea1 only. Record the new
+commit, CI and deployment receipts in the local handoff before any further provider/model call.
+Two delegation submit
+permissions were allowed, but no completed unit was recorded; that separate cause is unresolved.
+**Code/integrated flow not initiated.** Owner device-auth initially failed while plane HTTPS probes
+timed out. After the owner closed their VPN, read-only GitHub/OpenAI probes recovered with verified TLS.
+The owner completed device-auth; Desktop refresh at **18:23:20.722 UTC** verified both plane Claude
+and Codex available/authenticated with project/plane ready. Both remain native-agent resources;
+expected Code control fallback is unchanged. No engineering
+write/approval/local acceptance commit or acceptance push occurred. Nexar closed with all sessions
+inactive before isolated gates, keeping sign-ins, drafts-only and Auto.
+Live evidence updates remain local; the deployed/tested head is unchanged. See the
+[acceptance worksheet](evidence/nxr-066-owner-acceptance.md) and local final handoff.
+
+## Historical snapshot (2026-10-07, NXR-066b live acceptance started)
 
 Last full-CI-tested acceptance head **`feb36dc59572c40ef13afd79a4d0ded519dfd9e7`**, PR #39 draft/open.
 [Full CI 37631118802 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37631118802/attempts/1)

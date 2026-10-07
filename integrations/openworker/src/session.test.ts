@@ -80,6 +80,54 @@ describe('runCoworkTurn', () => {
     expect(server.frames[0]).toEqual({ type: 'set_mode', mode: 'discuss' });
   });
 
+  it('reduces upstream argument paths and denies missing, conflicting and unsupported targets', async () => {
+    const { result, requests, progress } = await run('permission-paths');
+    expect(result.outcome).toBe('completed');
+    expect(
+      server.frames
+        .filter((frame) => frame['type'] === 'approval')
+        .map((frame) => frame['decision']),
+    ).toEqual([
+      'allow',
+      'allow',
+      'deny',
+      'deny',
+      'deny',
+      'deny',
+      'deny',
+      'deny',
+      'allow',
+      'deny',
+      'deny',
+      'allow',
+    ]);
+    expect(requests).toEqual([
+      { name: 'write_file', category: 'file', target: join(scratchDir, 'draft.md') },
+      { name: 'replace_in_file', category: 'file', target: 'draft.md' },
+      { name: 'write_file', category: 'file', target: '../outside.md' },
+      ...Array.from({ length: 5 }, () => ({ name: 'write_file', category: 'file' })),
+      { name: 'write_file', category: 'file', target: 'draft.md' },
+      { name: 'apply_patch', category: 'file' },
+      { name: 'run_shell', category: 'file' },
+      { name: 'write_file', category: 'file', target: join(scratchDir, 'draft.md') },
+    ]);
+    expect(JSON.stringify({ requests, progress, result })).not.toContain('SECRET-ARGUMENT');
+  });
+
+  it('keeps argument-based scratch writes denied under the read-only policy', async () => {
+    const { result } = await run('permission-paths', {
+      mode: 'discuss',
+      decide: (permission) =>
+        decidePermission(permission, { scratchRoot: scratchDir, readOnly: true }).decision,
+    });
+    expect(result.outcome).toBe('completed');
+    expect(
+      server.frames
+        .filter((frame) => frame['type'] === 'approval')
+        .every((frame) => frame['decision'] === 'deny'),
+    ).toBe(true);
+  });
+
   it('denies the v0.3.1 network-access permission without forwarding host arguments', async () => {
     const { result, requests, progress } = await run('network-access');
     expect(result.outcome).toBe('completed');
