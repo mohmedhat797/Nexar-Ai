@@ -1,9 +1,14 @@
 # NXR-068: Dynamic Provider Model Catalogs
 
-**Milestone:** v0.6 · **Status:** architecture checkpoint; implementation pending.
+**Milestone:** v0.6 · **Status:** offline implementation and strengthened local gates complete;
+exact-head CI and owner live acceptance pending.
 **Depends on:** NXR-060/061/062/065/067a · **Blocks:** NXR-066b.
 **Decision:** [ADR-028](../adr/028-dynamic-provider-sessions-and-model-inventory.md).
 **Evidence:** [upstream comparison](../research/upstream/provider-model-inventory-patterns.md).
+
+**Gate revision (owner, 2026-10-07):** GitHub billing blocks CI. Continue with full pinned local
+check, Desktop E2E, Windows packaging/packaged E2E and review per coherent checkpoint; exact-head
+CI remains mandatory before merge/release. CI is unverified, not waived for release.
 
 ## Objective
 
@@ -29,22 +34,40 @@ it without editing source. API/local resources coexist. A connected account neve
 
 ## Acceptance
 
-- [ ] Sign-in triggers route-specific discovery; successful auth with no inventory publishes no
+The checked items record fake-provider/runtime regression coverage. They do not record live
+entitlement acceptance. See [local gate evidence](../devlog/evidence/nxr-068-local-gates.md).
+
+- [x] Account sign-in triggers route-specific discovery; successful auth with no inventory publishes no
       explicit model. Two fake accounts see different model sets.
-- [ ] A refreshed `gpt-new` list removes old configured `gpt-old`; native Codex-only availability
+- [x] A refreshed `gpt-new` list removes old configured `gpt-old`; native Codex-only availability
       never becomes a ChatGPT Responses resource.
-- [ ] Refresh adds/removes models, retains stable ids through display changes/disappearance, and
+- [x] Refresh adds/removes models, retains stable ids through display changes/disappearance, and
       deduplicates concurrent runs. Old connection generations cannot publish after disconnect.
-- [ ] Failure retains visible stale metadata/time; stale models do not route as fresh. Empty live
+- [x] Failure retains visible stale metadata/time; stale models do not route as fresh. Empty live
       lists remove explicit choices. Provider-default omits the vendor model override.
-- [ ] Native agents and account/API model turns coexist without false control compatibility.
-- [ ] Explicit/Auto selection uses existing NRC/strategy. Rejection is fixed/redacted, invalidates,
+- [x] Native agents and account/API model turns coexist without false control compatibility.
+- [x] Explicit/Auto selection uses existing NRC/strategy. Rejection is fixed/redacted, invalidates,
       refreshes and permits fallback only at a safe boundary under owner policy.
-- [ ] Legacy settings are preserved as hints only; cache is bounded, versioned and non-secret.
-- [ ] IPC rejects extra secret fields; no account ids, tokens, prompts or response bodies in logs,
+- [x] Legacy settings are preserved as hints only; cache is bounded, versioned and non-secret.
+- [x] IPC rejects extra secret fields; no account ids, tokens, prompts or response bodies in logs,
       descriptors, telemetry, renderer or cache. CI calls only fake providers/runtimes.
-- [ ] Full pinned `pnpm check`, focused regressions, Desktop E2E and exact-head CI pass. Live
-      provider acceptance remains separately recorded.
+- [x] Full pinned `pnpm check`, focused regressions, source Desktop E2E, Windows packaging and
+      packaged Desktop E2E pass.
+- [ ] Full exact-head CI passes before merge/release; currently blocked by GitHub billing.
+- [ ] Owner live provider acceptance is separately initiated and recorded after CI.
+
+## Implemented boundaries (2026-10-07)
+
+Contracts, cache/freshness, stable materialization, account Responses discovery/custom model execution,
+Claude SDK metadata initialization, explicit Google listing, strict IPC, Providers model/freshness UI
+and existing Auto/explicit selection are implemented with fake-only regression tests. Source SDK
+0.3.292 was verified before pinning. Review fixes cover disconnect/scope-loss/rejection races, late
+account generations, cache file identity and non-destructive legacy pin migration.
+
+Native Codex exposes provider-default without an override; explicit native model/list is deferred
+because a browser-safe minimum server release was not verified. Unknown native error text is not
+treated as model rejection. Claude/Google listing does not prove authentication. These limits are
+intentional and documented in the owner runbook. No live provider acceptance is claimed.
 
 ## Deferred
 

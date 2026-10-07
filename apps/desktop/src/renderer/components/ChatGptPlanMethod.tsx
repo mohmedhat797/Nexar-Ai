@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import type { ChatGptPlanStatus } from '../../shared/api.js';
 import { call, errorText, nexar } from '../bridge.js';
+import { ModelInventory } from './ModelInventory.js';
 
 /** The renderer follows a sign-in for as long as the owner has to finish it in the browser. */
 const POLL_INTERVAL_MS = 1000;
@@ -139,6 +140,7 @@ export function ChatGptPlanMethod(): ReactElement {
           Disconnect
         </button>
       </div>
+      <ModelInventory sourceId="chatgpt-plan" revision={status?.state} />
     </div>
   );
 }

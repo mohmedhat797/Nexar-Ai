@@ -14,6 +14,7 @@ import type { ProviderService } from './providers.js';
 import type { SubscriptionService } from './subscriptions.js';
 import type { ChatGptPlanService } from './chatgpt-plan.js';
 import type { LocalEndpointService } from './local-endpoints.js';
+import type { ProviderInventoryService } from './provider-inventory.js';
 
 /** The slice of Electron's `dialog` the bridge uses; tests substitute a fake. */
 export interface DialogPort {
@@ -58,6 +59,7 @@ export interface BridgeDeps {
   readonly subscriptions?: SubscriptionService;
   readonly chatgptPlan?: ChatGptPlanService;
   readonly localEndpoints?: LocalEndpointService;
+  readonly providerInventory?: ProviderInventoryService;
   /** The WSL2 engineering-plane bridge (ADR-025); absent in tests that do not need it. */
   readonly codePlane?: CodePlane;
   /** The supervised OpenWorker (ADR-026); absent in tests that do not need it. */

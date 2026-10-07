@@ -5,18 +5,31 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-06, provider-inventory reconciliation)
+## Snapshot (2026-10-07, dynamic provider inventory implementation)
 
-Local HEAD, `origin/feat/nexar-resource-orchestration` and draft PR
-[#39](https://github.com/mohmedhat797/Nexar-Ai/pull/39) match
-`57e0c3d7254f8ea925100954b784f47a2ffd1a32`; working tree was clean before this revision.
-Exact-head [CI 37256667335](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37256667335)
-passed Ubuntu, Windows and secret scan. PR #36 is merged at `76de2e1`; PR #39 remains draft.
+Implementation continues on `feat/nexar-resource-orchestration`, draft
+[PR #39](https://github.com/mohmedhat797/Nexar-Ai/pull/39), after architecture checkpoint `3c893a7`.
+The last fully green exact-head [CI 37256667335](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37256667335)
+belongs to the earlier `57e0c3d` head. PR #36 is merged at `76de2e1`; PR #39 remains draft.
 
 NXR-068 architecture checkpoint: ADR-028, upstream comparison, backlog and blocked runbook are
 reviewed. Full local `pnpm check` passed on Node 22.23.3 / pnpm 10.33.0 (3,814 passed, 158 skipped,
 build passed). An earlier Node 24 run crashed one Vitest worker; the repository specifies Node 22.
-Implementation begins only after this documentation commit is pushed and its exact-head CI passes.
+Architecture checkpoint `3c893a7` is pushed. Its Ubuntu checks and Windows code/build/packaged E2E
+passed; installer upload hit GitHub artifact quota. Owner-approved cleanup removed 50 older archives,
+preserving latest main/PR installers. The retry could not start because of GitHub billing/spending
+limits. **Owner revision (2026-10-07): continue development with strengthened local gates; CI is
+temporarily unavailable. Full exact-head CI remains mandatory before merge/release.**
+Each coherent unit must pass pinned Node 22 / pnpm 10.33.0 full check, offline Desktop E2E,
+Windows packaging and packaged Desktop E2E, plus review. No CI success is inferred from local results.
+
+**NXR-068 implementation checkpoint:** strengthened local gates passed on Node 22.23.3 /
+pnpm 10.33.0: full `pnpm check` (3,960 passed, 158 skipped; build passed), source Desktop E2E
+(22/22), Windows unsigned installer/SHA256 and packaged Desktop E2E (22/22). Offline CLI smoke
+and pinned Gitleaks history/staged scans passed. Full E2E found and fixed an async picker refresh
+race; read-only review also verified refresh/write ownership. See the
+[local gate evidence](evidence/nxr-068-local-gates.md) for commands, skips and provider boundaries.
+Exact-head CI is still unverified because of billing; no merge, release or owner live acceptance.
 
 **v0.6 is implemented offline, not owner-accepted. NXR-066b is blocked on NXR-068.** The owner's
 first Cowork smoke reported two independent findings: OpenWorker unavailable on Windows (environment
@@ -39,32 +52,38 @@ authentication or allowance-consuming tests are authorized implicitly by this co
 - **064:** plane-local gateway/relay, DSH ACP control overlay, native fallback with executor facts;
   implemented. Automatic Code lane restart from base after control failure remains follow-up work.
 - **065:** provider-family cards, compatible control picker, policy IPC, plane read-only facts;
-  implemented. Providers does not yet show connection-specific live model inventories.
+  implemented. Providers now shows connection-specific inventories, freshness and explicit refresh.
 - **066a:** offline orchestration acceptance implemented (`4feddd7`, `122d978`); **066b blocked**.
 - **067a:** Nexar-owned ChatGPT PKCE sign-in, supervised callback, encrypted tokens, refresh and
   disconnect implemented (`bf222e6`) and owner-reported sign-in succeeded.
-- **067b:** partially implemented (`b481b27`): model turns through pi-ai, but production resources
-  come from owner-edited `chatgptPlan.models`, defaulting to `gpt-5.2`. This is not discovery and must
-  be revised through NXR-068. Function-tool compatibility remains live-unverified.
+- **067b / 068:** dynamic account Responses model listing replaces the assumed model and static
+  catalog dependence. Returned slugs execute through a custom Responses provider; function tools
+  round-trip in offline fixtures. Live route compatibility remains owner-unverified.
+- **068:** versioned bounded public cache restores stale; generation invalidation, TTL, rejection
+  refresh and fresh-only publication/execution are implemented. Metadata-only Claude SDK discovery
+  and explicit Google CLI listing publish native-agent variants. Native Codex honestly exposes
+  provider default until a browser-safe model/list version is verified. Strict IPC and Providers
+  UI use the existing Auto/pinned strategy; raw legacy model hints are preserved, and old Desktop
+  model pins resolve to the new stable tuple IDs without rewriting the original settings.
 
 Current resource model is ADR-007 descriptor/state, with connection metadata from ADR-027. API/local
 models remain pi-ai catalog/owner-listed endpoint resources. Native Claude Code, Codex and Antigravity
-are agent resources; invocation model flags exist, but no connection-specific inventory is exposed.
+are agent resources; inventory variants use per-invocation model overrides, never vendor global defaults.
 Claude authentication uses its vendor CLI; Codex native authentication is distinct from Nexar's
 ChatGPT plan connection and cannot prove the account Responses route's models. Antigravity has an
-experimental `agy` executor and a model-list probe; Desktop sign-in/status remains unsupported or
-unknown. Its model list must not be equated with authentication.
+experimental `agy` executor; model listing is explicit owner refresh, no longer a routine probe.
+Desktop native Google sign-in/status remains unsupported or unknown; listing is not auth proof.
 
 ### Discrepancies and gaps
 
-The older snapshot below and README's "coming next" Desktop section are historical; implementation
-has advanced. Backlog 059–065 checkboxes are design acceptance lists, not the current implementation
-ledger. The old NXR-066 runbook's fixed `chatgpt-plan:gpt-5.2` expectation is invalid. NXR-067's
-"model discovery" description contradicts `chatgpt-plan-resources.ts` and `settings-store.ts`.
-pi execution/probes also require the static catalog, so merely fetching a new model id would still
-fail for a model missing from the pinned pi catalog. There is no route-scoped inventory cache,
-freshness, model rejection invalidation or refresh/picker IPC yet. Existing config reload replaces
-the composition; inventory refresh must preserve pinned control-loop boundaries.
+The older snapshot below and README's "coming next" Desktop section are historical. Backlog 059–065
+checkboxes are design acceptance lists, not the current ledger. NXR-068 has offline implementation;
+full local gate evidence is recorded at this checkpoint. Exact-head CI and owner
+live acceptance remain outstanding. Native model-rejection invalidation uses only verified structured
+signals; no reliable Claude/Google signal was found, so generic CLI error text is not reclassified.
+Legacy descriptors without generation metadata cannot invalidate a newer account from a late error.
+Inventory refresh never swaps a resource inside an active control loop. OpenWorker Windows availability,
+Google ACP migration, plane-side account login and automatic Code replay remain separate follow-ups.
 
 The older snapshot and Operating Layer details below remain historical context.
 

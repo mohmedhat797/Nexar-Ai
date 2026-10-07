@@ -68,6 +68,8 @@ export interface ChatGptPlanDeps {
    * or an expired grant. Desktop uses it to republish the plan's resources.
    */
   readonly onChange?: () => void;
+  /** Clears public inventory before account-changing operations, including a cancelled sign-in. */
+  readonly onChanging?: () => void;
 }
 
 type Idle =
@@ -116,6 +118,7 @@ export class ChatGptPlanService {
   private idle: Idle = { state: 'signed-out' };
   private lock: Promise<unknown> = Promise.resolve();
   private disposed = false;
+  private disconnecting = false;
 
   constructor(private readonly deps: ChatGptPlanDeps) {
     this.client = deps.client ?? createOpenAiAccountClient();
@@ -131,7 +134,9 @@ export class ChatGptPlanService {
    * browser; fails with a fixed error otherwise. Only one sign-in runs at a time.
    */
   async connect(): Promise<ChatGptPlanStatus> {
-    if (this.disposed || this.signIn !== undefined) throw new NexarError('CONFLICT', FIXED);
+    if (this.disposed || this.disconnecting || this.signIn !== undefined)
+      throw new NexarError('CONFLICT', FIXED);
+    this.notifyChanging();
     const controller = new AbortController();
     let finished!: () => void;
     // Reserved before the first await so simultaneous calls cannot start two sign-ins.
@@ -152,7 +157,6 @@ export class ChatGptPlanService {
     try {
       await this.signInOnce(controller.signal);
       this.idle = { state: 'signed-out' };
-      this.notifyChange();
     } catch (error) {
       if (controller.signal.aborted && !timedOut) {
         this.idle = { state: 'signed-out', reason: 'cancelled' };
@@ -166,6 +170,7 @@ export class ChatGptPlanService {
       clearTimeout(timer);
       this.signIn = undefined;
       finished();
+      this.notifyChange();
     }
     return this.currentStatus();
   }
@@ -182,12 +187,18 @@ export class ChatGptPlanService {
 
   /** Forgets the tokens on this computer. The grant itself is revoked in ChatGPT settings. */
   async disconnect(): Promise<ChatGptPlanStatus> {
-    await this.cancel();
+    if (this.disconnecting) throw new NexarError('CONFLICT', FIXED);
+    this.disconnecting = true;
+    this.notifyChanging();
     try {
+      await this.cancel();
       await this.locked(() => this.deps.keys.removeBlob(CHATGPT_PLAN_CONNECTION));
     } catch (error) {
       this.deps.logger.warn('chatgpt-plan.disconnect-failed', {});
       throw publicError(error);
+    } finally {
+      this.disconnecting = false;
+      this.notifyChanging();
     }
     this.idle = { state: 'signed-out', reason: 'disconnected' };
     this.deps.logger.info('chatgpt-plan.disconnected', {});
@@ -237,7 +248,21 @@ export class ChatGptPlanService {
     }
   }
 
+  private notifyChanging(): void {
+    try {
+      this.deps.onChanging?.();
+    } catch {
+      /* Listener cannot change sign-in outcome. */
+    }
+  }
+
   private currentStatus(): ChatGptPlanStatus {
+    if (this.disconnecting)
+      return ChatGptPlanStatusSchema.parse({
+        state: 'signed-out',
+        reason: 'disconnected',
+        message: IDLE_MESSAGES.disconnected,
+      });
     if (this.signIn !== undefined) {
       return ChatGptPlanStatusSchema.parse({
         state: 'signing-in',
@@ -339,6 +364,7 @@ export class ChatGptPlanService {
     } catch (error) {
       if (accountFailureReason(error) !== 'grant-rejected') throw error;
       // The grant is gone (refresh token expired or revoked): forget it and ask for a new sign-in.
+      this.notifyChanging();
       await this.deps.keys.removeBlob(CHATGPT_PLAN_CONNECTION).catch(() => undefined);
       this.idle = { state: 'signed-out', reason: 'expired' };
       this.deps.logger.warn('chatgpt-plan.expired', {});
@@ -363,7 +389,10 @@ export class ChatGptPlanService {
       scope: next.scope ?? current.scope,
       idToken,
     };
+    const sharingChanged = hasPlanSharing(current.scope) !== hasPlanSharing(updated.scope);
+    if (sharingChanged) this.notifyChanging();
     await this.store(updated);
+    if (sharingChanged) this.notifyChange();
     return updated;
   }
 
@@ -386,6 +415,8 @@ export class ChatGptPlanService {
   }
 
   private require(): StoredConnection {
+    if (this.disconnecting || this.signIn !== undefined || this.disposed)
+      throw new NexarError('AUTH_REQUIRED', 'ChatGPT is not connected');
     const stored = this.peek();
     if (stored === undefined) throw new NexarError('AUTH_REQUIRED', 'ChatGPT is not connected');
     return stored;

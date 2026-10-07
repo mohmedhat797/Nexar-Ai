@@ -130,7 +130,10 @@ inside engines, replacing OpenWorker here and switching control resources during
 ## Consequences and validation
 
 NXR-068 blocks NXR-066b; NXR-067a stays implemented and 067b requires this revision. No merge of
-PR #39 or owner live authentication until implementation and exact-head CI pass. Offline fixtures
+PR #39 or owner live authentication until implementation and exact-head CI pass. The owner amended
+the development gate on 2026-10-07 while GitHub billing prevents CI: implementation may proceed
+under full local checks, Desktop E2E, Windows packaging/packaged E2E and review; exact-head CI is
+still required before merge/release. Offline fixtures
 must prove account-specific/route-specific choices, additions/removals, stale/empty behavior,
 provider-default, stable ids, explicit/Auto selection, rejection/refresh/fallback, API/native
 coexistence, migration preservation and no secret propagation. Provider metadata is untrusted;

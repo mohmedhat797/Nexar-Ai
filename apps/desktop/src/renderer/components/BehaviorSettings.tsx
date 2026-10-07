@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import type {
   BehaviorPatch,
   BehaviorView,
@@ -59,28 +59,54 @@ function useBehavior(): BehaviorState {
   const [view, setView] = useState<BehaviorView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const latest = useRef(0);
+  const writing = useRef(false);
 
   useEffect(() => {
     let live = true;
-    call(nexar.getBehavior()).then(
-      (next) => live && setView(next),
-      (e: unknown) => live && setError(errorText(e)),
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = async (): Promise<void> => {
+      if (writing.current) {
+        if (live) timer = setTimeout(() => void read(), 15_000);
+        return;
+      }
+      const mine = ++latest.current;
+      try {
+        const next = await call(nexar.getBehavior());
+        if (live && mine === latest.current) {
+          setView(next);
+          setError(null);
+        }
+      } catch (e) {
+        if (live && mine === latest.current) setError(errorText(e));
+      } finally {
+        if (live) timer = setTimeout(() => void read(), 15_000);
+      }
+    };
+    void read();
     return () => {
       live = false;
+      latest.current += 1;
+      clearTimeout(timer);
     };
   }, []);
 
   const apply = useCallback((patch: BehaviorPatch): void => {
+    const mine = ++latest.current;
+    writing.current = true;
     setBusy(true);
     call(nexar.setBehavior(patch)).then(
       (next) => {
+        if (mine !== latest.current) return;
         setView(next);
         setError(null);
+        writing.current = false;
         setBusy(false);
       },
       (e: unknown) => {
+        if (mine !== latest.current) return;
         setError(errorText(e));
+        writing.current = false;
         setBusy(false);
       },
     );
@@ -113,7 +139,14 @@ function ResourceSelect({
       >
         <option value="">Let Nexar decide</option>
         {resources.map((r) => (
-          <option key={r.id} value={r.id}>
+          <option
+            key={r.id}
+            value={r.id}
+            disabled={
+              r.provenance.startsWith('discovered:inventory:') &&
+              (r.availability === 'unavailable' || r.auth === 'unauthenticated')
+            }
+          >
             {r.displayName}
           </option>
         ))}

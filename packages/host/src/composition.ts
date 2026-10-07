@@ -58,6 +58,7 @@ import {
 import { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
 import { PlaneLaneEngine } from './lane-engine.js';
 import type { EngineeringRunnerPort, EngineeringSeams, HostEnvironment } from './seams.js';
+import { guardInventoryAdapter, type InventoryExecutionGuard } from './inventory-guard.js';
 
 export interface Composition {
   readonly loaded: LoadedConfig;
@@ -155,6 +156,8 @@ export function sandboxVisibleNode(
  */
 export interface ConnectionSeam {
   readonly resolve: ConnectionCredentialResolver;
+  readonly onPlanModelRejected?: (descriptor: ResourceDescriptor) => void;
+  readonly isPlanModelAvailable?: (descriptor: ResourceDescriptor) => boolean;
   /** Test seam: the `fetch` plan calls go through. Production never sets it. */
   readonly fetch?: typeof fetch;
 }
@@ -162,11 +165,19 @@ export interface ConnectionSeam {
 function connectionOptions(connections: ConnectionSeam | undefined): {
   readonly resolveCredential?: ConnectionCredentialResolver;
   readonly fetch?: typeof fetch;
+  readonly onPlanModelRejected?: (descriptor: ResourceDescriptor) => void;
+  readonly isPlanModelAvailable?: (descriptor: ResourceDescriptor) => boolean;
 } {
   return connections === undefined
     ? {}
     : {
         resolveCredential: connections.resolve,
+        ...(connections.onPlanModelRejected === undefined
+          ? {}
+          : { onPlanModelRejected: connections.onPlanModelRejected }),
+        ...(connections.isPlanModelAvailable === undefined
+          ? {}
+          : { isPlanModelAvailable: connections.isPlanModelAvailable }),
         ...(connections.fetch === undefined ? {} : { fetch: connections.fetch }),
       };
 }
@@ -179,6 +190,7 @@ export function createAdapters(
     readonly approvals?: { readonly gate: ApprovalGate; readonly store: ApprovalStore };
     readonly resolveSecret?: SecretResolver;
     readonly connections?: ConnectionSeam;
+    readonly inventoryGuard?: InventoryExecutionGuard;
     /** Engineering toolchain mounts: the sandbox shows them at the same paths (ADR-019). */
     readonly toolchainPaths?: readonly string[];
   } = {},
@@ -186,7 +198,7 @@ export function createAdapters(
   const secrets =
     options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret };
   const nodeCommand = sandboxVisibleNode(options.toolchainPaths ?? []);
-  return [
+  const adapters: readonly ExecutionAdapter[] = [
     new EchoExecutionAdapter(),
     new ClaudeCodeExecutionAdapter({ env: io.env }),
     new CodexExecutionAdapter({ env: io.env }),
@@ -204,6 +216,9 @@ export function createAdapters(
       stateDir: join(configDir, '.nexar', 'runtimes', 'delegate-skills'),
     }),
   ];
+  return options.inventoryGuard === undefined
+    ? adapters
+    : adapters.map((adapter) => guardInventoryAdapter(adapter, options.inventoryGuard!));
 }
 
 /**
@@ -248,6 +263,7 @@ export async function compose(
      * resources win an id collision, as for discovered ones.
      */
     readonly extraResources?: readonly ResourceDescriptor[];
+    readonly inventoryGuard?: InventoryExecutionGuard;
   } = {},
 ): Promise<Composition> {
   const configDir = stateBaseDir(loaded, io);

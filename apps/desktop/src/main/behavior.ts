@@ -2,6 +2,7 @@ import {
   NexarError,
   connectionOf,
   isControlCompatible,
+  isChatGptPlanCredential,
   type ControlResourcePolicy,
 } from '@nexar/contracts';
 import type { BehaviorProfile } from '@nexar/operating';
@@ -45,6 +46,17 @@ function coworkCandidates(ctx: CallContext): ControlCandidate[] {
     .composition()
     .runtime.registry.list()
     .filter((descriptor) => isControlCompatible(descriptor, 'openworker'))
+    .filter((descriptor) => {
+      if (ctx.deps.providerInventory === undefined) return true;
+      if (descriptor.metadata?.['inventory'] !== undefined)
+        return ctx.deps.providerInventory.isAvailable(descriptor);
+      return (
+        !(
+          (descriptor.auth.mode === 'subscription' || descriptor.auth.mode === 'oauth') &&
+          isChatGptPlanCredential(descriptor.auth.credential)
+        ) || ctx.deps.providerInventory.isModelAvailable('chatgpt-plan', descriptor)
+      );
+    })
     .map((descriptor) => {
       const connection = connectionOf(descriptor);
       return {
@@ -138,7 +150,12 @@ function known(ctx: CallContext, id: string): boolean {
   return ctx.deps.engine
     .composition()
     .runtime.registry.list()
-    .some((resource) => resource.id === id);
+    .some(
+      (resource) =>
+        resource.id === id &&
+        (resource.metadata?.['inventory'] === undefined ||
+          ctx.deps.providerInventory?.isAvailable(resource) !== false),
+    );
 }
 
 export const behaviorChannels: Readonly<Record<string, ChannelDefinition>> = {

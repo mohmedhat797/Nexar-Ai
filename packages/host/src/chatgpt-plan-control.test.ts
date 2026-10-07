@@ -106,7 +106,19 @@ describe('Cowork control loop on a ChatGPT plan resource', () => {
     expect(result.finishReason).toBe('tool-calls');
     expect(result.toolCalls[0]).toMatchObject({ name: 'list_files', arguments: { dir: '.' } });
     expect(server.requests[0]?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
-    expect(server.requests[0]?.body['tools']).toHaveLength(1);
+    expect(server.requests[0]?.body['input']).toContainEqual({
+      type: 'additional_tools',
+      role: 'developer',
+      tools: [
+        {
+          type: 'function',
+          name: 'list_files',
+          description: 'Lists files',
+          parameters: { type: 'object', properties: { dir: { type: 'string' } } },
+        },
+      ],
+    });
+    expect(server.requests[0]?.body).not.toHaveProperty('tools');
     expect(JSON.stringify(result)).not.toContain(TOKEN);
 
     // A refusal of the capability is a control failure: not retried (the same body cannot succeed).

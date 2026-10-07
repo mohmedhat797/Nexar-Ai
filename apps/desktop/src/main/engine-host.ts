@@ -14,6 +14,7 @@ import {
   type Composition,
   type ConnectionSeam,
   type HostEnvironment,
+  type InventoryExecutionGuard,
 } from '@nexar/host';
 import type { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
 
@@ -43,6 +44,7 @@ export interface EngineHostOptions {
   readonly connections?: ConnectionSeam;
   /** Resources the app publishes itself (the connected plan); read on every (re)composition. */
   readonly extraResources?: () => Promise<readonly ResourceDescriptor[]>;
+  readonly inventoryGuard?: InventoryExecutionGuard;
   /** Startup phase names for diagnostics (no data); see NEXAR_DESKTOP_STARTUP_TRACE. */
   readonly trace?: (phase: string) => void;
 }
@@ -72,6 +74,7 @@ export async function createEngineHost(options: EngineHostOptions): Promise<Engi
       workingDirectoryPolicy: 'project-only',
       approvals: { gate, store },
       extraResources,
+      ...(options.inventoryGuard === undefined ? {} : { inventoryGuard: options.inventoryGuard }),
       ...(options.connections === undefined ? {} : { connections: options.connections }),
       ...(options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret }),
     });
@@ -82,6 +85,7 @@ export async function createEngineHost(options: EngineHostOptions): Promise<Engi
   }
 
   let current = await build();
+  let reloading: Promise<void> = Promise.resolve();
 
   return {
     configPath: options.configPath,
@@ -97,8 +101,12 @@ export async function createEngineHost(options: EngineHostOptions): Promise<Engi
       }
       return registry.snapshot();
     },
-    async reload() {
-      current = await build();
+    reload() {
+      const next = reloading.then(async () => {
+        current = await build();
+      });
+      reloading = next.catch(() => undefined);
+      return next;
     },
   };
 }

@@ -7,6 +7,7 @@ export * from './execution.js';
 export * from './gateway.js';
 export * from './ids.js';
 export * from './intelligence.js';
+export * from './inventory.js';
 export * from './launcher.js';
 export * from './logging.js';
 export * from './measured.js';

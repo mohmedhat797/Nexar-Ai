@@ -1,5 +1,6 @@
 export * from './callback-server.js';
 export * from './client.js';
+export * from './models.js';
 export {
   AGENT_NAME_HINT,
   CALLBACK_PATH,

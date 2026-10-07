@@ -502,13 +502,13 @@ describe(
 );
 
 describe('probe', () => {
-  it('runs only `--version` then `models`, never -p/--print or a prompt, signed in -> authenticated', async () => {
+  it('runs only `--version`, never lists models or infers authentication', async () => {
     h = harness();
     const state = await h.adapter.probe(optedIn(), new AbortController().signal);
-    expect(state).toMatchObject({ availability: 'available', auth: 'authenticated' });
+    expect(state).toMatchObject({ availability: 'available', auth: 'unknown' });
     expect(state.detail).toBe('agy 1.2.14');
     const calls = h.invocations();
-    expect(calls.map((i) => i.argv)).toEqual([['--version'], ['models']]);
+    expect(calls.map((i) => i.argv)).toEqual([['--version']]);
     for (const call of calls) {
       expect(call.argv.some((a) => a === '-p' || a.startsWith('--print') || a === '--prompt')).toBe(
         false,
@@ -517,13 +517,14 @@ describe('probe', () => {
     }
   });
 
-  it('reports unauthenticated on "Please sign in"', async () => {
+  it('does not run the potentially interactive listing for a logged-out runtime', async () => {
     h = harness({ 'logged-out': '' });
     const state = await h.adapter.probe(optedIn(), new AbortController().signal);
-    expect(state).toMatchObject({ availability: 'available', auth: 'unauthenticated' });
+    expect(state).toMatchObject({ availability: 'available', auth: 'unknown' });
+    expect(h.invocations().map((i) => i.argv)).toEqual([['--version']]);
   });
 
-  it('reports unknown auth when `models` prints nothing recognizable', async () => {
+  it('reports unknown auth regardless of catalog availability', async () => {
     h = harness({ 'models-empty': '' });
     const state = await h.adapter.probe(optedIn(), new AbortController().signal);
     expect(state).toMatchObject({ availability: 'available', auth: 'unknown' });
@@ -533,9 +534,9 @@ describe('probe', () => {
     h = harness();
     const state = await h.adapter.probe(antigravityResource(), new AbortController().signal);
     expect(state.availability).toBe('degraded');
-    expect(state.auth).toBe('authenticated');
+    expect(state.auth).toBe('unknown');
     expect(state.detail).toContain('experimental: set acknowledgeExperimental');
-    expect(h.invocations().map((i) => i.argv)).toEqual([['--version'], ['models']]);
+    expect(h.invocations().map((i) => i.argv)).toEqual([['--version']]);
   });
 
   it('notes a version mismatch but stays available', async () => {
@@ -544,6 +545,14 @@ describe('probe', () => {
     expect(state.availability).toBe('available');
     expect(state.detail).toContain('9.9.9');
     expect(state.detail).toContain(TESTED_AGY_VERSION);
+  });
+
+  it('keeps malformed version output private and reports unknown authentication', async () => {
+    h = harness({ version: '1.2.14 SECRET-CANARY' });
+    const state = await h.adapter.probe(optedIn(), new AbortController().signal);
+    expect(state).toMatchObject({ availability: 'available', auth: 'unknown' });
+    expect(JSON.stringify(state)).not.toContain('SECRET-CANARY');
+    expect(h.invocations().map((i) => i.argv)).toEqual([['--version']]);
   });
 
   it('reports unavailable for a missing binary', async () => {

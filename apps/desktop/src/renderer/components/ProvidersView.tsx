@@ -229,6 +229,12 @@ function SubscriptionMethod({
           Recheck
         </button>
       </div>
+      <ModelInventory
+        sourceId={row.runtime}
+        native
+        disabled={isRunning}
+        revision={`${row.status}:${row.loginState}`}
+      />
     </div>
   );
 }
@@ -519,3 +525,4 @@ export function ProvidersView({ resources }: { resources: readonly ResourceRow[]
     </div>
   );
 }
+import { ModelInventory } from './ModelInventory.js';

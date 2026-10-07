@@ -29,6 +29,7 @@
     "@nexar/process": "workspace:*",
     "@nexar/projects": "workspace:*",
     "@nexar/resource-controller": "workspace:*",
+    "@nexar/resource-registry": "workspace:*",
     "@nexar/sessions": "workspace:*",
     "@nexar/workflows": "workspace:*",
     "react": "19.3.0",

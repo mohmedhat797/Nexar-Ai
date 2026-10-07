@@ -16,6 +16,13 @@ export type FakeResponsesReply =
       readonly status: number;
       readonly code: string;
       readonly message?: string;
+      readonly param?: string;
+      readonly type?: string;
+    }
+  | {
+      readonly kind: 'stream-error';
+      readonly code: string;
+      readonly message?: string;
     };
 
 export interface FakeResponsesRequest {
@@ -27,6 +34,9 @@ export interface FakeResponsesServer {
   /** `http://127.0.0.1:<port>`; plan calls are redirected here by a test `fetch`. */
   readonly url: string;
   readonly requests: FakeResponsesRequest[];
+  /** GET model discovery is tracked separately from inference. */
+  readonly modelRequests: FakeResponsesRequest[];
+  setModels(models: readonly { readonly slug: string; readonly displayName: string }[]): void;
   /** Consumed in order; once empty every request gets a plain text reply. */
   replies: FakeResponsesReply[];
   close(): Promise<void>;
@@ -110,11 +120,16 @@ function toolCallEvents(name: string, args: string): string {
 
 export async function startFakeResponsesServer(): Promise<FakeResponsesServer> {
   let url = '';
+  let models = [{ slug: 'gpt-new-not-static', displayName: 'New account model' }];
   const state: FakeResponsesServer = {
     get url() {
       return url;
     },
     requests: [],
+    modelRequests: [],
+    setModels(next) {
+      models = next.map((model) => ({ ...model }));
+    },
     replies: [],
     close: () =>
       new Promise((resolve) => {
@@ -126,6 +141,20 @@ export async function startFakeResponsesServer(): Promise<FakeResponsesServer> {
     const chunks: Buffer[] = [];
     request.on('data', (chunk: Buffer) => chunks.push(chunk));
     request.on('end', () => {
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        state.modelRequests.push({ headers: request.headers, body: {} });
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            models: models.map((model) => ({
+              slug: model.slug,
+              display_name: model.displayName,
+              visibility: 'list',
+            })),
+          }),
+        );
+        return;
+      }
       if (request.method !== 'POST' || request.url !== '/v1/responses') {
         response.writeHead(404, { 'content-type': 'application/json' });
         response.end(JSON.stringify({ error: { code: 'not_found' } }));
@@ -147,12 +176,32 @@ export async function startFakeResponsesServer(): Promise<FakeResponsesServer> {
         });
         response.end(
           JSON.stringify({
-            error: { code: reply.code, message: reply.message ?? 'body-sentinel', type: 'error' },
+            error: {
+              code: reply.code,
+              message: reply.message ?? 'body-sentinel',
+              type: reply.type ?? 'error',
+              ...(reply.param === undefined ? {} : { param: reply.param }),
+            },
           }),
         );
         return;
       }
       response.writeHead(200, { 'content-type': 'text/event-stream' });
+      if (reply.kind === 'stream-error') {
+        response.end(
+          sse([
+            {
+              type: 'response.failed',
+              response: {
+                id: 'failed',
+                status: 'failed',
+                error: { code: reply.code, message: reply.message ?? 'body-sentinel' },
+              },
+            },
+          ]),
+        );
+        return;
+      }
       response.end(
         reply.kind === 'text'
           ? textEvents(reply.text)

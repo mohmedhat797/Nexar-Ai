@@ -1,6 +1,7 @@
 import { createModels, createProvider } from '@earendil-works/pi-ai';
 import type { Model } from '@earendil-works/pi-ai';
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
+import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy';
 
 /**
  * Nexar-local structural view of the few pi-ai `Models` members this package calls.
@@ -36,6 +37,9 @@ export interface PiRequestOptionsLike {
   readonly apiKey?: string;
   /** Test seam (plan calls only): pi-ai's per-request `fetch`. */
   readonly fetch?: typeof fetch;
+  /** Plan boundary only: inspect structured SSE failures before pi-ai formats error text. */
+  readonly onProviderStreamEvent?: (event: unknown) => void;
+  readonly onPayload?: (payload: unknown) => unknown;
 }
 
 /** The content-block fields this package reads; provider-private ones feed extras. */
@@ -232,6 +236,39 @@ export function createLocalEndpointModels(endpoint: LocalEndpoint): PiModelsLike
       auth: { apiKey: { name: endpoint.provider, resolve: () => Promise.resolve({ auth: {} }) } },
       models: [model],
       api: openAICompletionsApi(),
+    }),
+  );
+  return models;
+}
+
+/** A returned account slug needs no static catalog entry. Numeric zeros are private unknown
+ * bookkeeping required by pi-ai, never advertised limits/rates or reported cash costs. */
+export function createChatGptPlanModels(id: string): PiModelsLike {
+  const model: Model<'openai-responses'> = {
+    id,
+    name: id,
+    provider: 'openai',
+    api: 'openai-responses',
+    baseUrl: 'https://api.openai.com/v1',
+    input: ['text'],
+    reasoning: false,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 0,
+    maxTokens: 0,
+    compat: {
+      supportsMaxOutputTokens: false,
+      supportsAdditionalTools: true,
+      supportsToolSearch: false,
+    },
+  };
+  const models = createModels();
+  models.setProvider(
+    createProvider({
+      id: 'openai',
+      baseUrl: model.baseUrl,
+      models: [model],
+      api: openAIResponsesApi(),
+      auth: { apiKey: { name: 'openai', resolve: () => Promise.resolve({ auth: {} }) } },
     }),
   );
   return models;

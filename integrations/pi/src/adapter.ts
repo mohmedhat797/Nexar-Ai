@@ -13,6 +13,7 @@ import {
   DEFAULT_ALLOWED_PROVIDERS,
   KEYLESS_LOCAL_PLACEHOLDER_KEY,
   createAllowlistedModels,
+  createChatGptPlanModels,
   createLocalEndpointModels,
 } from './pi-models.js';
 import type { PiModelLike, PiModelsLike } from './pi-models.js';
@@ -21,6 +22,8 @@ import { PI_ADAPTER_ID } from './resource.js';
 import { configError, parseRuntimeOptions, readPiCredential } from './runtime-options.js';
 import type { PiRuntimeOptions } from './runtime-options.js';
 import { toExecutionResult, toThrownNexarError } from './result.js';
+import { planRequestError } from './result.js';
+import { createPlanRequestGuard, notifyPlanModelRejected } from './plan-request.js';
 
 /** Options for {@link PiExecutionAdapter}. */
 export interface PiExecutionAdapterOptions {
@@ -40,6 +43,8 @@ export interface PiExecutionAdapterOptions {
   readonly resolveCredential?: ConnectionCredentialResolver;
   /** Test seam: the `fetch` pi-ai uses for plan calls. Production never sets it. */
   readonly fetch?: typeof fetch;
+  readonly onPlanModelRejected?: (descriptor: ResourceDescriptor) => void;
+  readonly isPlanModelAvailable?: (descriptor: ResourceDescriptor) => boolean;
   /** Providers this adapter may call. Defaults to {@link DEFAULT_ALLOWED_PROVIDERS}. */
   readonly allowedProviders?: readonly string[];
   /** Clock (epoch ms) for message and probe timestamps. Defaults to `Date.now`. */
@@ -61,6 +66,8 @@ export class PiExecutionAdapter implements ExecutionAdapter {
   private readonly resolveSecret: SecretResolver | undefined;
   private readonly resolveCredential: ConnectionCredentialResolver | undefined;
   private readonly fetchImpl: typeof fetch | undefined;
+  private readonly onPlanModelRejected: PiExecutionAdapterOptions['onPlanModelRejected'];
+  private readonly isPlanModelAvailable: PiExecutionAdapterOptions['isPlanModelAvailable'];
   /** Resources the provider refused as not eligible; the next probe reports them unauthenticated. */
   private readonly notEligible = new Set<string>();
   private readonly allowedProviders: readonly string[];
@@ -75,6 +82,8 @@ export class PiExecutionAdapter implements ExecutionAdapter {
     this.resolveSecret = options.resolveSecret;
     this.resolveCredential = options.resolveCredential;
     this.fetchImpl = options.fetch;
+    this.onPlanModelRejected = options.onPlanModelRejected;
+    this.isPlanModelAvailable = options.isPlanModelAvailable;
     this.allowedProviders = options.allowedProviders ?? DEFAULT_ALLOWED_PROVIDERS;
     this.now = options.now ?? Date.now;
   }
@@ -91,8 +100,16 @@ export class PiExecutionAdapter implements ExecutionAdapter {
       const options = parseRuntimeOptions(resource);
       this.assertAuthModeAllowed(target);
       const { kind } = target;
-      if (options.baseUrl === undefined) {
-        this.assertProviderAllowed(kind.provider, resource);
+      if (options.baseUrl === undefined) this.assertProviderAllowed(kind.provider, resource);
+      if (usesChatGptPlan(target) && !this.planAvailable(target)) {
+        return {
+          availability: 'unavailable',
+          auth: 'unknown',
+          detail: 'model-unavailable',
+          observedAt,
+        };
+      }
+      if (options.baseUrl === undefined && !usesChatGptPlan(target)) {
         const models = await this.getDefaultModels();
         if (models.getModel(kind.provider, kind.model) === undefined) {
           return {
@@ -144,6 +161,7 @@ export class PiExecutionAdapter implements ExecutionAdapter {
       throw new NexarError('EXECUTION_CANCELLED', 'Execution was cancelled');
     }
     if (this.resolveCredential !== undefined && usesChatGptPlan(target)) {
+      if (!this.planAvailable(target)) throw planRequestError('model-unavailable');
       const resolver = this.resolveCredential;
       try {
         return await withChatGptPlanToken(resolver, resource, context.signal, (token) =>
@@ -189,9 +207,20 @@ export class PiExecutionAdapter implements ExecutionAdapter {
     plan: boolean,
   ): Promise<ExecutionResult> {
     const { kind } = target;
+    let availabilityFailure: NexarError | undefined;
+    const assertPlanAvailable = (): void => {
+      if (plan && !this.planAvailable(target)) {
+        availabilityFailure = planRequestError('model-unavailable');
+        throw availabilityFailure;
+      }
+    };
+    // Credential resolution can yield to disconnect/refresh; recheck before loading or calling.
+    assertPlanAvailable();
     const secrets = apiKey === undefined ? [] : [apiKey];
+    const guard = plan ? createPlanRequestGuard(this.fetchImpl, context.signal) : undefined;
     try {
       const models = await this.modelsFor(target, options);
+      assertPlanAvailable();
       const model = models.getModel(kind.provider, kind.model);
       if (model === undefined) {
         throw configError(`Unknown model ${kind.provider}/${kind.model}`, {
@@ -199,12 +228,29 @@ export class PiExecutionAdapter implements ExecutionAdapter {
           model: kind.model,
         });
       }
-      const message = await this.complete(models, model, request, context, options, apiKey, plan);
+      assertPlanAvailable();
+      const message = await this.complete(
+        models,
+        model,
+        request,
+        context,
+        options,
+        apiKey,
+        plan,
+        guard,
+      );
+      if (guard !== undefined && message.stopReason === 'error') throw guard.failure();
       return toExecutionResult(message, {
         secrets,
+        ...(plan ? { costMode: 'unavailable' as const } : {}),
         ...(context.onEvent === undefined ? {} : { onEvent: context.onEvent }),
       });
     } catch (e) {
+      if (availabilityFailure !== undefined && e === availabilityFailure) throw e;
+      if (guard !== undefined) {
+        if (guard.rejectedModel) notifyPlanModelRejected(this.onPlanModelRejected, target);
+        throw guard.failure();
+      }
       throw toThrownNexarError(e, context.signal, secrets);
     }
   }
@@ -218,6 +264,7 @@ export class PiExecutionAdapter implements ExecutionAdapter {
     options: PiRuntimeOptions,
     apiKey: string | undefined,
     plan: boolean,
+    guard?: ReturnType<typeof createPlanRequestGuard>,
   ): ReturnType<PiModelsLike['completeSimple']> {
     const { input } = request.task;
     return models.completeSimple(
@@ -230,8 +277,14 @@ export class PiExecutionAdapter implements ExecutionAdapter {
         signal: context.signal,
         // The plan route rejects `max_output_tokens`; pi-ai omits it there, and so does Nexar.
         ...(options.maxTokens === undefined || plan ? {} : { maxTokens: options.maxTokens }),
-        ...(options.reasoning === undefined ? {} : { reasoning: options.reasoning }),
-        ...(plan && this.fetchImpl !== undefined ? { fetch: this.fetchImpl } : {}),
+        ...(options.reasoning === undefined || plan ? {} : { reasoning: options.reasoning }),
+        ...(guard === undefined
+          ? {}
+          : {
+              fetch: guard.fetch,
+              onProviderStreamEvent: guard.onProviderStreamEvent,
+              onPayload: guard.onPayload,
+            }),
         ...(apiKey !== undefined
           ? { apiKey }
           : options.baseUrl !== undefined
@@ -281,6 +334,16 @@ export class PiExecutionAdapter implements ExecutionAdapter {
   }
 
   private modelsFor(resource: ModelResource, options: PiRuntimeOptions): Promise<PiModelsLike> {
+    if (usesChatGptPlan(resource)) {
+      if (this.injected !== undefined) return Promise.resolve(this.injected);
+      const key = `chatgpt-plan\u0000${resource.kind.model}`;
+      let models = this.localModels.get(key);
+      if (models === undefined) {
+        models = createChatGptPlanModels(resource.kind.model);
+        this.localModels.set(key, models);
+      }
+      return Promise.resolve(models);
+    }
     if (options.baseUrl === undefined) return this.getDefaultModels();
     const { provider, model } = resource.kind;
     const key = `${provider}\u0000${model}\u0000${options.baseUrl}`;
@@ -300,6 +363,14 @@ export class PiExecutionAdapter implements ExecutionAdapter {
       this.localModels.set(key, models);
     }
     return Promise.resolve(models);
+  }
+
+  private planAvailable(resource: ModelResource): boolean {
+    try {
+      return resource.kind.provider === 'openai' && (this.isPlanModelAvailable?.(resource) ?? true);
+    } catch {
+      return false;
+    }
   }
 }
 

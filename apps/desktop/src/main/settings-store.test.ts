@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { inventoryResourceId } from '@nexar/resource-registry';
 import {
   DEFAULT_BEHAVIOR,
   DEFAULT_ORCHESTRATION,
@@ -174,6 +175,51 @@ describe('Code plane settings', () => {
 });
 
 describe('AI behavior settings (NXR-053)', () => {
+  it('resolves legacy plan preference and control pins to the same route without rewriting settings', async () => {
+    const raw = JSON.stringify({
+      ...base,
+      behavior: {
+        cowork: { permission: 'drafts-only', preferredResourceId: 'chatgpt-plan:gpt-5.4' },
+        code: { permission: 'auto-edit', preferredResourceId: 'chatgpt-plan:gpt-5.4' },
+      },
+      orchestration: {
+        cowork: {
+          controlResource: {
+            mode: 'pinned',
+            resourceId: 'chatgpt-plan:gpt-5.4',
+            fallback: 'none',
+          },
+        },
+      },
+    });
+    await writeFile(path, raw);
+    const canonical = inventoryResourceId(
+      {
+        provider: 'openai',
+        connectionId: 'openai.chatgpt-plan',
+        runtimeId: 'pi',
+        routeId: 'openai.responses.account',
+        machine: 'desktop',
+      },
+      { kind: 'model', id: 'gpt-5.4' },
+    );
+    const store = new SettingsStore(path);
+    expect(await store.getBehavior()).toEqual({
+      valid: true,
+      value: {
+        cowork: { permission: 'drafts-only', preferredResourceId: canonical },
+        code: { permission: 'auto-edit', preferredResourceId: canonical },
+      },
+    });
+    expect(await store.getOrchestration()).toEqual({
+      valid: true,
+      value: {
+        cowork: { controlResource: { mode: 'pinned', resourceId: canonical, fallback: 'none' } },
+      },
+    });
+    expect(await readFile(path, 'utf8')).toBe(raw);
+  });
+
   const behaviorOf = async (section: unknown) => {
     await writeFile(path, JSON.stringify({ ...base, behavior: section }));
     return new SettingsStore(path).getBehavior();
@@ -342,10 +388,10 @@ describe('ChatGPT plan models (NXR-067)', () => {
     return new SettingsStore(path).getChatGptPlan();
   };
 
-  it('defaults to gpt-5.2 when the file or the section is missing', async () => {
+  it('has no assumed model when the file or the section is missing', async () => {
     expect(await new SettingsStore(path).getChatGptPlan()).toEqual({
       valid: true,
-      value: { models: ['gpt-5.2'] },
+      value: { models: [] },
     });
     await writeFile(path, JSON.stringify(base));
     expect(await new SettingsStore(path).getChatGptPlan()).toMatchObject({ valid: true });

@@ -7,8 +7,10 @@ import type {
   ModelTurnPortRequest,
   ResourceDescriptor,
 } from '@nexar/contracts';
+import type { PiModelsLike } from './pi-models.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startFakeResponsesServer, type FakeResponsesServer } from './fake-responses-server.js';
+import type { FakeResponsesReply } from './fake-responses-server.js';
 import {
   PiExecutionAdapter,
   PiModelTurnPort,
@@ -20,11 +22,346 @@ const TOKEN = 'plan-token-sentinel-1';
 const FRESH = 'plan-token-sentinel-2';
 const BODY_SENTINEL = 'response-body-sentinel';
 const OPENAI = 'https://api.openai.com/v1';
+const resource = chatGptPlanModelResource('gpt-5.2');
 
 let server: FakeResponsesServer;
 
 beforeAll(async () => {
   server = await startFakeResponsesServer();
+});
+
+describe('returned account model slugs and invalidation', () => {
+  const returned: ResourceDescriptor = {
+    ...resource,
+    id: resource.id,
+    displayName: 'Returned label',
+    kind: {
+      type: 'model',
+      provider: 'openai',
+      access: 'subscription',
+      model: `catalog-new/${'x'.repeat(150)}`,
+    },
+  };
+  const turn = (descriptor = returned): ModelTurnPortRequest => ({
+    descriptor,
+    messages: [{ role: 'user', content: 'hello' }],
+    signal: new AbortController().signal,
+  });
+
+  it.each(['adapter', 'turn'] as const)(
+    'honors injected models and contains thrown plan errors in %s',
+    async (kind) => {
+      const model = returned.kind.type === 'model' ? returned.kind.model : '';
+      const getModel = vi.fn(() => ({ id: model, provider: 'openai', api: 'openai-responses' }));
+      const completeSimple = vi.fn<PiModelsLike['completeSimple']>(() =>
+        Promise.reject(new Error(`${TOKEN} ${BODY_SENTINEL}`)),
+      );
+      const callback = vi.fn();
+      const options = {
+        resolveCredential: resolver().resolve,
+        models: { getModel, completeSimple },
+        onPlanModelRejected: callback,
+      };
+      const error = await failure(
+        kind === 'adapter'
+          ? new PiExecutionAdapter(options).execute(execution(returned), context())
+          : new PiModelTurnPort(options).turn(turn()),
+      );
+      expect(getModel).toHaveBeenCalledExactlyOnceWith('openai', model);
+      expect(completeSimple).toHaveBeenCalledOnce();
+      expect(error).toMatchObject({ code: 'PROVIDER_ERROR', details: { reason: 'unknown' } });
+      expect(JSON.stringify(error.toJSON())).not.toContain(TOKEN);
+      expect(JSON.stringify(error.toJSON())).not.toContain(BODY_SENTINEL);
+      expect(callback).not.toHaveBeenCalled();
+    },
+  );
+
+  it('settles cancellation even when an offline fetch seam ignores its signal', async () => {
+    const controller = new AbortController();
+    let start: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      start = resolve;
+    });
+    const callback = vi.fn();
+    const adapter = new PiExecutionAdapter({
+      resolveCredential: resolver().resolve,
+      onPlanModelRejected: callback,
+      fetch: () => {
+        start?.();
+        return new Promise<Response>(() => undefined);
+      },
+    });
+    const pending = adapter.execute(execution(returned), {
+      ...context(),
+      signal: controller.signal,
+    });
+    await started;
+    controller.abort(new Error(`${TOKEN} ${BODY_SENTINEL}`));
+    const error = await failure(pending);
+    expect(error.code).toBe('EXECUTION_CANCELLED');
+    expect(JSON.stringify(error.toJSON())).not.toContain(BODY_SENTINEL);
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('executes a catalog-new slug without exposing invented prices or limits', async () => {
+    const { adapter } = adapterWith();
+    expect(await adapter.probe(returned, context().signal)).toMatchObject({
+      availability: 'available',
+    });
+    const result = await adapter.execute(execution(returned), context());
+    expect(result.resolved.model).toBe(returned.kind.type === 'model' ? returned.kind.model : '');
+    expect(result.usage.costUsd.status).toBe('unavailable');
+    expect(returned).not.toHaveProperty('limits');
+    expect(returned.capabilities).not.toContain('reasoning');
+    expect(server.requests[0]?.body).not.toHaveProperty('reasoning');
+  });
+  it('runs a returned-slug function call and replays its result through the account route', async () => {
+    const port = new PiModelTurnPort({ resolveCredential: resolver().resolve, fetch: toFake });
+    server.replies = [
+      { kind: 'tool-call', name: 'read_file', arguments: '{"path":"a"}' },
+      { kind: 'text', text: 'done' },
+    ];
+    const first = await port.turn({
+      ...turn(),
+      tools: [
+        {
+          name: 'read_file',
+          parameters: { type: 'object', properties: { path: { type: 'string' } } },
+        },
+      ],
+    });
+    const call = first.toolCalls[0];
+    expect(call).toBeDefined();
+    if (call === undefined) throw new Error('expected a tool call');
+    const second = await port.turn({
+      ...turn(),
+      messages: [
+        { role: 'user', content: 'hello' },
+        {
+          role: 'assistant',
+          ...(first.text === undefined ? {} : { content: first.text }),
+          toolCalls: first.toolCalls,
+          ...(first.extras === undefined ? {} : { extras: first.extras }),
+        },
+        { role: 'tool', toolCallId: call.id, content: 'file contents' },
+      ],
+    });
+    expect(second.text).toBe('done');
+    expect(server.requests[1]?.body['input']).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'function_call_output', output: 'file contents' }),
+      ]),
+    );
+  });
+  it.each(['adapter', 'turn'] as const)(
+    'gates stale descriptors before token resolution in %s',
+    async (kind) => {
+      const resolveCredential = vi.fn<ConnectionCredentialResolver>(() => Promise.resolve(TOKEN));
+      const callback = vi.fn();
+      const options = {
+        resolveCredential,
+        fetch: toFake,
+        isPlanModelAvailable: () => false,
+        onPlanModelRejected: callback,
+      };
+      const error = await failure(
+        kind === 'adapter'
+          ? new PiExecutionAdapter(options).execute(execution(returned), context())
+          : new PiModelTurnPort(options).turn(turn()),
+      );
+      expect(error.details?.['reason']).toBe('model-unavailable');
+      expect(resolveCredential).not.toHaveBeenCalled();
+      expect(callback).not.toHaveBeenCalled();
+      expect(server.requests).toHaveLength(0);
+    },
+  );
+  it.each([
+    ['adapter', 'credentials'],
+    ['turn', 'credentials'],
+    ['adapter', 'models'],
+    ['turn', 'models'],
+  ] as const)('blocks %s if inventory changes while awaiting %s', async (kind, stage) => {
+    let available = true;
+    let finishToken!: (token: string) => void;
+    const pendingToken = new Promise<string>((resolve) => {
+      finishToken = resolve;
+    });
+    let enteredToken!: () => void;
+    const tokenStarted = new Promise<void>((resolve) => {
+      enteredToken = resolve;
+    });
+    const resolveCredential = vi.fn<ConnectionCredentialResolver>(() => {
+      enteredToken();
+      return stage === 'credentials' ? pendingToken : Promise.resolve(TOKEN);
+    });
+    let finishModels!: (models: PiModelsLike) => void;
+    const pendingModels = new Promise<PiModelsLike>((resolve) => {
+      finishModels = resolve;
+    });
+    let enteredModels!: () => void;
+    const modelsStarted = new Promise<void>((resolve) => {
+      enteredModels = resolve;
+    });
+    const completeSimple = vi.fn<PiModelsLike['completeSimple']>(() =>
+      Promise.reject(new Error(`${TOKEN} ${BODY_SENTINEL}`)),
+    );
+    const getModel = vi.fn(() => ({ id: 'returned', provider: 'openai', api: 'openai-responses' }));
+    const onPlanModelRejected = vi.fn();
+    const options = {
+      resolveCredential,
+      models: { getModel, completeSimple },
+      isPlanModelAvailable: () => available,
+      onPlanModelRejected,
+    };
+    const unit =
+      kind === 'adapter' ? new PiExecutionAdapter(options) : new PiModelTurnPort(options);
+    // Hold the existing asynchronous dependency boundary without launching any provider request.
+    const lookup = vi
+      .spyOn(unit as unknown as { modelsFor(): Promise<PiModelsLike> }, 'modelsFor')
+      .mockImplementation(() => {
+        enteredModels();
+        return pendingModels;
+      });
+    const pending =
+      unit instanceof PiExecutionAdapter
+        ? unit.execute(execution(returned), context())
+        : unit.turn(turn());
+    await (stage === 'credentials' ? tokenStarted : modelsStarted);
+    available = false;
+    finishToken(TOKEN);
+    finishModels({ getModel, completeSimple });
+    const error = await failure(pending);
+    expect(error).toMatchObject({
+      code: 'PROVIDER_ERROR',
+      details: { reason: 'model-unavailable' },
+    });
+    expect(resolveCredential).toHaveBeenCalledOnce();
+    expect(lookup).toHaveBeenCalledTimes(stage === 'credentials' ? 0 : 1);
+    expect(getModel).not.toHaveBeenCalled();
+    expect(completeSimple).not.toHaveBeenCalled();
+    expect(onPlanModelRejected).not.toHaveBeenCalled();
+    expect(server.requests).toHaveLength(0);
+  });
+
+  it.each(['adapter', 'turn'] as const)(
+    'rechecks %s immediately before inference after model lookup',
+    async (kind) => {
+      let available = true;
+      const getModel = vi.fn(() => {
+        available = false;
+        return { id: 'returned', provider: 'openai', api: 'openai-responses' };
+      });
+      const completeSimple = vi.fn<PiModelsLike['completeSimple']>(() =>
+        Promise.reject(new Error(`${TOKEN} ${BODY_SENTINEL}`)),
+      );
+      const options = {
+        resolveCredential: resolver().resolve,
+        models: { getModel, completeSimple },
+        isPlanModelAvailable: () => available,
+      };
+      const error = await failure(
+        kind === 'adapter'
+          ? new PiExecutionAdapter(options).execute(execution(returned), context())
+          : new PiModelTurnPort(options).turn(turn()),
+      );
+      expect(error.details?.['reason']).toBe('model-unavailable');
+      expect(getModel).toHaveBeenCalledOnce();
+      expect(completeSimple).not.toHaveBeenCalled();
+      expect(server.requests).toHaveLength(0);
+    },
+  );
+
+  it.each(['adapter', 'turn'] as const)(
+    'invalidates %s once for structured HTTP/SSE model rejection without refresh',
+    async (kind) => {
+      const replies: FakeResponsesReply[] = [
+        {
+          kind: 'error',
+          status: 404,
+          code: 'model_not_found',
+          message: `${TOKEN} ${BODY_SENTINEL}`,
+        },
+        { kind: 'error', status: 400, code: 'unsupported_model', message: BODY_SENTINEL },
+        {
+          kind: 'error',
+          status: 400,
+          code: 'invalid_request_error',
+          param: 'model',
+          message: `The model is not supported. ${BODY_SENTINEL}`,
+        },
+        { kind: 'stream-error', code: 'model_not_found', message: BODY_SENTINEL },
+      ];
+      for (const reply of replies) {
+        const seam = resolver();
+        const callback = vi.fn(() => {
+          throw new Error(BODY_SENTINEL);
+        });
+        const options = {
+          resolveCredential: seam.resolve,
+          fetch: toFake,
+          onPlanModelRejected: callback,
+        };
+        server.replies = [reply];
+        const before = server.requests.length;
+        const error = await failure(
+          kind === 'adapter'
+            ? new PiExecutionAdapter(options).execute(execution(returned), context())
+            : new PiModelTurnPort(options).turn(turn()),
+        );
+        expect(error).toMatchObject({
+          code: 'PROVIDER_ERROR',
+          details: { reason: 'model-unavailable' },
+        });
+        expect(callback).toHaveBeenCalledExactlyOnceWith(returned);
+        expect(seam.calls).toEqual([{ refresh: false }]);
+        expect(server.requests).toHaveLength(before + 1);
+        expect(JSON.stringify(error.toJSON())).not.toContain(BODY_SENTINEL);
+        expect(JSON.stringify(error.toJSON())).not.toContain(TOKEN);
+      }
+    },
+  );
+  it.each(['adapter', 'turn'] as const)(
+    'keeps unknown plan failures fixed and does not invalidate %s',
+    async (kind) => {
+      const replies: FakeResponsesReply[] = [
+        {
+          kind: 'error',
+          status: 400,
+          code: 'invalid_request_error',
+          param: 'tools',
+          message: `Unsupported model ${BODY_SENTINEL}`,
+        },
+        {
+          kind: 'error',
+          status: 400,
+          code: 'invalid_request_error',
+          param: 'model',
+          message: `Other failure ${BODY_SENTINEL}`,
+        },
+        { kind: 'stream-error', code: 'unrecognized', message: `${TOKEN} ${BODY_SENTINEL}` },
+      ];
+      for (const reply of replies) {
+        const seam = resolver();
+        const callback = vi.fn();
+        const options = {
+          resolveCredential: seam.resolve,
+          fetch: toFake,
+          onPlanModelRejected: callback,
+        };
+        server.replies = [reply];
+        const error = await failure(
+          kind === 'adapter'
+            ? new PiExecutionAdapter(options).execute(execution(returned), context())
+            : new PiModelTurnPort(options).turn(turn()),
+        );
+        expect(error).toMatchObject({ code: 'PROVIDER_ERROR', details: { reason: 'unknown' } });
+        expect(callback).not.toHaveBeenCalled();
+        expect(seam.calls).toEqual([{ refresh: false }]);
+        expect(JSON.stringify(error.toJSON())).not.toContain(BODY_SENTINEL);
+        expect(JSON.stringify(error.toJSON())).not.toContain(TOKEN);
+      }
+    },
+  );
 });
 afterAll(async () => {
   await server.close();
@@ -59,8 +396,6 @@ const logger: Logger = {
   error: () => undefined,
   child: () => logger,
 };
-
-const resource = chatGptPlanModelResource('gpt-5.2');
 
 function execution(descriptor: ResourceDescriptor = resource): ExecutionRequest {
   return {
@@ -326,7 +661,18 @@ describe('PiModelTurnPort with the ChatGPT plan', () => {
     ]);
     expect(bearer(0)).toBe(`Bearer ${TOKEN}`);
     const body = server.requests[0]?.body ?? {};
-    expect(body['tools']).toHaveLength(1);
+    expect(body).not.toHaveProperty('tools');
+    expect(body['input']).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'additional_tools',
+          role: 'developer',
+          tools: expect.arrayContaining([
+            expect.objectContaining({ type: 'function', name: 'read_file' }),
+          ]) as unknown,
+        }),
+      ]),
+    );
     expect(body['store']).toBe(false);
     expect(body).not.toHaveProperty('max_output_tokens');
     expect(body).not.toHaveProperty('temperature');

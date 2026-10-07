@@ -14,6 +14,8 @@ export type {
 import type { SubscriptionRow } from './subscriptions.js';
 export type { SubscriptionRow } from './subscriptions.js';
 import type { ChatGptPlanStatus } from './chatgpt-plan.js';
+import type { InventoryRow, InventorySourceId } from './provider-inventory.js';
+export type { InventoryRow, InventorySourceId } from './provider-inventory.js';
 export type { ChatGptPlanStatus } from './chatgpt-plan.js';
 import type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 export type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
@@ -418,6 +420,8 @@ export interface NexarApi {
   connectChatgptPlan(): Promise<BridgeResult<ChatGptPlanStatus>>;
   cancelChatgptPlan(): Promise<BridgeResult<ChatGptPlanStatus>>;
   disconnectChatgptPlan(): Promise<BridgeResult<ChatGptPlanStatus>>;
+  listModelInventories(): Promise<BridgeResult<readonly InventoryRow[]>>;
+  refreshModelInventory(sourceId: InventorySourceId): Promise<BridgeResult<InventoryRow>>;
   saveProviderKeyFromClipboard(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   removeProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   checkProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;

@@ -6,7 +6,10 @@ never prompts, outputs, tokens or account identifiers).
 
 ## 0. Preconditions
 
-**Blocked (2026-10-06):** finish NXR-068 and exact-head CI before resuming this runbook. The owner's
+**Blocked on exact-head CI (2026-10-07):** NXR-068 passed strengthened local gates
+([evidence](nxr-068-local-gates.md)), including full check, Desktop E2E, Windows packaging and
+packaged E2E. GitHub billing makes CI unavailable; full exact-head CI must pass before resuming
+this runbook. The owner's
 first smoke confirmed ChatGPT authentication but exposed an unsupported assumed model and unavailable
 OpenWorker. Use only a fresh model returned for the selected account and route.
 
@@ -22,6 +25,8 @@ OpenWorker. Use only a fresh model returned for the selected account and route.
 ## 1. Providers — configured once
 
 1. Desktop → Settings → Providers → **Anthropic**: Claude Code subscription shows signed in.
+   Click **Refresh models** to initialize metadata without a user turn. Record fresh native choices;
+   listing alone is not authentication proof. SDK initialization may refresh vendor-owned state.
 2. **OpenAI → ChatGPT plan (Sign in with ChatGPT)** → **Connect**. Sign in in the browser and
    **allow plan usage** for Nexar. Status becomes "Connected" with plan sharing on. (Uses the
    ChatGPT plan's allowance; manage or revoke it in ChatGPT settings.)
@@ -29,10 +34,19 @@ OpenWorker. Use only a fresh model returned for the selected account and route.
    Resources → details: that resource has `model-turn`, connection OpenAI / subscription / official;
    Claude Code is a native agent (work resource). Empty or stale inventory blocks this step.
 4. Settings → Providers → **Engineering plane**: plane resources listed read-only.
+5. Optional Google coverage: explicit **Refresh models** reads `agy models`; it may initialize the
+   native keyring/sign-in. Record only returned choices; authentication remains unknown. A native
+   Google resource remains experimental and is not a model-turn control resource.
+6. Native Codex offers **provider default**, which omits `--model`. Explicit native catalog discovery
+   remains deferred until a browser-safe `model/list` release is verified; it does not use the
+   separate ChatGPT plan Responses catalog. Existing vendor default resources remain usable.
+7. Select a fresh explicit resource in AI behavior, then return to Auto. Refresh once more and check
+   additions/removals, freshness and retained pins. Empty/stale catalogs must not create a usable
+   explicit choice. No credentials or raw native output belong in evidence.
 
 ## 2. Orchestration — Auto
 
-Settings → AI behavior → Orchestration: Cowork control **Auto** (shows "Auto → chatgpt-plan:…"),
+Settings → AI behavior → Orchestration: Cowork control **Auto** (shows "Auto → returned model label"),
 fallback **Auto**. Code shows the plane's policy read-only.
 
 ### First resumed smoke — read-only

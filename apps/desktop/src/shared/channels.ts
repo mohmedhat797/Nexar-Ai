@@ -22,6 +22,8 @@ export const CHANNELS = {
   chatgptPlanConnect: 'providers:chatgptPlanConnect',
   chatgptPlanCancel: 'providers:chatgptPlanCancel',
   chatgptPlanDisconnect: 'providers:chatgptPlanDisconnect',
+  inventoryList: 'providers:listModelInventories',
+  inventoryRefresh: 'providers:refreshModelInventory',
   projectsList: 'projects:list',
   projectsAdd: 'projects:add',
   projectsRemove: 'projects:remove',

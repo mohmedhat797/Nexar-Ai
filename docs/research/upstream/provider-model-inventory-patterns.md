@@ -121,6 +121,15 @@ with bounded pagination, and [model metadata](https://github.com/openai/codex/bl
 **ADAPT** for native-agent resources, retaining route identity; **REJECT** treating it as the account
 Responses catalog. Native default is invocation omission, not a copied default slug.
 
+**Implementation safety finding (2026-10-07):** upstream
+[gateway initialization](https://github.com/openai/codex/tree/0b863c69f50335acd92164aab971cb58d298c2fe/codex-rs/app-server)
+can open browser OAuth after initialization unless the newer explicit gateway OAuth capability is
+honored. Older servers may ignore that capability; a later account read cannot prevent the earlier
+browser action. No safe minimum release was verified. **DEFER** app-server initialization/model-list
+discovery; expose a native **provider-default** selection after a bounded, explicit status refresh.
+Never map the separate account Responses list onto Codex. This is a safety limitation, not an empty
+or invented native catalog.
+
 ## Google / Antigravity
 
 [Official CLI headless documentation](https://www.antigravity.google/docs/cli/headless/#select-a-model-effort-or-agent)
@@ -167,6 +176,15 @@ deadline/process cleanup, not merely SDK iteration cancellation. The registry re
 `settingSources: []` suppresses user/project/local settings; the published types say managed policy
 still applies. Reported choices remain observations subject to execution-time validation, not a
 complete entitlement guarantee. Verify this isolation contract against the installed exact pin.
+
+**Implementation verification (2026-10-07):** exact npm SDK **0.3.292** types and implementation
+were inspected before installation, and its tarball integrity matches
+`sha512-C5XI/19uArTg3jjgayN9CSQxJilRciBko007AdPmHXwQqbAzdUldaPUQtDp8Pm6QJg5Aw3jI1G1eIJOBrx4xKQ==`.
+`supportedModels()` reads initialization models, the async input is never fed, and explicit `env`
+replaces inheritance. The source uses the installed Claude command through the SDK spawn hook,
+not the SDK's bundled runtime. Owned tree cleanup precedes input EOF/close and has a separate bounded
+cleanup deadline. Fake tests exercise these properties; native execution remains owner-unverified.
+The repository boundary permits this one SDK only inside `integrations/claude-code`.
 
 ## Nexar application (decision)
 

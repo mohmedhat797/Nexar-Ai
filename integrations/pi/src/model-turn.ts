@@ -17,6 +17,7 @@ import {
   DEFAULT_ALLOWED_PROVIDERS,
   KEYLESS_LOCAL_PLACEHOLDER_KEY,
   createAllowlistedModels,
+  createChatGptPlanModels,
   createLocalEndpointModels,
 } from './pi-models.js';
 import type {
@@ -30,6 +31,8 @@ import type {
 import { usesChatGptPlan, withChatGptPlanToken } from './connection-credential.js';
 import { PI_ADAPTER_ID } from './resource.js';
 import { failureFor, toThrownNexarError } from './result.js';
+import { planRequestError } from './result.js';
+import { createPlanRequestGuard, notifyPlanModelRejected } from './plan-request.js';
 import { configError, parseRuntimeOptions, readPiCredential } from './runtime-options.js';
 import type { PiRuntimeOptions } from './runtime-options.js';
 
@@ -43,6 +46,8 @@ export interface PiModelTurnPortOptions {
   readonly resolveCredential?: ConnectionCredentialResolver;
   /** Test seam: the `fetch` pi-ai uses for plan calls. Production never sets it. */
   readonly fetch?: typeof fetch;
+  readonly onPlanModelRejected?: (descriptor: ResourceDescriptor) => void;
+  readonly isPlanModelAvailable?: (descriptor: ResourceDescriptor) => boolean;
   readonly allowedProviders?: readonly string[];
   /** Clock (epoch ms) for message timestamps. Defaults to `Date.now`. */
   readonly now?: () => number;
@@ -301,6 +306,8 @@ export class PiModelTurnPort implements ModelTurnPort {
   private readonly resolveSecret: SecretResolver | undefined;
   private readonly resolveCredential: ConnectionCredentialResolver | undefined;
   private readonly fetchImpl: typeof fetch | undefined;
+  private readonly onPlanModelRejected: PiModelTurnPortOptions['onPlanModelRejected'];
+  private readonly isPlanModelAvailable: PiModelTurnPortOptions['isPlanModelAvailable'];
   private readonly allowedProviders: readonly string[];
   private readonly now: () => number;
   private readonly injected: PiModelsLike | undefined;
@@ -313,6 +320,8 @@ export class PiModelTurnPort implements ModelTurnPort {
     this.resolveSecret = options.resolveSecret;
     this.resolveCredential = options.resolveCredential;
     this.fetchImpl = options.fetch;
+    this.onPlanModelRejected = options.onPlanModelRejected;
+    this.isPlanModelAvailable = options.isPlanModelAvailable;
     this.allowedProviders = options.allowedProviders ?? DEFAULT_ALLOWED_PROVIDERS;
     this.now = options.now ?? Date.now;
   }
@@ -349,6 +358,7 @@ export class PiModelTurnPort implements ModelTurnPort {
     if (signal.aborted) throw new NexarError('EXECUTION_CANCELLED', 'Turn was cancelled');
 
     if (plan && this.resolveCredential !== undefined) {
+      if (!this.planAvailable(descriptor)) throw planRequestError('model-unavailable');
       return withChatGptPlanToken(this.resolveCredential, descriptor, signal, (token) =>
         this.attempt(request, kind, options, token, true),
       );
@@ -373,9 +383,19 @@ export class PiModelTurnPort implements ModelTurnPort {
     plan: boolean,
   ): Promise<TurnResult> {
     const { descriptor, signal } = request;
+    let availabilityFailure: NexarError | undefined;
+    const assertPlanAvailable = (): void => {
+      if (plan && !this.planAvailable(descriptor)) {
+        availabilityFailure = planRequestError('model-unavailable');
+        throw availabilityFailure;
+      }
+    };
+    assertPlanAvailable();
     const secrets = apiKey === undefined ? [] : [apiKey];
+    const guard = plan ? createPlanRequestGuard(this.fetchImpl, signal) : undefined;
     try {
       const models = await this.modelsFor(descriptor, kind, options);
+      assertPlanAvailable();
       const model = models.getModel(kind.provider, kind.model);
       if (model === undefined) {
         throw configError(`Unknown model ${kind.provider}/${kind.model}`, {
@@ -390,8 +410,14 @@ export class PiModelTurnPort implements ModelTurnPort {
         signal,
         ...(maxTokens === undefined ? {} : { maxTokens }),
         ...(temperature === undefined ? {} : { temperature }),
-        ...(options.reasoning === undefined ? {} : { reasoning: options.reasoning }),
-        ...(plan && this.fetchImpl !== undefined ? { fetch: this.fetchImpl } : {}),
+        ...(options.reasoning === undefined || plan ? {} : { reasoning: options.reasoning }),
+        ...(guard === undefined
+          ? {}
+          : {
+              fetch: guard.fetch,
+              onProviderStreamEvent: guard.onProviderStreamEvent,
+              onPayload: guard.onPayload,
+            }),
         ...(apiKey !== undefined
           ? { apiKey }
           : options.baseUrl !== undefined
@@ -399,14 +425,33 @@ export class PiModelTurnPort implements ModelTurnPort {
             : {}),
       };
       const context = toPiContext(request, model, this.now());
+      assertPlanAvailable();
       const message = await this.run(models, model, context, requestOptions, request.onDelta);
       if (message.stopReason === 'aborted') {
         throw new NexarError('EXECUTION_CANCELLED', 'Turn was cancelled');
       }
-      if (message.stopReason === 'error') throw failureFor(message, secrets);
+      if (message.stopReason === 'error')
+        throw guard === undefined ? failureFor(message, secrets) : guard.failure();
       return toTurnResult(message);
     } catch (e) {
+      if (availabilityFailure !== undefined && e === availabilityFailure) throw e;
+      if (guard !== undefined) {
+        if (guard.rejectedModel) notifyPlanModelRejected(this.onPlanModelRejected, descriptor);
+        throw guard.failure();
+      }
       throw toThrownNexarError(e, signal, secrets);
+    }
+  }
+
+  private planAvailable(descriptor: ResourceDescriptor): boolean {
+    try {
+      return (
+        descriptor.kind.type === 'model' &&
+        descriptor.kind.provider === 'openai' &&
+        (this.isPlanModelAvailable?.(descriptor) ?? true)
+      );
+    } catch {
+      return false;
     }
   }
 
@@ -449,6 +494,16 @@ export class PiModelTurnPort implements ModelTurnPort {
     kind: ModelKind,
     options: PiRuntimeOptions,
   ): Promise<PiModelsLike> {
+    if (usesChatGptPlan(descriptor)) {
+      if (this.injected !== undefined) return Promise.resolve(this.injected);
+      const key = `chatgpt-plan\u0000${kind.model}`;
+      let models = this.localModels.get(key);
+      if (models === undefined) {
+        models = createChatGptPlanModels(kind.model);
+        this.localModels.set(key, models);
+      }
+      return Promise.resolve(models);
+    }
     if (options.baseUrl === undefined) return this.getDefaultModels();
     const key = `${kind.provider}\u0000${kind.model}\u0000${options.baseUrl}`;
     let models = this.localModels.get(key);

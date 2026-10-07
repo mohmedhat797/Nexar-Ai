@@ -36,8 +36,8 @@ async function openSettings(page: Page, tab: string): Promise<void> {
 }
 
 /** The control candidates (option values) Cowork's control dropdown offers. */
-const controlValues = async (page: Page): Promise<string[]> => {
-  const options = await page.getByTestId('orch-cowork-control').locator('option').all();
+const controlValues = async (page: Page, testId = 'orch-cowork-control'): Promise<string[]> => {
+  const options = await page.getByTestId(testId).locator('option').all();
   return Promise.all(options.map(async (option) => (await option.getAttribute('value')) ?? ''));
 };
 
@@ -84,7 +84,7 @@ describe('Nexar Desktop ChatGPT plan', () => {
     );
     await openSettings(page, 'AI behavior');
     await isVisible(page.getByTestId('orch-cowork-control'));
-    expect((await controlValues(page)).some((v) => v.startsWith('chatgpt-plan:'))).toBe(false);
+    expect((await controlValues(page)).some((v) => v.startsWith('inventory:'))).toBe(false);
 
     // --- Connect: the fake browser follows the authorize redirect to the real callback child ---
     await openSettings(page, 'Providers');
@@ -98,13 +98,56 @@ describe('Nexar Desktop ChatGPT plan', () => {
     // --- The plan is a model-turn resource and a Cowork control candidate ---
     await openSettings(page, 'AI behavior');
     await expect
-      .poll(async () => (await controlValues(page)).includes('chatgpt-plan:gpt-5.2'), POLL)
+      .poll(async () => (await controlValues(page)).some((v) => v.startsWith('inventory:')), POLL)
       .toBe(true);
+    const originalId = (await controlValues(page)).find((v) => v.startsWith('inventory:'))!;
+    const control = page.getByTestId('orch-cowork-control');
+    await control.selectOption(originalId);
+    await expect.poll(() => control.inputValue(), POLL).toBe(originalId);
+    await control.selectOption('');
+    await expect.poll(() => control.inputValue(), POLL).toBe('');
     await page.getByTestId('nav-resources').click();
     await isVisible(page.getByTestId('resources-table'));
-    await hasText(page.getByTestId('resources-table'), 'chatgpt-plan:gpt-5.2');
+    await hasText(page.getByTestId('resources-table'), 'New account model');
     // Probing and listing never call the model.
     expect(responses.requests).toHaveLength(0);
+    expect(responses.modelRequests.length).toBeGreaterThan(0);
+
+    // An authoritative catalog refresh replaces candidates without running inference.
+    responses.setModels([
+      { slug: 'gpt-another-returned-model', displayName: 'Another account model' },
+    ]);
+    await openSettings(page, 'Providers');
+    await page.getByRole('button', { name: 'Refresh chatgpt-plan models', exact: true }).click();
+    await hasText(page.getByTestId('inventory-chatgpt-plan'), 'Another account model');
+    await openSettings(page, 'AI behavior');
+    await expect
+      .poll(async () => (await controlValues(page)).includes(originalId), POLL)
+      .toBe(false);
+    await expect
+      .poll(async () => (await controlValues(page)).some((v) => v.startsWith('inventory:')), POLL)
+      .toBe(true);
+    responses.setModels([]);
+    await openSettings(page, 'Providers');
+    await page.getByRole('button', { name: 'Refresh chatgpt-plan models', exact: true }).click();
+    await hasText(page.getByTestId('inventory-chatgpt-plan'), 'No explicit models verified');
+    await openSettings(page, 'AI behavior');
+    await expect
+      .poll(async () => (await controlValues(page)).some((v) => v.startsWith('inventory:')), POLL)
+      .toBe(false);
+    responses.setModels([{ slug: 'gpt-new-not-static', displayName: 'New account model' }]);
+    await openSettings(page, 'Providers');
+    await page.getByRole('button', { name: 'Refresh chatgpt-plan models', exact: true }).click();
+    await openSettings(page, 'AI behavior');
+    await expect
+      .poll(async () => (await controlValues(page)).includes(originalId), POLL)
+      .toBe(true);
+    await expect
+      .poll(
+        async () => (await controlValues(page, 'behavior-cowork-resource')).includes(originalId),
+        POLL,
+      )
+      .toBe(true);
 
     // --- Nothing of the sign-in is in the page ---
     for (const where of ['Providers', 'AI behavior']) {
@@ -119,10 +162,7 @@ describe('Nexar Desktop ChatGPT plan', () => {
     await hasText(page.getByTestId('chatgpt-plan-state'), 'Not connected');
     await openSettings(page, 'AI behavior');
     await expect
-      .poll(
-        async () => (await controlValues(page)).some((v) => v.startsWith('chatgpt-plan:')),
-        POLL,
-      )
+      .poll(async () => (await controlValues(page)).some((v) => v.startsWith('inventory:')), POLL)
       .toBe(false);
     await page.getByTestId('nav-resources').click();
     await isVisible(page.getByTestId('resources-table'));
@@ -130,7 +170,7 @@ describe('Nexar Desktop ChatGPT plan', () => {
     await expect
       .poll(
         async () =>
-          (await page.getByTestId('resources-table').innerText()).includes('chatgpt-plan:'),
+          (await page.getByTestId('resources-table').innerText()).includes('New account model'),
         POLL,
       )
       .toBe(false);

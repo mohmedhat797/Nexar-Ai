@@ -12,6 +12,11 @@ import {
 import type { BridgeResult } from '../shared/api.js';
 import { ChatGptPlanStatusSchema } from '../shared/chatgpt-plan.js';
 import {
+  InventoryArgsSchema,
+  InventoryListSchema,
+  InventoryRowSchema,
+} from '../shared/provider-inventory.js';
+import {
   EndpointListSchema,
   EndpointSaveSchema,
   EndpointRemoveSchema,
@@ -74,6 +79,13 @@ async function invokeProvider<S extends z.ZodType>(
       return { ok: false, error: { code: 'INTERNAL_ERROR', message: PROVIDER_ERROR_MESSAGE } };
     }
   }
+  if (safe?.ok && argsSchema === InventoryArgsSchema) {
+    const requested = InventoryArgsSchema.parse(args);
+    const row = InventoryRowSchema.safeParse(safe.value);
+    if (!row.success || row.data.sourceId !== requested.sourceId) {
+      return { ok: false, error: { code: 'INTERNAL_ERROR', message: PROVIDER_ERROR_MESSAGE } };
+    }
+  }
   return safe ?? { ok: false, error: { code: 'INTERNAL_ERROR', message: PROVIDER_ERROR_MESSAGE } };
 }
 
@@ -101,6 +113,15 @@ const api: NexarApi = {
     invokeProvider(CHANNELS.chatgptPlanCancel, {}, ChatGptPlanStatusSchema, z.strictObject({})),
   disconnectChatgptPlan: () =>
     invokeProvider(CHANNELS.chatgptPlanDisconnect, {}, ChatGptPlanStatusSchema, z.strictObject({})),
+  listModelInventories: () =>
+    invokeProvider(CHANNELS.inventoryList, {}, InventoryListSchema, z.strictObject({})),
+  refreshModelInventory: (sourceId) =>
+    invokeProvider(
+      CHANNELS.inventoryRefresh,
+      { sourceId },
+      InventoryRowSchema,
+      InventoryArgsSchema,
+    ),
   listSubscriptions: () =>
     invokeProvider(CHANNELS.subscriptionsList, {}, SubscriptionListSchema, z.strictObject({})),
   refreshSubscription: (runtime) =>

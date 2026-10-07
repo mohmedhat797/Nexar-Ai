@@ -13,3 +13,9 @@ export type { ClaudeCodeSandboxSettings, ClaudeCodeSettings, PermissionMode } fr
 export { claudeCodeCliDiscoverySource } from './discovery.js';
 export { createClaudeSubscription } from './subscription.js';
 export type { ClaudeSubscriptionOptions } from './subscription.js';
+export { CLAUDE_INVENTORY_SDK_VERSION, createClaudeModelInventorySource } from './inventory.js';
+export type {
+  ClaudeInventoryQuery,
+  ClaudeInventoryQueryFactory,
+  ClaudeModelInventoryOptions,
+} from './inventory.js';

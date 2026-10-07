@@ -20,9 +20,11 @@ units: contracts/materialization, OpenAI account catalog/execution first, Claude
 Google native inventory, UI and regression. No static default model or generic vendor catalog
 establishes subscription availability. API/local pi-ai stays, ACP and Goose engine migration defer.
 
-Architecture documentation is pushed and CI-verified before implementation. Every subsequent
-coherent unit passes focused tests and the full gate, is reviewed, committed, pushed, and checked
-at the exact PR head. Live auth and quota acceptance wait for owner initiation after NXR-068.
+Architecture documentation is pushed. GitHub billing currently prevents completing its CI gate.
+The owner's 2026-10-07 revision permits implementation with strengthened local gates: focused tests,
+full pinned Node 22 check, Desktop E2E, Windows packaging and packaged E2E, followed by review,
+commit and push. Track CI as unavailable; full exact-head CI is mandatory before merge/release.
+Live auth and quota acceptance wait for owner initiation after NXR-068 and its CI gate.
 
 ## 1. Current-state audit (what the code does today)
 

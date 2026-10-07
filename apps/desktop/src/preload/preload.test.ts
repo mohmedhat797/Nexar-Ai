@@ -87,6 +87,48 @@ describe('subscription preload boundary', () => {
   });
 });
 
+describe('inventory preload boundary', () => {
+  const inventory = {
+    sourceId: 'chatgpt-plan',
+    refreshing: false,
+    resources: [],
+    inventory: {
+      identity: {
+        provider: 'openai',
+        connectionId: 'openai.chatgpt-plan',
+        runtimeId: 'pi',
+        routeId: 'openai.responses.account',
+        machine: 'desktop',
+      },
+      generation: 0,
+      status: 'unavailable',
+      source: 'official-api',
+      auth: 'unknown',
+      entries: [],
+    },
+  };
+  it('accepts only fixed sources and strict public metadata for the requested source', async () => {
+    electron.invoke.mockResolvedValue({ ok: true, value: inventory });
+    expect(await api.refreshModelInventory('chatgpt-plan')).toEqual({ ok: true, value: inventory });
+    expect(electron.invoke).toHaveBeenLastCalledWith(CHANNELS.inventoryRefresh, {
+      sourceId: 'chatgpt-plan',
+    });
+    for (const value of [
+      { ...inventory, sourceId: 'codex' },
+      { ...inventory, accessToken: SECRET },
+      { ...inventory, inventory: { ...inventory.inventory, accountId: SECRET } },
+    ]) {
+      electron.invoke.mockResolvedValue({ ok: true, value });
+      const result = await api.refreshModelInventory('chatgpt-plan');
+      expect(result.ok).toBe(false);
+      expect(JSON.stringify(result)).not.toContain(SECRET);
+    }
+    electron.invoke.mockClear();
+    expect((await api.refreshModelInventory('arbitrary-command' as never)).ok).toBe(false);
+    expect(electron.invoke).not.toHaveBeenCalled();
+  });
+});
+
 describe('ChatGPT plan preload boundary', () => {
   const status = {
     state: 'connected',

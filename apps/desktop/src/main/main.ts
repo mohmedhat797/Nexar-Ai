@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
-import { isNexarError } from '@nexar/contracts';
+import { NexarError, isNexarError, type ResourceDescriptor } from '@nexar/contracts';
 import { createOpenAiAccountClient } from '@nexar/integration-openai-account';
 import { BridgeHost, ControlModelGateway } from '@nexar/engine-gateway';
 import { FileSessionStore } from '@nexar/sessions';
@@ -11,6 +11,7 @@ import {
   createControlModelTurnPorts,
   createEngineExecutor,
   createNativeSubscriptions,
+  createNativeModelInventories,
   engineAllocator,
 } from '@nexar/host';
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
@@ -22,7 +23,8 @@ import { ConfigStore } from './config-store.js';
 import { createEngineHost, type EngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
 import { ChatGptPlanService } from './chatgpt-plan.js';
-import { chatGptPlanResources } from './chatgpt-plan-resources.js';
+import { chatGptPlanInventoryDefinition } from './chatgpt-plan-resources.js';
+import { ProviderInventoryService } from './provider-inventory.js';
 import { chatGptTestHooks } from './chatgpt-test-hooks.js';
 import { installationId } from './installation-id.js';
 import { ProviderService } from './providers.js';
@@ -71,7 +73,7 @@ app.setPath('sessionData', runtimePath);
 app.setPath('crashDumps', join(runtimePath, 'Crashpad'));
 
 /** Upper bound on ending the lanes' children and releasing the sessions lease at quit. */
-const QUIT_CLEANUP_BOUND_MS = 5_000;
+const QUIT_CLEANUP_BOUND_MS = 15_000;
 
 function decider(): string {
   try {
@@ -129,6 +131,7 @@ async function start(): Promise<void> {
   // republished (a recomposition) whenever the connection appears or disappears.
   const planTest = chatGptTestHooks(process.env, underTestOverride);
   const engineRef: { current?: EngineHost } = {};
+  const inventoryRef: { current?: ProviderInventoryService } = {};
   const chatgptPlan = new ChatGptPlanService({
     keys,
     callback: new SigninCallbackSupervisor(),
@@ -138,16 +141,54 @@ async function start(): Promise<void> {
     ...(planTest === undefined
       ? {}
       : { client: createOpenAiAccountClient({ issuer: planTest.issuer }) }),
-    onChange: () => void engineRef.current?.reload().catch(() => undefined),
+    onChanging: () => inventoryRef.current?.invalidate('chatgpt-plan'),
+    onChange: () => {
+      const inventory = inventoryRef.current;
+      if (inventory !== undefined) void inventory.refresh('chatgpt-plan').catch(() => undefined);
+    },
   });
   app.on('before-quit', () => chatgptPlan.dispose());
+  const providerInventory = new ProviderInventoryService({
+    definitions: [
+      ...createNativeModelInventories({ env: engineEnv, privateDirectory: userData }),
+      chatGptPlanInventoryDefinition(
+        chatgptPlan,
+        planTest?.responsesFetch === undefined ? {} : { fetch: planTest.responsesFetch },
+      ),
+    ],
+    cachePath: join(userData, 'provider-model-inventory.json'),
+    logger,
+    onChange: () => engineRef.current?.reload() ?? Promise.resolve(),
+  });
+  inventoryRef.current = providerInventory;
+  await providerInventory.restore();
+  app.on('before-quit', () => providerInventory.dispose());
   // The token seam reaches the pi adapter and the control ports here only; the CLI and the plane get none.
   const planConnections = {
-    resolve: (
-      _descriptor: unknown,
-      _signal: AbortSignal,
+    isPlanModelAvailable: (descriptor: ResourceDescriptor) =>
+      providerInventory.isModelAvailable('chatgpt-plan', descriptor),
+    onPlanModelRejected: (descriptor: ResourceDescriptor) =>
+      providerInventory.rejectResource(descriptor),
+    resolve: async (
+      descriptor: ResourceDescriptor,
+      signal: AbortSignal,
       options?: { readonly refresh?: boolean },
-    ) => chatgptPlan.accessToken(options?.refresh === true ? { refresh: true } : {}),
+    ) => {
+      const generation = providerInventory.snapshot('chatgpt-plan').generation;
+      const token = await chatgptPlan.accessToken(
+        options?.refresh === true ? { refresh: true } : {},
+      );
+      if (signal.aborted) throw new NexarError('EXECUTION_CANCELLED', 'Execution was cancelled');
+      if (
+        generation !== providerInventory.snapshot('chatgpt-plan').generation ||
+        !providerInventory.isModelAvailable('chatgpt-plan', descriptor)
+      ) {
+        throw new NexarError('RESOURCE_UNAVAILABLE', 'Model inventory is not current', {
+          retryable: false,
+        });
+      }
+      return token;
+    },
     ...(planTest?.responsesFetch === undefined ? {} : { fetch: planTest.responsesFetch }),
   };
   const engine = await createEngineHost({
@@ -156,10 +197,26 @@ async function start(): Promise<void> {
     logger,
     resolveSecret: keys.resolveSecret,
     connections: planConnections,
-    extraResources: () => chatGptPlanResources(chatgptPlan, settings),
+    extraResources: () => Promise.resolve(providerInventory.descriptors()),
+    inventoryGuard: {
+      isAvailable: (descriptor) => providerInventory.isAvailable(descriptor),
+      onModelRejected: (descriptor) => providerInventory.rejectResource(descriptor),
+    },
     trace: traceStartup,
   });
   engineRef.current = engine;
+  // Existing credentials may refresh metadata; this never starts browser sign-in.
+  // Test launches without a fake provider must not contact a real vendor.
+  if (!underTestOverride || planTest?.responsesFetch !== undefined) {
+    void providerInventory.refresh('chatgpt-plan').catch(() => undefined);
+  }
+  const inventoryTimer = setInterval(() => {
+    if (!underTestOverride || planTest?.responsesFetch !== undefined) {
+      void providerInventory.refresh('chatgpt-plan').catch(() => undefined);
+    }
+  }, 5 * 60_000);
+  inventoryTimer.unref();
+  app.on('before-quit', () => clearInterval(inventoryTimer));
   const providers = new ProviderService({
     keys,
     clipboard,
@@ -171,6 +228,7 @@ async function start(): Promise<void> {
   });
   const subscriptions = new SubscriptionService(
     createNativeSubscriptions({ env: engineEnv, cwd: app.getPath('home') }),
+    (runtime) => providerInventory.invalidate(runtime),
   );
   app.on('before-quit', () => subscriptions.dispose());
 
@@ -304,6 +362,7 @@ async function start(): Promise<void> {
     app,
     async () => {
       await lanesStopped?.catch(() => undefined);
+      await providerInventory.flush();
       await controlGatewayChild.stop();
       await bridgeHost.stop();
       if (sessions !== undefined) await sessionStore.releaseLease();
@@ -318,6 +377,7 @@ async function start(): Promise<void> {
     providers,
     subscriptions,
     chatgptPlan,
+    providerInventory,
     localEndpoints: new LocalEndpointService(config, engine),
     logger,
     // Looked up per call, so a test can replace `dialog.showOpenDialog`.

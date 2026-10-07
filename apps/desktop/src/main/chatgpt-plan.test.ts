@@ -413,6 +413,52 @@ describe('accessToken', () => {
 });
 
 describe('disconnect and status', () => {
+  it('blocks status, token access and reconnect while stored credential removal is pending', async () => {
+    const onChanging = vi.fn();
+    const onChange = vi.fn();
+    const service = make({ onChanging, onChange });
+    await service.connect();
+    onChanging.mockClear();
+    onChange.mockClear();
+    let removalStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      removalStarted = resolve;
+    });
+    let releaseRemoval!: () => void;
+    const removal = new Promise<void>((resolve) => {
+      releaseRemoval = resolve;
+    });
+    vi.spyOn(keys, 'removeBlob').mockImplementation(async () => {
+      removalStarted();
+      await removal;
+      keys.blob = undefined;
+    });
+    const disconnecting = service.disconnect();
+    await started;
+    try {
+      expect(keys.blob).toBeDefined();
+      expect(await service.status()).toMatchObject({ state: 'signed-out' });
+      await expect(service.accessToken()).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+      await expect(service.accessToken({ refresh: true })).rejects.toMatchObject({
+        code: 'AUTH_REQUIRED',
+      });
+      await expect(service.connect()).rejects.toMatchObject({ code: 'CONFLICT' });
+      expect(opened).toHaveLength(1);
+      expect(refreshes()).toHaveLength(0);
+      expect(onChanging).toHaveBeenCalledOnce();
+      expect(onChange).not.toHaveBeenCalled();
+    } finally {
+      releaseRemoval();
+      await disconnecting;
+    }
+    expect(keys.blob).toBeUndefined();
+    expect(await service.status()).toMatchObject({ state: 'signed-out', reason: 'disconnected' });
+    expect(onChanging).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenCalledOnce();
+    expect(onChanging.mock.calls).toEqual([[], []]);
+    expect(onChange.mock.calls).toEqual([[]]);
+  });
+
   it('deletes the stored tokens and points at ChatGPT settings for revocation', async () => {
     const service = make();
     await service.connect();
@@ -554,6 +600,37 @@ describe('IPC channels', () => {
 });
 
 describe('forced refresh and change notifications (NXR-067 b)', () => {
+  it('invalidates before storing a narrowed scope and notifies after plan sharing is lost', async () => {
+    const notifications: unknown[][] = [];
+    const onChanging = vi.fn(() =>
+      notifications.push([
+        'changing',
+        keys.blob === undefined ? undefined : decode(keys.blob)['scope'],
+      ]),
+    );
+    const onChange = vi.fn(() => notifications.push(['changed', decode(keys.blob)['scope']]));
+    const service = make({ onChanging, onChange });
+    await service.connect();
+    const before = decode(keys.blob);
+    notifications.length = 0;
+    onChanging.mockClear();
+    onChange.mockClear();
+    fake.scope = 'openid profile email offline_access';
+    now += 59 * 60 * 1000;
+    const token = await service.accessToken();
+    expect(token).not.toBe(before['accessToken']);
+    expect(await service.status()).toMatchObject({ state: 'connected', planSharing: false });
+    expect(notifications).toEqual([
+      ['changing', before['scope']],
+      ['changed', fake.scope],
+    ]);
+    expect(onChanging.mock.calls).toEqual([[]]);
+    expect(onChange.mock.calls).toEqual([[]]);
+    await service.accessToken({ refresh: true });
+    expect(onChanging).toHaveBeenCalledOnce();
+    expect(onChange).toHaveBeenCalledOnce();
+  });
+
   it('a forced refresh replaces a token the provider rejected, once for concurrent callers', async () => {
     const service = make();
     await service.connect();

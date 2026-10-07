@@ -1,4 +1,11 @@
-import { NexarError, estimated, isNexarError, measured, toNexarError } from '@nexar/contracts';
+import {
+  NexarError,
+  estimated,
+  isNexarError,
+  measured,
+  toNexarError,
+  unavailable,
+} from '@nexar/contracts';
 import type { ExecutionEvent, ExecutionResult } from '@nexar/contracts';
 import { PI_AI_RUNTIME_VERSION } from './pi-models.js';
 import type { PiAssistantMessageLike } from './pi-models.js';
@@ -12,6 +19,7 @@ export interface ToExecutionResultOptions {
   readonly onEvent?: (event: ExecutionEvent) => void;
   /** Secret values scrubbed from any error text (a provider may echo the key it rejected). */
   readonly secrets?: readonly string[];
+  readonly costMode?: 'catalog' | 'unavailable';
 }
 
 /** Removes every non-empty secret from `text`. */
@@ -37,6 +45,32 @@ export type ChatGptPlanFailureReason =
   | 'unsupported-capability'
   | 'usage-unavailable'
   | 'route-not-supported';
+export type PlanRequestFailureReason = ChatGptPlanFailureReason | 'model-unavailable' | 'unknown';
+
+/** All plan failures are fixed text, including failures without a recognized provider code. */
+export function planRequestError(reason: PlanRequestFailureReason): NexarError {
+  if (reason === 'model-unavailable')
+    return new NexarError(
+      'PROVIDER_ERROR',
+      'This model is no longer available through the ChatGPT connection',
+      { details: { reason } },
+    );
+  const known = PLAN_FAILURES.find((failure) => failure.reason === reason);
+  if (known !== undefined)
+    return new NexarError(known.code, known.message, {
+      retryable: known.retryable,
+      details: { reason },
+    });
+  return new NexarError('PROVIDER_ERROR', 'The ChatGPT plan request failed', {
+    details: { reason: 'unknown' },
+  });
+}
+
+/** Recognized codes only; arbitrary provider messages cannot become an auth or quota failure. */
+export function planFailureReasonForCode(code: unknown): PlanRequestFailureReason | undefined {
+  if (code === 'model_not_found' || code === 'unsupported_model') return 'model-unavailable';
+  return PLAN_FAILURES.find((failure) => failure.marker === code)?.reason;
+}
 
 interface PlanFailure {
   readonly marker: string;
@@ -162,7 +196,10 @@ export function toExecutionResult(
       outputTokens: measured(message.usage.output),
       cacheReadTokens: measured(message.usage.cacheRead),
       cacheWriteTokens: measured(message.usage.cacheWrite),
-      costUsd: estimated(message.usage.cost.total, 'pi-ai catalog rates'),
+      costUsd:
+        options.costMode === 'unavailable'
+          ? unavailable('ChatGPT plan usage has no reported cash cost')
+          : estimated(message.usage.cost.total, 'pi-ai catalog rates'),
     },
     resolved: {
       provider: message.provider,

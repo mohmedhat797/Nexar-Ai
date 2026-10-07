@@ -59,20 +59,17 @@ export function piModelResource(input: PiModelResourceInput): ResourceDescriptor
   };
 }
 
-/** The pi-ai model a connected ChatGPT plan serves when the owner lists none (in pi-ai's catalog). */
-export const DEFAULT_CHATGPT_PLAN_MODEL = 'gpt-5.2';
-
 /**
  * A model the owner's connected ChatGPT plan can run (ADR-022 amendment 2026-10-05): `model-turn`
  * (the route is the standard Responses API), plan-billed, no cash cost reported. The credential is a
  * reference to the Desktop connection; the token is resolved per call by the host's seam.
  */
-export function chatGptPlanModelResource(model: string): ResourceDescriptor {
+export function chatGptPlanModelResource(model: string, displayName?: string): ResourceDescriptor {
   return {
     id: resourceId(`chatgpt-plan:${model}`),
-    displayName: `ChatGPT plan / ${model}`,
+    displayName: displayName ?? `ChatGPT plan / ${model}`,
     kind: { type: 'model', provider: 'openai', model, access: 'subscription' },
-    capabilities: ['text-generation', 'reasoning', 'knowledge-work', 'model-turn'],
+    capabilities: ['text-generation', 'knowledge-work', 'model-turn'],
     runtime: { adapter: PI_ADAPTER_ID, locality: 'remote' },
     auth: {
       mode: 'subscription',

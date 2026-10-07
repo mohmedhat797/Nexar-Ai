@@ -17,9 +17,9 @@ import {
   type BehaviorPatch,
   type BehaviorSettings,
 } from '../shared/behavior.js';
-import { DEFAULT_CHATGPT_PLAN_MODEL } from '@nexar/host';
 import { API_PROVIDER_IDS } from '../shared/providers.js';
 import { writeFileAtomic } from './atomic-write.js';
+import { migratePlanResourceId } from './plan-inventory-identity.js';
 
 export const DEFAULT_SETTINGS: DesktopSettings = {
   theme: 'light',
@@ -136,7 +136,9 @@ const ControlResourceSchema = z
   })
   .transform((value): ControlResourcePolicy => ({
     mode: value.mode,
-    ...(value.resourceId === undefined ? {} : { resourceId: value.resourceId }),
+    ...(value.resourceId === undefined
+      ? {}
+      : { resourceId: migratePlanResourceId(value.resourceId) }),
     fallback: value.fallback,
   }));
 
@@ -167,7 +169,7 @@ function parseOrchestration(raw: unknown): OrchestrationResult {
   return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
 }
 
-// ---- ChatGPT plan models (NXR-067) ------------------------------------------------------------
+// ---- Legacy ChatGPT model preferences (never an availability source, NXR-068) -----------------
 
 /** Model ids the owner lists for the ChatGPT plan; the same slug alphabet resource ids use. */
 const PlanModelSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
@@ -175,14 +177,14 @@ const ChatGptPlanSchema = z
   .strictObject({ models: z.array(PlanModelSchema).min(1).max(16) })
   .transform((value): ChatGptPlanSettings => ({ models: [...new Set(value.models)] }));
 
-/** Which models a connected ChatGPT plan is offered as. Owner-edited (`chatgptPlan.models`). */
+/** Legacy owner hints; fresh account/route discovery alone establishes availability. */
 export interface ChatGptPlanSettings {
   readonly models: readonly string[];
 }
 
-export const DEFAULT_CHATGPT_PLAN: ChatGptPlanSettings = { models: [DEFAULT_CHATGPT_PLAN_MODEL] };
+export const DEFAULT_CHATGPT_PLAN: ChatGptPlanSettings = { models: [] };
 
-/** A damaged `chatgptPlan` section publishes no plan resources and is preserved verbatim. */
+/** Legacy metadata is preserved verbatim, including damaged sections. */
 export type ChatGptPlanResult =
   { readonly valid: true; readonly value: ChatGptPlanSettings } | { readonly valid: false };
 
@@ -194,7 +196,10 @@ function parseChatGptPlan(raw: unknown): ChatGptPlanResult {
 
 // ---- AI behavior (NXR-053) --------------------------------------------------------------------
 
-const ResourceIdSchema = z.string().regex(BEHAVIOR_RESOURCE_PATTERN);
+const ResourceIdSchema = z
+  .string()
+  .regex(BEHAVIOR_RESOURCE_PATTERN)
+  .transform(migratePlanResourceId);
 const BehaviorSchema = z
   .strictObject({
     cowork: z
