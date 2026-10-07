@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenWorkerHttpClient } from './client.js';
 import { FakeOpenWorkerServer } from './test/fake-server.js';
 
@@ -41,7 +41,7 @@ describe('OpenWorkerHttpClient MCP registration', () => {
   it('maps failures to a fixed code that never carries the token', async () => {
     const wrong = new OpenWorkerHttpClient({ port, token: 'x' });
     const failures: unknown[] = [];
-    // Deleting an entry that does not exist is a 404; a wrong token is a 401.
+    // An absent entry is HTTP 200 { ok: false }; a wrong token is a 401.
     await client.deleteMcpServer('missing').catch((error: unknown) => failures.push(error));
     await wrong.registerMcpServer('nexar', LAUNCH).catch((error: unknown) => failures.push(error));
     expect(failures).toHaveLength(2);
@@ -57,5 +57,51 @@ describe('OpenWorkerHttpClient MCP registration', () => {
   it('encodes the server name in the DELETE path', async () => {
     await client.deleteMcpServer('a/b').catch(() => undefined);
     expect(server.requests.at(-1)?.path).toBe('/v1/mcp/a%2Fb');
+  });
+
+  it('public health succeeds while protected roots reject a wrong token', async () => {
+    const wrong = new OpenWorkerHttpClient({ port, token: 'wrong' });
+    expect(await wrong.health()).toBe(true);
+    await expect(wrong.attachRoot('s1', '/project', false)).rejects.toMatchObject({
+      code: 'INTEGRATION_UNAVAILABLE',
+    });
+    expect(server.roots).toHaveLength(0);
+  });
+
+  it.each([false, undefined, 'true', null])(
+    'refuses unconfirmed mutation success %s',
+    async (ok) => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(JSON.stringify({ ok, error: SECRET }), { status: 200 }));
+      const refusing = new OpenWorkerHttpClient({ port, token: TOKEN, fetchImpl });
+      for (const operation of [
+        () => refusing.registerMcpServer('nexar', LAUNCH),
+        () => refusing.deleteMcpServer('nexar'),
+        () => refusing.attachRoot('s1', '/project', false),
+      ]) {
+        await expect(operation()).rejects.toMatchObject({
+          code: 'INTEGRATION_UNAVAILABLE',
+          message: 'OpenWorker request failed',
+        });
+      }
+    },
+  );
+
+  it('authenticates the upstream wire request with a header, not a URL token', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const inspected = new OpenWorkerHttpClient({ port, token: TOKEN, fetchImpl });
+    await inspected.attachRoot('session/a', '/project', false);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      `http://127.0.0.1:${port}/v1/sessions/session%2Fa/roots`,
+      expect.objectContaining({
+        method: 'POST',
+        redirect: 'error',
+        headers: { 'X-OpenWorker-Token': TOKEN, 'content-type': 'application/json' },
+        body: JSON.stringify({ path: '/project', writable: false }),
+      }),
+    );
   });
 });

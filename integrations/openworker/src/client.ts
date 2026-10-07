@@ -43,6 +43,13 @@ function unavailable(): NexarError {
   return new NexarError('INTEGRATION_UNAVAILABLE', 'OpenWorker request failed');
 }
 
+/** Upstream mutations can refuse with HTTP 200; never proceed on an unconfirmed grant. */
+function requireSuccess(body: unknown): void {
+  if (typeof body !== 'object' || body === null || (body as { ok?: unknown }).ok !== true) {
+    throw unavailable();
+  }
+}
+
 /** Loopback-only HTTP + WebSocket client for one supervised server; the token stays in memory. */
 export class OpenWorkerHttpClient implements OpenWorkerClient {
   readonly #port: number;
@@ -102,10 +109,12 @@ export class OpenWorkerHttpClient implements OpenWorkerClient {
   }
 
   async attachRoot(sessionId: string, path: string, writable: boolean): Promise<void> {
-    await this.request('POST', `/v1/sessions/${encodeURIComponent(sessionId)}/roots`, {
-      path,
-      writable,
-    });
+    requireSuccess(
+      await this.request('POST', `/v1/sessions/${encodeURIComponent(sessionId)}/roots`, {
+        path,
+        writable,
+      }),
+    );
   }
 
   /**
@@ -113,19 +122,21 @@ export class OpenWorkerHttpClient implements OpenWorkerClient {
    * only the exact bridge tools). The entry holds the turn's token: delete it after the turn.
    */
   async registerMcpServer(name: string, launch: McpServerLaunch): Promise<void> {
-    await this.request('POST', '/v1/mcp', {
-      name,
-      config: {
-        command: launch.command,
-        args: [...launch.args],
-        env: { ...launch.env },
-        requires_approval: true,
-      },
-    });
+    requireSuccess(
+      await this.request('POST', '/v1/mcp', {
+        name,
+        config: {
+          command: launch.command,
+          args: [...launch.args],
+          env: { ...launch.env },
+          requires_approval: true,
+        },
+      }),
+    );
   }
 
   async deleteMcpServer(name: string): Promise<void> {
-    await this.request('DELETE', `/v1/mcp/${encodeURIComponent(name)}`);
+    requireSuccess(await this.request('DELETE', `/v1/mcp/${encodeURIComponent(name)}`));
   }
 
   openSession(

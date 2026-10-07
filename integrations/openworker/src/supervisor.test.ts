@@ -78,7 +78,7 @@ describe('OpenWorkerSupervisor', () => {
     const { supervisor, stateDir, spawned } = harness();
     expect(supervisor.client()).toBeUndefined();
     const [a, b] = await Promise.all([supervisor.start(), supervisor.start()]);
-    expect(a).toEqual({ state: 'ready', version: '0.3.0', reason: 'OpenWorker is ready' });
+    expect(a).toEqual({ state: 'ready', version: '0.3.1', reason: 'OpenWorker is ready' });
     expect(b).toBe(a);
     expect(await supervisor.start()).toBe(a);
     expect(supervisor.status()).toBe(a);
@@ -160,12 +160,15 @@ describe('OpenWorkerSupervisor', () => {
     expect(tokens[1]).not.toBe(token);
   });
 
-  it('requires the token: a client with another token is rejected', async () => {
+  it('public health is not authentication: protected mutations require the token', async () => {
     const { supervisor, spawned } = harness();
     await supervisor.start();
     const port = Number((jsonl(join(root, 'state', 'launch.jsonl'))[0]!['argv'] as string[])[3]);
     const wrong = new OpenWorkerHttpClient({ port, token: 'wrong' });
-    expect(await wrong.health()).toBe(false);
+    expect(await wrong.health()).toBe(true);
+    await expect(wrong.attachRoot('s1', root, false)).rejects.toMatchObject({
+      code: 'INTEGRATION_UNAVAILABLE',
+    });
     const right = new OpenWorkerHttpClient({
       port,
       token: spawned.find((s) => s.args[0] === '--host')!.env['COWORKER_API_TOKEN']!,
@@ -187,21 +190,33 @@ describe('OpenWorkerSupervisor', () => {
     expect(supervisor.client()).toBeUndefined();
   });
 
-  it.each([['0.2.9'], ['0.4.0'], ['1.0.0'], ['garbage']])(
-    'reports unsupported-version for %s',
+  it.each([
+    '0.2.9',
+    '0.3.0',
+    '0.4.0',
+    '1.0.0',
+    'garbage',
+    '',
+    '0.3',
+    '0.3.1.4',
+    '0.3.1-rc.1',
+    '00.3.1',
+    '0.3.1 trailing',
+  ])('reports unsupported-version for %s', async (version) => {
+    const { supervisor, spawned } = harness({ FAKE_OW_VERSION: version });
+    const status = await supervisor.start();
+    expect(status.state).toBe('unsupported-version');
+    expect(status.reason).toBe('OpenWorker version is not supported');
+    expect(spawned.map((s) => s.args[0])).toEqual(['version']); // no server was started
+  });
+
+  it.each(['0.3.1', '0.3.2', '0.3.9'])(
+    'accepts patch version %s inside the range',
     async (version) => {
-      const { supervisor, spawned } = harness({ FAKE_OW_VERSION: version });
-      const status = await supervisor.start();
-      expect(status.state).toBe('unsupported-version');
-      expect(status.reason).toBe('OpenWorker version is not supported');
-      expect(spawned.map((s) => s.args[0])).toEqual(['version']); // no server was started
+      const { supervisor } = harness({ FAKE_OW_VERSION: version });
+      expect(await supervisor.start()).toMatchObject({ state: 'ready', version });
     },
   );
-
-  it('accepts patch versions inside the range', async () => {
-    const { supervisor } = harness({ FAKE_OW_VERSION: '0.3.7' });
-    expect(await supervisor.start()).toMatchObject({ state: 'ready', version: '0.3.7' });
-  });
 
   it('reports startup-failed within the bound when health never comes up', async () => {
     const { supervisor } = harness({ FAKE_OW_NEVER_READY: '1' }, { startupTimeoutMs: 600 });
@@ -371,7 +386,7 @@ describe('OpenWorkerSupervisor', () => {
           // A version probe that would answer only after the test: stop() must not wait for it.
           const child = spawn(
             process.execPath,
-            ['-e', "setTimeout(() => console.log('openworker 0.3.0'), 8000)"],
+            ['-e', "setTimeout(() => console.log('openworker 0.3.1'), 8000)"],
             options,
           );
           if (args[0] === 'version') versions.push(child);

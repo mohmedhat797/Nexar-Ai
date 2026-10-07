@@ -20,6 +20,7 @@ export type FakeScenario =
   | 'no-ready'
   | 'declined-requests'
   | 'question'
+  | 'network-access'
   | 'delegate'
   | 'control-loop'
   | 'sow';
@@ -33,6 +34,8 @@ export interface FakeServerOptions {
   readonly neverReady?: boolean;
   readonly failProviders?: boolean;
   readonly refuseProviders?: boolean;
+  readonly refuseMcp?: boolean;
+  readonly refuseRoots?: boolean;
   /** Writes draft.md into the turn workspace when its write permission is allowed. */
   readonly writeDraft?: boolean;
   readonly onRecord?: (entry: { readonly kind: string; readonly body: unknown }) => void;
@@ -204,7 +207,8 @@ export class FakeOpenWorkerServer {
         res.writeHead(status, { 'content-type': 'application/json' });
         res.end(JSON.stringify(body));
       };
-      if (!this.#authorized(req.headers['x-openworker-token']))
+      const health = method === 'GET' && path === '/v1/health';
+      if (!health && !this.#authorized(req.headers['x-openworker-token']))
         return reply(401, { error: 'auth' });
       let body: unknown;
       try {
@@ -216,7 +220,7 @@ export class FakeOpenWorkerServer {
         const warm = Date.now() - this.#listeningAt >= (this.#options.startDelayMs ?? 0);
         return this.#options.neverReady === true || !warm
           ? reply(503, { status: 'starting' })
-          : reply(200, { status: 'ok', version: '0.3.0' });
+          : reply(200, { status: 'ok' });
       }
       if (method === 'POST' && path === '/v1/providers') {
         this.#options.onRecord?.({ kind: 'provider', body });
@@ -236,9 +240,10 @@ export class FakeOpenWorkerServer {
         return reply(200, { ok: true });
       }
       if (method === 'POST' && path === '/v1/mcp') {
+        if (this.#options.refuseMcp === true) return reply(200, { ok: false, error: 'refused' });
         const entry = body as { name?: unknown; config?: unknown } | undefined;
         if (typeof entry?.name !== 'string' || !isMcpConfig(entry.config)) {
-          return reply(422, { error: 'mcp' });
+          return reply(200, { ok: false, error: 'mcp' });
         }
         this.mcpServers.set(entry.name, entry.config);
         this.#options.onRecord?.({
@@ -250,12 +255,14 @@ export class FakeOpenWorkerServer {
       const mcp = /^\/v1\/mcp\/([^/]+)$/.exec(path);
       if (method === 'DELETE' && mcp !== null) {
         const name = decodeURIComponent(mcp[1]!);
-        if (!this.mcpServers.delete(name)) return reply(404, { error: 'not-found' });
+        if (this.#options.refuseMcp === true || !this.mcpServers.delete(name))
+          return reply(200, { ok: false });
         this.#options.onRecord?.({ kind: 'mcp-delete', body: { name } });
         return reply(200, { ok: true });
       }
       const roots = /^\/v1\/sessions\/([^/]+)\/roots$/.exec(path);
       if (method === 'POST' && roots !== null) {
+        if (this.#options.refuseRoots === true) return reply(200, { ok: false, error: 'refused' });
         this.roots.push({ sessionId: decodeURIComponent(roots[1]!), body });
         return reply(200, { ok: true });
       }
@@ -311,7 +318,13 @@ export class FakeOpenWorkerServer {
         }
       }
     });
-    if (this.scenario !== 'no-ready') send({ type: 'ready' });
+    if (this.scenario !== 'no-ready')
+      send({
+        type: 'ready',
+        session_id: 'fixture-session',
+        running: false,
+        sandbox: { state: 'off' },
+      });
   }
 
   #next(type: string): Promise<Frame> {
@@ -609,6 +622,19 @@ export class FakeOpenWorkerServer {
       case 'question':
         send({ type: 'turn_start' });
         send({ type: 'question_requested', question: 'Which file?' });
+        return;
+      case 'network-access':
+        send({ type: 'turn_start' });
+        send({
+          type: 'permission_required',
+          name: 'request_network_access',
+          category: 'network',
+          arguments: { hosts: ['blocked.example:443'] },
+          network_hosts: ['blocked.example:443'],
+        });
+        await this.#next('approval');
+        send({ type: 'assistant_message', text: 'Network request answered' });
+        send({ type: 'turn_done' });
         return;
       case 'delegate':
         return this.#delegate(send, workspace);

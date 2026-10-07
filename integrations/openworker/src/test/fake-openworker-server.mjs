@@ -6,7 +6,7 @@ import { FakeOpenWorkerServer } from './fake-server.ts';
 
 const argv = process.argv.slice(2);
 if (argv[0] === 'version') {
-  process.stdout.write(`openworker ${process.env.FAKE_OW_VERSION ?? '0.3.0'}\n`);
+  process.stdout.write(`openworker ${process.env.FAKE_OW_VERSION ?? '0.3.1'}\n`);
   process.exit(0);
 }
 

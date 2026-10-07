@@ -5,7 +5,41 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-07, exact-head CI and owner acceptance preparation)
+## Snapshot (2026-10-07, OpenWorker 0.3.1 compatibility maintenance)
+
+Branch `feat/nexar-resource-orchestration`; draft/open [PR #39](https://github.com/mohmedhat797/Nexar-Ai/pull/39).
+Reconciliation found clean local/remote head `c68c7bd7b1366e3bb9a3dc71057a573b19d27aa7` and full
+[CI 37621704929 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37621704929/attempts/1)
+green (Ubuntu, Windows, secrets, source/packaged E2E, installer/SHA256 upload), completed
+2026-10-07 12:49:51 UTC. The prior `0244d97` implementation CI is also green. Billing outage is
+historical. This maintenance commit needs **its own full exact-head CI** before environment
+update, acceptance, merge or release; the final handoff records that run without a commit loop.
+
+[Verified upstream v0.3.1](../research/upstream/openworker-0.3.1-compatibility.md), commit
+`b9b35036668dfb1653f3aa35bafb9aeea6d47c3c`: existing private-server/session contract compatible,
+**no protocol migration**. Supported floor becomes **`>=0.3.1 <0.4.0`**, preferred live target 0.3.1.
+Offline fixtures cover canonical version parsing, public health versus protected auth, HTTP-200
+MCP/root refusals and new ready/network permission fields. Supervisor/private state, gateway,
+bridge, NRC, approvals and WSL2/bubblewrap design remain intact; ADR-027/028 are unchanged.
+
+Previous preparation actually installed an isolated **0.3.0** Windows Python runtime with separate
+server/version paths and passed Nexar-supervised private health. Desktop's detached acceptance
+checkout and `nexar-plane` were advanced/built at **c68**, doctor and **7/7 sandbox selftests** passed,
+validation `main @ 40f02fb` and config/hardening unchanged. The earlier PATH-missing/plane-2dbb
+snapshot below describes initial preflight, not the latest preparation. The 0.3.0 runtime is now
+below the new floor: preserve it and prepare a separate **0.3.1** environment after new-head CI.
+Final handoff records actual runtime/checkout updates and readiness.
+
+**NXR-066b remains owner live acceptance pending.** Agent preparation stops before existing-profile
+Desktop startup (automatic ChatGPT inventory refresh), provider login/catalog calls/native metadata
+initialization/inference. Use the revised [owner runbook](evidence/nxr-066-live-acceptance-runbook.md).
+No new milestone started. [NXR-069 Runtime Discovery](../backlog/069-openworker-runtime-discovery.md)
+is a deferred specification only; headless `openworker run` evaluation is deferred to NXR-054 /
+v0.8 Automation, and OpenShell 0.1.2 adoption is deferred. Local gates are recorded in the
+[compatibility gate evidence](evidence/openworker-031-local-gates.md); later CI/env receipts belong
+in the final handoff.
+
+## Historical snapshot (2026-10-07, initial acceptance preflight)
 
 Implementation continues on `feat/nexar-resource-orchestration`, draft
 [PR #39](https://github.com/mohmedhat797/Nexar-Ai/pull/39), after architecture checkpoint `3c893a7`.

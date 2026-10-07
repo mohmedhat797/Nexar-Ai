@@ -10,10 +10,13 @@ passed. **066b prepared; owner environment setup and live acceptance pending.**
 The owner reported successful ChatGPT sign-in, but the first Cowork smoke fell back to Direct because
 OpenWorker was unavailable and then the account route rejected Nexar's assumed `gpt-5.2`. The
 OpenWorker prerequisite and model inventory defect are independent. No v0.6 acceptance or merge.
-Windows v0.3.0 is published upstream, but the owner's default CLI/server commands remain unavailable.
-The plane is still at `2dbb070` and requires a rebuild to the verified revision. Use the
-[owner runbook](../devlog/evidence/nxr-066-live-acceptance-runbook.md); preparation stops before
-provider login, native metadata initialization and allowance-consuming turns. No new milestone.
+Previous preparation installed isolated Windows OpenWorker 0.3.0 and rebuilt Desktop/plane at
+`c68c7bd`, whose full CI passed. This maintenance update requires **0.3.1** (`>=0.3.1 <0.4.0`),
+matching new-head builds and full exact-head CI before preparation resumes. See the
+[compatibility review](../research/upstream/openworker-0.3.1-compatibility.md) and revised
+[owner runbook](../devlog/evidence/nxr-066-live-acceptance-runbook.md). Final handoff records actual
+environment results. Preparation stops before existing-profile launch, provider login/catalog
+refresh, native metadata initialization and allowance-consuming turns. Live acceptance is pending.
 
 Prove ADR-027 offline, then live on the owner machine.
 

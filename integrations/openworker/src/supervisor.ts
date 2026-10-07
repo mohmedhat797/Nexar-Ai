@@ -13,8 +13,8 @@ import {
 import { OpenWorkerHttpClient } from './client.js';
 import type { OpenWorkerClient } from './client.js';
 
-/** Supported upstream range (ADR-026): `>=0.3.0 <0.4.0`. */
-export const SUPPORTED_OPENWORKER_RANGE = { min: [0, 3, 0], maxExclusive: [0, 4, 0] } as const;
+/** Supported upstream range (ADR-026): `>=0.3.1 <0.4.0`. */
+export const SUPPORTED_OPENWORKER_RANGE = { min: [0, 3, 1], maxExclusive: [0, 4, 0] } as const;
 
 export type OpenWorkerState =
   | 'ready'
@@ -69,7 +69,9 @@ const refused = (result: unknown): boolean =>
 const LOOPBACK_BASE_URL = /^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}\/v1$/;
 
 function parseVersion(output: string): readonly [number, number, number] | undefined {
-  const match = /(\d{1,6})\.(\d{1,6})\.(\d{1,6})/.exec(output);
+  const match = /^openworker (0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/.exec(
+    output.trim(),
+  );
   return match === null ? undefined : [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 

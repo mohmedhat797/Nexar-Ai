@@ -80,6 +80,29 @@ describe('runCoworkTurn', () => {
     expect(server.frames[0]).toEqual({ type: 'set_mode', mode: 'discuss' });
   });
 
+  it('denies the v0.3.1 network-access permission without forwarding host arguments', async () => {
+    const { result, requests, progress } = await run('network-access');
+    expect(result.outcome).toBe('completed');
+    expect(requests).toEqual([{ name: 'request_network_access', category: 'network' }]);
+    expect(server.frames.at(-1)).toEqual({ type: 'approval', decision: 'deny' });
+    expect(JSON.stringify(progress)).not.toContain('blocked.example');
+  });
+
+  it('stops before WebSocket/model execution when upstream refuses the read-only root', async () => {
+    await server.close();
+    server = new FakeOpenWorkerServer({ token: TOKEN, refuseRoots: true });
+    port = await server.listen();
+    client = new OpenWorkerHttpClient({ port, token: TOKEN });
+    const { result } = await run('normal');
+    expect(result).toEqual({
+      text: '',
+      outcome: 'failed',
+      errorCode: COWORK_ERROR_CODES.rootFailed,
+    });
+    expect(server.upgrades).toHaveLength(0);
+    expect(server.frames).toHaveLength(0);
+  });
+
   it('waits for an asynchronous decision before answering the permission', async () => {
     let release: (value: 'allow' | 'deny') => void = () => undefined;
     const waiting = new Promise<'allow' | 'deny'>((resolve) => {

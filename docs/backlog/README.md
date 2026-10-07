@@ -99,8 +99,12 @@ Order: NXR-060 → 061 → 062 → 059 → 063 → 064 → 065 → (067, optiona
 tracked their commits). NXR-067a sign-in and NXR-067b's dynamic account resource publication are implemented.
 [NXR-068: Dynamic Provider Model Catalogs](068-dynamic-provider-model-catalogs.md) passed local gates
 and full exact-head CI for `0244d97`. NXR-066a is offline-tested; 066b is prepared, pending Windows
-OpenWorker setup, the plane update and owner-initiated live results. Current detailed
+OpenWorker 0.3.1 update, matching new-head builds/CI and owner-initiated live results. Current detailed
 status lives in [`project-current-state.md`](../devlog/project-current-state.md). PR #39 stays draft.
+
+[NXR-069: OpenWorker Runtime Discovery](069-openworker-runtime-discovery.md) is a deferred
+maintenance specification; no automatic scanning implementation has started. Headless evaluation
+belongs to NXR-054 / v0.8 Automation after owner acceptance.
 
 ## Nexar Mobile (deferred)
 

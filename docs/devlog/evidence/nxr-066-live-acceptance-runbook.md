@@ -7,56 +7,53 @@ never prompts, outputs, tokens or account identifiers).
 
 ## 0. Preconditions
 
-**Implementation/CI ready for `0244d974704b9350a2ddec873872514db8d5de1a`:** NXR-068 passed
-strengthened local gates ([evidence](nxr-068-local-gates.md)) and full
-[CI 37553210679 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37553210679/attempts/2)
-(Ubuntu, Windows, secret scan, installer/SHA256 upload). The prior billing block is cleared for
-this revision. The documentation checkpoint creates a new head: require full CI on that exact
-SHA before continuing environment setup or owner acceptance. Record its SHA/run in the handoff
-without creating a commit loop solely to update this file.
+**Last verified preparation head:** `c68c7bd7b1366e3bb9a3dc71057a573b19d27aa7`,
+[full CI 37621704929 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37621704929/attempts/1)
+passed Ubuntu, Windows and secret scan, source/packaged Desktop E2E, installer/SHA256 upload.
+NXR-068 implementation generation is `0244d97`. This maintenance update creates a new head;
+**require its full exact-head CI before the following environment update**. Record SHA/run in the
+final handoff; do not reuse c68 CI as new-head evidence or create a self-referential CI commit loop.
+No new implementation milestone, merge, release or live acceptance is authorized here.
 
-**Initial preflight (before installation/rebuild):** Windows OpenWorker CLI/server unavailable; plane source still
-`2dbb070`. The owner's first smoke confirmed ChatGPT authentication but exposed an unsupported
-assumed model and unavailable OpenWorker. Use only a fresh returned model for the selected account
-and route. Both preparation builds must use the same verified documentation-checkpoint SHA,
-whose implementation generation is `0244d97`. No further implementation milestone is authorized here.
+The prior preparation actually installed isolated OpenWorker 0.3.0, passed supervised private health,
+built Desktop and advanced/rebuilt `nexar-plane` to c68; doctor and 7/7 sandbox selftests passed.
+This revision raises the floor to **`>=0.3.1 <0.4.0`**, preferred target **0.3.1**. The old runtime
+will now be refused. Keep it intact; prepare a separate 0.3.1 runtime only after new-head CI.
+The final handoff records whether that update and matching builds completed.
 
-### 0a. Windows OpenWorker availability — verified without starting it
+### 0a. Windows OpenWorker 0.3.1 runtime
 
-Read-only checks on 2026-10-07 found no `openworker` or `openworker-server` on this shell's PATH,
-no `openworker` package in Python 3.13, and no executable override in the owner's
-`%APPDATA%\Nexar\desktop-settings.json`. Therefore installed 0.3.x readiness is **not verified**.
+Official [v0.3.1](https://github.com/andrewyng/openworker/releases/tag/v0.3.1) supplies Windows x64
+EXE/MSI installers. Its GUI bundles **`sidecar\openworker-server.exe` and `_internal\`**, which
+does not establish `openworker` on PATH or a separate version CLI. Nexar keeps both executable
+overrides and the version guard. See [source compatibility evidence](../../research/upstream/openworker-0.3.1-compatibility.md)
+and deferred [NXR-069 discovery](../../backlog/069-openworker-runtime-discovery.md).
 
-Upstream [v0.3.0](https://github.com/andrewyng/openworker/releases/tag/v0.3.0) publishes Windows x64
-EXE/MSI installers. Its [Windows source instructions](https://github.com/andrewyng/openworker/blob/v0.3.0/README.md#run-from-source)
-also identify `.venv\Scripts\openworker-server.exe`; the
-[package entry points](https://github.com/andrewyng/openworker/blob/v0.3.0/pyproject.toml) separate
-`openworker` (version CLI) from `openworker-server`. Installing its GUI alone does not establish
-Nexar's two executable paths. Nexar accepts `>=0.3.0 <0.4.0`; do not use a newer unverified major/minor.
-
-Owner-only setup option for the separate runtime (requires the checked Python 3.13 and Git):
+Supported source route below uses the checked Python 3.13 and exact official tag commit. These are
+preparation commands, not provider acceptance. Reuse an already prepared directory only after its
+version/provenance is verified; do not reinstall over it or any unrelated runtime.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$nxrOw = Join-Path $env:LOCALAPPDATA 'Nexar\Runtimes\openworker-0.3.0'
-# Use a new directory; do not overwrite an existing installation.
-if (Test-Path -LiteralPath $nxrOw) { throw 'Runtime directory exists; inspect it before proceeding.' }
-py -3.13 -m venv $nxrOw
-if ($LASTEXITCODE -ne 0) { throw 'Python environment creation failed.' }
-& "$nxrOw\Scripts\python.exe" -m pip install 'git+https://github.com/andrewyng/openworker.git@e8923509a9e91d2825313f8418f6129a00b1603e'
-if ($LASTEXITCODE -ne 0) { throw 'OpenWorker installation failed; do not start acceptance.' }
-& "$nxrOw\Scripts\openworker.exe" version
-if ($LASTEXITCODE -ne 0) { throw 'OpenWorker version check failed.' }
-Test-Path -LiteralPath "$nxrOw\Scripts\openworker-server.exe"
+$nxrOw = Join-Path $env:LOCALAPPDATA 'Nexar\Runtimes\openworker-0.3.1'
+if (-not (Test-Path -LiteralPath $nxrOw)) {
+  py -3.13 -m venv $nxrOw
+  if ($LASTEXITCODE -ne 0) { throw 'Python environment creation failed.' }
+  & "$nxrOw\Scripts\python.exe" -m pip install 'git+https://github.com/andrewyng/openworker.git@b9b35036668dfb1653f3aa35bafb9aeea6d47c3c'
+  if ($LASTEXITCODE -ne 0) { throw 'OpenWorker installation failed; stop preparation.' }
+}
+$nxrVersion = & "$nxrOw\Scripts\openworker.exe" version
+if ($LASTEXITCODE -ne 0 -or $nxrVersion.Trim() -ne 'openworker 0.3.1') { throw 'Wrong runtime version.' }
+& "$nxrOw\Scripts\openworker-server.exe" --help
+if ($LASTEXITCODE -ne 0) { throw 'Server entry point unavailable.' }
 ```
 
-Require `openworker 0.3.0` and `True`. At this documentation checkpoint these commands were prepared,
-**not executed**; the final preparation handoff records subsequent checks. Windows
-installation/dependency compatibility and private-server startup remain unverified. Do not run
-`openworker up`, `join`, the GUI, or a standalone server. Nexar must supervise its own private server.
+Verify installation source provenance against the pinned commit before reusing an existing directory.
+Do not run `openworker run`, `up`, `join`, its GUI, provider verify/login, or a standalone server.
+Nexar supervises its own private server. Headless and OpenShell 0.1.2 adoption remain deferred.
 
-Quit all Nexar Desktop windows before editing settings. Preserve every other setting and existing
-provider opt-in; merge these two paths into the existing `cowork` object (do not replace the file):
+Quit all Nexar Desktop windows before updating settings. Preserve every other setting/provider opt-in;
+merge the paths into `cowork` and retain a backup:
 
 ```powershell
 $nxrSettingsPath = Join-Path $env:APPDATA 'Nexar\desktop-settings.json'
@@ -70,21 +67,27 @@ $nxrSettings.cowork | Add-Member -NotePropertyName versionExecutable -NoteProper
 [IO.File]::WriteAllText($nxrSettingsPath, ($nxrSettings | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
 ```
 
-### 0b. Exact-head Desktop build and plane bundle — owner PowerShell
+### 0b. Matching Desktop build and plane bundle — PowerShell
 
-Close the installed Desktop before launch. Use an isolated source checkout to prevent a later
-branch update or documentation edit from changing the accepted implementation. Run this in the
-same PowerShell session as 0a. The checkout path must be new:
+The clean detached acceptance checkout already exists at c68. Compare the full new SHA with the
+handoff's successful CI before using these commands. Reuse only a clean ancestor checkout; stop
+on owner edits. Run in the same PowerShell session as 0a:
 
 ```powershell
 $nxrRepo = 'D:\Nexar-Ai-main'
 $nxrHead = (git -C $nxrRepo rev-parse HEAD).Trim()
-# Compare this full SHA with the preparation handoff and its successful exact-head CI first.
+# Require this exact SHA and successful full CI in the final preparation handoff.
 $nxrCheckout = 'D:\Nexar-Ai-acceptance-nxr066'
 $nxrBundle = 'D:\Nexar-Ai-main\.nexar\nxr066-owner-acceptance.bundle'
-if (Test-Path -LiteralPath $nxrCheckout) { throw 'Acceptance checkout exists; inspect before reusing.' }
-git -C $nxrRepo worktree add --detach $nxrCheckout $nxrHead
-if ($LASTEXITCODE -ne 0) { throw 'Acceptance checkout creation failed.' }
+if (Test-Path -LiteralPath $nxrCheckout) {
+  if (git -C $nxrCheckout status --porcelain) { throw 'Acceptance checkout has owner edits.' }
+  git -C $nxrCheckout merge-base --is-ancestor HEAD $nxrHead
+  if ($LASTEXITCODE -ne 0) { throw 'Acceptance checkout diverged; stop.' }
+  git -C $nxrCheckout checkout --detach $nxrHead
+} else {
+  git -C $nxrRepo worktree add --detach $nxrCheckout $nxrHead
+}
+if ($LASTEXITCODE -ne 0) { throw 'Acceptance checkout update failed.' }
 Set-Location -LiteralPath $nxrCheckout
 if ((git rev-parse HEAD) -ne $nxrHead) { throw 'Wrong Desktop source revision.' }
 npx --yes --package=node@22.23.3 --package=pnpm@10.33.0 -- pnpm install --frozen-lockfile
@@ -94,39 +97,53 @@ if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed.' }
 git bundle create $nxrBundle HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Bundle creation failed.' }
 git bundle list-heads $nxrBundle
-Copy-Item -LiteralPath $nxrBundle -Destination '\\wsl.localhost\nexar-plane\home\nexar\bundles\nxr066-owner-acceptance.bundle'
 ```
 
-Bundle listing must show the full `$nxrHead` and `HEAD`. If the distro has stopped, first run
-`wsl -d nexar-plane -u nexar --exec true`, then retry the copy. Copy through the WSL share; never
-enable automount/interop or place the plane checkout under `/mnt/c` or `/mnt/d`.
+Bundle listing must show `$nxrHead HEAD`. The WSL UNC share was unavailable during c68 preparation.
+Use the verified binary stdin route below; it needs no Windows drive mount or Linux credentials:
 
-### 0c. Exact-head plane update — owner PowerShell, then Linux shell
+```powershell
+$nxrTransfer = [Diagnostics.ProcessStartInfo]::new()
+$nxrTransfer.FileName = "$env:SystemRoot\System32\wsl.exe"
+$nxrTransfer.Arguments = '-d nexar-plane -u nexar --exec sh -c "umask 077; test ! -L /home/nexar/bundles/nxr066-owner-acceptance.bundle && cat > /home/nexar/bundles/nxr066-owner-acceptance.bundle && sha256sum /home/nexar/bundles/nxr066-owner-acceptance.bundle"'
+$nxrTransfer.UseShellExecute = $false
+$nxrTransfer.CreateNoWindow = $true
+$nxrTransfer.RedirectStandardInput = $true
+$nxrTransfer.RedirectStandardOutput = $true
+$nxrTransfer.RedirectStandardError = $true
+$nxrProcess = [Diagnostics.Process]::Start($nxrTransfer)
+$nxrStream = [IO.File]::OpenRead($nxrBundle)
+try { $nxrStream.CopyTo($nxrProcess.StandardInput.BaseStream) } finally { $nxrStream.Dispose(); $nxrProcess.StandardInput.Close() }
+if (-not $nxrProcess.WaitForExit(60000)) { $nxrProcess.Kill(); throw 'Bundle transfer timed out.' }
+$nxrRemoteHash = $nxrProcess.StandardOutput.ReadToEnd().Split(' ')[0].Trim()
+if ($nxrProcess.ExitCode -ne 0 -or $nxrRemoteHash -ne (Get-FileHash -LiteralPath $nxrBundle -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Bundle transfer failed.' }
+$nxrProcess.Dispose()
+```
 
-Read-only preparation verified user `nexar` (no sudo), clean source at `2dbb070` on
+### 0c. Matching plane update — PowerShell, then Linux
+
+Previous preparation: user `nexar` uid 1000 (no sudo), clean source c68 on
 `feat/nexar-operating-layer`, Node 22.23.3 / pnpm 10.33.0, hardened `/etc/wsl.conf`, no Windows drive
-mounts, and validation repository `main @ 40f02fb` clean. The source `origin` is a local bundle,
-not GitHub. The root-owned launcher `/usr/local/bin/nexar` executes
+mounts/interop. Validation repository is clean `main @ 40f02fb`; config unchanged.
+Source `origin` is a local bundle. Root-owned `/usr/local/bin/nexar` runs
 `/home/nexar/src/Nexar-Ai/apps/cli/dist/main.js` with
-`NEXAR_CONFIG_PATH=/home/nexar/validation/nexar.config.json`. Toolchain mount prefixes remain
-`/opt/node`, `/opt/claude-code`, `/opt/codex`; Node's actual executable is `/opt/node/bin/node`.
-No config, credential mount, validation branch or launcher was changed during preparation.
-
-Open the plane as its unprivileged owner:
+`NEXAR_CONFIG_PATH=/home/nexar/validation/nexar.config.json`. Toolchain prefixes remain
+`/opt/node`, `/opt/claude-code`, `/opt/codex`; Node is `/opt/node/bin/node`.
 
 ```powershell
 wsl -d nexar-plane -u nexar
 ```
 
-Then run inside Linux (stop on any error; no reset or forced checkout):
+Inside Linux, stop on any error; no reset, forced checkout or validation repository mutation:
 
 ```bash
 set -eu
 cd /home/nexar/src/Nexar-Ai
 test -z "$(git status --porcelain)"
+nxr_config_hash="$(sha256sum /home/nexar/validation/nexar.config.json)"
 git bundle verify /home/nexar/bundles/nxr066-owner-acceptance.bundle
 nxr_head="$(git bundle list-heads /home/nexar/bundles/nxr066-owner-acceptance.bundle HEAD | cut -d ' ' -f 1)"
-# Require this full SHA to match Desktop's $nxrHead and the successful CI handoff.
+# Require this full SHA to match Desktop and the successful CI handoff.
 printf '%s\n' "$nxr_head"
 git fetch /home/nexar/bundles/nxr066-owner-acceptance.bundle HEAD
 test "$(git rev-parse FETCH_HEAD)" = "$nxr_head"
@@ -138,24 +155,27 @@ pnpm install --frozen-lockfile
 pnpm build
 nexar doctor
 nexar sandbox selftest
-git -C /home/nexar/validation/repo status --short
-git -C /home/nexar/validation/repo rev-parse HEAD
+test "$(sha256sum /home/nexar/validation/nexar.config.json)" = "$nxr_config_hash"
+test -z "$(git -C /home/nexar/validation/repo status --porcelain)"
+test "$(git -C /home/nexar/validation/repo rev-parse HEAD)" = 40f02fbec9a5c0bfd6d2ecde013d496e6ec1acc3
+test ! -e /mnt/c
+test ! -e /mnt/d
+! command -v cmd.exe
 uname -r
-exit
+exit 0
 ```
 
-Require current-head source/build, `nxr055-validation` unchanged, A1–A6 from the
-[WSL runbook](../../integration/wsl2-engineering-plane.md#7-acceptance-checks) still satisfied, and
-all sandbox selftests passing. No provider login, native model refresh, engineering task or paid
-turn is included. At this documentation checkpoint the update/build/selftests were prepared,
-**not executed**; the final preparation handoff records subsequent checks.
+Require same-head build, unchanged validation/config, A1–A6 in the
+[WSL runbook](../../integration/wsl2-engineering-plane.md#7-acceptance-checks) and 7/7 sandbox selftests.
+Claude is already authenticated through its supported status probe; optional native Codex login
+remains owner-only. No account credential store is read/copied and no native model listing is run.
 
-**STOP — end of non-provider preparation.** The agent may install/version-check OpenWorker,
-verify its supervised private startup, build both checkouts and verify the plane without a live
-turn. Desktop UI smoke uses a fresh isolated profile with no real provider connections. It must
-not launch the owner's existing profile: startup automatically refreshes an existing ChatGPT plan
-inventory. No real provider login, metadata refresh or model turn is initiated during preparation.
-Everything below is a future owner-initiated sequence.
+**STOP — end of non-provider preparation.** The agent may install/version-check 0.3.1, verify
+Nexar-supervised private startup/health without provider configuration or sessions, build matching
+checkouts and verify the plane. Desktop UI smoke uses a fresh isolated profile. **Do not launch
+the owner's existing profile:** startup automatically refreshes a connected ChatGPT inventory.
+No real login, provider/catalog refresh, native SDK metadata initialization or allowance-consuming
+turn is initiated. Everything below is a future owner-initiated sequence.
 
 ### 0d. Owner resume: existing-profile Desktop launch and UI checks
 

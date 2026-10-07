@@ -484,7 +484,7 @@ const records = async (): Promise<Record<string, unknown>[]> =>
 describe('Cowork lane', () => {
   it('runs a turn through OpenWorker, imports the draft and records the policy decisions', async () => {
     const { cowork, call } = await setup();
-    expect(await cowork.refresh()).toMatchObject({ state: 'ready', version: '0.3.0' });
+    expect(await cowork.refresh()).toMatchObject({ state: 'ready', version: '0.3.1' });
     const { sessionId } = await turnOf(call);
     const turn = await settled(sessionId);
 
