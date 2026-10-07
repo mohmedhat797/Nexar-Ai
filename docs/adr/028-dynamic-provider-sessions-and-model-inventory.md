@@ -129,11 +129,13 @@ inside engines, replacing OpenWorker here and switching control resources during
 
 ## Consequences and validation
 
-NXR-068 blocks NXR-066b; NXR-067a stays implemented and 067b requires this revision. No merge of
+NXR-068 gates NXR-066b; NXR-067a stays implemented and 067b requires this revision. No merge of
 PR #39 or owner live authentication until implementation and exact-head CI pass. The owner amended
-the development gate on 2026-10-07 while GitHub billing prevents CI: implementation may proceed
+the development gate on 2026-10-07 while GitHub billing prevented CI: implementation could proceed
 under full local checks, Desktop E2E, Windows packaging/packaged E2E and review; exact-head CI is
-still required before merge/release. Offline fixtures
+still required before merge/release. Implementation and [full exact-head CI](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37553210679/attempts/2)
+passed for `0244d97`; owner environment setup and live acceptance remain pending. This records
+validation progress without changing the decision. Offline fixtures
 must prove account-specific/route-specific choices, additions/removals, stale/empty behavior,
 provider-default, stable ids, explicit/Auto selection, rejection/refresh/fallback, API/native
 coexistence, migration preservation and no secret propagation. Provider metadata is untrusted;

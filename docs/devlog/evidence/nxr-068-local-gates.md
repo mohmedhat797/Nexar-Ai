@@ -1,9 +1,10 @@
 # NXR-068 local gate evidence (2026-10-07)
 
 This record covers the dynamic provider inventory implementation on
-`feat/nexar-resource-orchestration`, after architecture checkpoint `3c893a7`.
+`feat/nexar-resource-orchestration` at `0244d974704b9350a2ddec873872514db8d5de1a`, after architecture checkpoint `3c893a7`.
 The owner authorized continued development with strengthened local gates while GitHub billing
-prevents CI. Full exact-head CI remains required before merge/release; PR #39 stays draft.
+prevented CI. Billing was subsequently restored and the full exact-head retry passed (see below).
+Any later head requires its own full CI before merge/release; PR #39 stays draft.
 
 ## Environment and commands
 
@@ -23,16 +24,16 @@ Remove-Item Env:NEXAR_DESKTOP_EXECUTABLE
 
 ## Results
 
-| Gate | Result |
-| --- | --- |
-| Full `pnpm check` | Passed: formatting, lint, boundaries (910 tracked files), typecheck, 3,960 tests, build |
-| Offline CLI smoke | Passed: only `local-echo` listed and selected; execution succeeded |
-| Source Desktop E2E | Passed: 22 scenarios across 8 files (183.32s) |
-| Windows packaging | Passed: unsigned per-user x64 installer and SHA256 |
-| Packaged Desktop E2E | Passed: 22 scenarios across 8 files (184.36s), using packaged Nexar.exe |
-| Gitleaks 8.28.0 | Passed: all 221 existing commits and the staged implementation diff; no leaks |
-| Exact-head CI | Unavailable: GitHub billing/spending limit; no success inferred |
-| Owner live acceptance | Pending owner initiation after CI |
+| Gate                  | Result                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| Full `pnpm check`     | Passed: formatting, lint, boundaries (910 tracked files), typecheck, 3,960 tests, build |
+| Offline CLI smoke     | Passed: only `local-echo` listed and selected; execution succeeded                      |
+| Source Desktop E2E    | Passed: 22 scenarios across 8 files (183.32s)                                           |
+| Windows packaging     | Passed: unsigned per-user x64 installer and SHA256                                      |
+| Packaged Desktop E2E  | Passed: 22 scenarios across 8 files (184.36s), using packaged Nexar.exe                 |
+| Gitleaks 8.28.0       | Passed: all 221 existing commits and the staged implementation diff; no leaks           |
+| Exact-head CI         | Passed: `0244d97`, run `37553210679` attempt 2; Ubuntu, Windows and secret scan         |
+| Owner live acceptance | Prepared; Windows runtime/plane setup and owner initiation pending                      |
 
 The full suite has 195 passing files and 16 skipped files: 3,960 passed and 158 skipped tests.
 Live-provider tests remain disabled; Linux sandbox integration and gateway smoke cannot run on this
@@ -55,6 +56,20 @@ The installer is `release/desktop/Nexar-0.1.0-windows-x64-setup.exe`; its genera
 Production deployment reported peer-dependency warnings; packaged startup and E2E validate module
 loading and offline app behavior, while real native metadata initialization remains owner acceptance.
 
+## Exact-head CI recovery
+
+[Run 37553210679, attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37553210679/attempts/2)
+completed successfully on 2026-10-07, 10:42:24 UTC, for full source SHA
+`0244d974704b9350a2ddec873872514db8d5de1a`. All three jobs passed: Ubuntu, Windows and secret scan.
+This includes source Desktop E2E on both platforms, the Windows installer, packaged Desktop E2E
+and installer/SHA256 artifact upload. No success is inferred from local-only checks.
+
+Implementation-head PR installer artifact at this checkpoint: `11476471517`, name
+`Nexar-Windows-x64-0061e0ca8d5316530e9f7f464e9821dd24bc9ddf` (synthetic PR merge SHA in the name;
+the workflow source head is `0244d97`). The checksum above belongs to the local build, not the CI
+installer. Owner-approved cleanup removed the superseded PR installer after this upload succeeded;
+the latest main installer was preserved. Owner authentication and live turns were not run.
+
 ## Review and provider boundaries
 
 Offline regressions cover account-specific catalogs, returned model slugs outside PI's static
@@ -69,5 +84,7 @@ Native Codex exposes provider default, omitting the model override, until browse
 catalog discovery is verified. Claude/Google error text is not guessed to mean model rejection.
 Inventory refresh does not replace a resource inside an active control loop.
 
-The [owner runbook](nxr-066-live-acceptance-runbook.md) remains blocked on exact-head CI and starts
-with a read-only project review before Cowork, Code and integrated acceptance.
+The [owner runbook](nxr-066-live-acceptance-runbook.md) requires Desktop and plane preparation from
+the same verified documentation-checkpoint head, retaining this implementation generation.
+OpenWorker installation and the plane update remain preparation prerequisites;
+only owner initiation crosses the stop boundary into authentication/metadata refresh/live turns.

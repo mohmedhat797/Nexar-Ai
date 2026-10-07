@@ -1,14 +1,15 @@
 # NXR-068: Dynamic Provider Model Catalogs
 
 **Milestone:** v0.6 · **Status:** offline implementation and strengthened local gates complete;
-exact-head CI and owner live acceptance pending.
-**Depends on:** NXR-060/061/062/065/067a · **Blocks:** NXR-066b.
+full exact-head CI passed for `0244d97`; owner live acceptance pending.
+**Depends on:** NXR-060/061/062/065/067a · **Unblocks:** NXR-066b preparation (live results pending).
 **Decision:** [ADR-028](../adr/028-dynamic-provider-sessions-and-model-inventory.md).
 **Evidence:** [upstream comparison](../research/upstream/provider-model-inventory-patterns.md).
 
-**Gate revision (owner, 2026-10-07):** GitHub billing blocks CI. Continue with full pinned local
-check, Desktop E2E, Windows packaging/packaged E2E and review per coherent checkpoint; exact-head
-CI remains mandatory before merge/release. CI is unverified, not waived for release.
+**Gate revision (owner, 2026-10-07):** strengthened local gates applied during the GitHub billing
+outage. Billing is restored; [CI 37553210679 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37553210679/attempts/2)
+passed for `0244d974704b9350a2ddec873872514db8d5de1a` (Ubuntu, Windows, secret scan, including
+installer/SHA256 upload). Any later head still requires its own full CI before merge/release.
 
 ## Objective
 
@@ -53,7 +54,7 @@ entitlement acceptance. See [local gate evidence](../devlog/evidence/nxr-068-loc
       descriptors, telemetry, renderer or cache. CI calls only fake providers/runtimes.
 - [x] Full pinned `pnpm check`, focused regressions, source Desktop E2E, Windows packaging and
       packaged Desktop E2E pass.
-- [ ] Full exact-head CI passes before merge/release; currently blocked by GitHub billing.
+- [x] Full exact-head CI passed for `0244d97`; later heads require their own full CI before merge/release.
 - [ ] Owner live provider acceptance is separately initiated and recorded after CI.
 
 ## Implemented boundaries (2026-10-07)

@@ -4,10 +4,16 @@
 
 ## Objective
 
-**Status (2026-10-06):** 066a offline acceptance implemented; **066b BLOCKED on NXR-068**.
+**Status (2026-10-07):** 066a offline acceptance implemented; NXR-068 implementation and full
+exact-head [CI for `0244d97`](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37553210679/attempts/2)
+passed. **066b prepared; owner environment setup and live acceptance pending.**
 The owner reported successful ChatGPT sign-in, but the first Cowork smoke fell back to Direct because
 OpenWorker was unavailable and then the account route rejected Nexar's assumed `gpt-5.2`. The
 OpenWorker prerequisite and model inventory defect are independent. No v0.6 acceptance or merge.
+Windows v0.3.0 is published upstream, but the owner's default CLI/server commands remain unavailable.
+The plane is still at `2dbb070` and requires a rebuild to the verified revision. Use the
+[owner runbook](../devlog/evidence/nxr-066-live-acceptance-runbook.md); preparation stops before
+provider login, native metadata initialization and allowance-consuming turns. No new milestone.
 
 Prove ADR-027 offline, then live on the owner machine.
 

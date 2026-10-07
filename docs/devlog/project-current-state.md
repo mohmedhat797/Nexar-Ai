@@ -5,12 +5,15 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-07, dynamic provider inventory implementation)
+## Snapshot (2026-10-07, exact-head CI and owner acceptance preparation)
 
 Implementation continues on `feat/nexar-resource-orchestration`, draft
 [PR #39](https://github.com/mohmedhat797/Nexar-Ai/pull/39), after architecture checkpoint `3c893a7`.
-The last fully green exact-head [CI 37256667335](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37256667335)
-belongs to the earlier `57e0c3d` head. PR #36 is merged at `76de2e1`; PR #39 remains draft.
+Full exact-head [CI 37553210679, attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37553210679/attempts/2)
+passed for `0244d974704b9350a2ddec873872514db8d5de1a`: Ubuntu, Windows and secret scan, including
+source Desktop E2E, Windows packaging, packaged E2E and installer/SHA256 upload. Completed
+2026-10-07 at 10:42:24 UTC (13:42:24 Cairo). PR #36 is merged at `76de2e1`; PR #39 remains draft.
+This evidence applies to `0244d97`; any later committed head needs its own full CI before merge/release.
 
 NXR-068 architecture checkpoint: ADR-028, upstream comparison, backlog and blocked runbook are
 reviewed. Full local `pnpm check` passed on Node 22.23.3 / pnpm 10.33.0 (3,814 passed, 158 skipped,
@@ -18,8 +21,9 @@ build passed). An earlier Node 24 run crashed one Vitest worker; the repository 
 Architecture checkpoint `3c893a7` is pushed. Its Ubuntu checks and Windows code/build/packaged E2E
 passed; installer upload hit GitHub artifact quota. Owner-approved cleanup removed 50 older archives,
 preserving latest main/PR installers. The retry could not start because of GitHub billing/spending
-limits. **Owner revision (2026-10-07): continue development with strengthened local gates; CI is
-temporarily unavailable. Full exact-head CI remains mandatory before merge/release.**
+limits. **Historical owner revision (2026-10-07): continue development with strengthened local gates
+while CI was unavailable. Billing was subsequently restored and exact-head CI passed for `0244d97`.
+Full exact-head CI remains mandatory before merge/release.**
 Each coherent unit must pass pinned Node 22 / pnpm 10.33.0 full check, offline Desktop E2E,
 Windows packaging and packaged Desktop E2E, plus review. No CI success is inferred from local results.
 
@@ -29,13 +33,26 @@ pnpm 10.33.0: full `pnpm check` (3,960 passed, 158 skipped; build passed), sourc
 and pinned Gitleaks history/staged scans passed. Full E2E found and fixed an async picker refresh
 race; read-only review also verified refresh/write ownership. See the
 [local gate evidence](evidence/nxr-068-local-gates.md) for commands, skips and provider boundaries.
-Exact-head CI is still unverified because of billing; no merge, release or owner live acceptance.
+Exact-head CI also passed for `0244d97`; no merge, release or owner live acceptance has occurred.
 
-**v0.6 is implemented offline, not owner-accepted. NXR-066b is blocked on NXR-068.** The owner's
+**v0.6 is implemented offline, not owner-accepted. NXR-068's implementation/CI gate is cleared for
+`0244d97`; NXR-066b is prepared, pending owner environment setup and live initiation.** The owner's
 first Cowork smoke reported two independent findings: OpenWorker unavailable on Windows (environment
 acceptance), and account-backed inference rejecting the assumed `gpt-5.2` (provider architecture).
 ChatGPT sign-in succeeded; connection success did not establish model availability. No live
 authentication or allowance-consuming tests are authorized implicitly by this continuation.
+
+Read-only preparation verified Windows OpenWorker availability separately: upstream v0.3.0 has
+Windows x64 installers and Python CLI/server entry points, but this machine's configured default
+`openworker` / `openworker-server` commands are absent from PATH and its Python 3.13 installation.
+No installed 0.3.x runtime or live Cowork readiness is claimed. `nexar-plane` is clean at `2dbb070`,
+with Node 22.23.3 / pnpm 10.33.0, hardened WSL settings and `nxr055-validation` intact. Its source
+must be updated and rebuilt to the same CI-verified documentation-checkpoint SHA as Desktop
+(implementation generation `0244d97`) before acceptance. This describes the initial preflight;
+the final preparation handoff records installation/build results and the new exact-head CI without
+an unnecessary follow-up commit just to record CI. Exact owner commands, runtime setup,
+UI sequence and the stop boundary are in the [owner runbook](evidence/nxr-066-live-acceptance-runbook.md).
+The current request is documentation/preparation only; no new implementation milestone starts.
 
 ### Implementation-state audit
 
@@ -53,7 +70,8 @@ authentication or allowance-consuming tests are authorized implicitly by this co
   implemented. Automatic Code lane restart from base after control failure remains follow-up work.
 - **065:** provider-family cards, compatible control picker, policy IPC, plane read-only facts;
   implemented. Providers now shows connection-specific inventories, freshness and explicit refresh.
-- **066a:** offline orchestration acceptance implemented (`4feddd7`, `122d978`); **066b blocked**.
+- **066a:** offline orchestration acceptance implemented (`4feddd7`, `122d978`); **066b prepared,
+  owner environment/live results pending**.
 - **067a:** Nexar-owned ChatGPT PKCE sign-in, supervised callback, encrypted tokens, refresh and
   disconnect implemented (`bf222e6`) and owner-reported sign-in succeeded.
 - **067b / 068:** dynamic account Responses model listing replaces the assumed model and static
@@ -78,12 +96,13 @@ Desktop native Google sign-in/status remains unsupported or unknown; listing is 
 
 The older snapshot below and README's "coming next" Desktop section are historical. Backlog 059–065
 checkboxes are design acceptance lists, not the current ledger. NXR-068 has offline implementation;
-full local gate evidence is recorded at this checkpoint. Exact-head CI and owner
-live acceptance remain outstanding. Native model-rejection invalidation uses only verified structured
+full local and exact-head CI evidence is recorded for `0244d97`. Owner live acceptance remains
+outstanding. Native model-rejection invalidation uses only verified structured
 signals; no reliable Claude/Google signal was found, so generic CLI error text is not reclassified.
 Legacy descriptors without generation metadata cannot invalidate a newer account from a late error.
-Inventory refresh never swaps a resource inside an active control loop. OpenWorker Windows availability,
-Google ACP migration, plane-side account login and automatic Code replay remain separate follow-ups.
+Inventory refresh never swaps a resource inside an active control loop. Installing/verifying the
+Windows OpenWorker runtime and updating the plane remain acceptance prerequisites. Google ACP
+migration, plane-side account login and automatic Code replay remain separate follow-ups.
 
 The older snapshot and Operating Layer details below remain historical context.
 

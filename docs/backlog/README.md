@@ -95,10 +95,11 @@ Order: NXR-060 → 061 → 062 → 059 → 063 → 064 → 065 → (067, optiona
 | [NXR-066](066-resource-orchestration-acceptance.md)        | Resource orchestration E2E and live acceptance                                | v0.6      | testing, acceptance                    | Planned |
 | [NXR-067](067-experimental-subscription-model-adapters.md) | Experimental subscription model-turn adapters (owner-enabled)                 | v0.6      | providers, experimental, security      | Planned |
 
-**2026-10-06 correction:** NXR-059–065 are implemented offline (the historical table above has not
-tracked their commits). NXR-067a sign-in is implemented; 067b resource publication needs revision.
-NXR-066a is offline-tested; 066b is blocked by
-[NXR-068: Dynamic Provider Model Catalogs](068-dynamic-provider-model-catalogs.md). Current detailed
+**2026-10-07 correction:** NXR-059–065 are implemented offline (the historical table above has not
+tracked their commits). NXR-067a sign-in and NXR-067b's dynamic account resource publication are implemented.
+[NXR-068: Dynamic Provider Model Catalogs](068-dynamic-provider-model-catalogs.md) passed local gates
+and full exact-head CI for `0244d97`. NXR-066a is offline-tested; 066b is prepared, pending Windows
+OpenWorker setup, the plane update and owner-initiated live results. Current detailed
 status lives in [`project-current-state.md`](../devlog/project-current-state.md). PR #39 stays draft.
 
 ## Nexar Mobile (deferred)

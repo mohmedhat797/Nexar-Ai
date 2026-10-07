@@ -4,10 +4,11 @@ The decision is [ADR-027](../adr/027-resource-orchestration-architecture.md), re
 compatibility evidence is in [`subscription-control-compatibility.md`](../research/upstream/subscription-control-compatibility.md).
 Baseline: `main @ 76de2e1` (PR #36 merged), audited on 2026-10-04 against source, not only ADRs.
 
-## Dynamic inventory revision (2026-10-06)
+## Dynamic inventory revision (updated 2026-10-07)
 
 The baseline audit below is historical. NXR-059–065 and NXR-067a are implemented on draft PR #39;
-NXR-067b is partial, and NXR-066b is blocked by NXR-068. The owner smoke confirmed authentication
+NXR-067b's dynamic account inventory and NXR-068 are implemented and passed full CI at `0244d97`;
+NXR-066b is prepared, pending owner environment setup and live acceptance. The owner smoke confirmed authentication
 but the account route rejected the assumed model; OpenWorker's unavailability is a separate host
 prerequisite. Current implementation/evidence is in
 [`project-current-state.md`](../devlog/project-current-state.md).
@@ -20,11 +21,13 @@ units: contracts/materialization, OpenAI account catalog/execution first, Claude
 Google native inventory, UI and regression. No static default model or generic vendor catalog
 establishes subscription availability. API/local pi-ai stays, ACP and Goose engine migration defer.
 
-Architecture documentation is pushed. GitHub billing currently prevents completing its CI gate.
-The owner's 2026-10-07 revision permits implementation with strengthened local gates: focused tests,
+Architecture documentation is pushed. During the GitHub billing outage, the owner's 2026-10-07
+revision permitted implementation with strengthened local gates: focused tests,
 full pinned Node 22 check, Desktop E2E, Windows packaging and packaged E2E, followed by review,
-commit and push. Track CI as unavailable; full exact-head CI is mandatory before merge/release.
-Live auth and quota acceptance wait for owner initiation after NXR-068 and its CI gate.
+commit and push. Billing was restored; [full CI 37553210679 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37553210679/attempts/2)
+passed for `0244d97`. Full CI for any later exact head is mandatory before merge/release.
+Live auth and quota acceptance remain owner-initiated; use the
+[prepared runbook](../devlog/evidence/nxr-066-live-acceptance-runbook.md). No new implementation milestone starts.
 
 ## 1. Current-state audit (what the code does today)
 
