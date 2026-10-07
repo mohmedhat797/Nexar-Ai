@@ -109,6 +109,23 @@ Owner initially started live acceptance on 2026-10-07 at the maintenance head
      - Windows packaging: PASS (`release/desktop/win-unpacked/Nexar.exe` and NSIS installer).
      - Packaged Desktop E2E: PASS (8/8 files, 22/22 tests).
      - Gitleaks (8.28.0 scanner-only): PASS (no leaks found).
+- **SOW live acceptance attempt (4c69d1c):** session `ses_f0188bb478fb26313534ae3f5b92a92d`,
+  turn `turn_20366d2eac8c9a67e56a43a1c0cc2cbc`, task `task_853a91b1-b569-43e1-9702-e4791ed554de`.
+  - Lane: `cowork` (`requestedLane: cowork`, `effectiveLane: cowork`), fallback: `none` (`fallbackReason: undefined`).
+  - Engine: OpenWorker `0.3.1` (path `gateway`), zero restarts.
+  - Control resource: `inventory:048a60e3b9b7892e466eff536385c50a2168da981a4d3ac61cd0f4c44ba0f2b3` (`gpt-5.6-luna`).
+  - Normalization & Draft Import verified in live turn:
+    - Sentinel `reviewOf: "none"` normalized to `undefined`; `mcp__nexar__nexar_intelligence_submit` accepted,
+      minting `jobId: 57ff8103-c2f4-450f-a0e5-243098ad9ec8` (`apr_9af12f1749a57397ee23f9e131e5a06e` allowed).
+    - Workspace write `SOW_NXR-055_Live_Validation.md` (19,729 bytes) allowed by `cowork.scratch-write.allow`
+      (`apr_b8f5deb47994a3b43d494f4b00d653d6`) and imported as a draft artifact into Nexar.
+    - Zero unauthorized source modification: `README.md` SHA256 unchanged.
+  - Delegated unit execution failure:
+    - Delegation requests: 1 (`unitId: sow-draft-1`). Completed units: **0** (outcome `failed`).
+    - Root cause: OpenWorker requested capabilities `["requirements-analysis", "technical-writing", "project-planning"]`.
+      Nexar's resource registry hard-filter rejects candidates lacking any requested capability (`capability.missing`),
+      and no inventory resource declares these bespoke strings, returning `NO_ELIGIBLE_RESOURCE`.
+  - Verdict: **FAIL** (criterion: completed delegated units $\ge 1$ not met). **STOPPED before Code acceptance.**
 - **Code:** live preflight ready at 17:41:05.248 UTC; project `nxr-055-validation` maps to
   `nxr055-validation`. Initially native Claude authenticated and native Codex unauthenticated. Owner device-auth
   attempted by the owner, but failed before issuance of a device code. Read-only probes found DNS

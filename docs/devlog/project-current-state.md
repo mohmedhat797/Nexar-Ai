@@ -5,48 +5,40 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-07, NXR-066b live resumed at 12d7ea1)
+## Snapshot (2026-10-08, NXR-066b live resumed at 4c69d1c)
 
-Current acceptance head **`12d7ea183deea08cbcc19a38384b6649c7186ab1`**, draft/open PR #39.
-Owner approved source correction/evidence publication, full CI, matching build update and resumed
-live acceptance. [Full exact-head CI 37657555559 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37657555559/attempts/1)
-passed Ubuntu, Windows, secrets, source/packaged E2E, Windows packaging and installer/SHA256 upload,
-completed 2026-10-07 17:33:11 UTC. Catalog-only 1 MiB bound fixes the observed 362,153-byte response;
-OAuth stays at 64 KiB. No new implementation milestone, merge or release.
+Current acceptance head **`4c69d1cd76c8182313f762a90dd7925c98dfa7bc`**, draft/open PR #39.
+Full exact-head CI [37697855865](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37697855865) passed
+Ubuntu, Windows, secrets, source/packaged E2E, packaging and installer/SHA256 upload.
+Matching Desktop checkout (`D:/Nexar-Ai-acceptance-nxr066`) and `nexar-plane` built at `4c69d1c`;
+plane doctor and 7/7 sandbox selftests passed.
 
-Clean detached acceptance Desktop and `nexar-plane` rebuilt at the same head. Plane doctor and
-7/7 sandbox checks passed; validation/config/hardening preserved. OpenWorker ready **0.3.1**.
-Existing owner sign-in retained. Account inventory is **fresh/authenticated**, four returned models
-(`gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`); explicit live pin/return to Auto and
-refresh verified. Claude metadata refreshed (12 entries); listing alone is not execution acceptance.
-Cowork control/fallback Auto selects the returned Luna resource; Code control remains native fallback.
+Live preflight confirmed:
 
-**Controlled read-only smoke PASS**, through Cowork / gateway, no fallback or restarts, no artifacts,
-source file set/hash unchanged. Temporary read-only policy restored to original drafts-only.
-**SOW acceptance incomplete:** its turn succeeded through the same gateway, but recorded **zero
-delegated units and zero draft artifacts**. Owner review confirms two declined writes; policy receipts
-both report `cowork.target-missing.deny`. Pinned upstream emits `arguments.path`; Nexar at this head
-reads top-level `target`. A bounded local correction and upstream-shaped fixtures passed 117 targeted
-tests, full `pnpm check` (**3,981 passed / 158 expected skips**) and full source Desktop E2E **22/22**.
-Unsigned Windows packaging/SHA256 and packaged Desktop E2E **22/22** pass. After explicit scanner-only
-owner authorization, the existing Gitleaks 8.28.0 scanned the current unstaged diff with redaction:
-**PASS, no leaks found**. Earlier E2E isolation/confirmation failures are recorded in the worksheet;
-no assertion weakened and no diagnostic test changes retained.
-Owner authorized reviewing, committing and pushing this correction plus acceptance evidence, followed
-by full exact-head CI, matching Desktop/plane builds and bounded SOW revalidation. At this evidence
-checkpoint, the correction has not been deployed; the CI above covers 12d7ea1 only. Record the new
-commit, CI and deployment receipts in the local handoff before any further provider/model call.
-Two delegation submit
-permissions were allowed, but no completed unit was recorded; that separate cause is unresolved.
-**Code/integrated flow not initiated.** Owner device-auth initially failed while plane HTTPS probes
-timed out. After the owner closed their VPN, read-only GitHub/OpenAI probes recovered with verified TLS.
-The owner completed device-auth; Desktop refresh at **18:23:20.722 UTC** verified both plane Claude
-and Codex available/authenticated with project/plane ready. Both remain native-agent resources;
-expected Code control fallback is unchanged. No engineering
-write/approval/local acceptance commit or acceptance push occurred. Nexar closed with all sessions
-inactive before isolated gates, keeping sign-ins, drafts-only and Auto.
-Live evidence updates remain local; the deployed/tested head is unchanged. See the
-[acceptance worksheet](evidence/nxr-066-owner-acceptance.md) and local final handoff.
+- OpenWorker 0.3.1 ready (`gateway` path).
+- ChatGPT plan connected, sharing enabled; inventory fresh on Luna (`gpt-5.6-luna`).
+- Engineering plane ready: Claude authenticated, Codex authenticated.
+- Cowork control Auto, fallback Auto.
+
+**Live SOW acceptance attempt at 4c69d1c:**
+
+- Session: `ses_f0188bb478fb26313534ae3f5b92a92d`, turn: `turn_20366d2eac8c9a67e56a43a1c0cc2cbc`,
+  task: `task_853a91b1-b569-43e1-9702-e4791ed554de`.
+- Lane: `cowork`, engine: `openworker` 0.3.1 via gateway, zero fallback, zero restarts.
+- Control resource: `gpt-5.6-luna`.
+- Normalization & Draft Import verified:
+  - Delegation sentinel `reviewOf: "none"` normalized to `undefined`; `mcp__nexar__nexar_intelligence_submit`
+    accepted and minted `jobId: 57ff8103-c2f4-450f-a0e5-243098ad9ec8`.
+  - OpenWorker workspace write `SOW_NXR-055_Live_Validation.md` (19,729 bytes) allowed by
+    `cowork.scratch-write.allow` (`apr_b8f5deb47994a3b43d494f4b00d653d6`) and imported as draft artifact.
+  - Zero unauthorized source mutation: project `README.md` SHA256 unchanged.
+- Delegated unit execution failure:
+  - 1 delegation request (`sow-draft-1`); completed units: **0** (outcome `failed`).
+  - Root cause: OpenWorker requested capabilities `["requirements-analysis", "technical-writing", "project-planning"]`.
+    Nexar's resource registry hard-filter rejects candidates lacking any requested capability (`capability.missing`),
+    and no inventory resource declares these bespoke strings, returning `NO_ELIGIBLE_RESOURCE`.
+- Verdict: **FAIL** on completed delegated units $\ge 1$. **STOPPED before Code acceptance.**
+  PR #39 stays draft; no merge or release without owner authorization.
 
 ## Historical snapshot (2026-10-07, NXR-066b live acceptance started)
 
