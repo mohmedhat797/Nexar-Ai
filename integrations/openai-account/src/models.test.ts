@@ -179,8 +179,8 @@ describe('selected-account model catalog', () => {
   );
   it('bounds declared and chunked response bytes', async () => {
     for (const response of [
-      new Response('{}', { headers: { 'content-length': '65537' } }),
-      new Response('x'.repeat(65_537)),
+      new Response('{}', { headers: { 'content-length': '1048577' } }),
+      new Response('x'.repeat(1_048_577)),
     ]) {
       await expect(
         createOpenAiAccountModelClient({ fetch: () => Promise.resolve(response) }).listModels({
@@ -189,6 +189,25 @@ describe('selected-account model catalog', () => {
       ).rejects.toMatchObject({ details: { reason: 'oversize' } });
     }
   });
+  it.each([false, true])(
+    'accepts a full catalog up to its own byte ceiling (declared: %s)',
+    async (declared) => {
+      const catalog = { models: [visible('returned-model')], metadata: CANARY };
+      const empty = JSON.stringify(catalog);
+      catalog.metadata += 'x'.repeat(1024 * 1024 - Buffer.byteLength(empty));
+      const text = JSON.stringify(catalog);
+      expect(Buffer.byteLength(text)).toBe(1024 * 1024);
+      const response = new Response(
+        text,
+        declared ? { headers: { 'content-length': String(1024 * 1024) } } : undefined,
+      );
+      const models = await createOpenAiAccountModelClient({
+        fetch: () => Promise.resolve(response),
+      }).listModels({ accessToken: TOKEN });
+      expect(models).toEqual([{ slug: 'returned-model', displayName: 'returned-model' }]);
+      expect(JSON.stringify(models)).not.toContain(CANARY);
+    },
+  );
   it('normalizes malformed JSON and thrown network errors', async () => {
     for (const doFetch of [
       () => Promise.resolve(new Response(CANARY)),

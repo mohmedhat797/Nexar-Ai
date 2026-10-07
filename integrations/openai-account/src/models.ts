@@ -1,5 +1,5 @@
 import { NexarError } from '@nexar/contracts';
-import { MAX_ACCESS_TOKEN_CHARS, MAX_RESPONSE_BYTES } from './constants.js';
+import { MAX_ACCESS_TOKEN_CHARS } from './constants.js';
 
 export interface OpenAiAccountModel {
   readonly slug: string;
@@ -21,6 +21,8 @@ export interface OpenAiAccountModelClientOptions {
 
 const ENDPOINT = 'https://api.openai.com/v1/models';
 const MAX_MODELS = 256;
+// Catalog metadata can exceed the OAuth response ceiling; keep its own bounded budget.
+const MAX_CATALOG_RESPONSE_BYTES = 1024 * 1024;
 const catalogErrors = new WeakSet<NexarError>();
 const fail = (reason: string): NexarError => {
   const error = new NexarError(
@@ -125,7 +127,10 @@ export function createOpenAiAccountModelClient(
           throw fail(response.status === 401 ? 'auth-rejected' : 'rejected');
         }
         const length = response.headers.get('content-length');
-        if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_RESPONSE_BYTES)) {
+        if (
+          length !== null &&
+          (!/^\d+$/.test(length) || Number(length) > MAX_CATALOG_RESPONSE_BYTES)
+        ) {
           void response.body?.cancel().catch(() => undefined);
           throw fail('oversize');
         }
@@ -137,7 +142,7 @@ export function createOpenAiAccountModelClient(
           const next = await Promise.race([reader.read(), aborted]);
           if (next.done) break;
           bytes += next.value.byteLength;
-          if (bytes > MAX_RESPONSE_BYTES) throw fail('oversize');
+          if (bytes > MAX_CATALOG_RESPONSE_BYTES) throw fail('oversize');
           chunks.push(next.value);
         }
         return parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));

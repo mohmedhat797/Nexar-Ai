@@ -5,7 +5,35 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-07, OpenWorker 0.3.1 compatibility maintenance)
+## Snapshot (2026-10-07, NXR-066b live acceptance started)
+
+Last full-CI-tested acceptance head **`feb36dc59572c40ef13afd79a4d0ded519dfd9e7`**, PR #39 draft/open.
+[Full CI 37631118802 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37631118802/attempts/1)
+passed Ubuntu, Windows, secrets, source/packaged E2E, packaging and installer/SHA256 upload.
+Separate official-source-pinned Windows OpenWorker **0.3.1** installed and private supervised startup
+verified. Matching Desktop/plane builds completed; plane doctor and 7/7 selftests passed.
+
+Owner requested live acceptance and existing-profile Desktop launched. Live Code preflight confirms
+the validation mapping/plane ready. ChatGPT initially connected with sharing enabled, but account
+inventory was unavailable (`refresh-failed`, zero models/resources). Native Claude inventory was
+fresh, which does not establish execution. OpenWorker 0.3.1 reports `configuration-missing` because
+no compatible control resource exists. The owner reconnected; current public status is connected with
+sharing enabled. HTTP-200 catalog responses exceed the current client's 65,536-byte response ceiling
+(complete structural probe: 362,153 bytes, 7 models / 4 visible, valid fields). A local catalog-only 1 MiB bound
+correction passed full local check (**3,979 passed / 158 skipped**), source/packaged Desktop E2E
+(**22/22 each**) and Windows installer/SHA256 packaging. OAuth limits remain unchanged.
+The owner approved committing/pushing this bounded correction and evidence to PR #39, requiring its
+full exact-head CI, updating matching Desktop/plane builds and resuming acceptance. This checkpoint
+does not yet have a new-head CI/deployment receipt; record those in the local handoff without a
+self-referential CI commit loop. Diagnostic Desktop is closed; sign-in was not disconnected.
+**Controlled read-only smoke, SOW, Code writes/approval/commit and integrated acceptance have not run.**
+The owner independently completed a `claude-code` direct fallback turn in the test project;
+`openworker-control-unavailable` means it does not establish Cowork orchestration acceptance.
+See the [live evidence worksheet](evidence/nxr-066-owner-acceptance.md). No new milestone,
+merge/release or acceptance claim. Source maintenance publication is authorized; acceptance-generated
+commits remain local. Resume requires the corrected head's full CI and matching Desktop/plane builds.
+
+## Historical snapshot (2026-10-07, OpenWorker 0.3.1 compatibility maintenance)
 
 Branch `feat/nexar-resource-orchestration`; draft/open [PR #39](https://github.com/mohmedhat797/Nexar-Ai/pull/39).
 Reconciliation found clean local/remote head `c68c7bd7b1366e3bb9a3dc71057a573b19d27aa7` and full
