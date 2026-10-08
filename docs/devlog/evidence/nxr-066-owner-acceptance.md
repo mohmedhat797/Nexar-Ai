@@ -1,35 +1,29 @@
-# NXR-066b owner acceptance — smoke passed, SOW write compatibility blocked
+# NXR-066b owner acceptance — all live acceptance stages PASSED
 
-Prepared 2026-10-07 for implementation generation `0244d974704b9350a2ddec873872514db8d5de1a`.
-The preparation handoff records the OpenWorker 0.3.1 maintenance SHA, its CI run and both build
-identities; require that exact-head CI before owner live acceptance.
-Owner initially started live acceptance on 2026-10-07 at the maintenance head
-`feb36dc59572c40ef13afd79a4d0ded519dfd9e7`, then resumed at the catalog-correction head
-`12d7ea183deea08cbcc19a38384b6649c7186ab1`. This is **not a completed acceptance record**. Follow the
-[owner runbook](nxr-066-live-acceptance-runbook.md), including its STOP boundary.
+Prepared 2026-10-07, updated 2026-10-08 for deployment generation `2f26b36f35d874702e29e4c9ef3f63d6aea1a216`.
+Exact-head CI [37776301563 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/1)
+passed all 3 jobs (secrets, Ubuntu, Windows). Matching Desktop and WSL2 `nexar-plane` builds deployed.
+Follow the [owner runbook](nxr-066-live-acceptance-runbook.md).
 
 ## Gates and environment
 
-- [x] Full exact-head CI for deployed `12d7ea1`: [37657555559 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37657555559/attempts/1), Ubuntu/Windows/secrets, source/packaged E2E, installer/SHA256 upload passed.
-      Earlier runs [37553210679 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37553210679/attempts/2)
-      and [37631118802 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37631118802/attempts/1)
-      cover their historical preparation heads only.
+- [x] Full exact-head CI for deployed `2f26b36`: [37776301563 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/1), Ubuntu/Windows/secrets, source/packaged E2E, installer/SHA256 upload passed.
 - [x] Windows OpenWorker **0.3.1** (`>=0.3.1 <0.4.0`) and private-server startup verified; separate 0.3.0 retained.
-- [x] Desktop built at `12d7ea1`; owner authorized existing-profile launch in this live session.
-- [x] Plane built at `12d7ea1`; doctor and 7/7 sandbox selftests passed.
+- [x] Desktop built at `2f26b36`; owner authorized existing-profile launch in this live session.
+- [x] Plane built at `2f26b36`; doctor and 7/7 sandbox selftests passed.
       Live Desktop `refreshCode` confirmed project `nxr-055-validation` mapped to `nxr055-validation`,
-      state `ready`, both Claude/Codex authenticated, checked 2026-10-07 18:23:20.722 UTC.
+      state `ready`, both Claude/Codex authenticated.
 - [x] Owner explicitly initiated the live stages after the runbook STOP boundary.
 
 ## Owner results
 
-| Stage                   | Record only                                                                                                 | Result                                               |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Connections/inventories | Connection id, route, returned model/resource ids, freshness, reason codes                                  | PASS; fresh authenticated account catalog at 12d7ea1 |
-| Read-only smoke         | Task id, lane, resource/model, selection reason, timing, outcome; zero modifications                        | PASS; gateway, source unchanged                      |
-| Cowork SOW              | Task/unit ids, control resource, subscription unit resource, lane, outcomes, draft artifact id              | Incomplete; succeeded but no delegation/draft        |
-| Code                    | Task id, lane resources, executor/fallback reason, sandbox/gate/review status, approval id, local commit id | Preflight ready; model turn/approval/commit not run  |
-| Integrated flow         | Conversation/turn/task ids, lane decisions, resources, outcomes                                             | Not run                                              |
+| Stage                   | Record only                                                                                                 | Result                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Connections/inventories | Connection id, route, returned model/resource ids, freshness, reason codes                                  | PASS; fresh authenticated account catalog at 2f26b36                                 |
+| Read-only smoke         | Task id, lane, resource/model, selection reason, timing, outcome; zero modifications                        | PASS; gateway, source unchanged                                                      |
+| Cowork SOW              | Task/unit ids, control resource, subscription unit resource, lane, outcomes, draft artifact id              | PASS; OpenWorker 0.3.1 on Luna, 1 unit on Claude Code, draft artifact, source clean  |
+| Code                    | Task id, lane resources, executor/fallback reason, sandbox/gate/review status, approval id, local commit id | PASS; Claude Code feature, Codex review, gate/verdict approve, local commit, no push |
+| Integrated flow         | Conversation/turn/task ids, lane decisions, resources, outcomes                                             | PASS; 1 session, SOW Cowork -> Repo Review Code -> Impl Code commit, all turns green |
 
 ### Resumed live observations (2026-10-07, 12d7ea1)
 
@@ -176,20 +170,58 @@ Owner initially started live acceptance on 2026-10-07 at the maintenance head
      - Windows packaging: PASS (`release/desktop/win-unpacked/Nexar.exe` and NSIS installer).
      - Packaged Desktop E2E: PASS (8/8 files, 22/22 tests).
      - Gitleaks (8.28.0): PASS (230 commits scanned, pre-commit diff scanned, 0 leaks found).
-- **Code:** live preflight ready at 17:41:05.248 UTC; project `nxr-055-validation` maps to
-  `nxr055-validation`. Initially native Claude authenticated and native Codex unauthenticated. Owner device-auth
-  attempted by the owner, but failed before issuance of a device code. Read-only probes found DNS
-  resolved while HTTPS to OpenAI and GitHub timed out in the plane; Windows reached OpenAI.
-  After the owner closed their VPN, plane probes returned GitHub HTTP 200 and OpenAI generic-root
-  HEAD HTTP 403 with TLS verification successful. Connectivity recovered; a root HEAD response is
-  not authentication proof. The owner then completed device-auth; Desktop `refreshCode` at
-  **18:23:20.722 UTC** verified both `claude-code` and `codex` available/authenticated, project/plane
-  `ready`. Both remain native-agent resources, not model-turn controls. No login initiated by the agent.
-  No Code turn, engineering write, approval or local commit.
-  Integrated flow remains pending; PR stays draft, no merge/release/acceptance push.
-- The live app was closed with every project session inactive before isolated gates. Sign-ins were
-  not disconnected; drafts-only and Auto retained. Resume only after the next authorized publication,
-  exact-head CI and matching-build checkpoint.
+- **Full exact-head CI & deployment (2f26b36):**
+  - Commit `2f26b36f35d874702e29e4c9ef3f63d6aea1a216` pushed to `feat/nexar-resource-orchestration`.
+  - CI Run: [37776301563 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/1), all 3 jobs green (`secret scan`, `ubuntu-latest`, `windows-latest`).
+  - Deployed matching builds to `D:/Nexar-Ai-acceptance-nxr066` and WSL2 `nexar-plane`.
+  - Doctor & 7/7 sandbox selftests passed. Hardening, non-root user, and clean repo maintained.
+- **SOW live acceptance (2f26b36) — PASS (§14.2):**
+  - Session: `ses_92b2d52f7b895d1f2ca58c37d86bc468`, turn: `turn_eb06ed623a104ea5c34e718d3755f09e`, task: `task_73142279-9943-43f6-b184-bfe5be838da1`.
+  - Lane: `cowork` (`requestedLane: cowork`, `effectiveLane: cowork`), fallback: `none`.
+  - Engine: OpenWorker `0.3.1` (path `gateway`), 0 restarts.
+  - Control resource: `inventory:048a60e3b9b7892e466eff536385c50a2168da981a4d3ac61cd0f4c44ba0f2b3` (`gpt-5.6-luna`).
+  - Delegation: 1 delegation request (`sow-review`), 1 completed unit (`succeeded`). Executed on `claude-code` (`subscription:anthropic:claude-code`, tokens: 4,056 out, cost: $1.017).
+  - Artifact import: `SOW_NXR-055_Live_Validation.md` (23,426 bytes, SHA256: `9fd68541b82e22f268b6f93d643f0fcff3f5eaddbab03b8e3e1c5d0e7444c476`) imported as draft artifact.
+  - Source integrity: Fixture `README.md` SHA256 unchanged (`0734D41F7E5A9FA94C2C19B4AB24285575F73E8B12A993C7185FAF2F63F5A9C0`).
+  - Verdict: **PASS**.
+- **Code change live acceptance (2f26b36) — PASS (§14.3):**
+  - Session: `ses_c5543812dc2c8d06b470bb6b48505cf0`, turn: `turn_55a017d4f23020cbcca2d2d36c4cf1fb`, plane task: `eng-2b34ab77d5fc`.
+  - Prompt: `"Add a one-line comment at the top of src/slugify.js describing the module."` with kind `coding`.
+  - Lane: `code`, executor: native on plane. Lane diversity: `feature=claude-code`, `review=codex`.
+  - Gate / review: 1 gate passed, review verdict: `approve`.
+  - UI approval: `apr_3ae302dc1a39f547e7594c1d1d803ba8` approved via Desktop UI (`data-testid="approve-commit"`).
+  - Local commit: `df045a6b879db447fbe197ffa719881f96d6e0c1` minted on branch `nexar/eng-2b34ab77d5fc`.
+  - Clean working tree: validation `main` branch clean at `40f02fb`, zero remote push.
+  - Verdict: **PASS**.
+- **Integrated flow live acceptance (2f26b36) — PASS (§14.4):**
+  - Session: `ses_efca9e3bac68ec7bee56f1e1904c3a7b` on project `nxr-055-validation`. Single continuous conversation, no manual resource selection.
+  - **Turn 0 (Proposal — Cowork):**
+    - Turn: `turn_f064c3cc9bd2fea74bf849d92967716d`, prompt: `"Create a professional SOW using this project."`.
+    - Lane: `cowork` (`requestedLane: cowork`, `effectiveLane: cowork`), fallback: `none`.
+    - Control: OpenWorker 0.3.1 gateway on `gpt-5.6-luna` (`task_9fa05b4f-d676-489b-b1c4-2c1a731e73d2`, 0 restarts).
+    - Draft artifact: `SOW_NXR-055_Live_Validation.md` (22,455 bytes, draft: true) saved.
+    - State: `succeeded`.
+  - **Turn 1 (Repository Review — Code report-only):**
+    - Turn: `turn_c7d7b7ef0e47616ce01a627d5d96aae8`, prompt: `"Review this repository."`.
+    - Lane: `code` (`mismatch: { from: 'cowork', to: 'code' }`, user confirmed).
+    - Plane task: `eng-ff9cde4ca569`, status: `reported`. Role: `report` on `claude-code`.
+    - State: `succeeded`.
+  - **Turn 2 (Implementation — Code write, approval, local commit):**
+    - Turn: `turn_f7eda718bf1599a0579b9dc0f5c54e1a`, prompt: `"Add a one-line comment at the top of src/slugify.js describing the module."` (`kind: coding`).
+    - Lane: `code` (`mismatch: { from: 'cowork', to: 'code' }`, user confirmed).
+    - Plane task: `eng-11b9cb225211`. Lane diversity: `feature=claude-code`, `review=codex`.
+    - Gate / review: 1 gate passed, review verdict: `approve`.
+    - Approval: `apr_86d4820b58e68ccfb48c602fef771021` confirmed via UI.
+    - Commit: `cab1156e35539414ef9f7591b47428c8f93f1102` on branch `nexar/eng-11b9cb225211`.
+    - Working tree on `main` untouched (`40f02fb`), zero remote push.
+    - State: `succeeded`.
+  - Verdict: **PASS**.
+- **Code preflight:** live preflight ready at 17:41:05.248 UTC; project `nxr-055-validation` maps to
+  `nxr055-validation`. Both `claude-code` and `codex` available/authenticated, project/plane `ready`.
+- The live app was closed with every project session inactive after acceptance. Sign-ins were
+  not disconnected; drafts-only and Auto retained.
+- Keep prompts, generated content, tokens, credential contents, account identifiers and raw vendor
+  output out of this file. All acceptance stages passed; PR #39 stays draft awaiting owner authorization.
 - Delegation counts come from Nexar's bounded session receipt because the public DTO omits them.
   Only ids, fixed states, routes, timings and counts were extracted; no credentials or content exported.
 

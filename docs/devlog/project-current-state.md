@@ -5,7 +5,42 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-08, NXR-066b live resumed at 1feb97f)
+## Snapshot (2026-10-08, NXR-066b live acceptance PASSED at 2f26b36)
+
+Current acceptance head deployed at **`2f26b36`**, draft/open PR #39.
+Full exact-head CI run [37776301563 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/1) green across all 3 jobs. Matching Desktop and WSL2 `nexar-plane` builds deployed.
+
+**All three live acceptance milestones PASSED:**
+
+1. **SOW Acceptance (§14.2) — PASS:**
+   - Session `ses_92b2d52f7b895d1f2ca58c37d86bc468`, turn `turn_eb06ed623a104ea5c34e718d3755f09e`.
+   - Lane `cowork` without fallback; OpenWorker 0.3.1 gateway on `gpt-5.6-luna` (0 restarts).
+   - Delegated unit `sow-review` completed on `claude-code` (`succeeded`, 4,056 out tokens, $1.017).
+   - Draft artifact `SOW_NXR-055_Live_Validation.md` (23,426 B) imported into Nexar.
+   - Fixture `README.md` SHA256 unchanged.
+
+2. **Code Change Acceptance (§14.3) — PASS:**
+   - Session `ses_c5543812dc2c8d06b470bb6b48505cf0`, turn `turn_55a017d4f23020cbcca2d2d36c4cf1fb`.
+   - Plane task `eng-2b34ab77d5fc`, executor native on plane.
+   - Lane diversity: `feature=claude-code`, `review=codex`.
+   - Gate passed: 1, review verdict: `approve`.
+   - Approval `apr_3ae302dc1a39f547e7594c1d1d803ba8` approved via Desktop UI.
+   - Local commit `df045a6b879db447fbe197ffa719881f96d6e0c1` minted on branch `nexar/eng-2b34ab77d5fc`.
+   - Clean working tree on `main` (`40f02fb`), zero remote push.
+
+3. **Integrated Flow Acceptance (§14.4) — PASS:**
+   - Session `ses_efca9e3bac68ec7bee56f1e1904c3a7b` on project `nxr-055-validation`. Single continuous conversation.
+   - Turn 0 (Proposal): Cowork lane on OpenWorker 0.3.1 / Luna (`succeeded`), draft artifact `SOW_NXR-055_Live_Validation.md` (22,455 B) produced.
+   - Turn 1 (Review): Code lane mismatch confirmed, reported by `claude-code` on plane (`eng-ff9cde4ca569`, status `reported`, `succeeded`).
+   - Turn 2 (Implementation): Code lane mismatch confirmed, plane task `eng-11b9cb225211`, `feature=claude-code`, `review=codex`, gate/verdict `approve`, approval `apr_86d4820b58e68ccfb48c602fef771021` confirmed, local commit `cab1156e35539414ef9f7591b47428c8f93f1102` minted on branch `nexar/eng-11b9cb225211`.
+   - Clean working tree on `main` (`40f02fb`), zero remote push.
+
+**Operating Status:**
+
+- All acceptance stages (§14.1–§14.4) complete and passed.
+- PR #39 remains in draft status awaiting explicit owner authorization to merge and release.
+
+## Historical snapshot (2026-10-08, NXR-066b live resumed at 1feb97f)
 
 Current acceptance head progressing from **`1feb97f`**, draft/open PR #39.
 
@@ -304,20 +339,19 @@ The previous next task (install OpenWorker and give it an API key) is superseded
 | NXR-064 DSH Code orchestration                        | done (CI green, incl. real-bwrap smoke) | `9d69ef5`+`830dd17` spike + ADR-027 §9b, `31d5745` shared endpoint/translator + sandbox services mount, `ccfde2f` lane-private engine sessions + honest `executor` records, `e0f3073` DSH on the gateway (no `DEEPSEEK_API_KEY`, bridge via ACP MCP) |
 | NXR-065 Providers and orchestration UX                | done (CI green)                         | `c3333ea` control policy/candidates/lane facts over IPC + plane protocol, `cc7246e` provider cards, Orchestration section, resource details, executor facts in the UI                                                                                |
 | NXR-067 ChatGPT plan (official token sharing)         | done (CI green)                         | `dc9e585` decision (Sign in with ChatGPT replaces the experimental Codex-client route), `bf222e6` connection (PKCE, callback child, key store, refresh), `b481b27` `chatgpt-plan:*` model-turn resources + Providers UI                              |
-| NXR-066 Acceptance                                    | offline done; owner live pending        | `1658a9a` offline acceptance E2Es, `122d978` `reviewOf` for delegated units (review diversity), `2f1f5c7` live runbook                                                                                                                               |
+| NXR-066 Acceptance                                    | done (live acceptance passed)           | `1658a9a` offline acceptance E2Es, `122d978` `reviewOf` for delegated units, `2f1f5c7` live runbook, `2f26b36` live acceptance passed                                                                                                                |
 
 Desktop note: the next Desktop start migrates the owner's config (backup `nexar.config.json.bak-<timestamp>`),
 removing the `local-echo` default so Auto routes to discovered resources (signed-in Claude Code).
 
 ## NEXT EXACT TASK
 
-**NXR-068 — Dynamic Provider Model Catalogs.** Research current T3 Code, Goose and official runtime
-interfaces; record ADR-028, the bounded implementation plan and the live acceptance blocker. Commit
-and push the architecture checkpoint, wait for exact-head CI, then implement contracts,
-materialization and the OpenAI account-specific inventory first, followed by Anthropic, Google and
-the inventory/selection UI. NXR-066b resumes only after NXR-068 passes CI, with fresh owner initiation.
-PR #39 stays draft and must not be merged. Scheduler, Memory, Automation, Mobile and control plane
-remain deferred.
+**Owner Acceptance Review & v0.6 Release Decision.**
+All NXR-066b live acceptance criteria (§14.2 SOW, §14.3 Code change, §14.4 Integrated flow)
+have passed cleanly at deployed commit `2f26b36` with exact-head CI.
+Awaiting owner review of acceptance evidence in `docs/devlog/evidence/nxr-066-owner-acceptance.md`
+and explicit authorization to merge PR #39 into `main` and tag v0.6.
+PR #39 stays draft until authorized.
 
 Owner notes:
 
