@@ -7,6 +7,7 @@ import { z } from 'zod';
 import {
   KNOWN_CAPABILITIES,
   NEXAR_ERROR_CODES,
+  isNexarError,
   normalizeCapabilitiesInput,
   normalizeReviewOf,
   type NexarErrorCode,
@@ -262,8 +263,14 @@ export function createBridgeRelayServer(deps: BridgeRelayDeps): BridgeRelayServe
       const parsed = schema.safeParse(raw ?? {});
       if (!parsed.success) return render(fail('VALIDATION_ERROR'));
       return render(await client.call(body(parsed.data)));
-    } catch {
-      return render(fail('INTERNAL_ERROR'));
+    } catch (error) {
+      return render(
+        fail(
+          isNexarError(error) && error.code === 'VALIDATION_ERROR'
+            ? 'VALIDATION_ERROR'
+            : 'INTERNAL_ERROR',
+        ),
+      );
     }
   };
 

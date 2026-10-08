@@ -77,6 +77,7 @@ interface SetupOptions {
 function setup(options: SetupOptions = {}) {
   const candidates = options.candidates ?? [snap('a'), snap('b')];
   const calls: { input: ChildTaskInput; signal: AbortSignal }[] = [];
+  const allocatedCapabilities: unknown[] = [];
   const events: BridgeEvent[] = [];
   const logged: unknown[] = [];
   let n = 0;
@@ -86,6 +87,7 @@ function setup(options: SetupOptions = {}) {
   const reasonCodes: Record<string, string[]> = {};
   const allocator: BridgeAllocator = {
     allocate: (ledger, unit) => {
+      allocatedCapabilities.push(unit.task.requirements.capabilities);
       const allocated = allocateNext({
         ledger,
         unit,
@@ -113,7 +115,7 @@ function setup(options: SetupOptions = {}) {
     ...(options.maxJobsPerGrant === undefined ? {} : { maxJobsPerGrant: options.maxJobsPerGrant }),
   });
   bridge.open({ ...grant, ...options.grant });
-  return { bridge, calls, events, logged, reasonCodes };
+  return { bridge, calls, events, logged, reasonCodes, allocatedCapabilities };
 }
 
 async function settled(
@@ -142,6 +144,69 @@ const rejection = (fn: () => unknown): string | undefined => {
 };
 
 describe('IntelligenceBridge', () => {
+  it('rejects malformed capability arrays before NRC allocation or execution', async () => {
+    const { bridge, calls, events, allocatedCapabilities } = setup({ grant: { maxUnits: 1 } });
+    const malformed = [
+      [null],
+      [42],
+      [{}],
+      ['technical-writing', false],
+      [''],
+      ['  '],
+      ['x'.repeat(65)],
+      Array<string>(17).fill('technical-writing'),
+    ];
+    for (const capabilities of malformed) {
+      expect(() =>
+        bridge.submit('g1', request({ requirements: { capabilities: capabilities as string[] } })),
+      ).toThrowError(
+        expect.objectContaining({
+          code: 'VALIDATION_ERROR',
+          details: { reason: 'capabilities.invalid' },
+        }),
+      );
+    }
+    expect(allocatedCapabilities).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+    expect(events).toHaveLength(malformed.length);
+    expect(events.every((event) => event.type === 'bridge.rejected')).toBe(true);
+    expect(bridge.accounting('g1')).toEqual({ spentUsd: 0, unaccounted: 0 });
+    const { result } = await settled(
+      bridge,
+      bridge.submit('g1', request({ requirements: { capabilities: ['technical-writing'] } })).jobId,
+    );
+    expect(result.outcome).toBe('succeeded');
+    expect(allocatedCapabilities).toEqual([['text-generation']]);
+  });
+
+  it.each(['constructor', '__proto__', 'toString'])(
+    'keeps unregistered %s required so NRC rejects unsupported resources',
+    async (capability) => {
+      const { bridge, calls, allocatedCapabilities } = setup();
+      const { result } = await settled(
+        bridge,
+        bridge.submit('g1', request({ requirements: { capabilities: [capability] } })).jobId,
+      );
+      expect(allocatedCapabilities).toEqual([[capability]]);
+      expect(result).toMatchObject({ outcome: 'failed', errorCode: 'NO_ELIGIBLE_RESOURCE' });
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it('keeps grant rejection ahead of untrusted capability normalization', () => {
+    const { bridge, allocatedCapabilities, calls } = setup();
+    expect(
+      rejection(() =>
+        bridge.submit(
+          'unknown',
+          request({ requirements: { capabilities: [null] as unknown as string[] } }),
+        ),
+      ),
+    ).toBe('grant-mismatch');
+    expect(allocatedCapabilities).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+  });
+
   it('allocates, runs a child task on the selected resource and returns text and usage', async () => {
     const { bridge, calls, events } = setup();
     const { jobId } = bridge.submit(

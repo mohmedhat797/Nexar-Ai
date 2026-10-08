@@ -165,6 +165,57 @@ describe('bridge relay', () => {
     });
   });
 
+  it('rejects malformed capability arrays locally without contacting the endpoint', async () => {
+    const client = await connectClient();
+    for (const capabilities of [
+      [null],
+      [42],
+      [{}],
+      ['technical-writing', false],
+      [''],
+      ['  '],
+      ['x'.repeat(65)],
+      [' '.repeat(64) + 'coding'],
+      Array<string>(17).fill('coding'),
+    ]) {
+      const result = await client.callTool({
+        name: 'nexar.intelligence_submit',
+        arguments: { unitId: 'bad', input: 'x', access: 'read-only', capabilities },
+      });
+      expect(textOf(result)).toEqual({ text: { error: 'VALIDATION_ERROR' }, isError: true });
+    }
+    expect(frames).toHaveLength(0);
+  });
+
+  it('preserves optional/default capabilities, raw limits and unknown prototype-related requirements', async () => {
+    const client = await connectClient();
+    for (const capabilities of [undefined, null, []]) {
+      await client.callTool({
+        name: 'nexar.intelligence_submit',
+        arguments: { unitId: 'optional', input: 'x', access: 'read-only', capabilities },
+      });
+      expect((frames.at(-1)?.['request'] as Frame)['capabilities']).toEqual(
+        Array.isArray(capabilities) ? [] : undefined,
+      );
+    }
+    for (const capabilities of [
+      Array<string>(16).fill('technical-writing'),
+      ['x'.repeat(64), 'constructor', '__proto__', 'toString'],
+    ]) {
+      await client.callTool({
+        name: 'nexar.intelligence_submit',
+        arguments: { unitId: 'valid', input: 'x', access: 'read-only', capabilities },
+      });
+    }
+    expect((frames.at(-2)?.['request'] as Frame)['capabilities']).toEqual(['text-generation']);
+    expect((frames.at(-1)?.['request'] as Frame)['capabilities']).toEqual([
+      'x'.repeat(64),
+      'constructor',
+      '__proto__',
+      'toString',
+    ]);
+  });
+
   it('forwards submit and status as one request each and returns one JSON text block', async () => {
     const client = await connectClient();
     const submit = await client.callTool({

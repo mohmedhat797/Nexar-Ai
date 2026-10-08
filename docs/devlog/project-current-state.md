@@ -8,7 +8,7 @@ Update this file at every milestone checkpoint.
 ## Snapshot (2026-10-08, NXR-066b live acceptance PASSED at 2f26b36)
 
 Current acceptance head deployed at **`2f26b36`**, draft/open PR #39.
-Full exact-head CI run [37776301563 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/1) green across all 3 jobs. Matching Desktop and WSL2 `nexar-plane` builds deployed.
+Full exact-head CI run [37776301563 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/2) green across all 3 jobs. Matching Desktop and WSL2 `nexar-plane` builds deployed.
 
 **All three live acceptance milestones PASSED:**
 

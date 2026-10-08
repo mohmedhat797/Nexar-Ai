@@ -48,6 +48,22 @@ describe('capabilities contracts and normalization', () => {
       expect(normalizeCapability('bespoke-skill-123')).toBe('bespoke-skill-123');
       expect(normalizeCapability('  custom-cap  ')).toBe('custom-cap');
     });
+
+    it.each([
+      'constructor',
+      '__proto__',
+      'prototype',
+      'toString',
+      'toLocaleString',
+      'hasOwnProperty',
+      'isPrototypeOf',
+      '__defineGetter__',
+      '__lookupGetter__',
+      '  constructor  ',
+      'CONSTRUCTOR',
+    ])('preserves unregistered prototype-related name %s as a string', (capability) => {
+      expect(normalizeCapability(capability)).toBe(capability.trim());
+    });
   });
 
   describe('normalizeCapabilities', () => {
@@ -79,6 +95,50 @@ describe('capabilities contracts and normalization', () => {
     it('handles empty list', () => {
       expect(normalizeCapabilities([])).toEqual([]);
     });
+
+    it('accepts raw bounds before deduplicating and preserves unknown requirements', () => {
+      expect(normalizeCapabilities(Array<string>(16).fill('technical-writing'))).toEqual([
+        'text-generation',
+      ]);
+      expect(normalizeCapabilities(['x'.repeat(64), '__proto__', 'constructor'])).toEqual([
+        'x'.repeat(64),
+        '__proto__',
+        'constructor',
+      ]);
+    });
+
+    it.each([
+      [null],
+      [undefined],
+      [42],
+      [false],
+      [{}],
+      [['coding']],
+      ['technical-writing', null],
+      [''],
+      ['   '],
+      ['x'.repeat(65)],
+      [' '.repeat(64) + 'coding'],
+      Array<unknown>(17).fill('coding'),
+    ])('rejects malformed raw members/bounds without discarding them: %j', (...members) => {
+      expect(() => normalizeCapabilities(members as readonly string[])).toThrowError(
+        expect.objectContaining({
+          code: 'VALIDATION_ERROR',
+          details: { reason: 'capabilities.invalid' },
+        }),
+      );
+    });
+
+    it('rejects sparse arrays and inherited members before normalization', () => {
+      const sparse = Array<string>(1);
+      const inherited = Array<string>(1);
+      Object.setPrototypeOf(inherited, { 0: 'technical-writing' });
+      for (const input of [sparse, inherited]) {
+        expect(() => normalizeCapabilities(input)).toThrowError(
+          expect.objectContaining({ code: 'VALIDATION_ERROR' }),
+        );
+      }
+    });
   });
 
   describe('normalizeCapabilitiesInput', () => {
@@ -95,6 +155,17 @@ describe('capabilities contracts and normalization', () => {
           'project-planning',
         ]),
       ).toEqual(['knowledge-work', 'text-generation']);
+    });
+
+    it('rejects malformed arrays instead of turning them into optional or empty requirements', () => {
+      for (const value of [[null], ['coding', false], ['  '], Array<string>(17).fill('coding')]) {
+        expect(() => normalizeCapabilitiesInput(value)).toThrowError(
+          expect.objectContaining({
+            code: 'VALIDATION_ERROR',
+            details: { reason: 'capabilities.invalid' },
+          }),
+        );
+      }
     });
 
     it('passes non-arrays through unchanged for downstream validation', () => {

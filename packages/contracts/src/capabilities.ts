@@ -1,3 +1,5 @@
+import { NexarError } from './errors.js';
+
 /** Capabilities Nexar itself understands and can route on. */
 export const KNOWN_CAPABILITIES = [
   'text-generation',
@@ -44,7 +46,7 @@ export const VERIFIED_CAPABILITY_ALIASES: Readonly<Record<string, KnownCapabilit
 export function normalizeCapability(raw: string): Capability {
   const trimmed = raw.trim();
   const lower = trimmed.toLowerCase();
-  if (lower in VERIFIED_CAPABILITY_ALIASES) {
+  if (Object.hasOwn(VERIFIED_CAPABILITY_ALIASES, lower)) {
     return VERIFIED_CAPABILITY_ALIASES[lower]!;
   }
   return trimmed;
@@ -57,10 +59,14 @@ export function normalizeCapability(raw: string): Capability {
  * - Preserves unknown capabilities so hard filters can fail closed.
  */
 export function normalizeCapabilities(raw: readonly string[]): Capability[] {
+  if (!isCapabilityArray(raw)) {
+    throw new NexarError('VALIDATION_ERROR', 'Invalid capability requirements', {
+      details: { reason: 'capabilities.invalid' },
+    });
+  }
   const seen = new Set<string>();
   const normalized: Capability[] = [];
   for (const item of raw) {
-    if (typeof item !== 'string') continue;
     const norm = normalizeCapability(item);
     if (!seen.has(norm)) {
       seen.add(norm);
@@ -71,7 +77,8 @@ export function normalizeCapabilities(raw: readonly string[]): Capability[] {
 }
 
 /**
- * Zod preprocessor helper for capabilities input.
+ * Reject malformed arrays before normalization. Non-arrays remain subject to the boundary schema;
+ * optional top-level null remains the existing absence sentinel.
  */
 export function normalizeCapabilitiesInput(value: unknown): unknown {
   if (value === undefined || value === null) return undefined;
@@ -79,4 +86,22 @@ export function normalizeCapabilitiesInput(value: unknown): unknown {
     return normalizeCapabilities(value as readonly string[]);
   }
   return value;
+}
+
+/** The existing delegation bounds apply to raw members, before trimming or deduplication. */
+function isCapabilityArray(value: unknown): value is readonly string[] {
+  if (!Array.isArray(value) || value.length > 16) return false;
+  for (let index = 0; index < value.length; index++) {
+    if (!Object.hasOwn(value, index)) return false;
+    const item: unknown = value[index];
+    if (
+      typeof item !== 'string' ||
+      item.length === 0 ||
+      item.length > 64 ||
+      item.trim().length === 0
+    ) {
+      return false;
+    }
+  }
+  return true;
 }

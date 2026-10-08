@@ -1,13 +1,13 @@
 # NXR-066b owner acceptance — all live acceptance stages PASSED
 
 Prepared 2026-10-07, updated 2026-10-08 for deployment generation `2f26b36f35d874702e29e4c9ef3f63d6aea1a216`.
-Exact-head CI [37776301563 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/1)
+Exact-head CI [37776301563 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/2)
 passed all 3 jobs (secrets, Ubuntu, Windows). Matching Desktop and WSL2 `nexar-plane` builds deployed.
 Follow the [owner runbook](nxr-066-live-acceptance-runbook.md).
 
 ## Gates and environment
 
-- [x] Full exact-head CI for deployed `2f26b36`: [37776301563 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/1), Ubuntu/Windows/secrets, source/packaged E2E, installer/SHA256 upload passed.
+- [x] Full exact-head CI for deployed `2f26b36`: [37776301563 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/2), Ubuntu/Windows/secrets, source/packaged E2E, installer/SHA256 upload passed.
 - [x] Windows OpenWorker **0.3.1** (`>=0.3.1 <0.4.0`) and private-server startup verified; separate 0.3.0 retained.
 - [x] Desktop built at `2f26b36`; owner authorized existing-profile launch in this live session.
 - [x] Plane built at `2f26b36`; doctor and 7/7 sandbox selftests passed.
@@ -172,11 +172,11 @@ Follow the [owner runbook](nxr-066-live-acceptance-runbook.md).
      - Gitleaks (8.28.0): PASS (230 commits scanned, pre-commit diff scanned, 0 leaks found).
 - **Full exact-head CI & deployment (2f26b36):**
   - Commit `2f26b36f35d874702e29e4c9ef3f63d6aea1a216` pushed to `feat/nexar-resource-orchestration`.
-  - CI Run: [37776301563 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/1), all 3 jobs green (`secret scan`, `ubuntu-latest`, `windows-latest`).
+  - CI Run: [37776301563 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/2), all 3 jobs green (`secret scan`, `ubuntu-latest`, `windows-latest`).
   - Deployed matching builds to `D:/Nexar-Ai-acceptance-nxr066` and WSL2 `nexar-plane`.
   - Doctor & 7/7 sandbox selftests passed. Hardening, non-root user, and clean repo maintained.
 - **SOW live acceptance (2f26b36) — PASS (§14.2):**
-  - Session: `ses_92b2d52f7b895d1f2ca58c37d86bc468`, turn: `turn_eb06ed623a104ea5c34e718d3755f09e`, task: `task_73142279-9943-43f6-b184-bfe5be838da1`.
+  - Session: `ses_92b2d52f7b895d1f2ca58c37d86bc468`, turn: `turn_eb06ed623a104ea5c34e718d3755f09e`, task: `task_f7c2dbe2-8e80-47f3-93fb-42b3f0a947df`.
   - Lane: `cowork` (`requestedLane: cowork`, `effectiveLane: cowork`), fallback: `none`.
   - Engine: OpenWorker `0.3.1` (path `gateway`), 0 restarts.
   - Control resource: `inventory:048a60e3b9b7892e466eff536385c50a2168da981a4d3ac61cd0f4c44ba0f2b3` (`gpt-5.6-luna`).

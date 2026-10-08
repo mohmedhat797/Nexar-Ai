@@ -100,6 +100,7 @@ describe('BridgeHost', () => {
   const conns: Conn[] = [];
   const warned: string[] = [];
   const executed: ChildTaskInput[] = [];
+  const allocatedCapabilities: unknown[] = [];
   let release: (() => void) | undefined;
   let gate: Promise<void> | undefined;
 
@@ -111,14 +112,16 @@ describe('BridgeHost', () => {
     child: () => logger,
   };
   const allocator: BridgeAllocator = {
-    allocate: (ledger: StrategyLedger) =>
-      Promise.resolve({
+    allocate: (ledger: StrategyLedger, unit) => {
+      allocatedCapabilities.push(unit.task.requirements.capabilities);
+      return Promise.resolve({
         decision: {
           outcome: 'selected',
           selected: { resourceId: 'res-a' },
         } as unknown as RouteDecision,
         ledger,
-      }),
+      });
+    },
   };
   const executor: ChildExecutor = async (input) => {
     executed.push(input);
@@ -167,6 +170,7 @@ describe('BridgeHost', () => {
     now = START.getTime();
     warned.length = 0;
     executed.length = 0;
+    allocatedCapabilities.length = 0;
     gate = undefined;
     release = undefined;
   });
@@ -209,6 +213,35 @@ describe('BridgeHost', () => {
     expect(child?.kind).toBe('general');
   });
 
+  it('rejects malformed capability arrays before allocation and leaves the grant usable', async () => {
+    await make();
+    const { token } = host.mint({ ...grantInput, maxUnits: 1 });
+    const conn = await open();
+    for (const capabilities of [
+      [null],
+      [42],
+      [{}],
+      ['technical-writing', false],
+      [''],
+      ['  '],
+      ['x'.repeat(65)],
+      [' '.repeat(64) + 'coding'],
+      Array<string>(17).fill('coding'),
+    ]) {
+      expect(await conn.call(submit(token, { ...UNIT, capabilities }))).toEqual({
+        id: 'r1',
+        ok: false,
+        code: 'VALIDATION_ERROR',
+      });
+    }
+    expect(allocatedCapabilities).toHaveLength(0);
+    expect(executed).toHaveLength(0);
+    expect(
+      await conn.call(submit(token, { ...UNIT, capabilities: [' Technical-Writing ', 'coding'] })),
+    ).toMatchObject({ ok: true });
+    expect(allocatedCapabilities).toEqual([['text-generation', 'coding']]);
+  });
+
   it('answers AUTH_REQUIRED for unknown, missing, revoked and expired tokens', async () => {
     await make();
     const revoked = host.mint(grantInput);
@@ -219,6 +252,7 @@ describe('BridgeHost', () => {
     now += 1_000;
     const bad = [
       submit('0'.repeat(64)),
+      submit('0'.repeat(64), { ...UNIT, capabilities: [null] }),
       { v: 1, id: 'x', op: 'status', jobId: 'j' },
       submit(revoked.token),
       submit(expiring.token),

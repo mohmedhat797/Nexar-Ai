@@ -213,36 +213,37 @@ export class IntelligenceBridge {
   }
 
   submit(grantId: string, rawRequest: IntelligenceRequest): { jobId: string } {
-    const reviewOf = normalizeReviewOf(rawRequest.reviewOf) as string | undefined;
-    const rawCaps = rawRequest.requirements?.capabilities;
-    const capabilities =
-      rawCaps !== undefined && Array.isArray(rawCaps)
-        ? (normalizeCapabilities(rawCaps as readonly string[]) as readonly Capability[])
-        : rawCaps;
-    const request: IntelligenceRequest =
-      reviewOf === rawRequest.reviewOf && capabilities === rawCaps
-        ? rawRequest
-        : {
-            ...rawRequest,
-            ...(reviewOf === undefined ? {} : { reviewOf }),
-            ...(capabilities !== undefined && rawRequest.requirements !== undefined
-              ? {
-                  requirements: {
-                    ...rawRequest.requirements,
-                    capabilities,
-                  },
-                }
-              : {}),
-          };
-    if (reviewOf === undefined && 'reviewOf' in request) {
-      delete (request as { reviewOf?: string }).reviewOf;
-    }
     const state = this.grants.get(grantId);
     if (state === undefined) {
       this.emit('bridge.rejected', { grantId, reason: 'grant-mismatch' });
       throw reject('grant-mismatch', 'Unknown grant');
     }
+    let request: IntelligenceRequest;
     try {
+      const reviewOf = normalizeReviewOf(rawRequest.reviewOf) as string | undefined;
+      const rawCaps = rawRequest.requirements?.capabilities;
+      const capabilities =
+        rawCaps !== undefined && Array.isArray(rawCaps)
+          ? (normalizeCapabilities(rawCaps as readonly string[]) as readonly Capability[])
+          : rawCaps;
+      request =
+        reviewOf === rawRequest.reviewOf && capabilities === rawCaps
+          ? rawRequest
+          : {
+              ...rawRequest,
+              ...(reviewOf === undefined ? {} : { reviewOf }),
+              ...(capabilities !== undefined && rawRequest.requirements !== undefined
+                ? {
+                    requirements: {
+                      ...rawRequest.requirements,
+                      capabilities,
+                    },
+                  }
+                : {}),
+            };
+      if (reviewOf === undefined && 'reviewOf' in request) {
+        delete (request as { reviewOf?: string }).reviewOf;
+      }
       validateIntelligenceRequest(request);
     } catch (error) {
       this.emit('bridge.rejected', { grantId, code: toNexarError(error).code });

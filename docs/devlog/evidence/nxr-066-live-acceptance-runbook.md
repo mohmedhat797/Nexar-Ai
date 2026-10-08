@@ -1,5 +1,7 @@
 # NXR-066 live acceptance runbook (owner)
 
+> Historical preparation runbook. The three live acceptance stages subsequently passed at deployed `2f26b36`; see the [acceptance worksheet](nxr-066-owner-acceptance.md). The original preconditions below describe the preparation checkpoint, not the current PR or merge verdict.
+
 Owner-initiated, never CI. Prepared 2026-10-07; no live acceptance was executed. Live stages use real
 subscriptions and plan allowance. Acceptance produces only local commits; nothing is pushed. Results go
 to `docs/devlog/evidence/nxr-066-owner-acceptance.md` (ids, resource ids, reason codes, timings —

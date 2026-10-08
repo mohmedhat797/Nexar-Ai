@@ -440,10 +440,10 @@ export class BridgeHost {
     const stored =
       typeof fields['token'] === 'string' ? this.authenticate(fields['token']) : undefined;
     if (stored === undefined) return this.fail(id, 'AUTH_REQUIRED');
-    const parsed = RequestSchema.safeParse(raw);
-    if (!parsed.success) return this.fail(id, 'VALIDATION_ERROR');
-    const request = parsed.data;
     try {
+      const parsed = RequestSchema.safeParse(raw);
+      if (!parsed.success) return this.fail(id, 'VALIDATION_ERROR');
+      const request = parsed.data;
       if (request.op === 'status') {
         return { id, ok: true, value: this.bridge.status(stored.grant.grantId, request.jobId) };
       }
