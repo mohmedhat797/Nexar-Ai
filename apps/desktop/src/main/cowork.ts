@@ -100,7 +100,7 @@ const CONTROL_MODEL = 'openai:nexar-control';
 
 /** One fixed line, outside the untrusted context: where a substantive unit may be delegated. */
 export const DELEGATION_INSTRUCTION =
-  'Nexar: delegate substantive drafting, analysis or review units with nexar.intelligence_submit, then poll nexar.intelligence_status with the returned jobId until the unit is done.';
+  'Nexar: delegate substantive drafting, analysis or review units with nexar.intelligence_submit, then poll nexar.intelligence_status with the returned jobId until the unit is done. Do not call sleep_for, sleep_until, wake_on or any timer tool — wait by polling nexar.intelligence_status directly in this turn until done, then write the final deliverable.';
 
 /** A model-chosen file name as a short, single-line label (no control characters). */
 function writeLabel(target: string | undefined): string {

@@ -26,7 +26,11 @@ const MAX_REQUEST_BYTES = 512 * 1024;
 const MAX_RESPONSE_CHARS = 8 * 1024 * 1024;
 /** Well under OpenWorker's 120 s tool cap; submit and status answer immediately in practice. */
 const DEFAULT_CALL_TIMEOUT_MS = 60_000;
+const DEFAULT_STATUS_POLL_INTERVAL_MS = 1_000;
+const DEFAULT_STATUS_POLL_MAX_WAIT_MS = 15_000;
 const UNIT_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const BRIDGE_RELAY_TOOLS = [
   'nexar.intelligence_submit',
@@ -204,6 +208,8 @@ export interface BridgeRelayDeps {
   readonly version: string;
   readonly connect?: BridgeConnector;
   readonly callTimeoutMs?: number;
+  readonly statusPollIntervalMs?: number;
+  readonly statusPollMaxWaitMs?: number;
 }
 
 /** One text block holding JSON (OpenWorker forwards only text). Failures carry only the code. */
@@ -226,6 +232,26 @@ export function createBridgeRelayServer(deps: BridgeRelayDeps): BridgeRelayServe
     ...(deps.connect === undefined ? {} : { connect: deps.connect }),
     ...(deps.callTimeoutMs === undefined ? {} : { callTimeoutMs: deps.callTimeoutMs }),
   });
+
+  const pollIntervalMs = deps.statusPollIntervalMs ?? DEFAULT_STATUS_POLL_INTERVAL_MS;
+  const pollMaxWaitMs = deps.statusPollMaxWaitMs ?? DEFAULT_STATUS_POLL_MAX_WAIT_MS;
+
+  const pollStatus = async (jobId: string): Promise<Outcome> => {
+    const deadline = Date.now() + pollMaxWaitMs;
+    for (;;) {
+      const outcome = await client.call({ op: 'status', jobId });
+      if (!outcome.ok) return outcome;
+      const value = outcome.value;
+      const isRunning =
+        typeof value === 'object' &&
+        value !== null &&
+        (value as { state?: unknown }).state === 'running';
+      if (!isRunning || Date.now() + pollIntervalMs > deadline) {
+        return outcome;
+      }
+      await sleep(pollIntervalMs);
+    }
+  };
 
   const forward = async <T extends z.ZodType>(
     schema: T,
@@ -268,13 +294,21 @@ export function createBridgeRelayServer(deps: BridgeRelayDeps): BridgeRelayServe
         {
           title: 'Status of a delegated unit',
           description:
-            'Current state of a unit submitted with nexar.intelligence_submit. Returns ' +
-            '{ state: "running" } (call again shortly) or { state: "done", result } with the text, ' +
-            'usage and outcome. Never waits for completion.',
+            'Current state of a unit submitted with nexar.intelligence_submit. Waits briefly if ' +
+            'the unit is still running. Returns { state: "running" } (call again shortly) or ' +
+            '{ state: "done", result } with the text, usage and outcome.',
           inputSchema: advertised(StatusInput),
           annotations: { readOnlyHint: true, openWorldHint: false },
         },
-        (raw) => forward(StatusInput, raw, (args) => ({ op: 'status', jobId: args.jobId })),
+        async (raw) => {
+          try {
+            const parsed = StatusInput.safeParse(raw ?? {});
+            if (!parsed.success) return render(fail('VALIDATION_ERROR'));
+            return render(await pollStatus(parsed.data.jobId));
+          } catch {
+            return render(fail('INTERNAL_ERROR'));
+          }
+        },
       );
       return server;
     },

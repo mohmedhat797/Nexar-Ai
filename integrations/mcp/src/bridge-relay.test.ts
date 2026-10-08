@@ -332,6 +332,102 @@ describe('bridge relay', () => {
     });
   });
 
+  describe('status polling', () => {
+    it('polls while state is running until done', async () => {
+      let callCount = 0;
+      reply = (frame) => {
+        callCount++;
+        if (callCount < 3) {
+          return { id: frame['id'], ok: true, value: { state: 'running' } };
+        }
+        return {
+          id: frame['id'],
+          ok: true,
+          value: { state: 'done', result: { text: 'completed work', outcome: 'succeeded' } },
+        };
+      };
+
+      const relay = createBridgeRelayServer({
+        endpoint,
+        token: TOKEN,
+        version: '0.0.0',
+        statusPollIntervalMs: 5,
+        statusPollMaxWaitMs: 200,
+      });
+      relays.push(relay);
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await relay.create().connect(serverTransport);
+      const client = new Client({ name: 'test', version: '0.0.0' });
+      await client.connect(clientTransport);
+
+      const status = await client.callTool({
+        name: 'nexar.intelligence_status',
+        arguments: { jobId: 'j-poll' },
+      });
+      expect(textOf(status).text).toEqual({
+        state: 'done',
+        result: { text: 'completed work', outcome: 'succeeded' },
+      });
+      expect(callCount).toBe(3);
+    });
+
+    it('returns running when deadline expires while still running', async () => {
+      let callCount = 0;
+      reply = (frame) => {
+        callCount++;
+        return { id: frame['id'], ok: true, value: { state: 'running' } };
+      };
+
+      const relay = createBridgeRelayServer({
+        endpoint,
+        token: TOKEN,
+        version: '0.0.0',
+        statusPollIntervalMs: 10,
+        statusPollMaxWaitMs: 25,
+      });
+      relays.push(relay);
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await relay.create().connect(serverTransport);
+      const client = new Client({ name: 'test', version: '0.0.0' });
+      await client.connect(clientTransport);
+
+      const status = await client.callTool({
+        name: 'nexar.intelligence_status',
+        arguments: { jobId: 'j-timeout' },
+      });
+      expect(textOf(status).text).toEqual({ state: 'running' });
+      expect(callCount).toBeGreaterThanOrEqual(2);
+    });
+
+    it('returns host error immediately without polling', async () => {
+      let callCount = 0;
+      reply = (frame) => {
+        callCount++;
+        return { id: frame['id'], ok: false, code: 'VALIDATION_ERROR' };
+      };
+
+      const relay = createBridgeRelayServer({
+        endpoint,
+        token: TOKEN,
+        version: '0.0.0',
+        statusPollIntervalMs: 10,
+        statusPollMaxWaitMs: 100,
+      });
+      relays.push(relay);
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await relay.create().connect(serverTransport);
+      const client = new Client({ name: 'test', version: '0.0.0' });
+      await client.connect(clientTransport);
+
+      const status = await client.callTool({
+        name: 'nexar.intelligence_status',
+        arguments: { jobId: 'j-err' },
+      });
+      expect(textOf(status)).toEqual({ text: { error: 'VALIDATION_ERROR' }, isError: true });
+      expect(callCount).toBe(1);
+    });
+  });
+
   it('exports the built entry path beside the module', () => {
     expect(bridgeRelayEntry).toMatch(/bridge-relay-main\.js$/);
   });

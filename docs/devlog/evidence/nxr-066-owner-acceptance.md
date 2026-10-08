@@ -152,6 +152,30 @@ Owner initially started live acceptance on 2026-10-07 at the maintenance head
      - Windows packaging: PASS (`release/desktop/win-unpacked/Nexar.exe` and NSIS installer).
      - Packaged Desktop E2E: PASS (8/8 files, 22/22 tests).
      - Gitleaks (8.28.0): PASS (229 commits scanned, no leaks found).
+- **SOW live retry observations (1feb97f):** session `ses_e528a47ffdc84157a9f5383501a18da0`,
+  turn `turn_e105545b99478ab65f1a65cb7f745532`.
+  - Lane: `cowork` via OpenWorker 0.3.1 gateway, control resource: `gpt-5.6-luna`.
+  - Capability normalization verified: OpenWorker submitted delegation request `sow-draft-1` with normalized capabilities;
+    Nexar minted `jobId: bba779ae-6616-4745-822e-0c3b7ca11a49`, matched capabilities, allocated `claude-code`, and started execution `task_b5f5a53a-71d5-40aa-bca0-638b418c9e1e`.
+  - Premature turn completion / yield failure: OpenWorker polled `nexar.intelligence_status` twice (0ms return), observed `{"state": "running"}`,
+    and called internal tool `sleep_for {"seconds": 5}`. In OpenWorker, `sleep_for` yields the turn (`turn_done`). Nexar Desktop treated `turn_done` as
+    turn completion, ran session cleanup in `cowork.ts`, removed the loopback `openai` provider, and revoked the grant. When OpenWorker resumed 5s later,
+    it had no credentials and aborted the in-flight delegated unit.
+  - Verdict: **FAIL** on turn continuity. **STOPPED before Code acceptance.**
+- **In-turn status polling adaptation & local gates:**
+  1. Instruction: Updated `DELEGATION_INSTRUCTION` in `apps/desktop/src/main/cowork.ts` instructing OpenWorker not to call timer tools (`sleep_for`),
+     and to wait by polling `nexar.intelligence_status` directly in the turn until complete.
+  2. Bounded polling in bridge relay: Updated `integrations/mcp/src/bridge-relay.ts` so `nexar.intelligence_status` waits up to 15s (1s poll interval)
+     while state is `running`, returning immediately once `state: 'done'`.
+  3. Regression tests: Added test suite in `integrations/mcp/src/bridge-relay.test.ts` (polling while running until done, timeout after deadline,
+     immediate return on errors). All 15/15 tests passing.
+  4. Local quality gates:
+     - `pnpm format:check ; pnpm check:boundaries ; pnpm lint`: PASS (915 tracked files).
+     - Full `pnpm check`: PASS (4,009 passed / 158 skipped, 196 test files; format, lint, boundaries, typecheck, test, build).
+     - Source Desktop E2E: PASS (8/8 files, 22/22 tests).
+     - Windows packaging: PASS (`release/desktop/win-unpacked/Nexar.exe` and NSIS installer).
+     - Packaged Desktop E2E: PASS (8/8 files, 22/22 tests).
+     - Gitleaks (8.28.0): PASS (230 commits scanned, pre-commit diff scanned, 0 leaks found).
 - **Code:** live preflight ready at 17:41:05.248 UTC; project `nxr-055-validation` maps to
   `nxr055-validation`. Initially native Claude authenticated and native Codex unauthenticated. Owner device-auth
   attempted by the owner, but failed before issuance of a device code. Read-only probes found DNS

@@ -5,49 +5,36 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-08, NXR-066b live resumed at 4c69d1c)
+## Snapshot (2026-10-08, NXR-066b live resumed at 1feb97f)
 
-Current acceptance head **`4c69d1cd76c8182313f762a90dd7925c98dfa7bc`**, draft/open PR #39.
-Full exact-head CI [37697855865](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37697855865) passed
-Ubuntu, Windows, secrets, source/packaged E2E, packaging and installer/SHA256 upload.
-Matching Desktop checkout (`D:/Nexar-Ai-acceptance-nxr066`) and `nexar-plane` built at `4c69d1c`;
-plane doctor and 7/7 sandbox selftests passed.
+Current acceptance head progressing from **`1feb97f`**, draft/open PR #39.
 
-Live preflight confirmed:
+**Live SOW acceptance attempt at 1feb97f:**
 
-- OpenWorker 0.3.1 ready (`gateway` path).
-- ChatGPT plan connected, sharing enabled; inventory fresh on Luna (`gpt-5.6-luna`).
-- Engineering plane ready: Claude authenticated, Codex authenticated.
-- Cowork control Auto, fallback Auto.
-
-**Live SOW acceptance attempt at 4c69d1c:**
-
-- Session: `ses_f0188bb478fb26313534ae3f5b92a92d`, turn: `turn_20366d2eac8c9a67e56a43a1c0cc2cbc`,
-  task: `task_853a91b1-b569-43e1-9702-e4791ed554de`.
-- Lane: `cowork`, engine: `openworker` 0.3.1 via gateway, zero fallback, zero restarts.
+- Session: `ses_e528a47ffdc84157a9f5383501a18da0`, turn: `turn_e105545b99478ab65f1a65cb7f745532`.
 - Control resource: `gpt-5.6-luna`.
-- Normalization & Draft Import verified:
-  - Delegation sentinel `reviewOf: "none"` normalized to `undefined`; `mcp__nexar__nexar_intelligence_submit`
-    accepted and minted `jobId: 57ff8103-c2f4-450f-a0e5-243098ad9ec8`.
-  - OpenWorker workspace write `SOW_NXR-055_Live_Validation.md` (19,729 bytes) allowed by
-    `cowork.scratch-write.allow` (`apr_b8f5deb47994a3b43d494f4b00d653d6`) and imported as draft artifact.
-  - Zero unauthorized source mutation: project `README.md` SHA256 unchanged.
-- Delegated unit execution failure:
-  - 1 delegation request (`sow-draft-1`); completed units: **0** (outcome `failed`).
-  - Root cause: OpenWorker requested capabilities `["requirements-analysis", "technical-writing", "project-planning"]`.
-    Nexar's resource registry hard-filter rejects candidates lacking any requested capability (`capability.missing`),
-    and no inventory resource declares these bespoke strings, returning `NO_ELIGIBLE_RESOURCE`.
-- Verdict: **FAIL** on completed delegated units $\ge 1$. **STOPPED before Code acceptance.**
-  PR #39 stays draft; no merge or release without owner authorization.
+- Delegation matching SUCCESS:
+  - Canonical capability advertising and alias normalization resolved `NO_ELIGIBLE_RESOURCE`.
+  - Nexar accepted delegation request `sow-draft-1`, matched capabilities, minted `jobId: bba779ae-6616-4745-822e-0c3b7ca11a49`, allocated `claude-code`, and started execution `task_b5f5a53a-71d5-40aa-bca0-638b418c9e1e`.
+- Turn termination & yield failure:
+  - OpenWorker polled `nexar.intelligence_status` twice (0ms return), observed `{"state": "running"}`.
+  - OpenWorker's `cowork` persona has scheduling enabled and called internal tool `sleep_for {"seconds": 5}`.
+  - In OpenWorker, `sleep_for` yields the turn (`turn_done`).
+  - Nexar Desktop session handler saw `turn_done`, treated the turn as complete, ran session cleanup in `cowork.ts`, removed the loopback `openai` provider, and revoked the grant.
+  - When OpenWorker's background timer resumed 5s later, OpenWorker had no credentials, aborting in-flight work.
+- Verdict: **FAIL** on turn continuity. **STOPPED before Code acceptance.**
 
-**Delegation capability normalization adaptation & local gates:**
+**In-turn status polling adaptation & local gates:**
 
-- Normalization: In `@nexar/contracts`, added deterministic allowlisted mapping `VERIFIED_CAPABILITY_ALIASES`:
-  `requirements-analysis` $\rightarrow$ `knowledge-work`, `technical-writing` $\rightarrow$ `text-generation`, `project-planning` $\rightarrow$ `knowledge-work`.
-- MCP schema: Advertised canonical capabilities in `nexar.intelligence_submit` description (`text-generation`, `reasoning`, `knowledge-work`, `coding`, etc.).
-- Hard filtering preserved: Unknown/unsupported capability requirements remain intact to fail closed with `capability.missing`.
-- Regression tests added and passing in `contracts`, `integration-mcp`, and `engine-gateway` (bridge and endpoint suites).
-- Local quality gates: full `pnpm check` (4,006 passed / 158 skipped, 196 test files), source Desktop E2E (22/22), Windows packaging, packaged Desktop E2E (22/22), Gitleaks (no leaks found) all passed.
+- Prompt instruction: Updated `DELEGATION_INSTRUCTION` in `apps/desktop/src/main/cowork.ts` advising OpenWorker not to call `sleep_for`, `sleep_until`, `wake_on` or timer tools, and to wait by polling `nexar.intelligence_status` directly in the turn.
+- Bounded polling in bridge relay: Updated `integrations/mcp/src/bridge-relay.ts` so `nexar.intelligence_status` waits up to 15s (1s poll interval) while state is `running`, returning immediately once `state: 'done'`. This eliminates tight-loop polling and avoids LLM sleep yields.
+- Regression tests: Added comprehensive test suite in `integrations/mcp/src/bridge-relay.test.ts` (polling while running until done, timeout after deadline, immediate return on errors). 15/15 tests passing.
+- Local quality gates: full `pnpm check` (4,009 passed / 158 skipped, 196 test files), source Desktop E2E (22/22), Windows packaging, packaged Desktop E2E (22/22), Gitleaks (no leaks found) all passed.
+
+## Historical snapshot (2026-10-08, NXR-066b live attempt at 4c69d1c)
+
+- Session: `ses_f0188bb478fb26313534ae3f5b92a92d`, turn: `turn_20366d2eac8c9a67e56a43a1c0cc2cbc`.
+- Delegated unit failed with `NO_ELIGIBLE_RESOURCE` due to unaliased bespoke capabilities. Fixed at `1feb97f`.
 
 ## Historical snapshot (2026-10-07, NXR-066b live acceptance started)
 
