@@ -6,6 +6,7 @@ import { LocalArtifactStore, type ArtifactMediaType } from '@nexar/artifacts';
 import {
   DEFAULT_CONTROL_RESOURCE_POLICY,
   NexarError,
+  coworkDelegationLimit,
   isNexarError,
   projectId as asProjectId,
   type ArtifactRef,
@@ -34,6 +35,7 @@ import type {
   BridgeHost,
   ControlModelGateway,
 } from '@nexar/engine-gateway';
+import { DelegationUnitLimit } from '@nexar/engine-gateway';
 import type {
   CoworkControl,
   CoworkDelegation,
@@ -91,7 +93,6 @@ const MAX_APPROVAL_LABEL_CHARS = 80;
 
 /** The name OpenWorker registers the Intelligence Bridge relay under: it fixes the tool prefix. */
 const BRIDGE_SERVER_NAME = 'nexar';
-const BRIDGE_MAX_UNITS = 16;
 const MAX_DELEGATIONS = 32;
 
 /** OpenWorker's provider and model string for the Control Model Gateway (ADR-027 section 7A). */
@@ -519,6 +520,8 @@ export class CoworkService {
   }
 
   private async runTurn(request: CoworkRequest, signal: AbortSignal): Promise<CoworkResult> {
+    // Validate before any probe, task, provider or grant operation; models cannot supply this field.
+    const maximum = coworkDelegationLimit(request);
     if (this.disposed) throw new NexarError('INTEGRATION_UNAVAILABLE', 'Desktop is shutting down');
     if (signal.aborted)
       throw new NexarError('EXECUTION_CANCELLED', 'The Cowork turn was cancelled');
@@ -559,11 +562,17 @@ export class CoworkService {
     let scratch: string | undefined;
     let gatewayGrantId: string | undefined;
     let delegation: OpenDelegation | undefined;
+    const unitLimit = new DelegationUnitLimit(maximum, {
+      sessionId: request.sessionId,
+      turnId: request.turnId,
+      projectId: request.projectId,
+      engine: 'openworker',
+    });
     try {
       const opened =
         choice === undefined
           ? undefined
-          : await this.openGateway(supervisor, request, readOnly, choice.policy);
+          : await this.openGateway(supervisor, request, readOnly, choice.policy, unitLimit);
       gatewayGrantId = opened?.grantId;
       let selected: Selected =
         opened === undefined
@@ -577,6 +586,7 @@ export class CoworkService {
         request,
         readOnly,
         selected.kind === 'gateway' ? selected.grant : undefined,
+        unitLimit,
       );
       const delegating = delegation?.active === true;
       request.onProgress('status', 'Running Cowork');
@@ -699,6 +709,7 @@ export class CoworkService {
         ...(delegations.length === 0 ? {} : { delegations }),
       };
     } finally {
+      unitLimit.close();
       signal.removeEventListener('abort', forward);
       this.active.delete(controller);
       if (delegation !== undefined) await this.closeDelegation(client, delegation);
@@ -764,7 +775,12 @@ export class CoworkService {
   }
 
   /** `attempts`: a gateway grant must outlive a restart, which re-runs the turn once. */
-  private grantInput(request: CoworkRequest, readOnly: boolean, attempts = 1): BridgeGrantInput {
+  private grantInput(
+    request: CoworkRequest,
+    readOnly: boolean,
+    unitLimit: DelegationUnitLimit,
+    attempts = 1,
+  ): BridgeGrantInput {
     return {
       sessionId: request.sessionId,
       turnId: request.turnId,
@@ -773,7 +789,8 @@ export class CoworkService {
       engine: 'openworker',
       access: readOnly ? 'read-only' : 'draft',
       ...(request.maxCostUsd === undefined ? {} : { budgetUsd: request.maxCostUsd }),
-      maxUnits: BRIDGE_MAX_UNITS,
+      maxUnits: unitLimit.maximum,
+      unitLimit,
       ttlMs: this.timings.turnTimeoutMs * attempts,
     };
   }
@@ -788,6 +805,7 @@ export class CoworkService {
     request: CoworkRequest,
     readOnly: boolean,
     policy: ControlResourcePolicy,
+    unitLimit: DelegationUnitLimit,
   ): Promise<TurnGrant | undefined> {
     const { bridgeHost: host, controlChild } = this.options;
     if (host?.restartControl === undefined || host.controlFailed === undefined) return undefined;
@@ -798,7 +816,7 @@ export class CoworkService {
     try {
       await host.ensureStarted();
       const baseUrl = await controlChild.baseUrl();
-      const minted = host.mint(this.grantInput(request, readOnly, 2), { policy });
+      const minted = host.mint(this.grantInput(request, readOnly, unitLimit, 2), { policy });
       grantId = minted.grantId;
       this.delegated.set(minted.grantId, []);
       if (minted.controlDecisionId === undefined || minted.resourceId === undefined) {
@@ -834,6 +852,7 @@ export class CoworkService {
     request: CoworkRequest,
     readOnly: boolean,
     shared: TurnGrant | undefined,
+    unitLimit: DelegationUnitLimit,
   ): Promise<OpenDelegation | undefined> {
     const host = this.options.bridgeHost;
     if (host === undefined) return undefined;
@@ -847,7 +866,7 @@ export class CoworkService {
       const endpoint = await host.ensureStarted();
       let token = shared?.token;
       if (token === undefined) {
-        const grant = host.mint(this.grantInput(request, readOnly));
+        const grant = host.mint(this.grantInput(request, readOnly, unitLimit));
         open.grantId = grant.grantId;
         this.delegated.set(grant.grantId, []);
         token = grant.token;

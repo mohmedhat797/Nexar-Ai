@@ -15,6 +15,7 @@ import {
 } from '@nexar/contracts';
 import {
   BridgeHost,
+  DelegationUnitLimit,
   type BridgeEvent,
   type BridgeGrantInput,
   type ControlModelGateway,
@@ -456,7 +457,11 @@ async function setup(options: Setup = {}) {
   return { cowork, call, providers };
 }
 
-async function turnOf(call: Awaited<ReturnType<typeof setup>>['call'], text = 'Draft a summary') {
+async function turnOf(
+  call: Awaited<ReturnType<typeof setup>>['call'],
+  text = 'Draft a summary',
+  maxDelegatedUnits?: number,
+) {
   const created = await call<SessionDto>(CHANNELS.sessionsCreate, { projectId, mode: 'cowork' });
   if (!created.ok) throw new Error('sessions:create failed');
   const sessionId = created.value.id;
@@ -464,6 +469,7 @@ async function turnOf(call: Awaited<ReturnType<typeof setup>>['call'], text = 'D
     sessionId,
     submissionKey: SUBMISSION,
     text,
+    ...(maxDelegatedUnits === undefined ? {} : { maxDelegatedUnits }),
   });
   if (!submitted.ok) throw new Error(`submit failed: ${submitted.error.code}`);
   return { sessionId, turnId: submitted.value.turn.id };
@@ -1088,6 +1094,30 @@ describe('Cowork delegation through the Intelligence Bridge (NXR-059b)', () => {
   const DELEGATE = { NEXAR_FAKE_OPENWORKER_SCENARIO: 'delegate' };
   const names = async (): Promise<string[]> => (await records()).map((r) => String(r['kind']));
 
+  it('propagates the owner one-unit restriction through IPC, Operating and a delegation-owned grant', async () => {
+    const delegating = delegation();
+    const { cowork, call } = await setup({ env: DELEGATE, delegation: delegating });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call, 'Review exactly one unit', 1);
+    expect((await settled(sessionId)).tasks[0]?.delegations).toEqual([
+      { unitId: 'u1', resourceId: 'res-a', outcome: 'succeeded' },
+    ]);
+    expect(delegating.grants).toHaveLength(1);
+    expect(delegating.grants[0]).toMatchObject({
+      maxUnits: 1,
+      unitLimit: expect.any(DelegationUnitLimit) as DelegationUnitLimit,
+    });
+    expect(delegating.calls).toEqual(['ensureStarted', 'mint', 'revoke']);
+    const replay = await call<SubmitTurnResult>(CHANNELS.sessionsSubmitTurn, {
+      sessionId,
+      submissionKey: SUBMISSION,
+      text: 'Review exactly one unit',
+      maxDelegatedUnits: 16,
+    });
+    expect(replay).toMatchObject({ ok: true, value: { created: false } });
+    expect(delegating.grants).toHaveLength(1);
+  });
+
   it('registers the relay, delegates a unit, imports the draft and cleans up in order', async () => {
     const delegating = delegation();
     const { cowork, call } = await setup({ env: DELEGATE, delegation: delegating });
@@ -1119,11 +1149,13 @@ describe('Cowork delegation through the Intelligence Bridge (NXR-059b)', () => {
         engine: 'openworker',
         access: 'draft',
         maxUnits: 16,
+        unitLimit: expect.any(DelegationUnitLimit) as DelegationUnitLimit,
         ttlMs: 20_000,
       },
     ]);
     // Register, then (after the turn) delete, then revoke.
     expect(delegating.calls).toEqual(['ensureStarted', 'mint', 'revoke']);
+    expect(delegating.grants[0]?.unitLimit?.admit()).toBe(false);
     expect(await names()).toEqual(expect.arrayContaining(['mcp-register', 'mcp-delete']));
     const seen = await records();
     expect(seen.find((r) => r['kind'] === 'mcp-register')?.['body']).toEqual({
@@ -1292,7 +1324,11 @@ describe('Cowork control loop through Nexar (NXR-063b)', () => {
   const userMessages = async () =>
     (await records()).filter((r) => r['kind'] === 'user_message').length;
 
-  async function runDirect(cowork: CoworkService, signal = new AbortController().signal) {
+  async function runDirect(
+    cowork: CoworkService,
+    signal = new AbortController().signal,
+    maxDelegatedUnits?: number,
+  ) {
     const turnId = 'turn-direct-1';
     return cowork.run(
       {
@@ -1311,6 +1347,7 @@ describe('Cowork control loop through Nexar (NXR-063b)', () => {
           correlationId: turnId,
         },
         permission: 'drafts-only',
+        ...(maxDelegatedUnits === undefined ? {} : { maxDelegatedUnits }),
         onTask: () => Promise.resolve(),
         onProgress: () => undefined,
       },
@@ -1406,6 +1443,33 @@ describe('Cowork control loop through Nexar (NXR-063b)', () => {
     expect(result.control).toHaveProperty('controlDecisionId');
   });
 
+  it('shares the restriction when gateway setup falls back to a delegation-owned grant', async () => {
+    const kit = controlKit({ resources: RESOURCES });
+    const mint = kit.host.mint.bind(kit.host);
+    vi.spyOn(kit.host, 'mint').mockImplementationOnce((input) => {
+      const grant = mint(input);
+      // Missing Control metadata makes gateway setup fail before the loop starts.
+      return { grantId: grant.grantId, token: grant.token };
+    });
+    const { cowork, call } = await setup({
+      env: { NEXAR_FAKE_OPENWORKER_SCENARIO: 'delegate' },
+      control: kit,
+    });
+    await cowork.refresh();
+    const { sessionId } = await turnOf(call, 'Review one unit after setup fallback', 1);
+    const turn = await settled(sessionId);
+    expect(turn.state).toBe('succeeded');
+    expect(turn.tasks[0]?.delegations).toEqual([
+      { unitId: 'u1', resourceId: 'res-a', outcome: 'succeeded' },
+    ]);
+    expect(kit.grants).toHaveLength(2);
+    expect(kit.grants.map((g) => g.maxUnits)).toEqual([1, 1]);
+    expect(kit.grants[1]?.unitLimit).toBe(kit.grants[0]?.unitLimit);
+    expect(kit.maxOpen).toBe(1);
+    expect(kit.turns).toHaveLength(0);
+    expect(kit.calls).toEqual(['mint', 'revoke', 'mint', 'revoke']);
+  });
+
   it('pinned: the owner-pinned resource drives the loop', async () => {
     await h.deps.settings.setCoworkControlResource({
       mode: 'pinned',
@@ -1426,7 +1490,7 @@ describe('Cowork control loop through Nexar (NXR-063b)', () => {
     const kit = controlKit({ resources: RESOURCES, turn: failFirstResource() });
     const { cowork } = await setup({ env: LOOP, control: kit });
     await cowork.refresh();
-    const result = await runDirect(cowork);
+    const result = await runDirect(cowork, undefined, 1);
 
     const [failed, next, again] = kit.turns.map((t) => t.resource);
     expect(next).not.toBe(failed);
@@ -1441,6 +1505,11 @@ describe('Cowork control loop through Nexar (NXR-063b)', () => {
     });
     // One grant and one token across the restart; one restart; revoked at the end.
     expect(kit.calls).toEqual(['mint', 'restart', 'revoke']);
+    expect(kit.grants).toHaveLength(1);
+    expect(kit.grants[0]).toMatchObject({
+      maxUnits: 1,
+      unitLimit: expect.any(DelegationUnitLimit) as DelegationUnitLimit,
+    });
     expect(await userMessages()).toBe(2);
     expect(await providerEntries()).toHaveLength(1);
     expect(await readdirSafe(join(dirname(h.userData), 'ow-runtime', 'scratch'))).toEqual([]);

@@ -14,6 +14,7 @@ import {
 import { allocateNext } from '@nexar/resource-controller';
 import {
   IntelligenceBridge,
+  DelegationUnitLimit,
   type BridgeAllocator,
   type BridgeEvent,
   type BridgeJobStatus,
@@ -72,6 +73,7 @@ interface SetupOptions {
   readonly now?: () => Date;
   readonly maxJobsPerGrant?: number;
   readonly grant?: Partial<BridgeGrant>;
+  readonly unitLimit?: DelegationUnitLimit;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -114,7 +116,7 @@ function setup(options: SetupOptions = {}) {
     onEvent: (e) => events.push(e),
     ...(options.maxJobsPerGrant === undefined ? {} : { maxJobsPerGrant: options.maxJobsPerGrant }),
   });
-  bridge.open({ ...grant, ...options.grant });
+  bridge.open({ ...grant, ...options.grant }, options.unitLimit);
   return { bridge, calls, events, logged, reasonCodes, allocatedCapabilities };
 }
 
@@ -144,6 +146,113 @@ const rejection = (fn: () => unknown): string | undefined => {
 };
 
 describe('IntelligenceBridge', () => {
+  it('preserves the unrestricted sixteen-unit Cowork ceiling', async () => {
+    const unitLimit = new DelegationUnitLimit(16, grant);
+    const { bridge, calls } = setup({ grant: { maxUnits: 16 }, unitLimit });
+    for (let index = 0; index < 16; index++) {
+      await settled(bridge, bridge.submit('g1', request({ unitId: `u${index}` })).jobId);
+    }
+    expect(rejection(() => bridge.submit('g1', request({ unitId: 'extra' })))).toBe('unit-limit');
+    expect(calls).toHaveLength(16);
+  });
+
+  it('shares a single admission across simultaneous submissions and different grants', async () => {
+    const unitLimit = new DelegationUnitLimit(1, grant);
+    const { bridge, calls, allocatedCapabilities } = setup({ grant: { maxUnits: 1 }, unitLimit });
+    bridge.open({ ...grant, grantId: 'g2', maxUnits: 1 }, unitLimit);
+    const attempts = await Promise.allSettled(
+      ['g1', 'g2'].map((id, index) =>
+        Promise.resolve().then(() => ({
+          id,
+          ...bridge.submit(id, request({ unitId: `u${index}` })),
+        })),
+      ),
+    );
+    expect(attempts.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const denied = attempts.find((result) => result.status === 'rejected');
+    expect(denied).toMatchObject({
+      status: 'rejected',
+      reason: { code: 'POLICY_REJECTED', details: { reason: 'unit-limit' } },
+    });
+    for (const result of attempts)
+      if (result.status === 'fulfilled') await settled(bridge, result.value.jobId, result.value.id);
+    expect(calls).toHaveLength(1);
+    expect(allocatedCapabilities).toHaveLength(1);
+    for (const id of ['g1', 'g2'])
+      expect(rejection(() => bridge.submit(id, request({ unitId: 'again' })))).toBe('unit-limit');
+  });
+
+  it('retains admission after an allocation failure, revocation and remint', async () => {
+    const unitLimit = new DelegationUnitLimit(1, grant);
+    const { bridge, calls, allocatedCapabilities } = setup({
+      grant: { maxUnits: 1 },
+      unitLimit,
+      candidates: [],
+    });
+    const first = await settled(bridge, bridge.submit('g1', request()).jobId);
+    expect(first.result.outcome).toBe('failed');
+    bridge.close('g1');
+    bridge.open({ ...grant, grantId: 'g2', maxUnits: 1 }, unitLimit);
+    expect(rejection(() => bridge.submit('g2', request({ unitId: 'second' })))).toBe('unit-limit');
+    expect(allocatedCapabilities).toHaveLength(1);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('rejects malformed input before admission and prevents scope widening or forged scope reuse', async () => {
+    const unitLimit = new DelegationUnitLimit(1, grant);
+    const { bridge, calls } = setup({ grant: { maxUnits: 1 }, unitLimit });
+    expect(() =>
+      bridge.submit(
+        'g1',
+        request({ requirements: { capabilities: [null] as unknown as string[] } }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
+    expect(
+      (
+        await settled(
+          bridge,
+          bridge.submit('g1', request({ requirements: { capabilities: ['technical-writing'] } }))
+            .jobId,
+        )
+      ).result.outcome,
+    ).toBe('succeeded');
+    expect(calls).toHaveLength(1);
+    for (const changed of [{ maxUnits: 16 }, { turnId: 'other' }, { projectId: 'other' }]) {
+      expect(() =>
+        bridge.open({ ...grant, maxUnits: 1, grantId: 'bad', ...changed }, unitLimit),
+      ).toThrow();
+    }
+    expect(() =>
+      bridge.open(
+        { ...grant, grantId: 'forged', maxUnits: 1 },
+        Object.create(DelegationUnitLimit.prototype) as DelegationUnitLimit,
+      ),
+    ).toThrow();
+    unitLimit.close();
+    bridge.close('g1');
+    bridge.open({ ...grant, grantId: 'closed', maxUnits: 1 }, unitLimit);
+    expect(rejection(() => bridge.submit('closed', request()))).toBe('unit-limit');
+  });
+
+  it('does not refund an admitted unit when execution fails or is cancelled', async () => {
+    for (const cancelled of [false, true]) {
+      const unitLimit = new DelegationUnitLimit(1, grant);
+      const { bridge, calls } = setup({
+        grant: { maxUnits: 1 },
+        unitLimit,
+        executor: () => Promise.reject(new NexarError('INTERNAL_ERROR', 'fixture failure')),
+      });
+      const first = bridge.submit('g1', request());
+      if (cancelled) bridge.cancel('g1', first.jobId);
+      await settled(bridge, first.jobId);
+      bridge.open({ ...grant, grantId: 'g2', maxUnits: 1 }, unitLimit);
+      expect(rejection(() => bridge.submit('g2', request({ unitId: 'second' })))).toBe(
+        'unit-limit',
+      );
+      expect(calls.length).toBeLessThanOrEqual(1);
+    }
+  });
+
   it('rejects malformed capability arrays before NRC allocation or execution', async () => {
     const { bridge, calls, events, allocatedCapabilities } = setup({ grant: { maxUnits: 1 } });
     const malformed = [

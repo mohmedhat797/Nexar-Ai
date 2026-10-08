@@ -20,6 +20,7 @@ import {
 import type { StrategySettings } from '@nexar/resource-controller';
 import {
   IntelligenceBridge,
+  DelegationUnitLimit,
   type BridgeAllocator,
   type BridgeEvent,
   type ChildExecutor,
@@ -56,6 +57,8 @@ export interface BridgeGrantInput {
   readonly budgetUsd?: number;
   readonly maxUnits: number;
   readonly ttlMs: number;
+  /** Trusted host object reused across this turn's gateway/delegation grants; absent on the wire. */
+  readonly unitLimit?: DelegationUnitLimit;
 }
 
 export interface BridgeHostOptions {
@@ -210,6 +213,16 @@ export class BridgeHost {
     if (!Number.isInteger(input.ttlMs) || input.ttlMs < 1) {
       throw new NexarError('VALIDATION_ERROR', 'ttlMs must be a positive integer');
     }
+    if (
+      input.unitLimit !== undefined &&
+      (!DelegationUnitLimit.is(input.unitLimit) ||
+        !input.unitLimit.matches(input) ||
+        !Number.isInteger(input.maxUnits) ||
+        input.maxUnits < 1 ||
+        input.maxUnits > input.unitLimit.maximum)
+    ) {
+      throw new NexarError('VALIDATION_ERROR', 'Invalid turn delegation scope');
+    }
     this.sweep();
     const { gateway } = this.options;
     if (control !== undefined && gateway === undefined) {
@@ -241,7 +254,7 @@ export class BridgeHost {
       maxUnits: input.maxUnits,
       expiresAt: new Date(expiresAtMs).toISOString(),
     };
-    this.bridge.open(grant);
+    this.bridge.open(grant, input.unitLimit);
     this.grants.set(grantId, {
       ...(controlDecisionId === undefined ? {} : { controlDecisionId }),
       tokenHash: sha256(token),

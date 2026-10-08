@@ -137,6 +137,44 @@ async function settled(harness: Harness, sessionId: string): Promise<SessionDto>
 describe('session schemas', () => {
   const sid = `ses_${'a'.repeat(32)}`;
   const tid = `turn_${'a'.repeat(32)}`;
+
+  it.each([-1, 0, 1.5, NaN, Infinity, 17, '1', null, {}, []])(
+    'rejects malformed owner delegation limits: %j',
+    async (maxDelegatedUnits) => {
+      const session = await create(h);
+      const result = await h.call(CHANNELS.sessionsSubmitTurn, {
+        sessionId: session.id,
+        submissionKey: KEY1,
+        text: 'review',
+        maxDelegatedUnits,
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request: <root>: delegation-limit.invalid',
+        },
+      });
+      expect((await fetchSession(h, session.id)).turns).toHaveLength(0);
+    },
+  );
+
+  it('rejects inherited limit fields before schema copying', async () => {
+    const session = await create(h);
+    const inherited = Object.assign(Object.create({ maxDelegatedUnits: 16 }) as object, {
+      sessionId: session.id,
+      submissionKey: KEY1,
+      text: 'review',
+    });
+    expect(await h.call(CHANNELS.sessionsSubmitTurn, inherited)).toMatchObject({
+      ok: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid request: <root>: delegation-limit.invalid',
+      },
+    });
+    expect((await fetchSession(h, session.id)).turns).toHaveLength(0);
+  });
   const valid: Record<string, Record<string, unknown>> = {
     [CHANNELS.sessionsList]: { projectId: 'p' },
     [CHANNELS.sessionsCreate]: { projectId: 'p', mode: 'cowork' },

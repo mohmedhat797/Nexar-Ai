@@ -431,6 +431,7 @@ describe('OperatingService', () => {
         submissionKey: nextKey(),
         text: 'Implement the missing part.',
         maxCostUsd: 0.01,
+        maxDelegatedUnits: 1,
       });
       const restarted = h.makeService(); // e.g. after an app restart: no options remembered
       await expect(
@@ -1149,6 +1150,40 @@ describe('OperatingService', () => {
   });
 
   describe('cowork lane', () => {
+    it('rejects invalid restrictions before a turn exists and forwards a trusted one-unit limit without replaying it', async () => {
+      const { h, service, requests } = await coworkHarness();
+      const session = await h.newSession();
+      await expect(
+        service.submit({
+          sessionId: session.id,
+          submissionKey: nextKey(),
+          text: 'Review',
+          maxDelegatedUnits: 0,
+        }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      expect((await h.session(session.id)).turns).toHaveLength(0);
+      const submissionKey = nextKey();
+      await service.submit({
+        sessionId: session.id,
+        submissionKey,
+        text: 'Review',
+        maxDelegatedUnits: 1,
+      });
+      await service.whenIdle();
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({ maxDelegatedUnits: 1 });
+      expect(
+        (
+          await service.submit({
+            sessionId: session.id,
+            submissionKey,
+            text: 'Review',
+            maxDelegatedUnits: 16,
+          })
+        ).created,
+      ).toBe(false);
+      expect(requests).toHaveLength(1);
+    });
     function coworkHarness() {
       return harness().then((h) => {
         const requests: DirectRequest[] = [];

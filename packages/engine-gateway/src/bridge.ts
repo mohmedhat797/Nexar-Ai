@@ -1,5 +1,6 @@
 import {
   NexarError,
+  coworkDelegationLimit,
   isNexarError,
   normalizeCapabilities,
   normalizeReviewOf,
@@ -117,6 +118,7 @@ interface Job {
 
 interface GrantState {
   readonly grant: BridgeGrant;
+  readonly unitLimit?: DelegationUnitLimit;
   readonly jobs: Map<string, Job>;
   readonly unitIds: Set<string>;
   ledger: StrategyLedger;
@@ -132,6 +134,49 @@ const SYSTEM_PROMPT =
 
 const ACCESS_RANK = { 'read-only': 0, draft: 1 } as const;
 const round6 = (n: number): number => Math.round(n * 1e6) / 1e6;
+
+/** Host-only admission state shared by every grant of one Cowork turn. Never serialized to tools. */
+export class DelegationUnitLimit {
+  #used = 0;
+  #closed = false;
+  readonly #maximum: number;
+  readonly #identity: string;
+
+  constructor(
+    maximum: number,
+    turn: Pick<BridgeGrant, 'sessionId' | 'turnId' | 'projectId' | 'engine'>,
+  ) {
+    this.#maximum = coworkDelegationLimit({ maxDelegatedUnits: maximum });
+    this.#identity = JSON.stringify([turn.sessionId, turn.turnId, turn.projectId, turn.engine]);
+    Object.freeze(this);
+  }
+
+  static is(value: unknown): value is DelegationUnitLimit {
+    return value !== null && typeof value === 'object' && #used in value;
+  }
+
+  get maximum(): number {
+    return this.#maximum;
+  }
+
+  matches(grant: Pick<BridgeGrant, 'sessionId' | 'turnId' | 'projectId' | 'engine'>): boolean {
+    return (
+      this.#identity ===
+      JSON.stringify([grant.sessionId, grant.turnId, grant.projectId, grant.engine])
+    );
+  }
+
+  /** Synchronous, monotonic reservation before allocation. Failure/cancellation never refunds it. */
+  admit(): boolean {
+    if (this.#closed || this.#used >= this.#maximum) return false;
+    this.#used += 1;
+    return true;
+  }
+
+  close(): void {
+    this.#closed = true;
+  }
+}
 
 function reject(reason: RejectionReason, message: string): NexarError {
   return new NexarError('POLICY_REJECTED', message, { details: { reason } });
@@ -170,7 +215,7 @@ export class IntelligenceBridge {
     }
   }
 
-  open(grant: BridgeGrant): void {
+  open(grant: BridgeGrant, unitLimit?: DelegationUnitLimit): void {
     const invalid = (message: string): NexarError => new NexarError('VALIDATION_ERROR', message);
     if (typeof grant.grantId !== 'string' || grant.grantId.length === 0) {
       throw invalid('grantId must be a non-empty string');
@@ -188,8 +233,17 @@ export class IntelligenceBridge {
     if (this.grants.has(grant.grantId)) {
       throw new NexarError('CONFLICT', 'Grant is already open');
     }
+    if (
+      unitLimit !== undefined &&
+      (!DelegationUnitLimit.is(unitLimit) ||
+        !unitLimit.matches(grant) ||
+        grant.maxUnits > unitLimit.maximum)
+    ) {
+      throw invalid('Invalid turn delegation scope');
+    }
     this.grants.set(grant.grantId, {
       grant,
+      ...(unitLimit === undefined ? {} : { unitLimit }),
       jobs: new Map(),
       unitIds: new Set(),
       ledger: {
@@ -290,6 +344,9 @@ export class IntelligenceBridge {
       fail('unknown-reviewed-unit', 'reviewOf must name an earlier unit of this grant');
     }
 
+    if (state.unitLimit !== undefined && !state.unitLimit.admit()) {
+      fail('unit-limit', 'The turn unit limit is reached');
+    }
     const jobId = this.options.newId();
     const job: Job = { unitId: request.unitId, abort: new AbortController() };
     state.unitIds.add(request.unitId);

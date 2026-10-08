@@ -2,6 +2,7 @@ export * from './artifacts.js';
 export * from './capabilities.js';
 export * from './connection.js';
 export * from './discovery.js';
+export * from './delegation.js';
 export * from './errors.js';
 export * from './execution.js';
 export * from './gateway.js';

@@ -5,7 +5,23 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-08, NXR-066b live acceptance PASSED at 2f26b36)
+## Snapshot (2026-10-08, scoped Cowork runtime-limit correction)
+
+The [runtime delegation-limit correction](evidence/nxr-066-runtime-delegation-limit.md)
+adds a trusted per-turn restriction while preserving the 16-unit default. Local
+gate results, publication SHA and exact-head CI evidence are recorded in
+`.nexar/nxr066-remediation/NXR-066_Runtime_Limit_Remediation_Report.md`; this
+checkpoint does not claim deployment or live acceptance.
+
+The last independently verified active Desktop/Plane baseline is `834a865`, whose
+exact-head CI [37809333923 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37809333923/attempts/1)
+passed. Targeted live acceptance at that baseline stopped before inference because
+the one-unit bound could not be enforced. The new correction requires successful
+exact-head CI and separately authorized matching deployment before any live test.
+Time, cost, retry and read-only requirements still need a verified acceptance plan.
+PR #39 remains unmerged. DSH Control and NXR-070 implementation remain out of scope.
+
+## Historical snapshot (2026-10-08, NXR-066b live acceptance PASSED at 2f26b36)
 
 Current acceptance head deployed at **`2f26b36`**, draft/open PR #39.
 Full exact-head CI run [37776301563 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/2) green across all 3 jobs. Matching Desktop and WSL2 `nexar-plane` builds deployed.

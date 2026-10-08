@@ -13,6 +13,7 @@ import {
   type StrategyLedger,
 } from '@nexar/contracts';
 import type { BridgeAllocator, ChildExecution, ChildExecutor, ChildTaskInput } from './bridge.js';
+import { DelegationUnitLimit } from './bridge.js';
 import { BridgeHost, type BridgeEndpointLimits, type BridgeGrantInput } from './endpoint.js';
 import type { ControlModelGateway } from './gateway.js';
 import { createFakeControl, okTurn } from './control-test-kit.js';
@@ -766,6 +767,50 @@ describe('BridgeHost', () => {
     const policy = { mode: 'auto', fallback: 'auto' } as const;
     const hello = { messages: [{ role: 'user' as const, content: 'hi' }] };
     const controlFrame = (token: string) => ({ v: 1, id: 'c1', token, op: 'control', turn: hello });
+
+    it('retains one admission through control retries, restart, revocation and a delegation-owned remint', async () => {
+      let failing = '';
+      const { gateway, calls } = createFakeControl({
+        resources: ['res-a', 'res-b'],
+        retries: 1,
+        turn: (request) => {
+          if (request.descriptor.id === failing) throw new NexarError('PROVIDER_ERROR', 'fixture');
+          return okTurn();
+        },
+        onEvent: (event) => host.noteControlEvent(event),
+      });
+      await make(undefined, executor, gateway);
+      const unitLimit = new DelegationUnitLimit(1, grantInput);
+      const input = { ...grantInput, maxUnits: 1, unitLimit };
+      const minted = host.mint(input, { policy });
+      failing = minted.resourceId ?? '';
+      const conn = await open();
+      expect(
+        await conn.call(submit(minted.token, { ...UNIT, capabilities: ['technical-writing'] })),
+      ).toMatchObject({ ok: true });
+      expect(await conn.call(controlFrame(minted.token))).toMatchObject({
+        ok: false,
+        code: 'PROVIDER_ERROR',
+      });
+      expect(calls).toHaveLength(2);
+      host.restartControl(minted.grantId);
+      expect(await conn.call(controlFrame(minted.token))).toMatchObject({ ok: true });
+      expect(await conn.call(submit(minted.token, { ...UNIT, unitId: 'second' }))).toMatchObject({
+        ok: false,
+        code: 'POLICY_REJECTED',
+      });
+      host.revoke(minted.grantId);
+      const owned = host.mint(input);
+      expect(await conn.call(submit(owned.token, { ...UNIT, unitId: 'third' }))).toMatchObject({
+        ok: false,
+        code: 'POLICY_REJECTED',
+      });
+      expect(
+        await conn.call(submit(owned.token, { ...UNIT, maxDelegatedUnits: 16 })),
+      ).toMatchObject({ ok: false, code: 'VALIDATION_ERROR' });
+      expect(allocatedCapabilities).toEqual([['text-generation']]);
+      expect(executed).toHaveLength(1);
+    });
 
     it('returns the resource of the minted decision', async () => {
       const { gateway } = createFakeControl({ resources: ['res-a', 'res-b'] });

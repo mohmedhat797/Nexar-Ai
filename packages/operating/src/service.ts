@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { NexarError, isNexarError } from '@nexar/contracts';
+import { NexarError, coworkDelegationLimit, isNexarError } from '@nexar/contracts';
 import type { ArtifactRef, Logger, TaskKind } from '@nexar/contracts';
 import type {
   ContextManifest,
@@ -73,7 +73,11 @@ const DEFAULT_BEHAVIOR: BehaviorProfile = {
 };
 
 /** A Cowork turn (ADR-026): the same request as a direct one; its correlation is already delegated. */
-export type CoworkRequest = DirectRequest & { readonly permission: CoworkPermission };
+export type CoworkRequest = DirectRequest & {
+  readonly permission: CoworkPermission;
+  /** Owner-supplied turn restriction; never read from model output. */
+  readonly maxDelegatedUnits?: number;
+};
 
 /** A unit a Cowork engine delegated through the Intelligence Bridge (ids and an enum only). */
 export interface CoworkDelegation {
@@ -190,6 +194,7 @@ export interface SubmitTurnInput {
   readonly explicitKind?: TaskKind;
   readonly preferredResourceIds?: readonly string[];
   readonly maxCostUsd?: number;
+  readonly maxDelegatedUnits?: number;
 }
 
 export interface SubmitTurnResult {
@@ -202,6 +207,7 @@ export interface SubmitTurnResult {
 interface RunOptions {
   readonly preferredResourceIds?: readonly string[] | undefined;
   readonly maxCostUsd?: number | undefined;
+  readonly maxDelegatedUnits?: number | undefined;
   readonly behavior: BehaviorProfile;
 }
 
@@ -239,6 +245,7 @@ export class OperatingService {
   }
 
   async submit(input: SubmitTurnInput): Promise<SubmitTurnResult> {
+    coworkDelegationLimit(input);
     const session = await this.load(input.sessionId);
     const intent = classifyIntent({
       text: input.text,
@@ -250,6 +257,7 @@ export class OperatingService {
     const options: RunOptions = {
       preferredResourceIds: input.preferredResourceIds,
       maxCostUsd: input.maxCostUsd,
+      maxDelegatedUnits: input.maxDelegatedUnits,
       behavior,
     };
 
@@ -716,7 +724,13 @@ export class OperatingService {
       };
       const result: DirectResult & Pick<CoworkResult, 'delegations' | 'control'> = viaCowork
         ? await executeCowork(
-            { ...request, permission: behavior.cowork.permission },
+            {
+              ...request,
+              permission: behavior.cowork.permission,
+              ...(options.maxDelegatedUnits === undefined
+                ? {}
+                : { maxDelegatedUnits: options.maxDelegatedUnits }),
+            },
             controller.signal,
           )
         : await this.ports.executeDirect(request, controller.signal);

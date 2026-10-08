@@ -382,6 +382,8 @@ export interface SubmitTurnArgs {
   readonly kind?: string;
   readonly preferredResourceIds?: readonly string[];
   readonly maxCostUsd?: number;
+  /** Trusted owner restriction, integer 1–16; omission preserves the Cowork default. */
+  readonly maxDelegatedUnits?: number;
 }
 
 export interface SubmitTurnResult {
