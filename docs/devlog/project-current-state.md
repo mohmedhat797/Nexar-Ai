@@ -40,6 +40,15 @@ Live preflight confirmed:
 - Verdict: **FAIL** on completed delegated units $\ge 1$. **STOPPED before Code acceptance.**
   PR #39 stays draft; no merge or release without owner authorization.
 
+**Delegation capability normalization adaptation & local gates:**
+
+- Normalization: In `@nexar/contracts`, added deterministic allowlisted mapping `VERIFIED_CAPABILITY_ALIASES`:
+  `requirements-analysis` $\rightarrow$ `knowledge-work`, `technical-writing` $\rightarrow$ `text-generation`, `project-planning` $\rightarrow$ `knowledge-work`.
+- MCP schema: Advertised canonical capabilities in `nexar.intelligence_submit` description (`text-generation`, `reasoning`, `knowledge-work`, `coding`, etc.).
+- Hard filtering preserved: Unknown/unsupported capability requirements remain intact to fail closed with `capability.missing`.
+- Regression tests added and passing in `contracts`, `integration-mcp`, and `engine-gateway` (bridge and endpoint suites).
+- Local quality gates: full `pnpm check` (4,006 passed / 158 skipped, 196 test files), source Desktop E2E (22/22), Windows packaging, packaged Desktop E2E (22/22), Gitleaks (no leaks found) all passed.
+
 ## Historical snapshot (2026-10-07, NXR-066b live acceptance started)
 
 Last full-CI-tested acceptance head **`feb36dc59572c40ef13afd79a4d0ded519dfd9e7`**, PR #39 draft/open.

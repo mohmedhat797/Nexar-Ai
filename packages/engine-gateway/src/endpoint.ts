@@ -6,6 +6,7 @@ import { z } from 'zod';
 import {
   INTELLIGENCE_LIMITS,
   NexarError,
+  normalizeCapabilitiesInput,
   normalizeReviewOf,
   toNexarError,
   type BridgeGrant,
@@ -95,7 +96,10 @@ const SubmitArgs = z.strictObject({
   unitId: z.string().regex(UNIT_ID),
   reviewOf: z.preprocess(normalizeReviewOf, z.string().regex(UNIT_ID).optional()),
   kind: z.string().min(1).max(64).optional(),
-  capabilities: z.array(z.string().min(1).max(64)).max(16).optional(),
+  capabilities: z.preprocess(
+    normalizeCapabilitiesInput,
+    z.array(z.string().min(1).max(64)).max(16).optional(),
+  ),
   qualityClass: z.enum(['basic', 'standard', 'high']).optional(),
   input: z.string(),
   documentRefs: z

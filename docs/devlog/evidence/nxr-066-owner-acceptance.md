@@ -126,6 +126,32 @@ Owner initially started live acceptance on 2026-10-07 at the maintenance head
       Nexar's resource registry hard-filter rejects candidates lacking any requested capability (`capability.missing`),
       and no inventory resource declares these bespoke strings, returning `NO_ELIGIBLE_RESOURCE`.
   - Verdict: **FAIL** (criterion: completed delegated units $\ge 1$ not met). **STOPPED before Code acceptance.**
+- **Delegation capability normalization fix & local gates:**
+  1. Root cause: OpenWorker requested task-description / skill-hint strings `["requirements-analysis", "technical-writing", "project-planning"]`
+     in `mcp__nexar__nexar_intelligence_submit`. NRC hard filters strictly enforce required capabilities against candidate descriptors;
+     neither `gpt-5.6-luna` (`['text-generation', 'knowledge-work', 'model-turn']`) nor `claude-code` (`['text-generation', 'reasoning', 'knowledge-work', 'coding', ...]`)
+     advertises these bespoke strings, failing with `NO_ELIGIBLE_RESOURCE` (`capability.missing`).
+  2. Bounded delegation boundary compatibility fix:
+     - `integrations/mcp/src/bridge-relay.ts`: Updated `SubmitInput.capabilities` schema description to explicitly advertise
+       canonical Nexar capabilities (`text-generation`, `reasoning`, `knowledge-work`, `coding`, `repo-editing`, `code-review`, `tool-use`, `shell-execution`, `long-context`, `web-research`, `vision`, `model-turn`).
+     - `@nexar/contracts` (`packages/contracts/src/capabilities.ts`): Added deterministic allowlisted mapping `VERIFIED_CAPABILITY_ALIASES`:
+       `requirements-analysis` $\rightarrow$ `knowledge-work`, `technical-writing` $\rightarrow$ `text-generation`, `project-planning` $\rightarrow$ `knowledge-work`.
+       Added `normalizeCapability`, `normalizeCapabilities`, and `normalizeCapabilitiesInput`.
+     - Preserved hard capability filtering: canonical capabilities and unknown capabilities are preserved as-is so unrecognized
+       requirements fail closed with `capability.missing` (`NO_ELIGIBLE_RESOURCE`).
+     - Wired normalization at delegation boundaries: `bridge-relay` MCP tool preprocessor, `endpoint` bridge input parser, and `bridge.submit`.
+  3. Regression tests:
+     - `packages/contracts/src/capabilities.test.ts`: Canonical capability preservation, verified legacy aliases, whitespace/case handling, unknown capability preservation (fail-closed), deduplication, input helper.
+     - `integrations/mcp/src/bridge-relay.test.ts`: Canonical capability advertising in tool description, relay boundary normalization, preservation of unknown capabilities in wire frame.
+     - `packages/engine-gateway/src/bridge.test.ts`: Normalization of legacy aliases matching eligible resources (`luna`), fail-closed `NO_ELIGIBLE_RESOURCE` on unknown capabilities.
+     - `packages/engine-gateway/src/endpoint.test.ts`: Socket/pipe submission normalization of legacy aliases.
+  4. Local quality gates:
+     - `pnpm format:check ; pnpm check:boundaries ; pnpm lint`: PASS (914 tracked files).
+     - Full `pnpm check`: PASS (4,006 passed / 158 skipped, 196 test files; format, lint, boundaries, typecheck, test, build).
+     - Source Desktop E2E: PASS (8/8 files, 22/22 tests).
+     - Windows packaging: PASS (`release/desktop/win-unpacked/Nexar.exe` and NSIS installer).
+     - Packaged Desktop E2E: PASS (8/8 files, 22/22 tests).
+     - Gitleaks (8.28.0): PASS (229 commits scanned, no leaks found).
 - **Code:** live preflight ready at 17:41:05.248 UTC; project `nxr-055-validation` maps to
   `nxr055-validation`. Initially native Claude authenticated and native Codex unauthenticated. Owner device-auth
   attempted by the owner, but failed before issuance of a device code. Read-only probes found DNS

@@ -4,7 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { McpServer, type CallToolResult } from '@modelcontextprotocol/server';
 import { StdioServerTransport, serveStdio } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
-import { NEXAR_ERROR_CODES, normalizeReviewOf, type NexarErrorCode } from '@nexar/contracts';
+import {
+  KNOWN_CAPABILITIES,
+  NEXAR_ERROR_CODES,
+  normalizeCapabilitiesInput,
+  normalizeReviewOf,
+  type NexarErrorCode,
+} from '@nexar/contracts';
 import { advertised } from './server.js';
 import { redirectConsoleToStderr } from './stdio.js';
 
@@ -52,11 +58,16 @@ const SubmitInput = z.strictObject({
       ),
   ),
   kind: z.string().min(1).max(64).optional().describe('Task kind. Default "general".'),
-  capabilities: z
-    .array(z.string().min(1).max(64))
-    .max(16)
-    .optional()
-    .describe('Capabilities the unit needs, if any.'),
+  capabilities: z.preprocess(
+    normalizeCapabilitiesInput,
+    z
+      .array(z.string().min(1).max(64))
+      .max(16)
+      .optional()
+      .describe(
+        `Executable capabilities the unit needs. Canonical capabilities: ${KNOWN_CAPABILITIES.join(', ')}.`,
+      ),
+  ),
   qualityClass: z.enum(['basic', 'standard', 'high']).optional(),
   input: z.string().describe('The text the unit works on. Treated as untrusted data.'),
   documentRefs: z

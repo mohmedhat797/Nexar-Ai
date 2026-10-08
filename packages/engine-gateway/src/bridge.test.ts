@@ -287,6 +287,50 @@ describe('IntelligenceBridge', () => {
       expect(s3.jobId).toBeDefined();
     });
 
+    it('normalizes legacy capability aliases and matches available resources', async () => {
+      const luna = snap('luna', {
+        capabilities: ['text-generation', 'knowledge-work', 'model-turn'],
+      });
+      const { bridge, reasonCodes } = setup({
+        candidates: [luna],
+        executor: (input) =>
+          Promise.resolve(execution(input.requirements.preferredResourceIds?.[0] ?? 'luna')),
+      });
+      const sowJob = bridge.submit(
+        'g1',
+        request({
+          unitId: 'sow-1',
+          kind: 'general',
+          requirements: {
+            capabilities: ['requirements-analysis', 'technical-writing', 'project-planning'],
+          },
+        }),
+      );
+      const settledSow = await settled(bridge, sowJob.jobId);
+      expect(settledSow.result.outcome).toBe('succeeded');
+      expect(settledSow.result.resourceId).toBe('luna');
+      expect(reasonCodes['sow-1']).toContain('capability.match');
+    });
+
+    it('fails closed with NO_ELIGIBLE_RESOURCE when required capabilities include unknown strings', async () => {
+      const luna = snap('luna', {
+        capabilities: ['text-generation', 'knowledge-work', 'model-turn'],
+      });
+      const { bridge } = setup({ candidates: [luna] });
+      const failJob = bridge.submit(
+        'g1',
+        request({
+          unitId: 'unknown-cap',
+          requirements: {
+            capabilities: ['requirements-analysis', 'quantum-computing'],
+          },
+        }),
+      );
+      const settledFail = await settled(bridge, failJob.jobId);
+      expect(settledFail.result.outcome).toBe('failed');
+      expect(settledFail.result.errorCode).toBe('NO_ELIGIBLE_RESOURCE');
+    });
+
     it('rejects an unknown, self or other-grant reviewOf with a fixed reason', async () => {
       const { bridge, events } = setup({ candidates: cheapAndDear });
       const reasonOf = (r: IntelligenceRequest) => rejection(() => bridge.submit('g1', r));

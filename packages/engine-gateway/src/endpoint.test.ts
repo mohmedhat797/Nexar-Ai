@@ -310,6 +310,22 @@ describe('BridgeHost', () => {
     ).toMatchObject({ ok: true });
   });
 
+  it('normalizes legacy capability aliases at endpoint submission', async () => {
+    await make();
+    const { token } = host.mint({ ...grantInput, maxUnits: 5 });
+    const conn = await open();
+    const res = await conn.call(
+      submit(token, {
+        ...UNIT,
+        unitId: 'u-sow',
+        capabilities: ['requirements-analysis', 'technical-writing', 'project-planning'],
+      }),
+    );
+    expect(res).toMatchObject({ ok: true });
+    const val = res['value'] as { jobId?: unknown };
+    expect(typeof val?.jobId).toBe('string');
+  });
+
   it('never lets a request widen the grant access', async () => {
     await make();
     const { token } = host.mint(grantInput);

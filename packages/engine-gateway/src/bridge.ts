@@ -1,13 +1,15 @@
 import {
   NexarError,
   isNexarError,
+  normalizeCapabilities,
+  normalizeReviewOf,
   resourceId as toResourceId,
   taskId,
   toNexarError,
-  valueOf,
-  normalizeReviewOf,
   validateIntelligenceRequest,
+  valueOf,
   type BridgeGrant,
+  type Capability,
   type IntelligenceRequest,
   type IntelligenceResult,
   type Logger,
@@ -212,12 +214,25 @@ export class IntelligenceBridge {
 
   submit(grantId: string, rawRequest: IntelligenceRequest): { jobId: string } {
     const reviewOf = normalizeReviewOf(rawRequest.reviewOf) as string | undefined;
+    const rawCaps = rawRequest.requirements?.capabilities;
+    const capabilities =
+      rawCaps !== undefined && Array.isArray(rawCaps)
+        ? (normalizeCapabilities(rawCaps as readonly string[]) as readonly Capability[])
+        : rawCaps;
     const request: IntelligenceRequest =
-      reviewOf === rawRequest.reviewOf
+      reviewOf === rawRequest.reviewOf && capabilities === rawCaps
         ? rawRequest
         : {
             ...rawRequest,
             ...(reviewOf === undefined ? {} : { reviewOf }),
+            ...(capabilities !== undefined && rawRequest.requirements !== undefined
+              ? {
+                  requirements: {
+                    ...rawRequest.requirements,
+                    capabilities,
+                  },
+                }
+              : {}),
           };
     if (reviewOf === undefined && 'reviewOf' in request) {
       delete (request as { reviewOf?: string }).reviewOf;

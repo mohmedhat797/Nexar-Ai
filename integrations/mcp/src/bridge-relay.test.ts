@@ -119,6 +119,52 @@ describe('bridge relay', () => {
     expect(textOf(bad)).toEqual({ text: { error: 'VALIDATION_ERROR' }, isError: true });
   });
 
+  it('advertises canonical capabilities in submit schema and normalizes aliases at relay boundary', async () => {
+    const client = await connectClient();
+    const { tools } = await client.listTools();
+    const submitTool = tools.find((t) => t.name === 'nexar.intelligence_submit');
+    const capProp = (
+      submitTool?.inputSchema.properties as Record<string, { description?: string }>
+    )?.['capabilities'];
+    expect(capProp?.description).toContain('Canonical capabilities: text-generation');
+    expect(capProp?.description).toContain('knowledge-work');
+
+    await client.callTool({
+      name: 'nexar.intelligence_submit',
+      arguments: {
+        unitId: 'u-sow',
+        input: 'draft sow',
+        access: 'draft',
+        capabilities: ['requirements-analysis', 'technical-writing', 'project-planning'],
+      },
+    });
+    expect(frames[0]).toMatchObject({
+      op: 'submit',
+      request: {
+        unitId: 'u-sow',
+        capabilities: ['knowledge-work', 'text-generation'],
+      },
+    });
+    frames.length = 0;
+
+    await client.callTool({
+      name: 'nexar.intelligence_submit',
+      arguments: {
+        unitId: 'u-unknown',
+        input: 'do work',
+        access: 'read-only',
+        capabilities: ['requirements-analysis', 'custom-specialty'],
+      },
+    });
+    expect(frames[0]).toMatchObject({
+      op: 'submit',
+      request: {
+        unitId: 'u-unknown',
+        capabilities: ['knowledge-work', 'custom-specialty'],
+      },
+    });
+  });
+
   it('forwards submit and status as one request each and returns one JSON text block', async () => {
     const client = await connectClient();
     const submit = await client.callTool({
