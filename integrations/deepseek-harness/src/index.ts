@@ -23,3 +23,31 @@ export type { BinarySpec, ServerInfo } from './runtime-process.js';
 export type { AcpOptions, PermissionMode, PermissionPolicy } from './acp/options.js';
 export { parseAcpOptions } from './acp/options.js';
 export { deepseekHarnessCliDiscoverySource } from './discovery.js';
+export {
+  CODING_PROFILE,
+  COWORK_PROFILE,
+  MAX_REQUIRED_CONTEXT_CHARS,
+  renderProfileOverlay,
+} from './profiles.js';
+export type { DshProfile, DshProfileId, ProfileOverlayOptions } from './profiles.js';
+export { dshLaunchFor, probeDshRuntime } from './runtime/resolve.js';
+export type {
+  DshLaunch,
+  DshRuntimeState,
+  DshRuntimeStatus,
+  ProbeOptions,
+} from './runtime/resolve.js';
+export { runLocalAcpSession } from './acp/local.js';
+export type {
+  LocalAcpEvent,
+  LocalAcpResult,
+  LocalAcpSessionOptions,
+  PermissionDecisionInput,
+} from './acp/local.js';
+export { coworkPermissionMode, decideCoworkPermission } from './cowork-policy.js';
+export type {
+  CoworkDecision,
+  CoworkDecisionReason,
+  CoworkPermission,
+  CoworkPolicyOptions,
+} from './cowork-policy.js';

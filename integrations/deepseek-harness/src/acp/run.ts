@@ -319,7 +319,7 @@ export async function executeAcp(
 }
 
 /** ACP cancellation: notify, answer pending permissions `cancelled`, then give the turn a moment to end. */
-async function cancelSession(
+export async function cancelSession(
   client: JsonRpcStdioClient,
   sessionId: string,
   broker: PermissionBroker | undefined,
@@ -338,7 +338,7 @@ async function cancelSession(
 }
 
 /** JSON-RPC errors from dsh are provider-side failures; split out auth and quota like the sdk path. */
-function classifyRpcError(error: unknown): unknown {
+export function classifyRpcError(error: unknown): unknown {
   if (!isNexarError(error) || error.code !== 'PROVIDER_ERROR') return error;
   if (error.details?.rpcCode === undefined) return error;
   const message = error.message.slice(0, RPC_ERROR_MAX);

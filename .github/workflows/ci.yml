@@ -60,6 +60,13 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # The pinned DSH runtime (ADR-030) for the real-runtime tests; no credentials, no paid calls.
+      - name: Install pinned DSH runtime
+        shell: bash
+        run: |
+          entry="$(node scripts/install-dsh-runtime.mjs "${{ runner.temp }}/dsh-runtime" | tail -n 1)"
+          echo "NEXAR_DSH_ENTRY=${entry}" >> "$GITHUB_ENV"
+
       - name: Test (offline; live tests are skipped without NEXAR_LIVE_TESTS)
         run: pnpm test
 

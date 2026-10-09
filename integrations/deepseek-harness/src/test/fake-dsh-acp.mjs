@@ -6,7 +6,9 @@
 //
 //   --fake-protocol=1|2        protocolVersion answered by `initialize` (default 1)
 //   --fake-scenario=<name>     normal (default) | unknown-call | no-reject | hang | hang-permission |
-//                              rpc-error | probe-fs | no-input
+//                              rpc-error | probe-fs | no-input | model-change; with a `nexar` route in
+//                              the overlay only `normal` runs the gateway loop, any other name asks
+//                              one permission question (host-local tests use `ask`)
 //   --fake-ignore-cancel=1     never answer the prompt after `session/cancel` (forces a kill)
 //   --fake-tool=<name>         tool name used as the `tool_call` title (default `bash`)
 //   --fake-input=<json>        `rawInput` of the tool call (default {"command":"ls"})
@@ -60,6 +62,19 @@ const record = {
   dshHome: process.env.DSH_HOME,
   cwd: process.cwd(),
   pid: process.pid,
+  // Host-local sessions: what the child saw, never the token itself.
+  envHome: process.env.HOME,
+  envUserProfile: process.env.USERPROFILE,
+  envPermissionMode: process.env.DSH_PERMISSION_MODE,
+  envTelemetryDisabled: process.env.DSH_TELEMETRY_DISABLED,
+  tokenLeakedInto: Object.entries(process.env)
+    .filter(
+      ([name, value]) =>
+        name !== 'NEXAR_CONTROL_TOKEN' &&
+        process.env.NEXAR_CONTROL_TOKEN !== undefined &&
+        String(value).includes(process.env.NEXAR_CONTROL_TOKEN),
+    )
+    .map(([name]) => name),
   requests: [],
   notifications: [],
   clientReplies: [],
@@ -343,6 +358,15 @@ async function runPrompt(id, sessionId, promptText) {
     return runGatewayPrompt(id, sessionId, promptText);
   }
 
+  if (scenario === 'model-change') {
+    update(sessionId, {
+      sessionUpdate: 'config_option_update',
+      configOptions: [{ id: 'model', currentValue: JSON.stringify(['deepseek-official', 'x']) }],
+    });
+    await waitForCancel();
+    send({ id, result: { stopReason: 'cancelled' } });
+    return;
+  }
   if (scenario === 'hang') {
     await waitForCancel();
     if (ignoreCancel) return;
