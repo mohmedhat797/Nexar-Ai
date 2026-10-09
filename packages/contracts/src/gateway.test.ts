@@ -10,7 +10,7 @@ import type { ControlTurnRequest, IntelligenceRequest, ModelTurnMessage } from '
 
 const base: ControlTurnRequest = {
   lineage: { rootSessionId: 's', turnId: 't', correlationId: 'c', depth: 0 },
-  engine: 'openworker',
+  engine: 'dsh',
   controlDecisionId: 'd1',
   messages: [{ role: 'user', content: 'hi' }],
 };

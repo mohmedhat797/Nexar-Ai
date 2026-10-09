@@ -601,7 +601,7 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
           },
           auth: 'unknown',
           availability: 'unknown',
-          control: { openworker: true, dsh: true },
+          control: { openworker: false, dsh: true },
         },
       ]);
     });

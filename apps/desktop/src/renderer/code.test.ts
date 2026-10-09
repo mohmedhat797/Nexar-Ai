@@ -77,7 +77,7 @@ describe('fallbackText', () => {
         effectiveLane: 'direct',
         fallbackReason: 'orchestrator-unavailable',
       }),
-    ).toBe('OpenWorker unavailable. Using Nexar direct execution.');
+    ).toBe('DeepSeek Harness unavailable. Using Nexar direct execution.');
     expect(
       fallbackText({
         requestedLane: 'code',
@@ -93,24 +93,21 @@ describe('fallbackText', () => {
 });
 
 describe('Cowork lane texts', () => {
-  it('words the openworker-unavailable fallback', () => {
-    expect(
-      fallbackText({
-        requestedLane: 'cowork',
-        effectiveLane: 'direct',
-        fallbackReason: 'openworker-unavailable',
-      }),
-    ).toBe('OpenWorker unavailable. Using Nexar direct execution.');
-  });
-
-  it('words the openworker-control-unavailable fallback', () => {
-    expect(
-      fallbackText({
-        requestedLane: 'cowork',
-        effectiveLane: 'direct',
-        fallbackReason: 'openworker-control-unavailable',
-      }),
-    ).toBe('No control-compatible resource can run Cowork. Using Nexar direct execution.');
+  it.each([
+    ['dsh-unavailable', 'DeepSeek Harness unavailable. Using Nexar direct execution.'],
+    [
+      'dsh-control-unavailable',
+      'No control-compatible resource for DeepSeek Harness. Using Nexar direct execution.',
+    ],
+    ['openworker-unavailable', 'OpenWorker unavailable (retired). Using Nexar direct execution.'],
+    [
+      'openworker-control-unavailable',
+      'No control-compatible resource can run Cowork (retired). Using Nexar direct execution.',
+    ],
+  ])('words the %s fallback', (fallbackReason, text) => {
+    expect(fallbackText({ requestedLane: 'cowork', effectiveLane: 'direct', fallbackReason })).toBe(
+      text,
+    );
   });
 
   it('marks only a started or finished cowork-lane turn', () => {

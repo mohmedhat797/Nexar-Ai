@@ -47,7 +47,7 @@ function toRow(snapshot: ResourceSnapshot, quota: ResourceRow['quota']): Resourc
           },
         }),
     control: {
-      openworker: isControlCompatible(descriptor, 'openworker'),
+      openworker: false, // retired engine (ADR-030): never a control engine
       dsh: isControlCompatible(descriptor, 'dsh'),
     },
   };

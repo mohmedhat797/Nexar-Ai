@@ -114,6 +114,9 @@ importers:
       '@nexar/host':
         specifier: workspace:*
         version: link:../../packages/host
+      '@nexar/integration-deepseek-harness':
+        specifier: workspace:*
+        version: link:../../integrations/deepseek-harness
       '@nexar/integration-openai-account':
         specifier: workspace:*
         version: link:../../integrations/openai-account

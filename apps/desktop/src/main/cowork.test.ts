@@ -732,14 +732,14 @@ describe('Cowork lane', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({
       depth: 1,
-      chain: ['nexar', 'openworker'],
-      currentOrchestrator: 'openworker',
+      chain: ['nexar', 'dsh'],
+      currentOrchestrator: 'dsh',
       correlationId: turnId,
     });
   });
 
   describe('unavailable lane falls back to direct', () => {
-    const cases: [string, Setup, CoworkStatusDto['state'], string][] = [
+    const cases: [string, Setup, string, string][] = [
       [
         'OpenWorker is missing',
         { disabled: true },
@@ -785,7 +785,7 @@ describe('Cowork lane', () => {
         lane: {
           requestedLane: 'cowork',
           effectiveLane: 'direct',
-          fallbackReason: 'openworker-unavailable',
+          fallbackReason: 'dsh-unavailable',
         },
       });
       expect(turn.tasks[0]?.resourceId).toBe('local-echo');
@@ -1146,7 +1146,7 @@ describe('Cowork delegation through the Intelligence Bridge (NXR-059b)', () => {
         turnId,
         correlationId: turnId,
         projectId,
-        engine: 'openworker',
+        engine: 'dsh',
         access: 'draft',
         maxUnits: 16,
         unitLimit: expect.any(DelegationUnitLimit) as DelegationUnitLimit,
@@ -1368,8 +1368,8 @@ describe('Cowork control loop through Nexar (NXR-063b)', () => {
           rootSessionId: 'sess-direct-1',
           turnId,
           rootOrchestrator: 'nexar',
-          chain: ['nexar', 'openworker'],
-          currentOrchestrator: 'openworker',
+          chain: ['nexar', 'dsh'],
+          currentOrchestrator: 'dsh',
           depth: 1,
           correlationId: turnId,
         },
@@ -1436,7 +1436,7 @@ describe('Cowork control loop through Nexar (NXR-063b)', () => {
     // One grant for the turn: it outlives a restart (two attempts), and is revoked after the MCP entry.
     expect(kit.calls).toEqual(['mint', 'revoke']);
     expect(kit.grants).toHaveLength(1);
-    expect(kit.grants[0]).toMatchObject({ ttlMs: 40_000, access: 'draft', engine: 'openworker' });
+    expect(kit.grants[0]).toMatchObject({ ttlMs: 40_000, access: 'draft', engine: 'dsh' });
     await expect.poll(() => kit.deletedBeforeRevoke).toEqual([true]);
     // OpenWorker stores provider fields: the turn's token and endpoint are forgotten after the turn.
     expect((await records()).filter((r) => r['kind'] === 'provider-removed')).toEqual([
@@ -1700,7 +1700,7 @@ describe('Cowork control loop through Nexar (NXR-063b)', () => {
     expect(kit.calls).toEqual([]);
   });
 
-  it('keeps openworker-unavailable when OpenWorker itself is missing', async () => {
+  it('keeps the default fallback reason when OpenWorker itself is missing', async () => {
     const kit = controlKit({ resources: RESOURCES });
     const { cowork } = await setup({ disabled: true, control: kit });
     await cowork.refresh();

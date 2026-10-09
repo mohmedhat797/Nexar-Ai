@@ -133,11 +133,10 @@ export function connectionOf(descriptor: ResourceDescriptor): ResourceConnection
 }
 
 /** Orchestration engines that run their own model loop through the Engine Gateway. */
-export type ControlEngine = 'openworker' | 'dsh';
+export type ControlEngine = 'dsh';
 
 /** Capabilities a resource needs to drive an engine's control loop (ADR-027 §6). */
 export const ENGINE_CONTROL_REQUIREMENTS: Readonly<Record<ControlEngine, readonly Capability[]>> = {
-  openworker: ['model-turn'],
   dsh: ['model-turn'],
 };
 

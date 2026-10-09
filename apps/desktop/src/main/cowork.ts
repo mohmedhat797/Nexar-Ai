@@ -44,9 +44,7 @@ import type {
 } from '@nexar/operating';
 import { providerCredentialNames } from '@nexar/host';
 import type { CoworkStatusDto } from '../shared/api.js';
-import { CHANNELS } from '../shared/channels.js';
 import { relayLaunch, type RelayLaunch } from './bridge-relay-path.js';
-import { NoArgs, defineChannel, type CallContext, type ChannelDefinition } from './channel.js';
 import type { DesktopKeyStore } from './desktop-key-store.js';
 import type { EngineHost } from './engine-host.js';
 import {
@@ -194,8 +192,9 @@ export interface CoworkServiceOptions {
   readonly openWorkerScratchBase?: string | undefined;
 }
 
+// Legacy lane (unused; UDSH-06 deletes it): it still reports OpenWorker's own state ids.
 const MISSING_STATUS: CoworkStatus = {
-  state: 'openworker-missing',
+  state: 'openworker-missing' as unknown as CoworkStatus['state'],
   reason: 'OpenWorker is not installed',
 };
 
@@ -377,7 +376,7 @@ export class CoworkService {
     const policy = orchestration?.value.cowork.controlResource ?? DEFAULT_CONTROL_RESOURCE_POLICY;
     // Resource states are probed once (never paid calls) so selection does not see unknown as down.
     await this.options.engine.snapshots(false).catch(() => undefined);
-    const preview = controlGateway.preview('openworker', policy);
+    const preview = controlGateway.preview('dsh', policy);
     return preview === undefined ? undefined : { policy, resourceId: preview.resourceId };
   }
 
@@ -446,7 +445,11 @@ export class CoworkService {
       'startup-failed': COWORK_REASONS['startup-failed'],
       'configuration-missing': 'OpenWorker is not configured',
     };
-    return { state, reason: reasons[state], ...(version === undefined ? {} : { version }) };
+    return {
+      state: state as CoworkStatus['state'],
+      reason: reasons[state],
+      ...(version === undefined ? {} : { version }),
+    };
   }
 
   // ---- resources ------------------------------------------------------------------------------
@@ -566,7 +569,7 @@ export class CoworkService {
       sessionId: request.sessionId,
       turnId: request.turnId,
       projectId: request.projectId,
-      engine: 'openworker',
+      engine: 'dsh',
     });
     try {
       const opened =
@@ -787,7 +790,7 @@ export class CoworkService {
       turnId: request.turnId,
       correlationId: request.correlation.correlationId,
       projectId: request.projectId,
-      engine: 'openworker',
+      engine: 'dsh',
       access: readOnly ? 'read-only' : 'draft',
       ...(request.maxCostUsd === undefined ? {} : { budgetUsd: request.maxCostUsd }),
       maxUnits: unitLimit.maximum,
@@ -1052,18 +1055,3 @@ export class CoworkService {
     await this.supervisor?.value.stop();
   }
 }
-
-// ---- channels ---------------------------------------------------------------------------------
-
-function service(ctx: CallContext): CoworkService {
-  if (ctx.deps.cowork === undefined) {
-    throw new NexarError('CONFLICT', 'The Cowork lane is not available in this session');
-  }
-  return ctx.deps.cowork;
-}
-
-/** The renderer sees a state, a fixed reason and a version: never a path, command or output. */
-export const coworkChannels: Readonly<Record<string, ChannelDefinition>> = {
-  [CHANNELS.coworkStatus]: defineChannel(NoArgs, (_args, ctx) => service(ctx).status()),
-  [CHANNELS.coworkRefresh]: defineChannel(NoArgs, (_args, ctx) => service(ctx).refresh()),
-};

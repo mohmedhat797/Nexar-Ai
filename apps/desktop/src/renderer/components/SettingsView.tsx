@@ -171,7 +171,7 @@ function CodeSettings({ projects }: { projects: readonly ProjectDto[] }): ReactE
   );
 }
 
-/** OpenWorker's state (read-only) for the Cowork lane. */
+/** DeepSeek Harness's state (read-only) for the Cowork lane. */
 function CoworkSettings(): ReactElement {
   const cowork = useCoworkStatus(true);
   return (
@@ -181,7 +181,7 @@ function CoworkSettings(): ReactElement {
         {COWORK_EXECUTABLE_NOTE}
       </p>
       {cowork.status === null ? (
-        <p className="muted">{cowork.error ?? 'Checking OpenWorker…'}</p>
+        <p className="muted">{cowork.error ?? 'Checking DeepSeek Harness…'}</p>
       ) : (
         <CoworkFacts status={cowork.status} />
       )}

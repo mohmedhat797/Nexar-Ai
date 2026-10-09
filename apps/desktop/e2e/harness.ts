@@ -21,6 +21,16 @@ const MAIN = fileURLToPath(new URL('../dist/main/main.js', import.meta.url));
 const EXECUTABLE = process.env['NEXAR_DESKTOP_EXECUTABLE'];
 export const POLL = { timeout: 60_000, interval: 200 };
 
+/**
+ * The real DeepSeek Harness runtime for the Cowork scenarios: scripts/e2e.mjs passes
+ * NEXAR_DSH_ENTRY on as NEXAR_DESKTOP_TEST_DSH_ENTRY (CI always sets it). Without it those
+ * scenarios skip; a launch only gets the runtime when it spreads dshEnv.
+ */
+export const DSH_ENTRY = process.env['NEXAR_DESKTOP_TEST_DSH_ENTRY'];
+export const dshEnv: Readonly<Record<string, string>> =
+  DSH_ENTRY === undefined || DSH_ENTRY === '' ? {} : { NEXAR_DESKTOP_TEST_DSH_ENTRY: DSH_ENTRY };
+export const hasDsh = Object.keys(dshEnv).length > 0;
+
 export const text = (locator: Locator): Promise<string> => locator.innerText();
 /** Waits until the locator's text contains `needle`. */
 export const hasText = (locator: Locator, needle: string): Promise<void> =>
@@ -102,13 +112,13 @@ export async function createHarness(): Promise<Harness> {
         (entry): entry is [string, string] => entry[1] !== undefined,
       ),
     );
-    // Never inherit a plane selection from the caller's shell.
+    // Never inherit a plane or runtime selection from the caller's shell: scenarios opt in.
     for (const name of Object.keys(env)) {
       if (
         name.startsWith('NEXAR_FAKE_PLANE_') ||
         name === 'NEXAR_DESKTOP_TEST_PLANE' ||
-        name.startsWith('NEXAR_FAKE_OPENWORKER_') ||
-        name === 'NEXAR_DESKTOP_TEST_OPENWORKER'
+        name === 'NEXAR_DESKTOP_TEST_DSH_ENTRY' ||
+        name === 'NEXAR_DSH_ENTRY'
       ) {
         delete env[name];
       }

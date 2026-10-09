@@ -9,7 +9,7 @@ import type { AppInfo, SessionEvent, TaskEvent } from '../shared/api.js';
 import type { ConfigStore } from './config-store.js';
 import type { EngineHost } from './engine-host.js';
 import type { CodePlane } from './code-plane.js';
-import type { CoworkService } from './cowork.js';
+import type { CoworkLane } from './dsh-cowork.js';
 import type { SettingsStore } from './settings-store.js';
 import type { ProviderService } from './providers.js';
 import type { SubscriptionService } from './subscriptions.js';
@@ -66,8 +66,8 @@ export interface BridgeDeps {
   readonly providerInventory?: ProviderInventoryService;
   /** The WSL2 engineering-plane bridge (ADR-025); absent in tests that do not need it. */
   readonly codePlane?: CodePlane;
-  /** The supervised OpenWorker (ADR-026); absent in tests that do not need it. */
-  readonly cowork?: CoworkService;
+  /** The Cowork lane on DeepSeek Harness (ADR-030); absent in tests that do not need it. */
+  readonly cowork?: CoworkLane;
   readonly logger: Logger;
   readonly dialog: DialogPort;
   readonly shell: ShellPort;

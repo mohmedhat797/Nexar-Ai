@@ -45,6 +45,7 @@ export type {
   PermissionDecisionInput,
 } from './acp/local.js';
 export { coworkPermissionMode, decideCoworkPermission } from './cowork-policy.js';
+export { BRIDGE_SERVER_NAME, bridgeToolNames } from './acp/gateway.js';
 export type {
   CoworkDecision,
   CoworkDecisionReason,

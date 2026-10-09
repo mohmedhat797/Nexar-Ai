@@ -136,7 +136,7 @@ describe('behavior control view (NXR-065a)', () => {
           support: 'official',
           auth: 'unknown',
           availability: 'unknown',
-          control: { openworker: true, dsh: true },
+          control: { openworker: false, dsh: true },
         },
         {
           id: 'plane-agent',
@@ -279,7 +279,7 @@ describe('resource rows (NXR-065a)', () => {
     const row = (id: string): ResourceRow | undefined => result.value.find((r) => r.id === id);
     expect(row('ctl-model')).toMatchObject({
       connection: { provider: 'anthropic', method: 'api', support: 'official' },
-      control: { openworker: true, dsh: true },
+      control: { openworker: false, dsh: true },
     });
     expect(row('plain-model')?.control).toEqual({ openworker: false, dsh: false });
     expect(row('native-agent')).toMatchObject({

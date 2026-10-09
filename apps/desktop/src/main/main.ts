@@ -19,7 +19,7 @@ import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js
 import { createBridge } from './bridge.js';
 import { CodePlane } from './code-plane.js';
 import { ControlGatewayChild } from './control-gateway-child.js';
-import { CoworkService, createScriptSpawn } from './cowork.js';
+import { DshCoworkService, type CoworkLane } from './dsh-cowork.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost, type EngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
@@ -274,15 +274,19 @@ async function start(): Promise<void> {
   // Non-blocking: the lane reports "still being checked" until the first probe finishes.
   void codePlane.refresh();
 
-  // The Cowork lane (ADR-026): one supervised, private OpenWorker per process, started on first need
-  // (or at launch when the owner already allowed a provider). Under the test-only
-  // `NEXAR_DESKTOP_USER_DATA` override OpenWorker is never launched unless the fake named by
-  // `NEXAR_DESKTOP_TEST_OPENWORKER` is given. Neither variable is ever set in production.
-  const testOpenWorker = process.env['NEXAR_DESKTOP_TEST_OPENWORKER'];
+  // The Cowork lane (ADR-030): one private DeepSeek Harness child per turn, bound to the NRC through
+  // the Control Model Gateway. Under the test-only `NEXAR_DESKTOP_USER_DATA` override it is never
+  // launched unless the entry named by `NEXAR_DESKTOP_TEST_DSH_ENTRY` is given. Neither variable is
+  // ever set in production.
+  const testDshEntry = process.env['NEXAR_DESKTOP_TEST_DSH_ENTRY'];
+  const dshTestEntry =
+    underTestOverride && testDshEntry !== undefined && isAbsolute(testDshEntry)
+      ? testDshEntry
+      : undefined;
   // The Intelligence Bridge endpoint (ADR-027 §9a): a per-launch local pipe/socket, never a port.
   // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
   // exists unless delegation is used. Stopped at quit.
-  const coworkRef: { current?: CoworkService } = {};
+  const coworkRef: { current?: CoworkLane } = {};
   const bridgeHostRef: { current?: BridgeHost } = {};
   // The Control Model Gateway (ADR-027 §7A) behind the host's `control` op: pi resources only, over the
   // engine's current registry snapshot and routing policy (read per call, so a config reload is picked up).
@@ -326,19 +330,17 @@ async function start(): Promise<void> {
     endpoint: () => bridgeHost.ensureStarted(),
     logger,
   });
-  const cowork = new CoworkService({
+  const cowork = new DshCoworkService({
     bridgeHost,
     controlGateway,
     controlChild: controlGatewayChild,
     settings,
     engine,
-    keys,
     logger,
-    stateDir: join(runtimePath, 'openworker'),
-    disabled: underTestOverride && !(testOpenWorker !== undefined && isAbsolute(testOpenWorker)),
-    ...(underTestOverride && testOpenWorker !== undefined && isAbsolute(testOpenWorker)
-      ? { spawn: createScriptSpawn(testOpenWorker) }
-      : {}),
+    stateDir: join(runtimePath, 'dsh-cowork'),
+    disabled: underTestOverride && dshTestEntry === undefined,
+    testEntry: dshTestEntry,
+    ...(app.isPackaged ? { resourcesPath: process.resourcesPath } : {}),
     createTask: (request, excludedResourceIds) =>
       newTask(
         engine,
@@ -355,7 +357,7 @@ async function start(): Promise<void> {
       ),
   });
   coworkRef.current = cowork;
-  // Quitting ends the lanes' children (a plane run, a starting or running OpenWorker) as soon as it
+  // Quitting ends the lanes' children (a plane run, a running Cowork turn) as soon as it
   // begins, and the exit waits (bounded) for that before the sessions lease is given back (best
   // effort, so the next launch needs no stale recovery). Exiting first left a supervised server
   // running behind the closed app.

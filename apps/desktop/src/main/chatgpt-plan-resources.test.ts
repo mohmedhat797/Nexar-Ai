@@ -52,7 +52,7 @@ describe('ChatGPT account inventory source', () => {
         model: account,
       });
       expect(connectionOf(resources[0]!)).toMatchObject({ authClass: 'official-account' });
-      expect(isControlCompatible(resources[0]!, 'openworker')).toBe(true);
+      expect(isControlCompatible(resources[0]!, 'dsh')).toBe(true);
       expect(resources[0]?.limits).toBeUndefined();
       expect(JSON.stringify(resources)).not.toContain('MUST-NOT-CROSS');
     }

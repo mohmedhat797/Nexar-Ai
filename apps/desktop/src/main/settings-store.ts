@@ -94,7 +94,15 @@ export function validExecutable(value: string): boolean {
   return BARE_COMMAND.test(value) || isAbsolute(value) || win32.isAbsolute(value);
 }
 
+/** An absolute (either platform) path of a `.js` file: the DeepSeek Harness entry (ADR-030). */
+export function validDshEntry(value: string): boolean {
+  if (value.length === 0 || value.length > 1024 || value.includes('\0')) return false;
+  return (isAbsolute(value) || win32.isAbsolute(value)) && value.toLowerCase().endsWith('.js');
+}
+
 const CoworkSchema = z.strictObject({
+  /** The DeepSeek Harness entry script (development and tests); packaged builds ship their own. */
+  dshEntry: z.string().refine(validDshEntry, 'invalid DeepSeek Harness entry').optional(),
   executable: z.string().refine(validExecutable, 'invalid executable').optional(),
   /** Upstream's version command is the separate `openworker` CLI, not the server binary. */
   versionExecutable: z.string().refine(validExecutable, 'invalid executable').optional(),
@@ -107,6 +115,7 @@ const CoworkSchema = z.strictObject({
 
 /** Owner configuration of the Cowork lane; only `allowedProviders` is ever written by the app. */
 export interface CoworkConfig {
+  readonly dshEntry?: string | undefined;
   readonly executable?: string | undefined;
   readonly versionExecutable?: string | undefined;
   readonly allowedProviders: readonly string[];

@@ -31,7 +31,7 @@ const grant: BridgeGrant = {
   sessionId: 's1',
   turnId: 't1',
   projectId: 'proj',
-  engine: 'openworker',
+  engine: 'dsh',
   access: 'draft',
   maxUnits: 8,
   expiresAt: '2026-03-01T13:00:00.000Z',
@@ -43,7 +43,7 @@ const request = (patch: Partial<IntelligenceRequest> = {}): IntelligenceRequest 
     turnId: 't1',
     correlationId: 'c1',
     depth: 0,
-    chain: ['nexar', 'openworker'],
+    chain: ['nexar', 'dsh'],
   },
   unitId: 'u1',
   kind: 'analysis',
@@ -351,7 +351,7 @@ describe('IntelligenceBridge', () => {
       turnId: 't1',
       correlationId: 'c1',
       depth: 1,
-      chain: ['nexar', 'openworker'],
+      chain: ['nexar', 'dsh'],
       kind: 'service',
     });
     expect(call?.input.origin).toMatchObject({ sessionId: 's1', turnId: 't1' });

@@ -230,10 +230,10 @@ export interface CodeDiffDto {
   readonly files: readonly string[];
 }
 
-/** The Cowork lane (supervised OpenWorker, ADR-026). Fixed texts and a version only. */
+/** The Cowork lane (DeepSeek Harness Cowork profile, ADR-030). Fixed texts and a version only. */
 export const COWORK_STATES = [
   'ready',
-  'openworker-missing',
+  'dsh-missing',
   'unsupported-version',
   'startup-failed',
   'configuration-missing',
@@ -513,7 +513,7 @@ export interface NexarApi {
   getBehavior(): Promise<BridgeResult<BehaviorView>>;
   setBehavior(patch: BehaviorPatch): Promise<BridgeResult<BehaviorView>>;
   coworkStatus(): Promise<BridgeResult<CoworkStatusDto>>;
-  /** Re-probes OpenWorker now (otherwise the status is cached for a minute). */
+  /** Re-probes DeepSeek Harness now (otherwise the status is cached for a minute). */
   refreshCowork(): Promise<BridgeResult<CoworkStatusDto>>;
   /** Subscribes to task progress; returns the unsubscribe function. */
   onTaskEvent(callback: (event: TaskEvent) => void): () => void;

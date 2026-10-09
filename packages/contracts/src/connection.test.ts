@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   ENGINE_CONTROL_REQUIREMENTS,
   KNOWN_CAPABILITIES,
@@ -177,20 +177,16 @@ describe('connectionOf', () => {
 });
 
 describe('isControlCompatible', () => {
-  it('is a capability check only, for both engines', () => {
-    expect(ENGINE_CONTROL_REQUIREMENTS).toEqual({
-      openworker: ['model-turn'],
-      dsh: ['model-turn'],
-    });
+  it('is a capability check only, for the one control engine', () => {
+    expect(ENGINE_CONTROL_REQUIREMENTS).toEqual({ dsh: ['model-turn'] });
     const turn = model('openai', 'api', { capabilities: ['model-turn'] });
-    expect(isControlCompatible(turn, 'openworker')).toBe(true);
     expect(isControlCompatible(turn, 'dsh')).toBe(true);
     // A native agent executes tools itself and does not accept caller tool schemas.
     const native = descriptor(
       { type: 'agent', agent: 'claude-code', interface: 'cli' },
       { capabilities: ['tool-use', 'coding'], auth: { mode: 'none' } },
     );
-    expect(isControlCompatible(native, 'openworker')).toBe(false);
+    expect(isControlCompatible(native, 'dsh')).toBe(false);
     // Connection method and auth never grant compatibility.
     expect(isControlCompatible(model('openai', 'api'), 'dsh')).toBe(false);
   });

@@ -375,7 +375,7 @@ describe('sessions: turns', () => {
         lane: {
           requestedLane: 'cowork',
           effectiveLane: 'direct',
-          fallbackReason: 'openworker-unavailable',
+          fallbackReason: 'dsh-unavailable',
         },
       });
 

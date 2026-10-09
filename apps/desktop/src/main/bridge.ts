@@ -6,7 +6,7 @@ import { approvalChannels } from './approvals.js';
 import { artifactChannels } from './artifacts.js';
 import { behaviorChannels } from './behavior.js';
 import { codeChannels } from './code.js';
-import { coworkChannels } from './cowork.js';
+import { coworkChannels } from './dsh-cowork.js';
 import {
   JobRegistry,
   NoArgs,

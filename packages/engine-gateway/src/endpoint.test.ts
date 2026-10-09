@@ -26,7 +26,7 @@ const grantInput: BridgeGrantInput = {
   turnId: 't1',
   correlationId: 'c1',
   projectId: 'proj',
-  engine: 'openworker',
+  engine: 'dsh',
   access: 'read-only',
   maxUnits: 4,
   ttlMs: 60_000,
@@ -209,7 +209,7 @@ describe('BridgeHost', () => {
       turnId: 't1',
       correlationId: 'c1',
       depth: 2,
-      chain: ['nexar', 'openworker'],
+      chain: ['nexar', 'dsh'],
     });
     expect(child?.kind).toBe('general');
   });
@@ -634,7 +634,7 @@ describe('BridgeHost', () => {
       });
       const request = {
         lineage: { rootSessionId: 's1', turnId: 't1', correlationId: 'c1', depth: 1 },
-        engine: 'openworker',
+        engine: 'dsh',
         controlDecisionId: controlDecisionId ?? '',
         ...hello,
       } as const;

@@ -22,6 +22,7 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/engine-gateway" },
     { "path": "../../packages/host" },
+    { "path": "../../integrations/deepseek-harness" },
     { "path": "../../integrations/openai-account" },
     { "path": "../../integrations/openai-compat" },
     { "path": "../../integrations/openworker" },

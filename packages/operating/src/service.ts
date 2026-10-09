@@ -159,7 +159,7 @@ export interface OperatingPorts {
     reason?(lane: 'cowork' | 'code', projectId: string): string | undefined;
     /**
      * A fixed id recorded as the fallback reason when the Cowork lane is unavailable, when it is more
-     * precise than the default `openworker-unavailable` (e.g. `openworker-control-unavailable`).
+     * precise than the default `dsh-unavailable` (e.g. `dsh-control-unavailable`).
      */
     fallbackReason?(lane: 'cowork'): string | undefined;
     /** Whether an available lane can run this intent (default: yes). */
@@ -182,7 +182,7 @@ export interface OperatingPorts {
   readonly executeCode?: (request: CodeRequest, signal: AbortSignal) => Promise<CodeResult>;
   /**
    * The Cowork lane (ADR-026). Without it a `cowork` effective lane is unavailable: the turn runs
-   * through `executeDirect`, recorded as such with `openworker-unavailable`.
+   * through `executeDirect`, recorded as such with `dsh-unavailable`.
    */
   readonly executeCowork?: (request: CoworkRequest, signal: AbortSignal) => Promise<CoworkResult>;
   /** A safe display name for an artifact of the session's own project, or undefined to drop it. */
@@ -517,9 +517,9 @@ export class OperatingService {
 
   private coworkFallbackReason(): string {
     try {
-      return this.ports.lanes.fallbackReason?.('cowork') ?? 'openworker-unavailable';
+      return this.ports.lanes.fallbackReason?.('cowork') ?? 'dsh-unavailable';
     } catch {
-      return 'openworker-unavailable';
+      return 'dsh-unavailable';
     }
   }
 
@@ -530,7 +530,7 @@ export class OperatingService {
    * writes (`coding`) are never rewritten: without the lane they stay refused.
    */
   private honest(decision: LaneDecision, kind: TaskKind): LaneDecision {
-    // Cowork work is read/draft: an unavailable OpenWorker falls back to direct, recorded as such.
+    // Cowork work is read/draft: an unavailable DeepSeek Harness falls back to direct, recorded as such.
     if (
       decision.requestedLane === 'cowork' &&
       decision.effectiveLane === 'direct' &&
@@ -560,7 +560,7 @@ export class OperatingService {
    * engineering plane, ADR-025). Every other turn executes through `executeDirect`. That includes
    * `general`/`analysis`/... turns that merely inherit the `code` lane from the session mode: they
    * must never become engineering writes. A `cowork` effective lane runs through `executeCowork`
-   * (the supervised OpenWorker, ADR-026) with a depth 1 `openworker` correlation; nothing here
+   * (the DeepSeek Harness Cowork profile, ADR-030) with a depth 1 `dsh` correlation; nothing here
    * claims an orchestrator ran when it did not.
    */
   private async execute(
@@ -729,7 +729,7 @@ export class OperatingService {
         kind,
         prompt,
         ...requiredField,
-        correlation: viaCowork ? delegate(root, 'openworker') : root,
+        correlation: viaCowork ? delegate(root, 'dsh') : root,
         ...(preferred === undefined || preferred.length === 0
           ? {}
           : { preferredResourceIds: preferred }),

@@ -30,6 +30,29 @@ async function codePlaneOf(section: unknown): Promise<CodePlaneConfigResult> {
   return new SettingsStore(path).getCodePlane();
 }
 
+describe('Cowork settings: dshEntry', () => {
+  const coworkOf = async (section: unknown) => {
+    await writeFile(path, JSON.stringify({ ...base, cowork: section }));
+    return new SettingsStore(path).getCowork();
+  };
+
+  it.each([join(tmpdir(), 'dsh', 'bin.js'), 'C:\\dsh\\lib\\bin.js', '/opt/dsh/bin.JS'])(
+    'accepts the absolute .js entry %s',
+    async (dshEntry) => {
+      expect(await coworkOf({ dshEntry })).toEqual({
+        valid: true,
+        value: { dshEntry, allowedProviders: [] },
+      });
+    },
+  );
+
+  it.each(['bin.js', './bin.js', join(tmpdir(), 'dsh.cmd'), join(tmpdir(), 'dsh'), '', 7])(
+    'fails closed on %j',
+    async (dshEntry) => {
+      expect(await coworkOf({ dshEntry })).toEqual({ valid: false });
+    },
+  );
+});
 describe('Code plane settings', () => {
   it('defaults when the file or the section is missing', async () => {
     expect(await new SettingsStore(path).getCodePlane()).toEqual({

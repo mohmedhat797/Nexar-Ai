@@ -231,7 +231,7 @@ describe('OperatingService', () => {
       expect(t1?.lane).toMatchObject({
         requestedLane: 'cowork',
         effectiveLane: 'direct',
-        fallbackReason: 'openworker-unavailable',
+        fallbackReason: 'dsh-unavailable',
       });
       expect(session.activeTurnId).toBeNull();
       expect(h.service.executions()).toBe(0);
@@ -1204,7 +1204,7 @@ describe('OperatingService', () => {
       });
     }
 
-    it('runs a cowork-lane turn through executeCowork with a depth 1 openworker correlation', async () => {
+    it('runs a cowork-lane turn through executeCowork with a depth 1 dsh correlation', async () => {
       const { h, requests, service } = await coworkHarness();
       const s = await h.newSession('cowork');
       await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
@@ -1213,8 +1213,8 @@ describe('OperatingService', () => {
       expect(h.requests).toHaveLength(0);
       expect(requests[0]?.correlation).toMatchObject({
         depth: 1,
-        chain: ['nexar', 'openworker'],
-        currentOrchestrator: 'openworker',
+        chain: ['nexar', 'dsh'],
+        currentOrchestrator: 'dsh',
         correlationId: requests[0]?.turnId,
       });
       const turn = (await h.session(s.id)).turns[0];
@@ -1252,7 +1252,7 @@ describe('OperatingService', () => {
       expect(JSON.stringify(task)).not.toContain('dec-1');
     });
 
-    it('falls back to direct with openworker-unavailable when the lane is unavailable', async () => {
+    it('falls back to direct with dsh-unavailable when the lane is unavailable', async () => {
       const { h, requests, service } = await coworkHarness();
       h.availability.cowork = false;
       const s = await h.newSession('cowork');
@@ -1262,17 +1262,17 @@ describe('OperatingService', () => {
       expect(h.requests).toHaveLength(1);
       expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
         effectiveLane: 'direct',
-        fallbackReason: 'openworker-unavailable',
+        fallbackReason: 'dsh-unavailable',
       });
     });
 
-    it('records openworker-control-unavailable when the lanes port names that reason', async () => {
+    it('records dsh-control-unavailable when the lanes port names that reason', async () => {
       const { h, requests } = await coworkHarness();
       h.availability.cowork = false;
       const service = h.makeService({
         lanes: {
           available: () => false,
-          fallbackReason: () => 'openworker-control-unavailable',
+          fallbackReason: () => 'dsh-control-unavailable',
         },
         executeCowork: () => Promise.reject(new Error('unused')),
       });
@@ -1284,11 +1284,11 @@ describe('OperatingService', () => {
       expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
         requestedLane: 'cowork',
         effectiveLane: 'direct',
-        fallbackReason: 'openworker-control-unavailable',
+        fallbackReason: 'dsh-control-unavailable',
       });
     });
 
-    it('keeps openworker-unavailable when the reason port has nothing or throws', async () => {
+    it('keeps dsh-unavailable when the reason port has nothing or throws', async () => {
       const throwing = (): string => {
         throw new Error('x');
       };
@@ -1305,7 +1305,7 @@ describe('OperatingService', () => {
         await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize.' });
         await service.whenIdle();
         expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
-          fallbackReason: 'openworker-unavailable',
+          fallbackReason: 'dsh-unavailable',
         });
       }
     });
@@ -1324,7 +1324,7 @@ describe('OperatingService', () => {
       expect(requests).toHaveLength(0);
       expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
         effectiveLane: 'direct',
-        fallbackReason: 'openworker-unavailable',
+        fallbackReason: 'dsh-unavailable',
       });
     });
 

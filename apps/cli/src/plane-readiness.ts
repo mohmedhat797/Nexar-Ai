@@ -184,7 +184,7 @@ export function toPlaneResources(snapshots: readonly ResourceSnapshot[]): PlaneR
         auth: s.state.auth,
         availability: s.state.availability,
         control: {
-          openworker: isControlCompatible(s.descriptor, 'openworker'),
+          openworker: false, // retired engine (ADR-030): never a control engine
           dsh: isControlCompatible(s.descriptor, 'dsh'),
         },
       };

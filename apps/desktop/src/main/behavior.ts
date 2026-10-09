@@ -40,12 +40,12 @@ function toPolicyView(policy: ControlResourcePolicy): ControlPolicyView {
   };
 }
 
-/** Desktop registry resources that can drive OpenWorker's control loop (capability check only). */
+/** Desktop registry resources that can drive DeepSeek Harness's control loop (capability check only). */
 function coworkCandidates(ctx: CallContext): ControlCandidate[] {
   return ctx.deps.engine
     .composition()
     .runtime.registry.list()
-    .filter((descriptor) => isControlCompatible(descriptor, 'openworker'))
+    .filter((descriptor) => isControlCompatible(descriptor, 'dsh'))
     .filter((descriptor) => {
       if (ctx.deps.providerInventory === undefined) return true;
       if (descriptor.metadata?.['inventory'] !== undefined)

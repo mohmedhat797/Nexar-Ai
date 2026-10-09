@@ -605,7 +605,7 @@ describe('control gateway end to end (child -> endpoint -> gateway -> fake port)
     turnId: 't1',
     correlationId: 'c1',
     projectId: 'proj',
-    engine: 'openworker',
+    engine: 'dsh',
     access: 'read-only',
     maxUnits: 1,
     ttlMs: 60_000,
