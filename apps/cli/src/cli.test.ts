@@ -201,13 +201,7 @@ describe('nexar cli (in-process, offline)', () => {
     const resources = report.sections.find((s) => s.id === 'resources');
     expect(resources?.checks.map((x) => x.name)).toEqual(['local-echo']);
     const external = report.sections.find((s) => s.id === 'external');
-    expect(external?.checks.map((x) => x.name)).toEqual([
-      'claude',
-      'dsh',
-      'codex',
-      'agy',
-      'openworker-server',
-    ]);
+    expect(external?.checks.map((x) => x.name)).toEqual(['claude', 'dsh', 'codex', 'agy']);
   });
 
   it('doctor prints markers, and fails on an invalid config', async () => {

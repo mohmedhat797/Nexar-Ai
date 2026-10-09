@@ -272,7 +272,7 @@ describe('ControlModelGateway', () => {
     await expect(
       gateway.turn(
         // A retired engine id (persisted data only): never a match.
-        request(d.controlDecisionId, { engine: 'openworker' as unknown as 'dsh' }),
+        request(d.controlDecisionId, { engine: 'retired' as unknown as 'dsh' }),
         signal(),
       ),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });

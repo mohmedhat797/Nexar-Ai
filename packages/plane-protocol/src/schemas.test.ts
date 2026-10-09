@@ -373,7 +373,7 @@ describe('resources feature (additive to nexar-plane/1)', () => {
     },
     auth: 'authenticated',
     availability: 'available',
-    control: { openworker: false, dsh: true },
+    control: { dsh: true },
   };
   const initialize = { type: 'initialize', protocol: PLANE_PROTOCOL };
   const withResources = (resources: unknown) => ({
@@ -409,7 +409,7 @@ describe('resources feature (additive to nexar-plane/1)', () => {
             id: 'local-model',
             auth: 'not-required',
             availability: 'unknown',
-            control: { openworker: false, dsh: false },
+            control: { dsh: false },
           },
         ]),
       ),
@@ -439,8 +439,8 @@ describe('resources feature (additive to nexar-plane/1)', () => {
       { ...resource, connection: { ...resource.connection, provider: 'p'.repeat(201) } },
     ],
     ['a missing control', { ...resource, control: undefined }],
-    ['a partial control', { ...resource, control: { openworker: true } }],
-    ['a non-boolean control', { ...resource, control: { openworker: 1, dsh: true } }],
+    ['a partial control', { ...resource, control: {} }],
+    ['a non-boolean control', { ...resource, control: { dsh: 1 } }],
   ])('rejects a resource with %s', (_name, bad) => {
     expect(ok(withResources([bad]))).toBe(false);
   });

@@ -1365,7 +1365,9 @@ describe('OperatingService', () => {
       h.availability.cowork = true;
       const service = h.makeService({
         executeCowork: () =>
-          Promise.reject(new NexarError('EXECUTION_TIMEOUT', 'OpenWorker did not finish in time')),
+          Promise.reject(
+            new NexarError('EXECUTION_TIMEOUT', 'DeepSeek Harness did not finish in time'),
+          ),
       });
       const s = await h.newSession('cowork');
       await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'a job' });

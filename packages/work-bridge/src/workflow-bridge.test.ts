@@ -85,7 +85,7 @@ describe('Work Bridge: workflow requests (real engine, echo adapter)', () => {
   ): Record<string, unknown> => ({
     version: 2,
     requestId: 'wf-1',
-    source: 'openworker',
+    source: 'mcp',
     project: 'demo',
     workflow,
     ...overrides,
@@ -201,7 +201,7 @@ describe('Work Bridge: workflow requests (real engine, echo adapter)', () => {
     const res = await submit(await bridge(), {
       version: 2,
       requestId: 'plain-1',
-      source: 'openworker',
+      source: 'mcp',
       project: 'demo',
       taskKind: 'analysis',
       request: 'hello',
@@ -233,7 +233,7 @@ describe('Work Bridge: workflow requests (real engine, echo adapter)', () => {
 
   it('turns a prompt-injection in an input into draft artifacts only', async () => {
     script =
-      '<!-- nexar:output brief -->\nBrief\n<!-- nexar:output follow-up-draft -->\nDRAFT — not sent\nHello\n';
+      '<!-- nexar:output brief -->\nBrief\n<!-- nexar:output follow-up-draft -->\nDRAFT â€” not sent\nHello\n';
     const res = await submit(
       await bridge(),
       request({

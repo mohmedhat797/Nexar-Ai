@@ -127,7 +127,7 @@ function stubEngine(behavior: () => Promise<void> = () => Promise.resolve()): St
 const valid = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   version: 2,
   requestId: 'req-1',
-  source: 'openworker',
+  source: 'mcp',
   project: 'proj',
   taskKind: 'analysis',
   request: 'summarize this',
@@ -216,7 +216,7 @@ describe('Work Bridge v2 with a stub engine', () => {
       projectId: 'proj',
       workingDirectory: 'sub',
       origin: {
-        source: 'openworker',
+        source: 'mcp',
         project: 'proj',
         correlationId: 'req-1',
         requestedBy: 'alice',
@@ -228,7 +228,7 @@ describe('Work Bridge v2 with a stub engine', () => {
         preferredResourceIds: ['a'],
         excludedResourceIds: ['b'],
       },
-      metadata: { bridge: 'openworker', bridgeVersion: 2 },
+      metadata: { bridge: 'mcp', bridgeVersion: 2 },
     });
     expect(stub.runs[0]?.signal).toBe(controller.signal);
     expect(stub.runs[0]?.timeoutMs).toBe(5000);
@@ -394,7 +394,7 @@ describe('Work Bridge v2 with a stub engine', () => {
       expect(seen).toEqual([
         {
           requestId: 'req-1',
-          source: 'openworker',
+          source: 'mcp',
           project: 'nope',
           taskKind: 'analysis',
           documentSets: ['notes'],

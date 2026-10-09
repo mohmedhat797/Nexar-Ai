@@ -378,6 +378,7 @@ function boundEngineering(value: TurnEngineering): TurnEngineering {
         !bounded(role, 64) ||
         !bounded(resourceId, 128) ||
         (executor !== undefined && executor !== 'engine' && executor !== 'native') ||
+        // legacy (ADR-030): read-only; the retired engine id stays valid for turns recorded by older builds.
         (engine !== undefined && engine !== 'openworker' && engine !== 'dsh') ||
         (executorReason !== undefined && !bounded(executorReason, 64)) ||
         (controlResourceId !== undefined && !bounded(controlResourceId, 128))

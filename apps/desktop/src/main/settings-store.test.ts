@@ -41,10 +41,25 @@ describe('Cowork settings: dshEntry', () => {
     async (dshEntry) => {
       expect(await coworkOf({ dshEntry })).toEqual({
         valid: true,
-        value: { dshEntry, allowedProviders: [] },
+        value: { dshEntry },
       });
     },
   );
+
+  it('ignores the retired keys of older builds on read and keeps them on disk on write', async () => {
+    const legacy = {
+      executable: 'retired-server',
+      versionExecutable: '../not-even-valid',
+      allowedProviders: ['openai', 'not-a-provider'],
+    };
+    await writeFile(path, JSON.stringify({ ...base, cowork: legacy }));
+    const store = new SettingsStore(path);
+    expect(await store.getCowork()).toEqual({ valid: true, value: {} });
+    await store.set({ theme: 'dark' });
+    const saved = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+    expect(saved['cowork']).toEqual(legacy);
+    expect(saved['theme']).toBe('dark');
+  });
 
   it.each(['bin.js', './bin.js', join(tmpdir(), 'dsh.cmd'), join(tmpdir(), 'dsh'), '', 7])(
     'fails closed on %j',

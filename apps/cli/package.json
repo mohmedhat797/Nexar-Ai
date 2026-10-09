@@ -30,7 +30,7 @@
     "@nexar/host": "workspace:*",
     "@nexar/integration-deepseek-harness": "workspace:*",
     "@nexar/integration-mcp": "workspace:*",
-    "@nexar/integration-openworker": "workspace:*",
+    "@nexar/work-bridge": "workspace:*",
     "@nexar/plane-protocol": "workspace:*",
     "@nexar/process": "workspace:*",
     "@nexar/projects": "workspace:*",

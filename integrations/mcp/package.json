@@ -18,7 +18,7 @@
     "@modelcontextprotocol/server": "2.2.0",
     "@nexar/access": "workspace:*",
     "@nexar/contracts": "workspace:*",
-    "@nexar/integration-openworker": "workspace:*",
+    "@nexar/work-bridge": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {

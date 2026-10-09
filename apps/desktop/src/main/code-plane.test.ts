@@ -206,7 +206,7 @@ describe('probe states', () => {
         support: 'official',
         auth: 'authenticated',
         availability: 'available',
-        control: { openworker: false, dsh: false },
+        control: { dsh: false },
       },
       {
         id: 'pi:deepseek-chat',
@@ -215,7 +215,7 @@ describe('probe states', () => {
         support: 'official',
         auth: 'unknown',
         availability: 'unknown',
-        control: { openworker: true, dsh: true },
+        control: { dsh: true },
       },
     ]);
     const init = (await readLog()).find((e) => e.event === 'frame' && e.type === 'initialize');

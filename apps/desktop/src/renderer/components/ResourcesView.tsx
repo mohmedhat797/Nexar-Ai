@@ -34,10 +34,7 @@ export function connectionText(connection: ResourceRow['connection']): string {
 
 /** Which engines can run the resource as their control loop. */
 export function controlText(control: ResourceRow['control']): string {
-  const engines = [
-    ...(control.openworker ? ['OpenWorker'] : []),
-    ...(control.dsh ? ['DeepSeek Harness'] : []),
-  ];
+  const engines = [...(control.dsh ? ['DeepSeek Harness'] : [])];
   return engines.length === 0 ? 'none' : engines.join(', ');
 }
 

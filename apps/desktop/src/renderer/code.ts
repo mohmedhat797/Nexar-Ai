@@ -27,7 +27,7 @@ const FALLBACK_TEXT: Readonly<Record<string, string>> = {
   'dsh-unavailable': 'DeepSeek Harness unavailable. Using Nexar direct execution.',
   'dsh-control-unavailable':
     'No control-compatible resource for DeepSeek Harness. Using Nexar direct execution.',
-  // Retired (ADR-030): still readable on turns recorded before DeepSeek Harness ran Cowork.
+  // legacy (ADR-030): read-only. Still readable on turns recorded before DeepSeek Harness ran Cowork.
   'openworker-unavailable': 'OpenWorker unavailable (retired). Using Nexar direct execution.',
   'openworker-control-unavailable':
     'No control-compatible resource can run Cowork (retired). Using Nexar direct execution.',
@@ -68,7 +68,8 @@ type LaneFacts = NonNullable<NonNullable<TurnDto['outcome']>['engineering']>['la
 /** `Executor: DeepSeek Harness (control: <resource>)` or `Executor: native (<reason>)`. */
 export function laneExecutorText(lane: NonNullable<LaneFacts>[number]): string | null {
   if (lane.executor === 'engine') {
-    const name = lane.engine === 'dsh' ? 'DeepSeek Harness' : 'OpenWorker';
+    // legacy (ADR-030): read-only; the retired engine id only appears on turns recorded by older builds.
+    const name = lane.engine === 'dsh' ? 'DeepSeek Harness' : 'OpenWorker (retired)';
     return `Executor: ${name}${lane.controlResourceId === undefined ? '' : ` (control: ${lane.controlResourceId})`}`;
   }
   if (lane.executor === 'native') {

@@ -595,7 +595,7 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
           },
           auth: 'authenticated',
           availability: 'available',
-          control: { openworker: false, dsh: false },
+          control: { dsh: false },
         },
         {
           id: 'codex',
@@ -608,7 +608,7 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
           },
           auth: 'unauthenticated',
           availability: 'unavailable',
-          control: { openworker: false, dsh: false },
+          control: { dsh: false },
         },
         {
           id: 'pi-deepseek',
@@ -621,7 +621,7 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
           },
           auth: 'unknown',
           availability: 'unknown',
-          control: { openworker: false, dsh: true },
+          control: { dsh: true },
         },
       ]);
     });

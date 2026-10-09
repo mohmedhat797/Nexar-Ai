@@ -73,7 +73,7 @@ export interface WorkBridgeOptions {
   readonly artifacts: ArtifactStore;
   /** Enables `workflow` requests; without it they are rejected. */
   readonly workflows?: WorkflowPort;
-  /** Default `['openworker']`. */
+  /** Default `['mcp']`. */
   readonly allowedSources?: readonly string[];
   /** Default 100_000. */
   readonly maxRequestChars?: number;
@@ -226,7 +226,7 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
   const { engine, projects, artifacts, workflows } = options;
   const logger = options.logger ?? silent;
   const clock = options.clock ?? (() => new Date());
-  const allowedSources = options.allowedSources ?? ['openworker'];
+  const allowedSources = options.allowedSources ?? ['mcp'];
   const schema = createWorkRequestSchema(options.maxRequestChars ?? DEFAULT_MAX_REQUEST_CHARS);
   const jobs = new Map<string, Job>();
 
@@ -264,7 +264,7 @@ export function createWorkBridge(options: WorkBridgeOptions): WorkBridge {
           ? {}
           : { excludedResourceIds: constraints.excludedResourceIds.map(resourceId) }),
       },
-      metadata: { bridge: 'openworker', bridgeVersion: WORK_BRIDGE_VERSION },
+      metadata: { bridge: 'mcp', bridgeVersion: WORK_BRIDGE_VERSION },
     });
   }
 

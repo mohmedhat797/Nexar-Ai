@@ -33,7 +33,7 @@ await build({
   logLevel: 'info',
 });
 
-// The Intelligence Bridge relay (ADR-027 section 9a): launched by OpenWorker as a plain Node script
+// The Intelligence Bridge relay (ADR-027 section 9a): launched by DeepSeek Harness as a plain Node script
 // (ELECTRON_RUN_AS_NODE), so it is one self-contained CommonJS file with nothing resolved at run time.
 await build({
   entryPoints: [at('../../integrations/mcp/src/bridge-relay-main.ts')],

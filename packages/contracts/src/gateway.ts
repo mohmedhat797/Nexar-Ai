@@ -264,7 +264,7 @@ export const INTELLIGENCE_LIMITS = {
 const UNIT_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 /**
- * Normalizes sentinel or empty reviewOf values (e.g. from OpenWorker) to undefined.
+ * Normalizes sentinel or empty reviewOf values (e.g. from an MCP client) to undefined.
  * Non-sentinel values (whether valid unit IDs or malformed) are preserved for validation.
  */
 export function normalizeReviewOf(value: unknown): unknown {

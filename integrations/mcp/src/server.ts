@@ -15,11 +15,7 @@ import {
   type ClientRegistry,
 } from '@nexar/access';
 import { NexarError, isNexarError, type Logger, type NexarErrorCode } from '@nexar/contracts';
-import {
-  WorkRequestSchema,
-  type WorkBridge,
-  type WorkResponse,
-} from '@nexar/integration-openworker';
+import { WorkRequestSchema, type WorkBridge, type WorkResponse } from '@nexar/work-bridge';
 import type { RouteSummary, SafeResource } from './safe.js';
 
 export const AUDIT_ORIGIN = 'mcp-stdio';
@@ -72,7 +68,7 @@ export interface NexarMcpDeps {
   readonly token: string | undefined;
   readonly logger: Logger;
   readonly version: string;
-  /** The `source` stamped on work submitted through this server. Default `'openworker'`. */
+  /** The `source` stamped on work submitted through this server. Default `'mcp'`. */
   readonly source?: string;
   /** Lifetime signal for background jobs (aborted when the server shuts down), not a per-call one. */
   readonly signal?: AbortSignal;
@@ -112,7 +108,7 @@ export function advertised(schema: z.ZodType): StandardSchemaWithJSON<unknown, u
 
 type Payload = Record<string, unknown>;
 
-/** One text block holding the JSON (OpenWorker forwards only text) plus the same object structured. */
+/** One text block holding the JSON (some MCP clients forward only text) plus the same object structured. */
 function result(payload: Payload, isError: boolean): CallToolResult {
   return {
     content: [{ type: 'text', text: JSON.stringify(payload) }],
@@ -194,7 +190,7 @@ interface CallContext {
  */
 export function createNexarMcpServer(deps: NexarMcpDeps): () => McpServer {
   const newId = deps.newId ?? randomUUID;
-  const source = deps.source ?? 'openworker';
+  const source = deps.source ?? 'mcp';
 
   async function call(
     tool: string,

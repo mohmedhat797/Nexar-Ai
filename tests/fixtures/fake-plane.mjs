@@ -57,7 +57,7 @@ const FAKE_RESOURCES = [
     },
     auth: 'authenticated',
     availability: 'available',
-    control: { openworker: false, dsh: false },
+    control: { dsh: false },
   },
   {
     id: 'pi:deepseek-chat',
@@ -70,7 +70,7 @@ const FAKE_RESOURCES = [
     },
     auth: 'unknown',
     availability: 'unknown',
-    control: { openworker: true, dsh: true },
+    control: { dsh: true },
   },
 ];
 

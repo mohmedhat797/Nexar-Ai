@@ -3,7 +3,7 @@
 Current continuation (2026-10-02): work is on `feat/nexar-operating-layer`, draft PR #36. Windows
 automated acceptance, Operating Sessions and routing, and Desktop encrypted API-key setup are
 implemented, including explicit provider metadata checks. Owner Windows acceptance remains pending; vendor sign-in,
-WSL Code, OpenWorker Cowork and behavior settings follow. Schedules and Mobile are deferred.
+WSL Code, Cowork on DeepSeek Harness (ADR-030) and behavior settings follow. Schedules and Mobile are deferred.
 Use the [continuation state](../devlog/operating-layer-progress.md) for the exact next unit and
 the [Providers guide](providers.md) for key setup. The phase-1 snapshot below is historical.
 
@@ -19,14 +19,14 @@ https://claude.ai/artifact/2XgS6QfxvKVjpuazraeojN (private to you; the target fo
 
 ## 1. Where things stand
 
-| Area                                                                   | State                                                             |
-| ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Engine, CLI, MCP server, workflows, approvals (v0.1–v0.2)              | Done, merged                                                      |
-| Engineering plane: sandbox, worktrees, lanes, review, commit (v0.3)    | Done, merged; runs on Linux / WSL2 only                           |
-| Resource intelligence: quota, cost, history, discovery (v0.4)          | Done, merged                                                      |
-| `@nexar/host` shared composition                                       | Done (this branch)                                                |
-| **Nexar Desktop phase 1 (NXR-050)**                                    | **Done (this branch): runs on Linux; never run on Windows yet**   |
-| Windows pass, providers, AI behavior, schedules, Code mode, OpenWorker | Not started: NXR-051 to NXR-056 ([backlog](../backlog/README.md)) |
+| Area                                                                     | State                                                             |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| Engine, CLI, MCP server, workflows, approvals (v0.1–v0.2)                | Done, merged                                                      |
+| Engineering plane: sandbox, worktrees, lanes, review, commit (v0.3)      | Done, merged; runs on Linux / WSL2 only                           |
+| Resource intelligence: quota, cost, history, discovery (v0.4)            | Done, merged                                                      |
+| `@nexar/host` shared composition                                         | Done (this branch)                                                |
+| **Nexar Desktop phase 1 (NXR-050)**                                      | **Done (this branch): runs on Linux; never run on Windows yet**   |
+| Windows pass, providers, AI behavior, schedules, Code mode, Cowork (DSH) | Not started: NXR-051 to NXR-056 ([backlog](../backlog/README.md)) |
 
 What the app does today: open a folder as a project; Cowork chat with a routing card and a "Why this
 choice?" breakdown; progress events; the result saved as a draft in
@@ -163,8 +163,8 @@ separate branches and pull requests.
 5. **NXR-055: Code mode** ([spec](../backlog/055-code-mode-wsl2.md)). The bridge from the Windows app
    to a Nexar engine in WSL2 (`wsl.exe`, stdio JSON, no network), the session and diff views, and
    Review & commit. Close the deferred WSL2 checks A1–A6 first.
-6. **NXR-056: Cowork through OpenWorker** ([spec](../backlog/056-cowork-openworker-agent.md),
-   ADR-004 decision 4).
+6. **NXR-056: Cowork agent** ([historical spec](../backlog/056-cowork-openworker-agent.md)). Superseded:
+   Cowork runs on DeepSeek Harness, not OpenWorker (ADR-030).
 
 Smaller gaps noticed while testing phase 1:
 

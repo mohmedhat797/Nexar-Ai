@@ -83,7 +83,7 @@ export interface TaskArgs {
   readonly prompt: string;
   readonly preferredResourceIds?: readonly string[] | undefined;
   readonly maxCostUsd?: number | undefined;
-  /** Set by Nexar only (never from a request): the Cowork lane excludes resources OpenWorker cannot use. */
+  /** Set by Nexar only (never from a request): the Cowork lane excludes resources the Cowork runtime cannot use. */
   readonly excludedResourceIds?: readonly string[] | undefined;
 }
 

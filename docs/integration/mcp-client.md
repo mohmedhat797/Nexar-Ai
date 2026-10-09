@@ -1,10 +1,10 @@
-# Using Nexar from OpenWorker (MCP, stdio)
+# Using Nexar from an MCP client (stdio)
 
-OpenWorker is the productivity engine; Nexar decides which AI resource does the heavy work
-([ADR-004](../adr/004-openworker-productivity-engine.md)). The seam is an MCP server that OpenWorker
-launches as a child process: `nexar mcp serve`. Every call is authenticated with a Nexar client token,
-authorized against that client's scopes, and audited
-([ADR-015](../adr/015-client-identity-and-audit.md)).
+Nexar exposes a generic inbound MCP server that any MCP client launches as a child process: `nexar mcp serve`.
+Every call is authenticated with a Nexar client token, authorized against that client's scopes, and audited
+([ADR-015](../adr/015-client-identity-and-audit.md)). The server and its Work Bridge (`@nexar/work-bridge`) are not tied to any
+agent product; OpenWorker, which this seam was first built for, is no longer a Nexar runtime ([ADR-030](../adr/030-unified-dsh-first-agent-runtime.md)).
+The sections below are written from that first integration and still describe the protocol accurately.
 
 Research basis: [OpenWorker re-check](../research/upstream/openworker.md) (tool timeout, env passing,
 tool-name mangling) and [MCP SDK](../research/upstream/mcp-sdk.md). Design: [ADR-014](../adr/014-mcp-transport-and-work-bridge-v2.md).

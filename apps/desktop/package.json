@@ -24,7 +24,6 @@
     "@nexar/integration-deepseek-harness": "workspace:*",
     "@nexar/integration-openai-account": "workspace:*",
     "@nexar/integration-openai-compat": "workspace:*",
-    "@nexar/integration-openworker": "workspace:*",
     "@nexar/operating": "workspace:*",
     "@nexar/plane-protocol": "workspace:*",
     "@nexar/process": "workspace:*",

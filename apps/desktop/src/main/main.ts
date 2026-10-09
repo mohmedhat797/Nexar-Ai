@@ -223,7 +223,6 @@ async function start(): Promise<void> {
     clipboard,
     config,
     engine,
-    settings,
     checkKey: (provider) =>
       checkProviderCredential(provider, { resolveSecret: keys.resolveSecret }),
   });

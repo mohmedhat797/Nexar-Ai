@@ -17,7 +17,6 @@ export const CHANNELS = {
   providersSaveKeyFromClipboard: 'providers:saveKeyFromClipboard',
   providersRemoveKey: 'providers:removeKey',
   providersCheckKey: 'providers:checkKey',
-  providersSetOpenWorkerAccess: 'providers:setOpenWorkerAccess',
   chatgptPlanStatus: 'providers:chatgptPlanStatus',
   chatgptPlanConnect: 'providers:chatgptPlanConnect',
   chatgptPlanCancel: 'providers:chatgptPlanCancel',

@@ -89,6 +89,7 @@ export interface TurnEngineeringLane {
   readonly resourceId: string;
   /** Write lanes of a task with an engine gateway attempt (ADR-027 section 9): who orchestrated. */
   readonly executor?: 'engine' | 'native';
+  // legacy (ADR-030): read-only; the retired engine id only on turns recorded by older builds.
   readonly engine?: 'openworker' | 'dsh';
   /** A reason code, for example engine-not-selected. */
   readonly executorReason?: string;

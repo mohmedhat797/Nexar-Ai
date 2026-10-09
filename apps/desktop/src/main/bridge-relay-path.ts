@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 
 /*
- * How OpenWorker launches the Intelligence Bridge relay (ADR-027 section 9a): this executable as plain
+ * How DeepSeek Harness launches the Intelligence Bridge relay (ADR-027 section 9a): this executable as plain
  * Node (`ELECTRON_RUN_AS_NODE`) running the self-contained `bridge-relay.cjs` that `scripts/build.mjs`
  * bundles beside `main.js`. Packaged, the file is unpacked from the asar (a child cannot read it
  * from inside the archive).

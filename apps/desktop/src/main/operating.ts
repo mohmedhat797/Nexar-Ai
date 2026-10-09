@@ -30,7 +30,7 @@ function displayPath(project: Project, ref: ArtifactRef): string | undefined {
 
 /**
  * One `OperatingService` over the session store (ADR-024). Direct execution and the Code lane
- * (the WSL2 engineering plane, ADR-025) and the Cowork lane (supervised OpenWorker, ADR-026) can run. The session's own project is
+ * (the WSL2 engineering plane, ADR-025) and the Cowork lane (DeepSeek Harness, ADR-030) can run. The session's own project is
  * authoritative, direct tasks carry Nexar-set lineage and the NRC still routes them with every
  * hard filter.
  */
@@ -102,7 +102,7 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
     store,
     lanes: {
       // The Code lane is available for a project only when the engineering plane is ready and the
-      // project is mapped to a plane project; Cowork only when OpenWorker is ready with a usable
+      // project is mapped to a plane project; Cowork only when DeepSeek Harness is ready with a usable
       // resource. Nexar never reports a lane as available when it cannot run it.
       available: (lane, projectId) =>
         lane === 'code'
@@ -110,7 +110,7 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
           : (cowork?.available() ?? false),
       reason: (lane, projectId) =>
         lane === 'code' ? codePlane?.reason(projectId) : cowork?.reason(),
-      // OpenWorker itself is fine but no control resource can run it: recorded precisely.
+      // DeepSeek Harness itself is fine but no control resource can run it: recorded precisely.
       fallbackReason: () => cowork?.fallbackReason(),
       // A read-only review turn runs on the plane only when it advertises the report-only plan
       // (false while unknown); otherwise it runs direct, recorded as such.

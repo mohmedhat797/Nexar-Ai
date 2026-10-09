@@ -148,6 +148,7 @@ const engineeringSchema = z.strictObject({
         role: label(64),
         resourceId: label(128),
         executor: z.enum(['engine', 'native']).optional(),
+        // legacy (ADR-030): read-only; the retired engine id only on turns recorded by older builds.
         engine: z.enum(['openworker', 'dsh']).optional(),
         executorReason: label(64).optional(),
         controlResourceId: label(128).optional(),

@@ -160,6 +160,30 @@ describe('session records', () => {
     }
   });
 
+  it('still reads records written before the retired engine was removed (ADR-030)', () => {
+    const engineering = {
+      planeTaskId: 'task_1',
+      status: 'reported',
+      lanes: [
+        { role: 'implementation', resourceId: 'x:y', executor: 'engine', engine: 'openworker' },
+      ],
+    };
+    const lane = {
+      policy: 'rules@1',
+      mode: 'cowork',
+      requestedLane: 'cowork',
+      effectiveLane: 'direct',
+      fallbackReason: 'openworker-unavailable',
+    };
+    const stored = edit((r) => {
+      turnOf(r)['lane'] = lane;
+      turnOf(r)['outcome'] = { text: 'x', engineering };
+    });
+    const turn = parseSession(stored).turns[0];
+    expect(turn?.outcome?.engineering).toEqual(engineering);
+    expect(turn?.lane?.fallbackReason).toBe('openworker-unavailable');
+  });
+
   it('binds the record to the expected id', () => {
     expectCorrupt(serializeSession(valid()), `ses_${'b'.repeat(32)}`);
   });

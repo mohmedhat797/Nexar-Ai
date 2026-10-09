@@ -25,7 +25,6 @@
     { "path": "../../integrations/deepseek-harness" },
     { "path": "../../integrations/openai-account" },
     { "path": "../../integrations/openai-compat" },
-    { "path": "../../integrations/openworker" },
     { "path": "../../packages/operating" },
     { "path": "../../packages/plane-protocol" },
     { "path": "../../packages/process" },

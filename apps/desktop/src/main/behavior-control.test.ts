@@ -6,7 +6,7 @@ import type { PlaneStatusDto, ResourceRow } from '../shared/api.js';
 import type { BehaviorView } from '../shared/behavior.js';
 import type { BridgeDeps } from './channel.js';
 import type { CodePlane } from './code-plane.js';
-import type { CoworkService } from './cowork.js';
+import type { CoworkLane } from './dsh-cowork.js';
 import { SettingsStore } from './settings-store.js';
 import { createHarness, type Harness } from './test-harness.js';
 
@@ -91,7 +91,7 @@ const fakeCowork = (effective: string | undefined) => {
   const service = {
     effectiveControlResourceId: () => Promise.resolve(effective),
     refresh,
-  } as unknown as CoworkService;
+  } as unknown as CoworkLane;
   return { service, refresh };
 };
 
@@ -136,13 +136,13 @@ describe('behavior control view (NXR-065a)', () => {
           support: 'official',
           auth: 'unknown',
           availability: 'unknown',
-          control: { openworker: false, dsh: true },
+          control: { dsh: true },
         },
         {
           id: 'plane-agent',
           auth: 'unknown',
           availability: 'unknown',
-          control: { openworker: false, dsh: false },
+          control: { dsh: false },
         },
       ],
     };
@@ -279,16 +279,16 @@ describe('resource rows (NXR-065a)', () => {
     const row = (id: string): ResourceRow | undefined => result.value.find((r) => r.id === id);
     expect(row('ctl-model')).toMatchObject({
       connection: { provider: 'anthropic', method: 'api', support: 'official' },
-      control: { openworker: false, dsh: true },
+      control: { dsh: true },
     });
-    expect(row('plain-model')?.control).toEqual({ openworker: false, dsh: false });
+    expect(row('plain-model')?.control).toEqual({ dsh: false });
     expect(row('native-agent')).toMatchObject({
       connection: { provider: 'anthropic', method: 'subscription', support: 'official' },
-      control: { openworker: false, dsh: false },
+      control: { dsh: false },
     });
     expect(row('local-echo')).toMatchObject({
       connection: { provider: 'local', method: 'local' },
-      control: { openworker: false, dsh: false },
+      control: { dsh: false },
     });
     const json = JSON.stringify(result);
     expect(json).not.toContain(SENTINEL);

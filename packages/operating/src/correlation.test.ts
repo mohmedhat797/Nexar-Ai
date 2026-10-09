@@ -40,12 +40,12 @@ describe('recursion guard', () => {
     expect(() => rootCorrelation(SESSION, 'nope')).toThrow(NexarError);
   });
 
-  it('allows nexar -> openworker and does not mutate the parent', () => {
+  it('allows nexar -> dsh and does not mutate the parent', () => {
     const root = rootCorrelation(SESSION, TURN);
-    const ow = delegate(root, 'openworker');
-    expect(ow).toMatchObject({
-      chain: ['nexar', 'openworker'],
-      currentOrchestrator: 'openworker',
+    const agent = delegate(root, 'dsh');
+    expect(agent).toMatchObject({
+      chain: ['nexar', 'dsh'],
+      currentOrchestrator: 'dsh',
       depth: 1,
       correlationId: TURN,
       rootSessionId: SESSION,
@@ -54,14 +54,14 @@ describe('recursion guard', () => {
     expect(root.depth).toBe(0);
   });
 
-  it('allows nexar -> openworker -> nexar service child and it creates no turn', () => {
-    const ow = delegate(rootCorrelation(SESSION, TURN), 'openworker');
-    const child = childTask(ow);
+  it('allows nexar -> dsh -> nexar service child and it creates no turn', () => {
+    const agent = delegate(rootCorrelation(SESSION, TURN), 'dsh');
+    const child = childTask(agent);
     expect(child).toMatchObject({
       kind: 'service',
       depth: 2,
-      chain: ['nexar', 'openworker'],
-      currentOrchestrator: 'openworker',
+      chain: ['nexar', 'dsh'],
+      currentOrchestrator: 'dsh',
       turnId: TURN,
       rootSessionId: SESSION,
       correlationId: TURN,
@@ -69,22 +69,22 @@ describe('recursion guard', () => {
   });
 
   it('rejects re-entering an orchestrator already in the chain', () => {
-    const ow = delegate(rootCorrelation(SESSION, TURN), 'openworker');
-    expectRecursion(() => delegate(ow, 'openworker'));
-    expectRecursion(() => delegate(ow, 'nexar'));
+    const agent = delegate(rootCorrelation(SESSION, TURN), 'dsh');
+    expectRecursion(() => delegate(agent, 'dsh'));
+    expectRecursion(() => delegate(agent, 'nexar'));
     expectRecursion(() => delegate(rootCorrelation(SESSION, TURN), 'nexar'));
   });
 
   it('rejects anything deeper than depth 2', () => {
     const root = rootCorrelation(SESSION, TURN);
-    const second = delegate(delegate(root, 'openworker'), 'dsh');
+    const second = childTask(delegate(root, 'dsh'));
     expect(second.depth).toBe(2);
     expectRecursion(() => childTask(second));
-    expectRecursion(() => childTask(childTask(delegate(root, 'openworker'))));
+    expectRecursion(() => childTask(childTask(delegate(root, 'dsh'))));
   });
 
   it('never lets a service child start an orchestrated lane', () => {
-    const child = childTask(delegate(rootCorrelation(SESSION, TURN), 'openworker'));
+    const child = childTask(delegate(rootCorrelation(SESSION, TURN), 'dsh'));
     expectRecursion(() => delegate(child, 'dsh'));
   });
 

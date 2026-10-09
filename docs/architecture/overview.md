@@ -10,7 +10,7 @@ the right AI resource for it, orchestrates the work, executes it safely, records
 (later) improves its resource decisions over time. It combines:
 
 - **Personal work** — documents, proposals, SOWs, meeting prep, email, calendar, files, routine
-  automation. Primary engine: **OpenWorker**.
+  automation. Primary engine: **DeepSeek Harness** (the Cowork lane, ADR-030).
 - **Engineering work** — repository understanding, coding, debugging, review, delegation to coding
   agents. Primary engines: **DeepSeek Harness**, native coding agents (Claude Code, Codex,
   Antigravity), **Delegate Skills**, and **pi-ai** for direct model access.
@@ -38,7 +38,7 @@ flowchart TB
   subgraph Clients
     CLI[Nexar CLI]
     MOB[Nexar Mobile PWA<br/><i>planned v0.5</i>]
-    OWIN[OpenWorker<br/>MCP client]
+    OWIN[MCP client]
   end
 
   subgraph Edge[Request edge - v0.2, Nexar-owned]
@@ -159,12 +159,12 @@ replace the deterministic one (roadmap v0.4) without changing callers. Every dec
 reason codes (`capability.missing`, `state.unavailable`, `preference.task-kind`, …) and a
 human-readable explanation.
 
-### v0.2 request flow (OpenWorker over MCP)
+### v0.2 request flow (an MCP client)
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant O as OpenWorker
+  participant O as MCP client
   participant M as MCP server (stdio)
   participant A as Access (auth + audit)
   participant B as Work Bridge v2
@@ -197,16 +197,16 @@ sequenceDiagram
   M-->>O: one JSON text block
 ```
 
-If the work outlives `waitSeconds` (at most 100, because OpenWorker kills calls after 120 s), the
+If the work outlives `waitSeconds` (at most 100, because common MCP clients cap tool calls at about 120 s), the
 response is `running` and the job continues in the background; `nexar.work_status` (or a repeated
 `nexar.submit_work` with the same `requestId`) returns its state. Details:
-[`docs/integration/openworker-mcp.md`](../integration/openworker-mcp.md), ADR-014.
+[`docs/integration/mcp-client.md`](../integration/mcp-client.md), ADR-014.
 
 ## 6. Personal work vs engineering work
 
 ```mermaid
 flowchart LR
-  U((Owner)) --> OW[OpenWorker<br/>productivity engine]
+  U((Owner)) --> OW[MCP client<br/>any agent product]
   U --> CLI[Nexar CLI / Mobile]
   OW -- "heavy reasoning / execution<br/>(MCP tools exposed by Nexar)" --> NX[Nexar Core]
   CLI --> NX
@@ -216,12 +216,11 @@ flowchart LR
   NX --> TEL[(Telemetry)]
 ```
 
-OpenWorker keeps ownership of productivity workflows (connectors, approvals inbox, artifacts).
-Research showed OpenWorker does **not** expose its agent as a callable service; its stable seam is
-as an **MCP client**. The preferred direction is therefore _OpenWorker → Nexar_ (Nexar exposes an
-MCP server with a `nexar.submit_work` tool, built in v0.2), with _Nexar → OpenWorker_ (its automations API)
-as a secondary, pinned seam. v0.1 shipped only the transport-agnostic Work Bridge contract; v0.2 adds
-the stdio MCP server and Work Bridge v2 (ADR-014), verified live against OpenWorker v0.3.0.
+Cowork (productivity work: documents, drafts, meeting prep) runs on **DeepSeek Harness** behind Nexar's own
+control gateway (ADR-030); there is no second agent runtime. External MCP clients can still call Nexar
+through the generic inbound MCP server with a
+exar.submit_work tool (built in v0.2, Work Bridge v2, ADR-014;
+`@nexar/work-bridge`): the client is authenticated, scoped and audited, and heavy work is routed by the NRC.
 
 ## 7. Execution adapter boundaries
 
@@ -237,12 +236,11 @@ flowchart TB
     CXA["@nexar/integration-codex<br/>`codex exec --json`"]
     AGA["@nexar/integration-antigravity<br/>experimental `agy`"]
     DSK["@nexar/integration-delegate-skills<br/>pinned relay (codex only)"]
-    OWB["@nexar/integration-openworker<br/>Work Bridge v2"]
     MCPA["@nexar/integration-mcp<br/>stdio MCP server"]
   end
   EA --> DSHA & PIA & CCA & CXA & AGA & DSK
-  OWB --> EA
-  MCPA --> OWB
+  MCPA --> WBR["@nexar/work-bridge<br/>Work Bridge v2"]
+  WBR --> EA
 ```
 
 Rules (ADR-008):
@@ -354,7 +352,7 @@ flowchart LR
 The desktop app is another client of the same engine: the main process composes it with
 `@nexar/host` (the same code as the CLI) under the `project-only` workspace policy, and the renderer
 only reaches it through one validated bridge. There is no network listener. Per-user state lives in
-`<appData>/Nexar`. Cowork and Code are modes (owner-preference defaults: OpenWorker and DSH), not
+`<appData>/Nexar`. Cowork and Code are modes (owner-preference defaults: both on DSH, ADR-030), not
 separate engines. Providers (ADR-022) and scheduled tasks (ADR-023) are decided and come in later
 phases; see `docs/guides/local-development.md`.
 
@@ -370,7 +368,7 @@ flowchart LR
 ```
 
 Not built in v0.1. The seams that make it cheap later: the engine is a library (the CLI is a thin
-client of it), tasks carry an `origin` (`cli`, `openworker`, `control-plane`, `mobile`), telemetry is
+client of it), tasks carry an `origin` (`cli`, `mcp`, `control-plane`, `mobile`), telemetry is
 an event stream, and approvals will attach to tasks rather than to a UI.
 
 ## 11. Local-first and security posture
@@ -408,8 +406,8 @@ integrations/codex             native Codex agent adapter (v0.3)
 integrations/antigravity       experimental, opt-in agy adapter (v0.3)
 integrations/delegate-skills   pinned relay executor for a Codex resource (v0.3)
 integrations/pi                pi-ai direct model adapter
-integrations/openworker        Work Bridge v2 (request/response contract + job handling)
 integrations/mcp               stdio MCP server (the only importer of @modelcontextprotocol/*)
+packages/work-bridge           Work Bridge v2 (request/response contract + job handling)
 config/                        example configuration
 docs/                          architecture, ADRs, integration, research, roadmap, backlog, devlog
 ```

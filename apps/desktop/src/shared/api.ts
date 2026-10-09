@@ -88,7 +88,7 @@ export interface ResourceRow {
     readonly support: 'official' | 'experimental';
   };
   /** Whether the resource can drive that engine's control loop (`model-turn`). */
-  readonly control: { readonly openworker: boolean; readonly dsh: boolean };
+  readonly control: { readonly dsh: boolean };
 }
 
 export type MeasuredNumber =
@@ -199,7 +199,7 @@ export interface PlaneResourceDto {
   readonly support?: 'official' | 'experimental';
   readonly auth: 'authenticated' | 'unauthenticated' | 'not-required' | 'unknown';
   readonly availability: 'available' | 'degraded' | 'unavailable' | 'unknown';
-  readonly control: { readonly openworker: boolean; readonly dsh: boolean };
+  readonly control: { readonly dsh: boolean };
 }
 
 /** The engineering plane's state. Ids and fixed texts only; never a path, distro or command. */
@@ -357,6 +357,7 @@ export interface TurnEngineeringDto {
     readonly role: string;
     readonly resourceId: string;
     readonly executor?: 'engine' | 'native';
+    // legacy (ADR-030): read-only; the retired engine id only on turns recorded by older builds.
     readonly engine?: 'openworker' | 'dsh';
     readonly executorReason?: string;
     readonly controlResourceId?: string;
@@ -438,11 +439,6 @@ export interface NexarApi {
   saveProviderKeyFromClipboard(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   removeProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   checkProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
-  /** Owner opt-in: lets OpenWorker use this provider's saved key (never moves the key). */
-  setOpenWorkerAccess(args: {
-    provider: ApiProviderId;
-    allowed: boolean;
-  }): Promise<BridgeResult<ProviderRow>>;
   listProjects(): Promise<BridgeResult<readonly ProjectDto[]>>;
   /** Opens the native folder dialog in the main process; null when cancelled. */
   addProject(): Promise<BridgeResult<ProjectDto | null>>;

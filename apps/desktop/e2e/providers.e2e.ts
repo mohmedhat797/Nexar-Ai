@@ -279,7 +279,7 @@ describe('Desktop Providers', () => {
       ).toContain('not a paid plan, credits or remaining quota');
       expect(
         await page.getByRole('region', { name: 'Providers', exact: true }).innerText(),
-      ).toContain('cannot power pi-ai, DeepSeek Harness or OpenWorker');
+      ).toContain('cannot power pi-ai or DeepSeek Harness');
       expect(
         await page.getByRole('region', { name: 'Local and custom servers' }).innerText(),
       ).toContain('never scans your network');

@@ -132,7 +132,7 @@ function resourceDto(resource: PlaneResource): PlaneResourceDto {
         }),
     auth: resource.auth,
     availability: resource.availability,
-    control: { openworker: resource.control.openworker, dsh: resource.control.dsh },
+    control: { dsh: resource.control.dsh },
   };
 }
 

@@ -158,7 +158,8 @@ export const planeResourceSchema = z.strictObject({
     .optional(),
   auth: z.enum(['authenticated', 'unauthenticated', 'not-required', 'unknown']),
   availability: z.enum(['available', 'degraded', 'unavailable', 'unknown']),
-  control: z.strictObject({ openworker: z.boolean(), dsh: z.boolean() }),
+  // legacy (ADR-030): read-only. Planes of older builds still send the retired engine flag; it is never used.
+  control: z.strictObject({ openworker: z.boolean().optional(), dsh: z.boolean() }),
 });
 
 /** The plane's owner policy for the Code lane's control resource (`orchestration.code`). */
@@ -277,6 +278,7 @@ export const outcomeLaneSchema = z.strictObject({
   resourceId: boundedText(128),
   // Additive, only sent when `initialize` requested `resources`: who orchestrated a write lane.
   executor: z.enum(['engine', 'native']).optional(),
+  // legacy (ADR-030): read-only; the retired engine id only on lanes recorded by older planes.
   engine: z.enum(['openworker', 'dsh']).optional(),
   executorReason: boundedText(64).optional(),
   controlResourceId: id(RESOURCE_ID_PATTERN).optional(),

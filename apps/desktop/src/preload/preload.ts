@@ -3,7 +3,6 @@ import type { NexarApi, SessionEvent, TaskEvent } from '../shared/api.js';
 import { CHANNELS, SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { z } from 'zod';
 import {
-  OpenWorkerAccessArgsSchema,
   ProviderArgsSchema,
   ProviderListSchema,
   ProviderRowSchema,
@@ -151,13 +150,6 @@ const api: NexarApi = {
     invokeProvider(CHANNELS.providersRemoveKey, { provider }, ProviderRowSchema),
   checkProviderKey: (provider) =>
     invokeProvider(CHANNELS.providersCheckKey, { provider }, ProviderRowSchema),
-  setOpenWorkerAccess: (args) =>
-    invokeProvider(
-      CHANNELS.providersSetOpenWorkerAccess,
-      args,
-      ProviderRowSchema,
-      OpenWorkerAccessArgsSchema,
-    ),
   listProjects: () => invoke(CHANNELS.projectsList, {}),
   addProject: () => invoke(CHANNELS.projectsAdd, {}),
   removeProject: (id) => invoke(CHANNELS.projectsRemove, { id }),
