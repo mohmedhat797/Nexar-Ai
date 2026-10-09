@@ -59,8 +59,10 @@ plus the 0.2.x re-check recorded in the architecture document):
    `DshProfile` contract, overlay renderer, ACP client and permission broker.
 5. **NRC stays the model authority.** A DSH profile's overlay declares exactly one model route,
    `nexar` (pi-ai `openai-completions` → the Control Model Gateway, ADR-027 §7A), and selects it as
-   the ACP default. No provider key is ever given to DSH; the old OpenWorker direct-key path is not
-   carried over. The control resource is pinned per engine turn by the gateway; a model-change
+   the ACP default. Cowork never gives a provider key to DSH; the old OpenWorker direct-key path is
+   not carried over. The one exception is the existing Code-lane native-key path (ADR-027 §9b), where
+   the NRC itself selected the DSH resource and its own DeepSeek credential: that overlay keeps the
+   resource's route instead of `nexar`, and everything else in the profile applies. The control resource is pinned per engine turn by the gateway; a model-change
    notification naming any other route fails the turn. Delegated units go through the Intelligence
    Bridge MCP relay mounted per ACP session, under the per-turn `DelegationUnitLimit` (B2). Usage is
    accounted once, by the gateway/bridge, never from DSH's token meter.
