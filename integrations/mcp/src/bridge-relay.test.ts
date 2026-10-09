@@ -55,12 +55,13 @@ describe('bridge relay', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  async function connectClient(callTimeoutMs?: number): Promise<Client> {
+  async function connectClient(callTimeoutMs?: number, standaloneOnly?: boolean): Promise<Client> {
     const relay = createBridgeRelayServer({
       endpoint,
       token: TOKEN,
       version: '0.0.0',
       ...(callTimeoutMs === undefined ? {} : { callTimeoutMs }),
+      ...(standaloneOnly === undefined ? {} : { standaloneOnly }),
     });
     relays.push(relay);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -117,6 +118,31 @@ describe('bridge relay', () => {
       arguments: { unitId: 'u4', reviewOf: 'bad id', input: 'x', access: 'read-only' },
     });
     expect(textOf(bad)).toEqual({ text: { error: 'VALIDATION_ERROR' }, isError: true });
+  });
+
+  it('standalone-only advertises no review relationship and rejects supplied references without forwarding', async () => {
+    const client = await connectClient(undefined, true);
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === 'nexar.intelligence_submit');
+    expect(tool?.inputSchema.properties).not.toHaveProperty('reviewOf');
+    expect(tool?.inputSchema.required).toEqual(['unitId', 'input', 'access']);
+    expect(tool?.inputSchema.additionalProperties).toBe(false);
+    expect(tool?.description).toContain('standalone');
+    // Do not strip even a legacy sentinel in this restricted invocation contract.
+    for (const reviewOf of ['nxr055-analysis', 'nxr066-review', 'none', 'null', null, '']) {
+      const result = await client.callTool({
+        name: 'nexar.intelligence_submit',
+        arguments: { unitId: 'nxr066-review', reviewOf, input: 'x', access: 'read-only' },
+      });
+      expect(textOf(result)).toEqual({ text: { error: 'VALIDATION_ERROR' }, isError: true });
+    }
+    expect(frames).toHaveLength(0);
+    const result = await client.callTool({
+      name: 'nexar.intelligence_submit',
+      arguments: { unitId: 'analysis', input: 'x', access: 'read-only' },
+    });
+    expect(textOf(result).isError).toBeUndefined();
+    expect(frames[0]?.['request']).not.toHaveProperty('reviewOf');
   });
 
   it('advertises canonical capabilities in submit schema and normalizes aliases at relay boundary', async () => {
@@ -317,6 +343,29 @@ describe('bridge relay', () => {
   });
 
   describe('runBridgeRelay', () => {
+    it.each(['', '0', 'false', 'true', '2', ' 1'])(
+      'rejects malformed standalone-only setting %j before serving',
+      async (value) => {
+        const lines: string[] = [];
+        const connect = (): never => {
+          throw new Error('must not connect');
+        };
+        expect(
+          await runBridgeRelay({
+            env: {
+              NEXAR_BRIDGE_ENDPOINT: endpoint,
+              NEXAR_BRIDGE_TOKEN: TOKEN,
+              NEXAR_BRIDGE_STANDALONE_ONLY: value,
+            },
+            stderr: (line) => lines.push(line),
+            connect,
+          }),
+        ).toBe(1);
+        expect(lines).toEqual(['nexar-bridge-relay: invalid standalone-only setting\n']);
+        expect(frames).toHaveLength(0);
+      },
+    );
+
     it('exits non-zero with a fixed stderr line when the environment is incomplete', async () => {
       for (const env of [
         {},
@@ -337,50 +386,78 @@ describe('bridge relay', () => {
       }
     });
 
-    it('serves MCP over the given streams; stdout carries frames only and never the token', async () => {
-      const input = new PassThrough();
-      const output = new PassThrough();
-      const out: string[] = [];
-      output.setEncoding('utf8');
-      output.on('data', (c: string) => out.push(c));
-      const errs: string[] = [];
-      const done = runBridgeRelay({
-        env: { NEXAR_BRIDGE_ENDPOINT: endpoint, NEXAR_BRIDGE_TOKEN: TOKEN },
-        input,
-        output,
-        stderr: (l) => errs.push(l),
-      });
-      const send = (message: unknown): void => void input.write(`${JSON.stringify(message)}\n`);
-      send({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: '2025-06-18',
-          capabilities: {},
-          clientInfo: { name: 't', version: '0' },
-        },
-      });
-      send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-      send({
-        jsonrpc: '2.0',
-        id: 2,
-        method: 'tools/call',
-        params: { name: 'nexar.intelligence_status', arguments: { jobId: 'j1' } },
-      });
-      for (let i = 0; i < 100 && !out.join('').includes('"id":2'); i++) {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-      input.end();
-      expect(await done).toBe(0);
+    it.each([undefined, '1'])(
+      'serves MCP with standalone-only %s; stdout carries frames only and never the token',
+      async (standaloneOnly) => {
+        const input = new PassThrough();
+        const output = new PassThrough();
+        const out: string[] = [];
+        output.setEncoding('utf8');
+        output.on('data', (c: string) => out.push(c));
+        const errs: string[] = [];
+        const done = runBridgeRelay({
+          env: {
+            NEXAR_BRIDGE_ENDPOINT: endpoint,
+            NEXAR_BRIDGE_TOKEN: TOKEN,
+            ...(standaloneOnly === undefined
+              ? {}
+              : { NEXAR_BRIDGE_STANDALONE_ONLY: standaloneOnly }),
+          },
+          input,
+          output,
+          stderr: (l) => errs.push(l),
+        });
+        const send = (message: unknown): void => void input.write(`${JSON.stringify(message)}\n`);
+        send({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-06-18',
+            capabilities: {},
+            clientInfo: { name: 't', version: '0' },
+          },
+        });
+        send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+        send({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} });
+        send({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: { name: 'nexar.intelligence_status', arguments: { jobId: 'j1' } },
+        });
+        for (let i = 0; i < 100 && !out.join('').includes('"id":2'); i++) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        input.end();
+        expect(await done).toBe(0);
 
-      const lines = out.join('').split('\n').filter(Boolean);
-      expect(lines.length).toBeGreaterThanOrEqual(2);
-      for (const line of lines) expect(JSON.parse(line)).toHaveProperty('jsonrpc', '2.0');
-      expect(out.join('')).not.toContain(TOKEN);
-      expect(errs.join('')).not.toContain(TOKEN);
-      expect(frames[0]).toMatchObject({ token: TOKEN, op: 'status', jobId: 'j1' });
-    });
+        const lines = out.join('').split('\n').filter(Boolean);
+        expect(lines.length).toBeGreaterThanOrEqual(2);
+        for (const line of lines) expect(JSON.parse(line)).toHaveProperty('jsonrpc', '2.0');
+        const listed = lines
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                id?: number;
+                result?: {
+                  tools: { name: string; inputSchema: { properties: Record<string, unknown> } }[];
+                };
+              },
+          )
+          .find((frame) => frame.id === 3);
+        const submit = listed?.result?.tools.find(
+          (tool) => tool.name === 'nexar.intelligence_submit',
+        );
+        expect(submit).toBeDefined();
+        expect(Object.hasOwn(submit?.inputSchema.properties ?? {}, 'reviewOf')).toBe(
+          standaloneOnly === undefined,
+        );
+        expect(out.join('')).not.toContain(TOKEN);
+        expect(errs.join('')).not.toContain(TOKEN);
+        expect(frames[0]).toMatchObject({ token: TOKEN, op: 'status', jobId: 'j1' });
+      },
+    );
   });
 
   describe('status polling', () => {

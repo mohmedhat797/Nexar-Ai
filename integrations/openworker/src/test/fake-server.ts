@@ -268,7 +268,13 @@ export class FakeOpenWorkerServer {
         this.mcpServers.set(entry.name, entry.config);
         this.#options.onRecord?.({
           kind: 'mcp-register',
-          body: { name: entry.name, envNames: Object.keys(entry.config.env).sort() },
+          body: {
+            name: entry.name,
+            envNames: Object.keys(entry.config.env).sort(),
+            ...(entry.config.env['NEXAR_BRIDGE_STANDALONE_ONLY'] === undefined
+              ? {}
+              : { standaloneOnly: entry.config.env['NEXAR_BRIDGE_STANDALONE_ONLY'] === '1' }),
+          },
         });
         return reply(200, { ok: true });
       }

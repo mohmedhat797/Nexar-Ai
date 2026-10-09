@@ -1212,6 +1212,16 @@ describe('Cowork delegation through the Intelligence Bridge (NXR-059b)', () => {
 
       expect(delegating.grants.map((g) => g.access)).toEqual(['read-only']);
       expect(delegating.grants.map((g) => g.maxUnits)).toEqual([limit ?? 16]);
+      const registration = (await records()).find((r) => r['kind'] === 'mcp-register')?.[
+        'body'
+      ] as Record<string, unknown>;
+      if (limit === 1) {
+        expect(registration['envNames']).toContain('NEXAR_BRIDGE_STANDALONE_ONLY');
+        expect(registration['standaloneOnly']).toBe(true);
+      } else {
+        expect(registration['envNames']).not.toContain('NEXAR_BRIDGE_STANDALONE_ONLY');
+        expect(registration).not.toHaveProperty('standaloneOnly');
+      }
       expect(
         (await records()).filter((r) => r['kind'] === 'set_mode').map((r) => r['body']),
       ).toEqual([{ type: 'set_mode', mode: 'interactive' }]);
@@ -1482,6 +1492,9 @@ describe('Cowork control loop through Nexar (NXR-063b)', () => {
     expect(kit.grants).toHaveLength(2);
     expect(kit.grants.map((g) => g.maxUnits)).toEqual([1, 1]);
     expect(kit.grants[1]?.unitLimit).toBe(kit.grants[0]?.unitLimit);
+    expect(
+      (await records()).find((record) => record['kind'] === 'mcp-register')?.['body'],
+    ).toMatchObject({ standaloneOnly: true });
     expect(kit.maxOpen).toBe(1);
     expect(kit.turns).toHaveLength(0);
     expect(kit.calls).toEqual(['mint', 'revoke', 'mint', 'revoke']);
@@ -1527,6 +1540,11 @@ describe('Cowork control loop through Nexar (NXR-063b)', () => {
       maxUnits: 1,
       unitLimit: expect.any(DelegationUnitLimit) as DelegationUnitLimit,
     });
+    expect(
+      (await records())
+        .filter((record) => record['kind'] === 'mcp-register')
+        .map((record) => record['body']),
+    ).toEqual([expect.objectContaining({ standaloneOnly: true })]);
     expect(await userMessages()).toBe(2);
     expect(await providerEntries()).toHaveLength(1);
     expect(await readdirSafe(join(dirname(h.userData), 'ow-runtime', 'scratch'))).toEqual([]);

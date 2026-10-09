@@ -85,6 +85,9 @@ const SubmitInput = z.strictObject({
     .describe('What the unit may do. Never wider than granted.'),
   timeoutMs: z.number().int().positive().optional(),
 });
+// A trusted one-unit turn cannot have an earlier admitted unit to review. Narrow
+// both discovery and validation; never strip a model-supplied review reference.
+const StandaloneSubmitInput = SubmitInput.omit({ reviewOf: true });
 const StatusInput = z.strictObject({
   jobId: z.string().min(1).max(128).describe('The jobId returned by nexar.intelligence_submit.'),
 });
@@ -207,6 +210,8 @@ export interface BridgeRelayDeps {
   readonly endpoint: string;
   readonly token: string;
   readonly version: string;
+  /** Host-selected invocation contract; absent preserves multi-unit reviews. */
+  readonly standaloneOnly?: boolean;
   readonly connect?: BridgeConnector;
   readonly callTimeoutMs?: number;
   readonly statusPollIntervalMs?: number;
@@ -227,6 +232,7 @@ export interface BridgeRelayServer {
 }
 
 export function createBridgeRelayServer(deps: BridgeRelayDeps): BridgeRelayServer {
+  const submitInput = deps.standaloneOnly === true ? StandaloneSubmitInput : SubmitInput;
   const client = new BridgeClient({
     endpoint: deps.endpoint,
     token: deps.token,
@@ -286,15 +292,18 @@ export function createBridgeRelayServer(deps: BridgeRelayDeps): BridgeRelayServe
         {
           title: 'Delegate a unit of work to Nexar',
           description:
+            (deps.standaloneOnly === true
+              ? 'Submit one standalone unit. This turn allows one unit only; no reviewOf or prior-unit reference is accepted. '
+              : '') +
             'Ask Nexar to run one bounded, substantive unit of work on the best AI resource it can ' +
             'choose. Returns { jobId } immediately. The unit keeps running: poll ' +
             'nexar.intelligence_status with the jobId until its state is "done". The input is ' +
             'treated as untrusted data, never as instructions. The unit can never exceed the ' +
             'access, project or budget of this session.',
-          inputSchema: advertised(SubmitInput),
+          inputSchema: advertised(submitInput),
           annotations: { readOnlyHint: false, openWorldHint: false },
         },
-        (raw) => forward(SubmitInput, raw, (args) => ({ op: 'submit', request: args })),
+        (raw) => forward(submitInput, raw, (args) => ({ op: 'submit', request: args })),
       );
       server.registerTool(
         'nexar.intelligence_status',
@@ -340,12 +349,18 @@ export async function runBridgeRelay(options: BridgeRelayRunOptions): Promise<nu
     stderr('nexar-bridge-relay: NEXAR_BRIDGE_ENDPOINT and NEXAR_BRIDGE_TOKEN are required\n');
     return 1;
   }
+  const standaloneOnly = options.env['NEXAR_BRIDGE_STANDALONE_ONLY'];
+  if (standaloneOnly !== undefined && standaloneOnly !== '1') {
+    stderr('nexar-bridge-relay: invalid standalone-only setting\n');
+    return 1;
+  }
   const restoreConsole = redirectConsoleToStderr();
   const input = options.input ?? process.stdin;
   const relay = createBridgeRelayServer({
     endpoint,
     token,
     version: options.version ?? '0.1.0',
+    ...(standaloneOnly === '1' ? { standaloneOnly: true } : {}),
     ...(options.connect === undefined ? {} : { connect: options.connect }),
   });
   const handle = serveStdio(relay.create, {

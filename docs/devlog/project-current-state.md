@@ -5,7 +5,30 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-09, v0.6 finalization blocked after targeted acceptance)
+## Snapshot (2026-10-09, offline delegation-argument correction)
+
+The deployed acceptance baseline is `455985746c51ff381dd0b1a24fdbb40129088119`,
+validated by [CI 37875114311 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37875114311/attempts/2).
+Two subsequent targeted attempts failed `POLICY_REJECTED / unknown-reviewed-unit`;
+parent success with zero workers remains a failed acceptance. The upstream audit
+records confirm caller-generated self/unknown `reviewOf` references before MCP forwarding.
+
+The [offline argument correction](evidence/nxr-066-delegation-arguments.md) narrows
+the advertised and validated relay contract for trusted one-unit turns to
+standalone units. It rejects supplied review references rather than stripping them.
+Default multi-unit review semantics, the 16-unit default, the trusted one-unit
+counter and existing permission boundaries remain intact. Publication and new
+exact-head CI receipts belong to the local root-cause report; this snapshot does
+not attribute earlier CI to the new correction.
+
+Desktop was closed normally after an idle check for offline gates. Plane remains
+at `4559857`; no corrected owner-profile deployment or live test is authorized by
+this investigation. Matching deployment and separate live-acceptance authorization
+remain required. **PR #39 remains unmerged; v0.6 has no official merged baseline.**
+DSH Control remains unconfigured, NXR-070 implementation has not started and ADR-029
+remains Proposed.
+
+## Historical snapshot (2026-10-09, v0.6 finalization blocked after initial targeted acceptance)
 
 Matching Desktop and hardened Plane builds at `3cbd6a66426407be6a588506a32fc47046f888ae`
 were deployed and verified against [exact-head CI 37834534177 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37834534177/attempts/1).

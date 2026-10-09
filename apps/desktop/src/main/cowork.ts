@@ -873,14 +873,18 @@ export class CoworkService {
         token = grant.token;
       }
       const launch = (this.options.relay ?? relayLaunch)();
+      const relayEnv = { ...launch.env };
+      delete relayEnv['NEXAR_BRIDGE_STANDALONE_ONLY'];
       open.registering = true;
       await client.registerMcpServer(BRIDGE_SERVER_NAME, {
         command: launch.command,
         args: launch.args,
         env: {
-          ...launch.env,
+          ...relayEnv,
           NEXAR_BRIDGE_ENDPOINT: endpoint,
           NEXAR_BRIDGE_TOKEN: token,
+          // Derived only from the trusted turn scope, including fallback/restart grants.
+          ...(unitLimit.maximum === 1 ? { NEXAR_BRIDGE_STANDALONE_ONLY: '1' } : {}),
         },
       });
       open.active = true;
