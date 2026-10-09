@@ -20,6 +20,7 @@ import type {
   SecretResolver,
 } from '@nexar/contracts';
 import { DeepSeekHarnessExecutionAdapter } from '../adapter.js';
+import { CODING_PROFILE, MAX_REQUIRED_CONTEXT_CHARS, renderProfileOverlay } from '../profiles.js';
 import { DEEPSEEK_HARNESS_ADAPTER_ID, deepseekHarnessResource } from '../resource.js';
 import { makeContext, makeTask, makeTempDir } from '../test/support.js';
 import type { FakeRecord, LogLine } from '../test/support.js';
@@ -70,9 +71,16 @@ class FakeLauncher implements ProcessLauncher {
   ) {}
   prepare(spec: LaunchSpec): Promise<PreparedLaunch> {
     this.specs.push(spec);
+    const mount = spec.mounts?.[0];
+    // Sandbox paths in arguments map back to the mount's host path, as the real mount would resolve them.
+    const args = spec.args.map((a) =>
+      mount !== undefined && a.startsWith(`${mount.sandboxPath}/`)
+        ? mount.hostPath + a.slice(mount.sandboxPath.length)
+        : a,
+    );
     return Promise.resolve({
       command: spec.command,
-      args: spec.args,
+      args,
       env: { PATH: process.env.PATH ?? '' },
       cwd: this.workspacePath,
       workspacePath: this.workspacePath,
@@ -100,6 +108,7 @@ interface Options {
   prompt?: string;
   systemPrompt?: string;
   timeoutMs?: number;
+  requiredContext?: string;
 }
 
 function setup(o: Options = {}) {
@@ -158,6 +167,7 @@ function setup(o: Options = {}) {
       access: o.access ?? 'read-write',
       launcher,
     },
+    ...(o.requiredContext === undefined ? {} : { requiredContext: o.requiredContext }),
   };
   const task = makeTask({ workingDirectory: dir });
   const taskWithPrompts = {
@@ -442,15 +452,63 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
   });
 
   it('refuses a read-write workspace with a non-sandbox launcher before preparing anything', async () => {
-    const t = setup({ isolation: 'none' });
+    const t = setup({ isolation: 'none', requiredContext: 'Always run the tests.' });
     await expect(t.run()).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
     expect(t.launcher.specs).toEqual([]);
     expect(existsSync(t.recordPath)).toBe(false);
+    expect(existsSync(join(t.stateDir, 'acp'))).toBe(false);
   });
 
   it('re-checks the isolation reported by prepare and disposes without spawning', async () => {
     const t = setup({ isolation: 'sandbox', reportedIsolation: 'none' });
     await expect(t.run()).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
+    expect(t.launcher.disposed).toBe(1);
+    expect(existsSync(t.recordPath)).toBe(false);
+  });
+
+  it('native-key mode passes --patch with the Coding overlay and keeps llm-deepseek enabled', async () => {
+    const t = setup({
+      requiredContext: 'Always run {{the}} tests.',
+      acp: { permissions: { mode: 'deny' } },
+    });
+    await t.run();
+    const record = readAcpRecord(t.recordPath);
+    expect(record.argv).toContain('--patch');
+    const overlay = record.overlay as string;
+    expect(overlay).toBe(
+      renderProfileOverlay({
+        profile: CODING_PROFILE,
+        route: { kind: 'resource' },
+        requiredContext: 'Always run {{the}} tests.',
+      }),
+    );
+    const disabled = [...overlay.matchAll(/^- id: (\S+)\n {2}disabled: true$/gm)].map((m) => m[1]);
+    expect(disabled).toEqual(expect.arrayContaining(['session-log-deepseek', 'otel']));
+    expect(disabled).not.toContain('llm-deepseek');
+    expect(disabled).not.toContain('tool-bash');
+    expect(overlay).not.toMatch(/llm-pi-ai|NEXAR_CONTROL_TOKEN/);
+    expect(overlay).not.toContain('{{the}}');
+    expect(overlay).toContain('Always run { {the} } tests.');
+    // The context is never logged, sent as an event or put in the prompt turn.
+    expect(JSON.stringify([t.logs, t.events, record.requests[3]?.params])).not.toContain(
+      'Always run',
+    );
+  });
+
+  it('writes a Coding overlay with an empty personaSuffix when no context is given', async () => {
+    const t = setup({ acp: { permissions: { mode: 'deny' } } });
+    await t.run();
+    const overlay = readAcpRecord(t.recordPath).overlay as string;
+    expect(overlay).toContain('    personaSuffix: ""');
+    expect(overlay).toContain(`    personaPrefix: ${JSON.stringify(CODING_PROFILE.persona)}`);
+  });
+
+  it('rejects an oversized required context before spawning and disposes the launch', async () => {
+    const t = setup({
+      requiredContext: 'x'.repeat(MAX_REQUIRED_CONTEXT_CHARS + 1),
+      acp: { permissions: { mode: 'deny' } },
+    });
+    await expect(t.run()).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
     expect(t.launcher.disposed).toBe(1);
     expect(existsSync(t.recordPath)).toBe(false);
   });
@@ -471,8 +529,17 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     await running;
     const spec = t.launcher.specs[0] as LaunchSpec;
     expect(spec.command).toBe(process.execPath);
-    expect(spec.args.slice(-2)).toEqual(['--profile', 'acp']);
-    expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh', DEEPSEEK_API_KEY: 'sk-test-key-123' });
+    expect(spec.args.slice(-4)).toEqual([
+      '--profile',
+      'acp',
+      '--patch',
+      '/home/agent/.dsh/nexar.patch.yml',
+    ]);
+    expect(spec.env).toEqual({
+      DSH_HOME: '/home/agent/.dsh',
+      DSH_TELEMETRY_DISABLED: '1',
+      DEEPSEEK_API_KEY: 'sk-test-key-123',
+    });
     expect(spec.workspace).toBe(t.workspacePath);
     expect(spec.workspaceAccess).toBe('read-write');
     expect(spec.network).toEqual({ mode: 'proxy', allowHosts: ['api.deepseek.com'] });
@@ -491,7 +558,7 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     });
     await t.run();
     const spec = t.launcher.specs[0] as LaunchSpec;
-    expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh' });
+    expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh', DSH_TELEMETRY_DISABLED: '1' });
     expect(spec.network).toEqual({ mode: 'proxy', allowHosts: ['example.test'] });
   });
 
@@ -507,7 +574,11 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     });
     await t.run();
     const spec = t.launcher.specs[0] as LaunchSpec;
-    expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh', DEEPSEEK_API_KEY: stored });
+    expect(spec.env).toEqual({
+      DSH_HOME: '/home/agent/.dsh',
+      DSH_TELEMETRY_DISABLED: '1',
+      DEEPSEEK_API_KEY: stored,
+    });
     expect(JSON.stringify(t.logs)).not.toContain(stored);
   });
 

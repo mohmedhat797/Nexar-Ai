@@ -65,6 +65,11 @@ export interface EngineeringInput {
    * summary derive from it; without it they use the goal's first line.
    */
   readonly title?: string;
+  /**
+   * Owner-confirmed project memory (at most 16 000 characters), passed to every lane's runtime as
+   * trusted context. Never stored in the task record, telemetry, progress or logs.
+   */
+  readonly requiredContext?: string;
   /** Default `implement-review`. */
   readonly planId?: string;
   /** Overrides the project's `baseBranch`. */
@@ -166,6 +171,7 @@ export interface ExecutionTarget {
   readonly repository: string;
   readonly goal: string;
   readonly title?: string;
+  readonly requiredContext?: string;
   readonly baseBranch: string;
   readonly lineage?: EngineeringLineage;
 }
@@ -661,6 +667,9 @@ export class EngineeringExecution {
         ...(session === undefined
           ? {}
           : { gateway: session.gateway, gatewayResourceId: session.engineResourceId }),
+        ...(this.target.requiredContext === undefined
+          ? {}
+          : { requiredContext: this.target.requiredContext }),
         timeoutMs: this.target.settings.laneTimeoutMs,
         ...(this.options.signal === undefined ? {} : { signal: this.options.signal }),
       });

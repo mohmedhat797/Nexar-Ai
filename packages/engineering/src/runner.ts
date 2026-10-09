@@ -28,6 +28,8 @@ import { isEngineeringLineage, readEngineeringRecord } from './record.js';
 export const MAX_GOAL_CHARS = 20_000;
 /** Bound of the optional task title (same as the plane protocol's `run.title`). */
 export const MAX_TITLE_CHARS = 200;
+/** Bound of the optional required context (same as `@nexar/project-memory` and the plane protocol). */
+export const MAX_REQUIRED_CONTEXT_CHARS = 16_000;
 export const DEFAULT_PLAN_ID = 'implement-review';
 const DEFAULT_APPROVAL_TTL_MS = 30 * 60 * 1000;
 
@@ -101,6 +103,16 @@ export class EngineeringRunner {
     ) {
       throw new NexarError('VALIDATION_ERROR', 'The title is not valid');
     }
+    const { requiredContext } = input;
+    if (
+      requiredContext !== undefined &&
+      (typeof requiredContext !== 'string' ||
+        requiredContext.trim() === '' ||
+        requiredContext.includes('\0') ||
+        requiredContext.length > MAX_REQUIRED_CONTEXT_CHARS)
+    ) {
+      throw new NexarError('VALIDATION_ERROR', 'The required context is not valid');
+    }
     if (input.lineage !== undefined && !isEngineeringLineage(input.lineage)) {
       throw new NexarError('VALIDATION_ERROR', 'The lineage is not valid');
     }
@@ -147,6 +159,7 @@ export class EngineeringRunner {
         repository,
         goal,
         ...(title === undefined ? {} : { title }),
+        ...(requiredContext === undefined ? {} : { requiredContext }),
         baseBranch: input.baseBranch ?? settings.baseBranch,
         ...(input.lineage === undefined
           ? {}

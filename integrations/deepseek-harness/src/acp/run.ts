@@ -109,6 +109,7 @@ export async function executeAcp(
           sources,
           allowHosts: acp.allowHosts,
           gateway,
+          requiredContext: context.requiredContext,
         },
         context.signal,
       ),

@@ -64,6 +64,7 @@ export {
   DEFAULT_PLAN_ID,
   EngineeringRunner,
   MAX_GOAL_CHARS,
+  MAX_REQUIRED_CONTEXT_CHARS,
   MAX_TITLE_CHARS,
   type EngineeringRunnerDependencies,
 } from './runner.js';

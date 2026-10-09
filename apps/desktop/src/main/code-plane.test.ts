@@ -116,7 +116,10 @@ interface Recorded {
 
 function codeRequest(
   overrides: Partial<
-    Pick<CodeRequest, 'intent' | 'goal' | 'turnText' | 'projectId' | 'turnId' | 'sessionId'>
+    Pick<
+      CodeRequest,
+      'intent' | 'goal' | 'turnText' | 'projectId' | 'turnId' | 'sessionId' | 'requiredContext'
+    >
   > = {},
 ): Recorded {
   const tasks: string[] = [];
@@ -131,6 +134,9 @@ function codeRequest(
     intent: overrides.intent ?? 'coding',
     goal: overrides.goal ?? 'Add a retry.',
     turnText: overrides.turnText ?? 'Add a retry.',
+    ...(overrides.requiredContext === undefined
+      ? {}
+      : { requiredContext: overrides.requiredContext }),
     correlation: rootCorrelation(sessionId, turnId),
     onTask: (taskId) => {
       tasks.push(taskId);
@@ -213,7 +219,7 @@ describe('probe states', () => {
       },
     ]);
     const init = (await readLog()).find((e) => e.event === 'frame' && e.type === 'initialize');
-    expect(init?.frame).toMatchObject({ features: ['resources'] });
+    expect(init?.frame).toMatchObject({ features: ['resources', 'required-context'] });
     // Only whitelisted keys reach the DTO: no connection id, auth class, path or detail text.
     const keys = new Set((status.planeResources ?? []).flatMap((r) => Object.keys(r)));
     expect([...keys].sort()).toEqual(
@@ -472,6 +478,142 @@ describe('run', () => {
     expect(Object.keys(frames[1] as object).sort()).toEqual(
       ['goal', 'intent', 'lineage', 'planeProject', 'runId', 'title', 'type'].sort(),
     );
+  });
+
+  describe('required context', () => {
+    const BLOCK = 'Project memory (owner-confirmed; binding for this turn):\n- [decision] use pnpm';
+    const GOAL_WITH_BLOCK = `Session policy: mode=code\n\n${BLOCK}\n\nDo the thing`;
+    const runFrames = async (): Promise<Record<string, unknown>[]> =>
+      (await readLog()).flatMap((e) => (e.frame?.['type'] === 'run' ? [e.frame] : []));
+    const initFeatures = async (): Promise<unknown[]> =>
+      (await readLog()).flatMap((e) =>
+        e.frame?.['type'] === 'initialize' ? [e.frame['features']] : [],
+      );
+
+    it('sends the field to a plane that signalled support, and keeps the goal as is', async () => {
+      const { plane: p } = plane(fakeLauncher({ NEXAR_FAKE_PLANE_CONTEXT: '1' }));
+      await p.refresh();
+      expect(p.supportsRequiredContext()).toBe(true);
+      await p.run(
+        codeRequest({ goal: GOAL_WITH_BLOCK, requiredContext: BLOCK }).request,
+        new AbortController().signal,
+      );
+      const [frame] = await runFrames();
+      expect(frame).toMatchObject({ goal: GOAL_WITH_BLOCK, requiredContext: BLOCK });
+      // The run's own handshake also asked for the feature, because the probe learned it.
+      expect(await initFeatures()).toEqual([
+        ['resources', 'required-context'],
+        ['resources', 'required-context'],
+      ]);
+    });
+
+    it('sends the field even when the goal carries only the request (request-only goal)', async () => {
+      const { plane: p } = plane(fakeLauncher({ NEXAR_FAKE_PLANE_CONTEXT: '1' }));
+      await p.refresh();
+      await p.run(
+        codeRequest({ goal: 'Do the thing', requiredContext: BLOCK }).request,
+        new AbortController().signal,
+      );
+      expect((await runFrames())[0]).toMatchObject({
+        goal: 'Do the thing',
+        requiredContext: BLOCK,
+      });
+    });
+
+    it('omits the field without required context', async () => {
+      const { plane: p } = plane(fakeLauncher({ NEXAR_FAKE_PLANE_CONTEXT: '1' }));
+      await p.refresh();
+      await p.run(codeRequest().request, new AbortController().signal);
+      expect(await runFrames()).toHaveLength(1);
+      expect(Object.keys((await runFrames())[0] as object)).not.toContain('requiredContext');
+    });
+
+    it('runs on an unsignalling plane when the goal already contains the exact block', async () => {
+      const { plane: p } = plane(fakeLauncher());
+      const result = await p.run(
+        codeRequest({ goal: GOAL_WITH_BLOCK, requiredContext: BLOCK }).request,
+        new AbortController().signal,
+      );
+      expect(result.engineering.status).toBe('committed');
+      expect(p.supportsRequiredContext()).toBe(false);
+      expect(Object.keys((await runFrames())[0] as object)).not.toContain('requiredContext');
+    });
+
+    it('fails the turn closed on an unsignalling plane when the goal lacks the block', async () => {
+      const { plane: p, log } = plane(fakeLauncher());
+      const error = await p
+        .run(
+          codeRequest({ goal: 'Do the thing', requiredContext: BLOCK }).request,
+          new AbortController().signal,
+        )
+        .then(
+          () => undefined,
+          (e: unknown) => e as NexarError,
+        );
+      expect(error).toBeInstanceOf(NexarError);
+      expect(error?.code).toBe('VALIDATION_ERROR');
+      expect(error?.details).toEqual({ reason: 'required-context-unsupported' });
+      expect(error?.message).not.toContain('pnpm');
+      expect(await runFrames()).toEqual([]); // nothing was run
+      expect(log.lines.join('\n')).not.toContain('pnpm');
+      await expect.poll(() => spawnedChildren().every((c) => c.exitCode !== null)).toBe(true);
+    });
+
+    it('does not accept a goal that only resembles the block', async () => {
+      const { plane: p } = plane(fakeLauncher());
+      const near = GOAL_WITH_BLOCK.replace('pnpm', 'npm');
+      await expect(
+        p.run(
+          codeRequest({ goal: near, requiredContext: BLOCK }).request,
+          new AbortController().signal,
+        ),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('rejects a required context over the protocol bound before sending it', async () => {
+      const { plane: p } = plane(fakeLauncher({ NEXAR_FAKE_PLANE_CONTEXT: '1' }));
+      await p.refresh();
+      const big = 'x'.repeat(16_001);
+      await expect(
+        p.run(
+          codeRequest({ goal: big.slice(0, 100), requiredContext: big }).request,
+          new AbortController().signal,
+        ),
+      ).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { reason: 'required-context-overflow' },
+      });
+      expect(await runFrames()).toEqual([]);
+    });
+
+    it('falls back for a plane built before the feature: it never receives the new feature or field', async () => {
+      const launcher = fakeLauncher({ NEXAR_FAKE_PLANE_CONTEXT: 'strict' });
+      const { plane: p } = plane(launcher);
+      const status = await p.refresh();
+      // The strict plane refused the first `initialize` and exited; the retry asked for `resources` only.
+      expect(status.state).toBe('ready');
+      expect(launcher.launches).toBe(2);
+      expect(p.supportsRequiredContext()).toBe(false);
+      expect(await initFeatures()).toEqual([['resources', 'required-context'], ['resources']]);
+
+      await p.run(
+        codeRequest({ goal: GOAL_WITH_BLOCK, requiredContext: BLOCK }).request,
+        new AbortController().signal,
+      );
+      expect(await initFeatures()).toEqual([
+        ['resources', 'required-context'],
+        ['resources'],
+        ['resources'],
+      ]);
+      expect(Object.keys((await runFrames())[0] as object)).not.toContain('requiredContext');
+    });
+
+    it('does not retry other probe failures', async () => {
+      const launcher = fakeLauncher({ NEXAR_FAKE_PLANE_SCENARIO: 'config-error' });
+      const { plane: p } = plane(launcher);
+      expect((await p.refresh()).state).toBe('engineering-unavailable');
+      expect(launcher.launches).toBe(1);
+    });
   });
 
   it('omits the title when the turn text has no visible line', async () => {

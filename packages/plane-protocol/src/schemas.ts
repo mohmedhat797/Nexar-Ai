@@ -5,6 +5,7 @@ import {
   MAX_GOAL_CHARS,
   MAX_OUTCOME_LANES,
   MAX_REPORT_BYTES,
+  MAX_REQUIRED_CONTEXT_CHARS,
   MAX_TITLE_CHARS,
   PLANE_PROTOCOL,
 } from './limits.js';
@@ -35,8 +36,12 @@ const id = (pattern: RegExp): z.ZodString => z.string().regex(pattern);
 const nonNegative = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const boundedText = (max: number): z.ZodString => z.string().min(1).max(max);
 
-/** Optional protocol features a Desktop can request in `initialize`. */
-export const PLANE_FEATURES = ['resources'] as const;
+/**
+ * Optional protocol features a Desktop can request in `initialize`. `required-context`: the plane
+ * accepts `run.requiredContext` and says so in `readiness.features`. An older plane rejects an
+ * `initialize` that lists it, so a Desktop retries without it (see `CodePlane.probe`).
+ */
+export const PLANE_FEATURES = ['resources', 'required-context'] as const;
 /** Same shape as `resourceId()` in `@nexar/contracts`. */
 export const RESOURCE_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 
@@ -78,6 +83,11 @@ export const runFrameSchema = z.strictObject({
    * from the goal's context header. Without it the plane falls back to the goal's first line.
    */
   title: z.string().max(MAX_TITLE_CHARS).regex(RUN_TITLE_PATTERN).optional(),
+  /**
+   * Owner-confirmed project memory (optional, additive): sent only to a plane that listed
+   * `required-context` in `readiness.features`; an older plane rejects the key. Never recorded or logged.
+   */
+  requiredContext: z.string().min(1).max(MAX_REQUIRED_CONTEXT_CHARS).optional(),
   intent: z.enum(['coding', 'review', 'plan']),
   planId: id(PLAN_ID_PATTERN).optional(),
   lineage: lineageSchema,
@@ -172,6 +182,12 @@ export const readinessSchema = z.strictObject({
   resources: z.array(planeResourceSchema).max(64).optional(),
   /** Only sent when `initialize` requested the `resources` feature. */
   control: planeControlSchema.optional(),
+  /** Only sent when `initialize` requested `required-context`: the features this plane accepts. */
+  features: z
+    .array(z.enum(PLANE_FEATURES))
+    .max(8)
+    .refine((features) => new Set(features).size === features.length, 'duplicate feature')
+    .optional(),
 });
 
 export const readyFrameSchema = z.strictObject({

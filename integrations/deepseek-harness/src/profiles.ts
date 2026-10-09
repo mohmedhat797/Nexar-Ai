@@ -43,15 +43,16 @@ export const CODING_PROFILE: DshProfile = {
   shell: true,
 };
 
-/** Rows every profile disables: no upstream account, telemetry, session log or hosted search. */
+/** Rows every profile disables: no session log, telemetry, upstream account login or hosted search. */
 const COMMON_DISABLED_ROWS = [
   'session-log-deepseek',
   'otel',
   'session-telemetry-otel',
-  'llm-deepseek',
   'llm-deepseek-account',
   'web-search-deepseek',
 ] as const;
+/** Disabled only on the `nexar` route: the loop runs on Nexar's control route, not DSH's own key. */
+const NEXAR_ROUTE_DISABLED_ROWS = ['llm-deepseek'] as const;
 
 export const MAX_REQUIRED_CONTEXT_CHARS = 32_768;
 
@@ -69,10 +70,17 @@ function stripUnsafe(value: string): string {
   return kept;
 }
 
+/**
+ * `nexar`: the loop runs on the Control Model Gateway (a loopback `/v1` URL). `resource`: the NRC
+ * selected this DSH resource and its own DeepSeek credential (ADR-027 section 9b), so no route is
+ * rendered and `llm-deepseek` stays enabled.
+ */
+export type DshOverlayRoute =
+  { readonly kind: 'nexar'; readonly baseURL: string } | { readonly kind: 'resource' };
+
 export interface ProfileOverlayOptions {
   readonly profile: DshProfile;
-  /** The Control Model Gateway; must be a loopback `/v1` URL. */
-  readonly nexarRoute: { readonly baseURL: string };
+  readonly route: DshOverlayRoute;
   /** Owner-confirmed required context, rendered as the system prompt's `personaSuffix`. */
   readonly requiredContext?: string | undefined;
 }
@@ -83,32 +91,44 @@ export interface ProfileOverlayOptions {
  * scalar, so no input can change the document's structure.
  */
 export function renderProfileOverlay(options: ProfileOverlayOptions): string {
-  const { profile, nexarRoute } = options;
-  if (typeof nexarRoute.baseURL !== 'string' || !ROUTE_BASE_URL.test(nexarRoute.baseURL)) {
-    throw new NexarError(
-      'CONFIGURATION_ERROR',
-      `nexarRoute.baseURL must match ${String(ROUTE_BASE_URL)}`,
-    );
+  const { profile, route } = options;
+  if (route.kind === 'nexar') {
+    if (typeof route.baseURL !== 'string' || !ROUTE_BASE_URL.test(route.baseURL)) {
+      throw new NexarError(
+        'CONFIGURATION_ERROR',
+        `route.baseURL must match ${String(ROUTE_BASE_URL)}`,
+      );
+    }
+  } else if (route.kind !== 'resource') {
+    throw new NexarError('CONFIGURATION_ERROR', 'route.kind is not valid');
   }
   const suffix = sanitizeRequiredContext(options.requiredContext);
 
   const lines: string[] = [];
-  const disabled = [...COMMON_DISABLED_ROWS, ...profile.disabledRows];
+  const disabled = [
+    ...COMMON_DISABLED_ROWS,
+    ...(route.kind === 'nexar' ? NEXAR_ROUTE_DISABLED_ROWS : []),
+    ...profile.disabledRows,
+  ];
   for (const id of new Set(disabled)) lines.push(`- id: ${id}`, '  disabled: true');
+  if (route.kind === 'nexar') {
+    lines.push(
+      '- id: llm-pi-ai',
+      '  config:',
+      '    providers:',
+      `      ${JSON.stringify(NEXAR_ROUTE)}:`,
+      '        api: "openai-completions"',
+      `        baseURL: ${JSON.stringify(route.baseURL)}`,
+      `        apiKeyEnv: ${JSON.stringify(NEXAR_CONTROL_TOKEN_ENV)}`,
+      '        models:',
+      `          - id: ${JSON.stringify(NEXAR_CONTROL_MODEL)}`,
+      '- id: acp',
+      '  config:',
+      `    provider: ${JSON.stringify(NEXAR_ROUTE)}`,
+      `    model: ${JSON.stringify(NEXAR_CONTROL_MODEL)}`,
+    );
+  }
   lines.push(
-    '- id: llm-pi-ai',
-    '  config:',
-    '    providers:',
-    `      ${JSON.stringify(NEXAR_ROUTE)}:`,
-    '        api: "openai-completions"',
-    `        baseURL: ${JSON.stringify(nexarRoute.baseURL)}`,
-    `        apiKeyEnv: ${JSON.stringify(NEXAR_CONTROL_TOKEN_ENV)}`,
-    '        models:',
-    `          - id: ${JSON.stringify(NEXAR_CONTROL_MODEL)}`,
-    '- id: acp',
-    '  config:',
-    `    provider: ${JSON.stringify(NEXAR_ROUTE)}`,
-    `    model: ${JSON.stringify(NEXAR_CONTROL_MODEL)}`,
     '- id: system-prompt',
     '  config:',
     `    personaPrefix: ${JSON.stringify(profile.persona)}`,

@@ -84,7 +84,7 @@ export async function runLocalAcpSession(options: LocalAcpSessionOptions): Promi
     const scratchDir = await containedScratch(options.scratchBase, options.scratchDir);
     const overlay = renderProfileOverlay({
       profile: options.profile,
-      nexarRoute: { baseURL: control.baseURL },
+      route: { kind: 'nexar', baseURL: control.baseURL },
       requiredContext: options.requiredContext,
     });
     const home = await prepareHome(options.dshHome, scratchDir);

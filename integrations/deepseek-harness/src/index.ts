@@ -29,7 +29,12 @@ export {
   MAX_REQUIRED_CONTEXT_CHARS,
   renderProfileOverlay,
 } from './profiles.js';
-export type { DshProfile, DshProfileId, ProfileOverlayOptions } from './profiles.js';
+export type {
+  DshOverlayRoute,
+  DshProfile,
+  DshProfileId,
+  ProfileOverlayOptions,
+} from './profiles.js';
 export { dshLaunchFor, probeDshRuntime } from './runtime/resolve.js';
 export type {
   DshLaunch,

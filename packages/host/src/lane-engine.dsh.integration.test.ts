@@ -42,6 +42,7 @@ import {
   type LaneEngineSession,
 } from '@nexar/engineering';
 import {
+  CODING_PROFILE,
   DeepSeekHarnessExecutionAdapter,
   deepseekHarnessResource,
   type DeepSeekHarnessAdapterOptions,
@@ -52,6 +53,8 @@ import { PlaneLaneEngine } from './lane-engine.js';
 const TASK = 'eng-0123456789ab';
 const FEATURE_LINE = 'FEATURE-LINE host-integration';
 const UNIT_TEXT = 'UNIT-RESULT-text-0001';
+const REQUIRED_CONTEXT_MARKER = 'REQUIRED-CONTEXT-MARKER-7';
+const REQUIRED_CONTEXT = `Project memory (owner-confirmed; binding for this turn):\n- [decision] ${REQUIRED_CONTEXT_MARKER}`;
 const SHIPPED_PLANS = fileURLToPath(new URL('../../../engineering/plans', import.meta.url));
 const RELAY_BUILD = fileURLToPath(
   new URL('../../../apps/cli/scripts/build-relay.mjs', import.meta.url),
@@ -258,7 +261,7 @@ interface Fixture {
   readonly events: TelemetryEvent[];
   readonly headBefore: string;
   readonly progress: EngineeringProgress[];
-  run(): Promise<Awaited<ReturnType<EngineeringRunner['run']>>>;
+  run(requiredContext?: string): Promise<Awaited<ReturnType<EngineeringRunner['run']>>>;
   decideNext(): Promise<string>;
 }
 
@@ -437,9 +440,13 @@ async function createFixture(options: FixtureOptions): Promise<Fixture> {
     events,
     headBefore,
     progress,
-    run: () =>
+    run: (requiredContext) =>
       runner.run(
-        { projectId: 'demo', goal: 'Add the feature.' },
+        {
+          projectId: 'demo',
+          goal: 'Add the feature.',
+          ...(requiredContext === undefined ? {} : { requiredContext }),
+        },
         { onProgress: (event) => progress.push(event) },
       ),
     async decideNext() {
@@ -476,7 +483,7 @@ describe.skipIf(process.platform === 'win32')('a DSH write lane on the engine ga
   it('runs the lane on the control gateway, delegates one unit, and commits through the usual gates', async () => {
     const f = await createFixture({ control: true, dsh: 'available' });
     const approved = f.decideNext();
-    const outcome = await f.run();
+    const outcome = await f.run(REQUIRED_CONTEXT);
     const approvalId = await approved;
 
     expect(outcome).toMatchObject({ taskId: TASK, status: 'committed', branch: `nexar/${TASK}` });
@@ -509,6 +516,8 @@ describe.skipIf(process.platform === 'win32')('a DSH write lane on the engine ga
     expect(f.fake.executed.filter((e) => e.resourceId === 'sub-unit')).toHaveLength(1);
     expect(f.fake.executed.some((e) => e.resourceId === 'control-model')).toBe(false);
     const dsh = JSON.parse(readFileSync(f.dshRecord, 'utf8')) as {
+      overlay: string;
+      envTelemetryDisabled?: string;
       envKeys: string[];
       mcpTools: string[];
       mcpUnit: { outcome: string; resourceId: string; textLength: number };
@@ -525,6 +534,14 @@ describe.skipIf(process.platform === 'win32')('a DSH write lane on the engine ga
     // No DSH credential of its own, only the lane token.
     expect(dsh.envKeys).toContain('NEXAR_CONTROL_TOKEN');
     expect(dsh.envKeys).not.toContain('DEEPSEEK_API_KEY');
+    // The lane's DSH launch got the Coding overlay with the owner's required context in its prompt
+    // suffix, and DSH telemetry off.
+    expect(dsh.overlay).toContain(`    personaPrefix: ${JSON.stringify(CODING_PROFILE.persona)}`);
+    expect(dsh.overlay).toContain(REQUIRED_CONTEXT_MARKER);
+    expect(dsh.envTelemetryDisabled).toBe('1');
+    // ...and nowhere that persists or is shown.
+    const shownContext = JSON.stringify([record, f.events, silent.lines, f.progress, outcome]);
+    expect(shownContext).not.toContain(REQUIRED_CONTEXT_MARKER);
 
     const spec = f.launcher.specs.find((s) => s.services !== undefined);
     expect(spec?.services).toMatchObject({ gateway: true, bridge: true, relayScript });

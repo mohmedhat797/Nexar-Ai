@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
   MAX_DIFF_FILES,
+  MAX_REQUIRED_CONTEXT_CHARS,
   MAX_TITLE_CHARS,
   PLANE_PROTOCOL,
   desktopFrameSchema,
+  initializeFrameSchema,
   planeFrameSchema,
+  readinessSchema,
+  runFrameSchema,
   runTitle,
   type DesktopFrame,
   type PlaneFrame,
@@ -62,6 +67,11 @@ const desktopValid: readonly [string, unknown][] = [
   ['run intent plan', { ...run, intent: 'plan' }],
   ['run depth 2', { ...run, lineage: { ...lineage, depth: 2 } }],
   ['run with a title', { ...run, title: 'Add a Validation section to the README' }],
+  ['run with required context', { ...run, requiredContext: 'Project memory:\n- [decision] x' }],
+  [
+    'run with the largest required context',
+    { ...run, requiredContext: 'x'.repeat(MAX_REQUIRED_CONTEXT_CHARS) },
+  ],
   ['run with a unicode title', { ...run, title: 'Füge eine Prüfung hinzu 🚀' }],
   ['cancel', { type: 'cancel', runId: RUN }],
   ['decide approve', { type: 'decide', approvalId: APPROVAL, decision: 'approve' }],
@@ -95,6 +105,13 @@ const desktopInvalid: readonly [string, unknown][] = [
   ['a title with a paragraph separator', { ...run, title: 'fix\u2029more' }],
   ['a title with a next-line character', { ...run, title: 'fix\u0085more' }],
   ['an oversize title', { ...run, title: 'x'.repeat(MAX_TITLE_CHARS + 1) }],
+  ['an empty required context', { ...run, requiredContext: '' }],
+  [
+    'an oversize required context',
+    { ...run, requiredContext: 'x'.repeat(MAX_REQUIRED_CONTEXT_CHARS + 1) },
+  ],
+  ['a non-string required context', { ...run, requiredContext: ['x'] }],
+  ['a null required context', { ...run, requiredContext: null }],
   ['a non-string title', { ...run, title: 42 }],
   ['a null title', { ...run, title: null }],
   ['an unknown intent', { ...run, intent: 'write' }],
@@ -605,5 +622,66 @@ describe('control policy and lane facts (additive to nexar-plane/1)', () => {
     ]) {
       expect(ok(completed(bad))).toBe(false);
     }
+  });
+});
+
+describe('required-context negotiation (additive to nexar-plane/1)', () => {
+  const initialize = { type: 'initialize', protocol: PLANE_PROTOCOL };
+  const features = ['resources', 'required-context'];
+
+  // The schemas of a plane / Desktop built before the feature: only `resources` is a feature, the
+  // run frame has no `requiredContext`, and readiness has no `features`.
+  const oldInitialize = z.strictObject({
+    type: z.literal('initialize'),
+    protocol: z.string(),
+    features: z.array(z.enum(['resources'])).optional(),
+  });
+  const oldRun = runFrameSchema.omit({ requiredContext: true });
+  const oldReadiness = readinessSchema.omit({ features: true });
+
+  it('accepts the new feature in initialize and a plane feature list in readiness', () => {
+    expect(initializeFrameSchema.safeParse({ ...initialize, features }).success).toBe(true);
+    expect(
+      readinessSchema.safeParse({ ...readiness, features: ['required-context'] }).success,
+    ).toBe(true);
+    expect(readinessSchema.safeParse(readiness).success).toBe(true);
+  });
+
+  it('rejects duplicate or unknown plane features in readiness', () => {
+    for (const bad of [['required-context', 'required-context'], ['gateways']]) {
+      expect(readinessSchema.safeParse({ ...readiness, features: bad }).success).toBe(false);
+    }
+  });
+
+  it('old plane x new Desktop: the new feature in initialize is refused, so the Desktop retries without it', () => {
+    expect(oldInitialize.safeParse({ ...initialize, features }).success).toBe(false);
+    expect(oldInitialize.safeParse({ ...initialize, features: ['resources'] }).success).toBe(true);
+    // Never sent to it: a run frame with the field is refused by an old plane.
+    expect(oldRun.safeParse({ ...run, requiredContext: 'x' }).success).toBe(false);
+    expect(oldRun.safeParse(run).success).toBe(true);
+  });
+
+  it('old Desktop x new plane: nothing new is sent unless requested, and the field is optional', () => {
+    // A new plane answers an old Desktop's initialize without `features`.
+    expect(oldInitialize.safeParse({ ...initialize, features: ['resources'] }).success).toBe(true);
+    expect(oldReadiness.safeParse(readiness).success).toBe(true);
+    expect(oldReadiness.safeParse({ ...readiness, features: ['required-context'] }).success).toBe(
+      false,
+    );
+    // And an old Desktop's run frame (no requiredContext) is valid for a new plane.
+    expect(runFrameSchema.safeParse(run).success).toBe(true);
+  });
+
+  it('new Desktop x new plane: initialize, readiness and a run with context all validate', () => {
+    expect(initializeFrameSchema.safeParse({ ...initialize, features }).success).toBe(true);
+    expect(
+      planeFrameSchema.safeParse({
+        ...ready,
+        readiness: { ...readiness, features: ['required-context'] },
+      }).success,
+    ).toBe(true);
+    expect(runFrameSchema.safeParse({ ...run, requiredContext: 'Project memory' }).success).toBe(
+      true,
+    );
   });
 });
