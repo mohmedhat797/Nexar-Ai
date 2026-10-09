@@ -5,7 +5,40 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-09, offline delegation-argument correction)
+## Snapshot (2026-10-09, Nexar v0.6 — Merged and Validated)
+
+**NEXAR_V0.6_BASELINE_ESTABLISHED**. PR [#39](https://github.com/mohmedhat797/Nexar-Ai/pull/39)
+merged as `2f856f935a1ca51fc0f2c179386baa31bd82c3bd` at 15:55:10 UTC. [CI 37955286149 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37955286149/attempts/1)
+passed at that exact merged main SHA, including Ubuntu/Windows regressions/build,
+source and packaged Desktop E2E, Windows packaging/artifact upload and secret scanning.
+The merged tree is identical to implementation `9e71014979db7a7619bb6ac909b8418a0d198573`.
+
+Matching Desktop/Plane deployment at that implementation passed. One final
+read-only Cowork standalone delegation **passed**: exactly one Claude Code worker
+completed, result returned, parent succeeded, strict no-reviewOf schema and trusted
+one-unit admission observed, grant revoked, zero active sessions/jobs and validation
+API snapshot unchanged. Full evidence is in the [acceptance record](evidence/nxr-066-owner-acceptance.md)
+and [official baseline](evidence/Nexar_v0.6_Official_Baseline.md).
+Historical SOW/native Code/integrated results retain `2f26b36` attribution.
+Earlier failures and dated states below are preserved history, not current blockers.
+
+Active Desktop/Plane remain at `9e71014979db7a7619bb6ac909b8418a0d198573`; merge and
+documentation commits do not imply newly activated binary revisions. Existing
+security/authentication/sandbox/approval boundaries are preserved. No release/tag.
+DSH Control remains unconfigured; Antigravity unavailable; unsigned Windows and
+documented native containment limits remain known limitations.
+
+**Next exact task:** NXR-070 architecture reconciliation against the official merge
+baseline, then owner review of Proposed ADR-029. [Handoff](../architecture/NXR-070_Architecture_Reconciliation_Handoff.md)
+pins research `b843d04` / source base `4c69d1c`. Research branch remains unmerged,
+ADR-029 is not approved, and implementation **NOT STARTED**. No Resource Fabric,
+ACP, DSH Control or new budget/timeout/retry work started during finalization.
+
+This is a follow-up documentation-only publication; its separate HEAD/CI receipt is
+recorded in the local finalization report. Tested implementation and merge SHAs
+above remain fixed and are not relabelled as that documentation commit.
+
+## Historical snapshot (2026-10-09, offline delegation-argument correction)
 
 The deployed acceptance baseline is `455985746c51ff381dd0b1a24fdbb40129088119`,
 validated by [CI 37875114311 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37875114311/attempts/2).

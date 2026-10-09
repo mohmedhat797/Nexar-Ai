@@ -91,7 +91,7 @@ themes, AI behavior settings, providers and scheduled tasks.
   live-validated; live validation of NXR-056, NXR-053, NXR-052 and the installer (NXR-051) remains.
   Current state: [`project-current-state.md`](../devlog/project-current-state.md).
 
-## v0.6 — Resource orchestration _(planned; architecture accepted 2026-10-04, revision 2)_
+## v0.6 — Resource orchestration _(merged and validated 2026-10-09)_
 
 Nexar is the unified intelligence gateway: it owns providers, connections and resources; OpenWorker
 (Cowork) and DSH (Code) orchestrate and consume Nexar through the Engine Gateway (Control Model
@@ -103,6 +103,15 @@ connections and compatibility metadata, the Resource Strategy Planner, the Engin
 work delegation and NexarProvider, DSH through the plane gateway, Providers and orchestration UX,
 optional owner-enabled experimental subscription model adapters, and offline plus owner live
 acceptance. Scheduled tasks (NXR-054) follow this milestone.
+
+PR39 merged as `2f856f935a1ca51fc0f2c179386baa31bd82c3bd`; [CI 37955286149 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37955286149/attempts/1) passed at that actual
+merge SHA. Historical SOW/native Code/integrated acceptance and final corrected
+standalone delegation are attributed separately in the
+[official baseline](../devlog/evidence/Nexar_v0.6_Official_Baseline.md). Plane DSH
+Control remains unconfigured; native Code success does not validate that loop.
+The next owner-directed task is NXR-070 architecture reconciliation and review of
+Proposed ADR-029, with implementation not started; see the
+[handoff](../architecture/NXR-070_Architecture_Reconciliation_Handoff.md).
 
 ## v0.7 — Memory & Personal Context
 

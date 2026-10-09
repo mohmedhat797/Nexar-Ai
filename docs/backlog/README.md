@@ -81,6 +81,15 @@ Phases of [ADR-021](../adr/021-nexar-desktop.md); see also ADR-022 and ADR-023.
 ## v0.6 — Resource orchestration
 
 [ADR-027](../adr/027-resource-orchestration-architecture.md) · [plan](../architecture/resource-orchestration-plan.md).
+
+**Current v0.6 status (2026-10-09): Merged and validated.** PR39 merged at
+`2f856f935a1ca51fc0f2c179386baa31bd82c3bd`; [CI 37955286149 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37955286149/attempts/1) passed. NXR-066 owner acceptance
+is complete in the finalized scope, with native Code acceptance and unconfigured
+Plane DSH Control clearly distinguished. The table below preserves original planning
+labels; [current state](../devlog/project-current-state.md) and the
+[official baseline](../devlog/evidence/Nexar_v0.6_Official_Baseline.md) govern actual
+status. Next: NXR-070 architecture reconciliation, not implementation.
+
 Order: NXR-060 → 061 → 062 → 059 → 063 → 064 → 065 → (067, optional) → 066. NXR-054 waits for NXR-066.
 
 | Id                                                         | Title                                                                         | Milestone | Labels                                 | Status  |
@@ -95,7 +104,7 @@ Order: NXR-060 → 061 → 062 → 059 → 063 → 064 → 065 → (067, optiona
 | [NXR-066](066-resource-orchestration-acceptance.md)        | Resource orchestration E2E and live acceptance                                | v0.6      | testing, acceptance                    | Planned |
 | [NXR-067](067-experimental-subscription-model-adapters.md) | Experimental subscription model-turn adapters (owner-enabled)                 | v0.6      | providers, experimental, security      | Planned |
 
-**2026-10-07 correction:** NXR-059–065 are implemented offline (the historical table above has not
+**Historical 2026-10-07 correction (superseded):** NXR-059–065 are implemented offline (the historical table above has not
 tracked their commits). NXR-067a sign-in and NXR-067b's dynamic account resource publication are implemented.
 [NXR-068: Dynamic Provider Model Catalogs](068-dynamic-provider-model-catalogs.md) passed local gates
 and full exact-head CI for `0244d97`. NXR-066a is offline-tested; 066b is prepared, pending Windows

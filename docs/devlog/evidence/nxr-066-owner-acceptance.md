@@ -1,6 +1,57 @@
 # NXR-066b historical acceptance and current finalization evidence
 
-## Current targeted acceptance (2026-10-09)
+## Current targeted acceptance — 2026-10-09, standalone correction PASS
+
+**TARGETED_LIVE_ACCEPTANCE_PASS** at matching Desktop and Plane implementation
+`9e71014979db7a7619bb6ac909b8418a0d198573`. The corrected private relay setting
+`NEXAR_BRIDGE_STANDALONE_ONLY=1` and actual Control Model MCP schema excluded
+`reviewOf`, with additional properties denied. Control output, upstream permission
+frame and Bridge input omitted the property; nothing was silently stripped.
+
+- Session `ses_078442699a3e7a43b97dc5231ebd4c3a`; turn
+  `turn_28f0f870cf081ad8dc1857ea318beea6`; parent task
+  `task_a771a154-b778-4669-9f01-c6de4dcfeada`.
+- Cowork / OpenWorker 0.3.1 / GPT-5.6-Luna Control, reason `control.auto`,
+  pinned gateway resource
+  `inventory:048a60e3b9b7892e466eff536385c50a2168da981a4d3ac61cd0f4c44ba0f2b3`.
+- Read-only grant `b5557cda-c057-457a-9579-ca54aa3faa5b`, maximum and shared
+  turn ceiling 1. Unit `nxr066-standalone-analysis`; job
+  `1b5d9203-ec66-4b63-9598-e042d8ec1820`; NRC decision
+  `171f7247-6c13-4a07-8bce-66cab9d79df2`; eligible worker `claude-code`.
+- Received/normalized capabilities: `code-review`, `knowledge-work`,
+  `text-generation`, unchanged and accepted. Exactly one worker completed
+  `succeeded` at 15:52:02.086 UTC; result returned at 15:52:02.899 UTC;
+  parent succeeded, zero Control restarts. Monitoring duration 50,450 ms.
+- Grant revoked at 15:52:14.011 UTC; no active sessions/jobs, no artifacts;
+  original permission restored and passive metadata observer removed.
+- Existing validation document's canonical API UTF-8 preview snapshot unchanged;
+  source clean. This is not a fresh physical-byte fixture hash. Post-test Plane
+  doctor passed, configuration digest unchanged, validation Git tree clean,
+  native execution processes absent and isolation preserved.
+- Worker receipt: 2 input / 610 output tokens, runtime-reported estimated cost
+  USD 0.306552. Control token counters retained locally; Control cost unavailable.
+  These are available usage counters, not a complete billing total or hard cap.
+
+Read-only policy continued denying writes, shell, network and foreign MCP while
+allowing the two Intelligence Bridge tools. Existing offline capability/alias,
+concurrency/restart/remint admission and multi-unit review regressions remain
+green. Production default is 16; the restricted invocation does not alter it.
+
+PR [#39](https://github.com/mohmedhat797/Nexar-Ai/pull/39) merged on
+2026-10-09 at 15:55:10 UTC as `2f856f935a1ca51fc0f2c179386baa31bd82c3bd`.
+[CI 37955286149 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37955286149/attempts/1) passed all three jobs at that actual merge SHA, including
+source/package E2E, packaging and Gitleaks; checkouts independently verified.
+The merged tree exactly equals the live-tested implementation tree. See the
+[official baseline](Nexar_v0.6_Official_Baseline.md).
+
+Historical SOW/native Code/integrated results below remain attributed to
+`2f26b36`; prior failures remain failures. DSH Control is still unconfigured.
+No second current acceptance attempt, new authentication, release/tag or
+NXR-070 implementation occurred. Detailed sanitized operational receipts remain
+in the owner's ignored remediation directory.
+
+
+## Historical targeted acceptance (2026-10-09, pre-mode correction)
 
 **TARGETED_LIVE_ACCEPTANCE_FAIL** at matching Desktop/Plane
 `3cbd6a66426407be6a588506a32fc47046f888ae`. The parent Cowork turn completed,
