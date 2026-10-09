@@ -343,3 +343,9 @@ The Decision above stands. The implementation refined it as follows:
 - **Sandbox mounts:** a mount's sandbox path may be any absolute path outside the profile's
   reserved locations (`/work`, `/run`, `/tmp`, system directories, and the tmpfs home itself). This
   lets runtimes with fixed credential paths work.
+
+## Amendment (2026-10-04): resource orchestration
+
+Lane plans become the Code **work graph**: the planner allocates all lanes upfront (review
+diversity, reservations, plan budget) and each lane is revalidated before it runs ([ADR-027](027-resource-orchestration-architecture.md) §10). DSH may
+orchestrate inside planning/write lanes (§9).

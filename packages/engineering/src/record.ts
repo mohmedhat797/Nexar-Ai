@@ -1,6 +1,11 @@
 import { chmod, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { NexarError, type EngineeringLineage, type UsageReport } from '@nexar/contracts';
+import {
+  NexarError,
+  type ControlEngine,
+  type EngineeringLineage,
+  type UsageReport,
+} from '@nexar/contracts';
 
 /**
  * Durable summary of an engineering task (ADR-019 section 10). Allowlisted fields only: ids,
@@ -25,6 +30,30 @@ export interface LaneRecord {
   readonly latencyMs: number;
   /** SHA-256 of the lane's text artifact. */
   readonly outputSha256?: string;
+  /** Resource the strategy planned for this lane; absent when the task ran unplanned. */
+  readonly planned?: string;
+  /** True when the lane ran on another resource than planned. */
+  readonly fallback?: boolean;
+  /**
+   * Write lanes of a task with an engine gateway attempt (ADR-027 section 9): whether the lane ran
+   * orchestrated by an engine or 
+ative. Absent when no engine was configured.
+   */
+  readonly executor?: 'engine' | 'native';
+  readonly engine?: ControlEngine;
+  /** engine-unavailable, control-unavailable, engine-not-selected or control-resource-failed. */
+  readonly executorReason?: string;
+  readonly controlResourceId?: string;
+  readonly controlDecisionId?: string;
+}
+
+/** Stamp of the upfront resource plan (`strategy@1`): ids, codes and counts only. */
+export interface StrategyRecord {
+  readonly policy: string;
+  readonly configId?: string;
+  readonly units: number;
+  /** Reason code when the plan itself used the deterministic fallback. */
+  readonly fallback?: string;
 }
 
 export interface CommandRecord {
@@ -90,6 +119,8 @@ export interface EngineeringRecord {
   readonly report?: { readonly sha256: string; readonly bytes: number };
   /** Ids of the Operating turn that started the task (ADR-025); absent for CLI-started tasks. */
   readonly lineage?: EngineeringLineage;
+  /** Present only when a strategist planned the lanes upfront. */
+  readonly strategy?: StrategyRecord;
 }
 
 const SESSION_ID = /^ses_[0-9a-f]{32}$/;
@@ -152,6 +183,43 @@ export async function writeEngineeringRecord(
   return path;
 }
 
+const CODE_TEXT = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
+const STRATEGY_KEYS = new Set(['policy', 'configId', 'units', 'fallback']);
+const MAX_STRATEGY_UNITS = 64;
+
+const isCodeText = (value: unknown): value is string =>
+  typeof value === 'string' && CODE_TEXT.test(value);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value) as unknown;
+  return proto === Object.prototype || proto === null;
+}
+
+/** True for a well-formed strategy stamp: known keys only, bounded id-like strings and a count. */
+export function isStrategyRecord(value: unknown): value is StrategyRecord {
+  if (!isPlainObject(value)) return false;
+  return (
+    Object.keys(value).every((key) => STRATEGY_KEYS.has(key)) &&
+    isCodeText(value['policy']) &&
+    (value['configId'] === undefined || isCodeText(value['configId'])) &&
+    (value['fallback'] === undefined || isCodeText(value['fallback'])) &&
+    typeof value['units'] === 'number' &&
+    Number.isInteger(value['units']) &&
+    value['units'] >= 0 &&
+    value['units'] <= MAX_STRATEGY_UNITS
+  );
+}
+
+/** Lanes from older records carry neither field; when present they must be well-formed. */
+function isLaneShape(lane: unknown): boolean {
+  if (!isPlainObject(lane)) return false;
+  return (
+    (lane['planned'] === undefined || isCodeText(lane['planned'])) &&
+    (lane['fallback'] === undefined || typeof lane['fallback'] === 'boolean')
+  );
+}
+
 function isRecord(value: unknown): value is EngineeringRecord {
   if (typeof value !== 'object' || value === null) return false;
   const r = value as Record<string, unknown>;
@@ -161,7 +229,9 @@ function isRecord(value: unknown): value is EngineeringRecord {
     typeof r['projectId'] === 'string' &&
     typeof r['status'] === 'string' &&
     Array.isArray(r['lanes']) &&
-    (r['lineage'] === undefined || isEngineeringLineage(r['lineage']))
+    r['lanes'].every(isLaneShape) &&
+    (r['lineage'] === undefined || isEngineeringLineage(r['lineage'])) &&
+    (r['strategy'] === undefined || isStrategyRecord(r['strategy']))
   );
 }
 

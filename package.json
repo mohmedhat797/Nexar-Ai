@@ -7,7 +7,7 @@
     "node": ">=22.19"
   },
   "scripts": {
-    "build": "tsc -b && pnpm --filter @nexar/desktop build",
+    "build": "tsc -b && pnpm --filter @nexar/cli build && pnpm --filter @nexar/desktop build",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p apps/desktop/tsconfig.renderer.json",
     "test": "vitest run",
     "test:watch": "vitest",

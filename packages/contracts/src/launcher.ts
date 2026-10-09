@@ -24,6 +24,21 @@ export interface LaunchMount {
   readonly access: 'read-only' | 'read-write';
 }
 
+/**
+ * Nexar-hosted services exposed to the process (ADR-027 section 9b): a host directory holding unix
+ * sockets the caller already created, mounted read-only (connecting to a socket works on it).
+ */
+export interface LaunchServices {
+  /** Canonical, owner-private (0700) host directory holding gateway.sock and/or bridge.sock. */
+  readonly dir: string;
+  /** gateway.sock is reachable as a loopback TCP port (the Chat Completions translator). */
+  readonly gateway: boolean;
+  /** bridge.sock is mounted for the stdio bridge relay. */
+  readonly bridge: boolean;
+  /** Absolute host path of the bundled relay script, mounted read-only inside. */
+  readonly relayScript?: string;
+}
+
 /** What the adapter wants to run. Paths are host paths; the launcher maps them. */
 export interface LaunchSpec {
   readonly command: string;
@@ -35,6 +50,7 @@ export interface LaunchSpec {
   readonly workspaceAccess: 'read-only' | 'read-write';
   readonly network: NetworkPolicy;
   readonly mounts?: readonly LaunchMount[];
+  readonly services?: LaunchServices;
 }
 
 /** One egress decision made by the launcher's proxy. Host only, never payload. */
@@ -56,6 +72,12 @@ export interface PreparedLaunch {
   readonly workspacePath: string;
   /** The isolation actually applied; adapters re-check it before enabling write mode. */
   readonly isolation: 'none' | 'sandbox';
+  /** Where the mounted `LaunchSpec.services` appear to the launched process. Unset when none were mounted. */
+  readonly services?: {
+    readonly gatewayBaseUrl?: string;
+    readonly bridgeEndpoint?: string;
+    readonly relayPath?: string;
+  };
   /** Stops the proxy and removes per-launch state. Idempotent; call it after the process exits. */
   dispose(): Promise<void>;
 }

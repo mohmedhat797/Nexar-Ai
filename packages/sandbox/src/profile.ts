@@ -7,6 +7,15 @@ export const SANDBOX_RUN_DIR = '/run/nexar';
 /** The in-sandbox TCP port the socat bridge listens on (loopback only). */
 export const SANDBOX_PROXY_PORT = 3128;
 export const SANDBOX_HOME = '/home/agent';
+/** Where the Nexar services directory (gateway.sock, bridge.sock) appears inside the sandbox. */
+export const SANDBOX_SERVICES_DIR = '/run/nexar-services';
+/** The in-sandbox loopback port bridged to gateway.sock; distinct from the proxy port. */
+export const SANDBOX_GATEWAY_PORT = 3129;
+export const SANDBOX_GATEWAY_BASE_URL = `http://127.0.0.1:${SANDBOX_GATEWAY_PORT}/v1`;
+/** The bridge endpoint a relay inside the sandbox connects to. */
+export const SANDBOX_BRIDGE_ENDPOINT = `${SANDBOX_SERVICES_DIR}/bridge.sock`;
+/** Where the bundled bridge relay script appears inside the sandbox. */
+export const SANDBOX_RELAY_PATH = '/opt/nexar/bridge-relay.cjs';
 
 /** Optional system files; absent on minimal systems, so bound with `--ro-bind-try`. */
 const OPTIONAL_SYSTEM_FILES = [
@@ -17,16 +26,35 @@ const OPTIONAL_SYSTEM_FILES = [
 ] as const;
 
 /**
- * Starts the loopback bridge to the proxy socket, waits (bounded) for it to accept, then execs the
- * command. Every user-provided value reaches the shell as a positional argument, never as script text.
+ * Starts the loopback socat bridges (egress proxy and/or gateway service), waits (bounded) for each
+ * to accept, then execs the command. Every user-provided value reaches the shell as a positional
+ * argument, never as script text.
  */
-export const PROXY_BRIDGE_SCRIPT = [
-  `socat TCP-LISTEN:${SANDBOX_PROXY_PORT},bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:${SANDBOX_RUN_DIR}/proxy.sock 2>/dev/null &`,
-  'i=0',
-  `while [ "$i" -lt 50 ]; do socat -u OPEN:/dev/null TCP:127.0.0.1:${SANDBOX_PROXY_PORT} 2>/dev/null && break; i=$((i+1)); sleep 0.02; done`,
-  'exec "$@"',
-].join('\n');
+export function buildBridgeScript(bridges: {
+  readonly proxy: boolean;
+  readonly gateway: boolean;
+}): string {
+  const wanted: { port: number; socket: string }[] = [];
+  if (bridges.proxy)
+    wanted.push({ port: SANDBOX_PROXY_PORT, socket: `${SANDBOX_RUN_DIR}/proxy.sock` });
+  if (bridges.gateway) {
+    wanted.push({ port: SANDBOX_GATEWAY_PORT, socket: `${SANDBOX_SERVICES_DIR}/gateway.sock` });
+  }
+  return [
+    ...wanted.map(
+      ({ port, socket }) =>
+        `socat TCP-LISTEN:${port},bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:${socket} 2>/dev/null &`,
+    ),
+    ...wanted.flatMap(({ port }) => [
+      'i=0',
+      `while [ "$i" -lt 50 ]; do socat -u OPEN:/dev/null TCP:127.0.0.1:${port} 2>/dev/null && break; i=$((i+1)); sleep 0.02; done`,
+    ]),
+    'exec "$@"',
+  ].join('\n');
+}
 
+/** The egress-proxy-only script (network mode `proxy`, no services). */
+export const PROXY_BRIDGE_SCRIPT = buildBridgeScript({ proxy: true, gateway: false });
 export interface BwrapProfileInput {
   /** Canonical host path of the workspace. */
   readonly workspace: string;
@@ -40,6 +68,13 @@ export interface BwrapProfileInput {
   /** Host run directory holding `passwd`, `group` and (proxy mode) `proxy.sock`. */
   readonly runDir?: string;
   readonly network: 'none' | 'proxy';
+  /** Validated Nexar services (dir canonical): mounted read-only; gateway adds its socat bridge. */
+  readonly services?: {
+    readonly dir: string;
+    readonly gateway: boolean;
+    readonly bridge: boolean;
+    readonly relayScript?: string;
+  };
   /** Default false: adds `--disable-userns`. */
   readonly allowNestedUserNamespaces?: boolean;
   /** The final environment; nothing else is visible inside. */
@@ -103,14 +138,30 @@ export function buildBwrapArgs(input: BwrapProfileInput): string[] {
     a.push('--ro-bind', input.runDir, SANDBOX_RUN_DIR);
   }
 
+  if (input.services !== undefined) {
+    a.push('--ro-bind', input.services.dir, SANDBOX_SERVICES_DIR);
+    if (input.services.relayScript !== undefined) {
+      a.push('--ro-bind', input.services.relayScript, SANDBOX_RELAY_PATH);
+    }
+  }
+
   a.push('--remount-ro', '/', '--chdir', SANDBOX_WORKSPACE, '--clearenv');
   for (const key of Object.keys(input.env).sort()) {
     a.push('--setenv', key, input.env[key] ?? '');
   }
 
   a.push('--');
-  if (input.network === 'proxy') {
-    a.push('/bin/sh', '-c', PROXY_BRIDGE_SCRIPT, 'sh', input.command, ...input.args);
+  const proxy = input.network === 'proxy';
+  const gateway = input.services?.gateway === true;
+  if (proxy || gateway) {
+    a.push(
+      '/bin/sh',
+      '-c',
+      buildBridgeScript({ proxy, gateway }),
+      'sh',
+      input.command,
+      ...input.args,
+    );
   } else {
     a.push(input.command, ...input.args);
   }

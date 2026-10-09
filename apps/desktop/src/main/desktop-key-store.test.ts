@@ -167,6 +167,51 @@ describe('encrypted Desktop credentials', () => {
   );
 });
 
+describe('structured secrets', () => {
+  const BLOB = Buffer.from(JSON.stringify({ token: 'blob-sentinel-value-1234' })).toString(
+    'base64url',
+  );
+
+  it('stores, reads, replaces and removes a blob without recording any of its content', async () => {
+    await store.saveBlob('chatgpt-plan', BLOB);
+    const text = await fs.readFile(path, 'utf8');
+    expect(text).not.toContain(BLOB);
+    expect(text).toContain('"lastFour":"----"');
+    expect(store.readBlob('chatgpt-plan')).toBe(BLOB);
+    await store.save(NAME, FIRST);
+    await store.saveBlob('chatgpt-plan', `${BLOB}AAAA`);
+    expect(store.readBlob('chatgpt-plan')).toBe(`${BLOB}AAAA`);
+    expect(store.resolveSecret(NAME)).toBe(FIRST);
+    await store.removeBlob('chatgpt-plan');
+    expect(store.readBlob('chatgpt-plan')).toBeUndefined();
+    expect(store.metadata(NAME).present).toBe(true);
+  });
+
+  it('is never reachable as an API key, and API key names are never blobs', async () => {
+    await store.saveBlob('chatgpt-plan', BLOB);
+    expect(() => store.resolveSecret('chatgpt-plan')).toThrow('Invalid Desktop credential');
+    expect(() => store.metadata('chatgpt-plan')).toThrow('Invalid Desktop credential');
+    await expect(store.save('chatgpt-plan', FIRST)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    await expect(store.saveBlob(NAME, BLOB)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(() => store.readBlob(NAME)).toThrow('Invalid Desktop credential');
+  });
+
+  it('refuses malformed or oversized blobs and unavailable encryption', async () => {
+    for (const bad of ['short', `${BLOB}!`, 'a'.repeat(24577), '']) {
+      await expect(store.saveBlob('chatgpt-plan', bad)).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
+    }
+    vi.mocked(encryption.isEncryptionAvailable).mockReturnValue(false);
+    await expect(store.saveBlob('chatgpt-plan', BLOB)).rejects.toMatchObject({
+      code: 'AUTH_REQUIRED',
+    });
+    expect(syncFs.existsSync(path)).toBe(false);
+  });
+});
+
 describe('secure backend and privacy', () => {
   it('refuses unavailable encryption and catches availability exceptions', async () => {
     vi.mocked(encryption.isEncryptionAvailable).mockReturnValue(false);
@@ -255,7 +300,7 @@ describe('secure backend and privacy', () => {
     },
   );
 
-  it.each([Buffer.alloc(0), Buffer.alloc(16 * 1024 + 1)])(
+  it.each([Buffer.alloc(0), Buffer.alloc(32 * 1024 + 1)])(
     'rejects empty or excessive encryption output',
     async (buffer) => {
       vi.mocked(encryption.encryptString).mockReturnValue(buffer);

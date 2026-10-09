@@ -41,12 +41,28 @@ export interface LaneDecision {
 
 export type TurnTaskState = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 
+/** One unit an engine delegated through the Intelligence Bridge: ids and an enum only. */
+export interface TurnDelegation {
+  readonly unitId: string;
+  readonly resourceId?: string;
+  readonly outcome: string;
+}
+
+/** How a Cowork turn's control loop ran (ADR-027 section 8): ids, an enum and a count only. */
+export interface TurnControl {
+  readonly path: 'gateway' | 'direct-key';
+  readonly resourceId?: string;
+  readonly restarts?: number;
+}
+
 export interface TurnTaskLink {
   readonly taskId: string;
   readonly state: TurnTaskState;
   readonly resourceId?: string;
   readonly policyId?: string;
   readonly fallback?: boolean;
+  readonly delegations?: readonly TurnDelegation[];
+  readonly control?: TurnControl;
 }
 
 /** Why a turn received the context it did (ADR-024 §10); never holds content. */
@@ -67,6 +83,12 @@ export type TurnEngineeringStatus =
 export interface TurnEngineeringLane {
   readonly role: string;
   readonly resourceId: string;
+  /** Write lanes of a task with an engine gateway attempt (ADR-027 section 9): who orchestrated. */
+  readonly executor?: 'engine' | 'native';
+  readonly engine?: 'openworker' | 'dsh';
+  /** A reason code, for example engine-not-selected. */
+  readonly executorReason?: string;
+  readonly controlResourceId?: string;
 }
 
 /**

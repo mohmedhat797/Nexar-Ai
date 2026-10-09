@@ -23,6 +23,7 @@ export class SubscriptionService {
 
   constructor(
     private readonly runtimes: Readonly<Record<SubscriptionRuntimeId, NativeSubscriptionRuntime>>,
+    private readonly onChanging?: (runtime: SubscriptionRuntimeId) => void,
   ) {}
 
   async list(): Promise<readonly SubscriptionRow[]> {
@@ -46,9 +47,14 @@ export class SubscriptionService {
     return probe;
   }
 
+  isSigningIn(runtime: SubscriptionRuntimeId): boolean {
+    return this.jobs.has(runtime);
+  }
+
   async start(runtime: SubscriptionRuntimeId): Promise<SubscriptionRow> {
     if (this.disposed) throw new NexarError('CONFIGURATION_ERROR', 'Subscription service closed');
     if (this.jobs.has(runtime)) throw new NexarError('CONFLICT', 'Sign-in is already running');
+    this.notifyChanging(runtime);
     // Reserve before awaiting the probe so simultaneous IPC calls cannot launch two logins.
     const controller = new AbortController();
     this.jobs.set(runtime, controller);
@@ -90,6 +96,7 @@ export class SubscriptionService {
         loginState: controller.signal.aborted ? 'cancelled' : 'failed',
       });
     } finally {
+      this.notifyChanging(runtime);
       this.jobs.delete(runtime);
     }
   }
@@ -128,6 +135,14 @@ export class SubscriptionService {
         usableBy: runtime,
       }
     );
+  }
+
+  private notifyChanging(runtime: SubscriptionRuntimeId): void {
+    try {
+      this.onChanging?.(runtime);
+    } catch {
+      /* Public inventory listener cannot affect native sign-in. */
+    }
   }
 
   private set(runtime: SubscriptionRuntimeId, row: SubscriptionRow): SubscriptionRow {

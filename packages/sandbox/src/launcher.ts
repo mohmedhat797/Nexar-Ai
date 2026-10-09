@@ -16,9 +16,18 @@ import {
   validateToolchainPaths,
   type ValidatedMount,
 } from './mounts.js';
-import { buildBwrapArgs, SANDBOX_HOME, SANDBOX_PROXY_PORT, SANDBOX_WORKSPACE } from './profile.js';
+import {
+  buildBwrapArgs,
+  SANDBOX_BRIDGE_ENDPOINT,
+  SANDBOX_GATEWAY_BASE_URL,
+  SANDBOX_HOME,
+  SANDBOX_PROXY_PORT,
+  SANDBOX_RELAY_PATH,
+  SANDBOX_WORKSPACE,
+} from './profile.js';
 import { startEgressProxy, type EgressProxy, type ResolvedAddress } from './proxy.js';
 import { createRunDir, type RunDir } from './run-dir.js';
+import { validateServices } from './services.js';
 import type net from 'node:net';
 
 export interface SandboxLauncherOptions {
@@ -89,6 +98,12 @@ export class SandboxLauncher implements ProcessLauncher {
     if (proxyMode && availability.socatPath === undefined) {
       throw unavailable('socat is required for proxy network mode');
     }
+    if (spec.services?.gateway === true && availability.socatPath === undefined) {
+      throw unavailable('socat is required for the gateway service');
+    }
+    // Before any per-launch state exists: a bad services spec spawns and creates nothing.
+    const services =
+      spec.services === undefined ? undefined : await validateServices(spec.services);
 
     const homeDir = this.options.homeDir ?? homedir();
     const hostRules = { homeDir };
@@ -99,7 +114,7 @@ export class SandboxLauncher implements ProcessLauncher {
       this.options.toolchainPaths ?? [],
       hostRules,
     );
-    const env = buildEnv(spec, toolchainPaths);
+    const env = buildEnv(spec, toolchainPaths, services?.gateway === true);
     const command = translateCommand(spec.command, workspace, toolchainPaths, mounts);
 
     let runDir: RunDir | undefined;
@@ -139,6 +154,7 @@ export class SandboxLauncher implements ProcessLauncher {
         mounts,
         runDir: runDir.path,
         network: proxyMode ? 'proxy' : 'none',
+        ...(services === undefined ? {} : { services }),
         allowNestedUserNamespaces: this.options.allowNestedUserNamespaces ?? false,
         env,
         command,
@@ -152,6 +168,15 @@ export class SandboxLauncher implements ProcessLauncher {
         cwd: workspace,
         workspacePath: SANDBOX_WORKSPACE,
         isolation: 'sandbox',
+        ...(services === undefined
+          ? {}
+          : {
+              services: {
+                ...(services.gateway ? { gatewayBaseUrl: SANDBOX_GATEWAY_BASE_URL } : {}),
+                ...(services.bridge ? { bridgeEndpoint: SANDBOX_BRIDGE_ENDPOINT } : {}),
+                ...(services.relayScript === undefined ? {} : { relayPath: SANDBOX_RELAY_PATH }),
+              },
+            }),
         dispose,
       };
     } catch (error) {
@@ -203,7 +228,11 @@ async function inspectGit(workspace: string): Promise<boolean> {
   );
 }
 
-function buildEnv(spec: LaunchSpec, toolchainPaths: readonly string[]): Record<string, string> {
+function buildEnv(
+  spec: LaunchSpec,
+  toolchainPaths: readonly string[],
+  gatewayService: boolean,
+): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(spec.env)) {
     if (!ENV_KEY.test(key)) {
@@ -239,6 +268,11 @@ function buildEnv(spec: LaunchSpec, toolchainPaths: readonly string[]): Record<s
       http_proxy: PROXY_URL,
       NODE_USE_ENV_PROXY: '1',
     });
+  }
+  if (gatewayService) {
+    // Node's env proxy would otherwise send the loopback gateway calls to the egress proxy (which
+    // denies them) or, in network mode none, nowhere. Only the gateway service sets this.
+    Object.assign(env, { NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' });
   }
   return env;
 }

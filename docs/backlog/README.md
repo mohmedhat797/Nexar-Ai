@@ -78,6 +78,34 @@ Phases of [ADR-021](../adr/021-nexar-desktop.md); see also ADR-022 and ADR-023.
 | [NXR-057](057-persistent-operating-sessions.md) | Persistent Operating Sessions                           | v0.5      | operating-layer, sessions, desktop | Done                                     |
 | [NXR-058](058-operating-intent-and-lanes.md)    | Operating intent and lane orchestration                 | v0.5      | operating-layer, routing, desktop  | Done (lanes: NXR-055/056)                |
 
+## v0.6 — Resource orchestration
+
+[ADR-027](../adr/027-resource-orchestration-architecture.md) · [plan](../architecture/resource-orchestration-plan.md).
+Order: NXR-060 → 061 → 062 → 059 → 063 → 064 → 065 → (067, optional) → 066. NXR-054 waits for NXR-066.
+
+| Id                                                         | Title                                                                         | Milestone | Labels                                 | Status  |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------- | --------- | -------------------------------------- | ------- |
+| [NXR-059](059-openworker-nexar-delegation.md)              | OpenWorker → Nexar bounded work delegation                                    | v0.6      | operating-layer, openworker, security  | Planned |
+| [NXR-060](060-provider-connections-and-resources.md)       | Provider connections, compatibility metadata and resource normalization       | v0.6      | resources, desktop, routing            | Planned |
+| [NXR-061](061-resource-strategy-planner.md)                | Resource Strategy Planner (`strategy@1`)                                      | v0.6      | resource-intelligence, routing         | Planned |
+| [NXR-062](062-engine-gateway.md)                           | Nexar Engine Gateway: Control Model Gateway and Intelligence Execution Bridge | v0.6      | operating-layer, routing, security     | Planned |
+| [NXR-063](063-openworker-nexar-provider.md)                | OpenWorker NexarProvider and control-resource policy                          | v0.6      | openworker, routing, security          | Planned |
+| [NXR-064](064-dsh-code-orchestration.md)                   | DSH Code orchestration through the plane Engine Gateway                       | v0.6      | engineering, deepseek-harness, routing | Planned |
+| [NXR-065](065-providers-ux-consolidation.md)               | Providers and orchestration-control UX                                        | v0.6      | desktop, providers                     | Planned |
+| [NXR-066](066-resource-orchestration-acceptance.md)        | Resource orchestration E2E and live acceptance                                | v0.6      | testing, acceptance                    | Planned |
+| [NXR-067](067-experimental-subscription-model-adapters.md) | Experimental subscription model-turn adapters (owner-enabled)                 | v0.6      | providers, experimental, security      | Planned |
+
+**2026-10-07 correction:** NXR-059–065 are implemented offline (the historical table above has not
+tracked their commits). NXR-067a sign-in and NXR-067b's dynamic account resource publication are implemented.
+[NXR-068: Dynamic Provider Model Catalogs](068-dynamic-provider-model-catalogs.md) passed local gates
+and full exact-head CI for `0244d97`. NXR-066a is offline-tested; 066b is prepared, pending Windows
+OpenWorker 0.3.1 update, matching new-head builds/CI and owner-initiated live results. Current detailed
+status lives in [`project-current-state.md`](../devlog/project-current-state.md). PR #39 stays draft.
+
+[NXR-069: OpenWorker Runtime Discovery](069-openworker-runtime-discovery.md) is a deferred
+maintenance specification; no automatic scanning implementation has started. Headless evaluation
+belongs to NXR-054 / v0.8 Automation after owner acceptance.
+
 ## Nexar Mobile (deferred)
 
 Deferred by the owner until after the Operating Layer, Memory and Automation milestones.

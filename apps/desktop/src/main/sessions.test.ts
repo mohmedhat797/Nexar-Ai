@@ -137,6 +137,44 @@ async function settled(harness: Harness, sessionId: string): Promise<SessionDto>
 describe('session schemas', () => {
   const sid = `ses_${'a'.repeat(32)}`;
   const tid = `turn_${'a'.repeat(32)}`;
+
+  it.each([-1, 0, 1.5, NaN, Infinity, 17, '1', null, {}, []])(
+    'rejects malformed owner delegation limits: %j',
+    async (maxDelegatedUnits) => {
+      const session = await create(h);
+      const result = await h.call(CHANNELS.sessionsSubmitTurn, {
+        sessionId: session.id,
+        submissionKey: KEY1,
+        text: 'review',
+        maxDelegatedUnits,
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request: <root>: delegation-limit.invalid',
+        },
+      });
+      expect((await fetchSession(h, session.id)).turns).toHaveLength(0);
+    },
+  );
+
+  it('rejects inherited limit fields before schema copying', async () => {
+    const session = await create(h);
+    const inherited = Object.assign(Object.create({ maxDelegatedUnits: 16 }) as object, {
+      sessionId: session.id,
+      submissionKey: KEY1,
+      text: 'review',
+    });
+    expect(await h.call(CHANNELS.sessionsSubmitTurn, inherited)).toMatchObject({
+      ok: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid request: <root>: delegation-limit.invalid',
+      },
+    });
+    expect((await fetchSession(h, session.id)).turns).toHaveLength(0);
+  });
   const valid: Record<string, Record<string, unknown>> = {
     [CHANNELS.sessionsList]: { projectId: 'p' },
     [CHANNELS.sessionsCreate]: { projectId: 'p', mode: 'cowork' },
@@ -771,6 +809,87 @@ describe('sessions: intent, lanes and confirmation', () => {
         ),
       ).toBe(true);
     }
+  });
+});
+
+describe('sessions: control and executor facts (NXR-065a)', () => {
+  it('shows how a Cowork task ran its control loop and which executor served each Code lane', async () => {
+    const session = await create(h);
+    const begin = await h.sessionStore.beginTurn(session.id, {
+      submissionKey: KEY1,
+      text: 'work',
+      state: 'running',
+      intent: { kind: 'general', source: 'explicit', ruleIds: [], policy: 'desktop-explicit@1' },
+    });
+    const turnId = begin.turn.id;
+    await h.sessionStore.linkTask(session.id, turnId, { taskId: 'task-cw', state: 'running' });
+    await h.sessionStore.updateTask(session.id, turnId, 'task-cw', {
+      state: 'succeeded',
+      resourceId: 'ctl-model',
+      control: { path: 'gateway', resourceId: 'ctl-model', restarts: 1 },
+    });
+    await h.sessionStore.completeTurn(session.id, turnId, {
+      state: 'succeeded',
+      outcome: {
+        text: 'done',
+        engineering: {
+          planeTaskId: 'task_1',
+          status: 'reported',
+          lanes: [
+            {
+              role: 'implementation',
+              resourceId: 'dsh:deepseek',
+              executor: 'engine',
+              engine: 'dsh',
+              controlResourceId: 'pi:deepseek-chat',
+            },
+            {
+              role: 'review',
+              resourceId: 'claude-code',
+              executor: 'native',
+              executorReason: 'engine-not-selected',
+            },
+          ],
+        },
+      },
+    });
+    const turn = (await fetchSession(h, session.id)).turns[0];
+    expect(turn?.tasks[0]?.control).toEqual({
+      path: 'gateway',
+      resourceId: 'ctl-model',
+      restarts: 1,
+    });
+    expect(turn?.outcome?.engineering?.lanes).toEqual([
+      {
+        role: 'implementation',
+        resourceId: 'dsh:deepseek',
+        executor: 'engine',
+        engine: 'dsh',
+        controlResourceId: 'pi:deepseek-chat',
+      },
+      {
+        role: 'review',
+        resourceId: 'claude-code',
+        executor: 'native',
+        executorReason: 'engine-not-selected',
+      },
+    ]);
+  });
+
+  it('leaves the fields out for turns that carry no control facts', async () => {
+    const session = await create(h);
+    const begin = await h.sessionStore.beginTurn(session.id, {
+      submissionKey: KEY1,
+      text: 'plain',
+      state: 'running',
+      intent: { kind: 'general', source: 'explicit', ruleIds: [], policy: 'desktop-explicit@1' },
+    });
+    await h.sessionStore.linkTask(session.id, begin.turn.id, {
+      taskId: 'task-1',
+      state: 'running',
+    });
+    const task = (await fetchSession(h, session.id)).turns[0]?.tasks[0];
+    expect(task).toEqual({ taskId: 'task-1', state: 'running' });
   });
 });
 

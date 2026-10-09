@@ -24,6 +24,7 @@
   "devDependencies": {
     "@modelcontextprotocol/client": "2.2.0",
     "@nexar/core": "workspace:*",
+    "@nexar/engine-gateway": "workspace:*",
     "@nexar/integration-echo": "workspace:*",
     "@nexar/projects": "workspace:*",
     "@nexar/artifacts": "workspace:*",

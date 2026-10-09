@@ -59,3 +59,10 @@ depends on OpenWorker infrastructure.
 
 v0.2: Nexar MCP server (stdio first), bridge authentication, OpenWorker config recipe, contract tests
 pinned to an OpenWorker tag.
+
+## Amendment (2026-10-04): resource orchestration
+
+Decision 3's heavy-work seam is the **Intelligence Execution Bridge** ([ADR-027](027-resource-orchestration-architecture.md) §7B; NXR-059,
+NXR-062). "Nexar as OpenWorker's model provider", deferred here, is now the **Control Model Gateway**
+(§7A; NXR-063): a Nexar provider for OpenWorker's loop, via an upstream extension seam, a supervised
+loopback gateway child, or a minimal patch, in that order.

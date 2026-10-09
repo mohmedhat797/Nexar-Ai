@@ -29,7 +29,14 @@ import {
   type EngineeringComposition,
 } from '../composition.js';
 import { EXIT, UsageError } from '../io.js';
-import { buildReadiness, planIds } from '../plane-readiness.js';
+import { relayScriptPath } from '../relay-path.js';
+import {
+  buildReadiness,
+  buildResources,
+  controlOf,
+  laneFacts,
+  planIds,
+} from '../plane-readiness.js';
 import { CLI_VERSION } from '../version.js';
 
 const USAGE = 'nexar plane serve --stdio';
@@ -142,6 +149,8 @@ async function serve(ctx: CommandContext): Promise<number> {
     send({ type: 'error', ...(runId === undefined ? {} : { runId }), code, message });
 
   let loaded: LoadedConfig | undefined;
+  /** The Desktop asked for the additive `resources` feature: only then are lane facts sent. */
+  let extended = false;
   let store: ApprovalStore | undefined;
   let engine: Promise<Engine> | undefined;
   let active: ActiveRun | undefined;
@@ -159,6 +168,7 @@ async function serve(ctx: CommandContext): Promise<number> {
         ctx.logger,
         ctx.seams.engineering,
         ctx.seams.sandbox?.availability,
+        { relayScript: relayScriptPath() },
       );
       return { composition };
     })();
@@ -221,6 +231,7 @@ async function serve(ctx: CommandContext): Promise<number> {
           lanes: outcome.lanes.slice(0, MAX_OUTCOME_LANES).map((lane) => ({
             role: lane.role.slice(0, 64),
             resourceId: lane.resourceId.slice(0, 128),
+            ...(extended ? laneFacts(lane) : {}),
           })),
         }),
   });
@@ -426,8 +437,24 @@ async function serve(ctx: CommandContext): Promise<number> {
           ctx.seams.plane?.approvalStore ??
           new FileApprovalStore(join(nexarStateDir(loaded, ctx.io), 'approvals'));
         const readiness = await buildReadiness(loaded, ctx.io, ctx.seams);
+        extended = frame.features?.includes('resources') === true;
+        // Only a Desktop that asked for it gets the field: an older strict schema rejects it.
+        const resources = frame.features?.includes('resources')
+          ? await buildResources(loaded, ctx.io, ctx.logger, ctx.seams)
+          : undefined;
         initialized = true;
-        send({ type: 'ready', protocol: PLANE_PROTOCOL, planeVersion: CLI_VERSION, readiness });
+        send({
+          type: 'ready',
+          protocol: PLANE_PROTOCOL,
+          planeVersion: CLI_VERSION,
+          readiness: extended
+            ? {
+                ...readiness,
+                ...(resources === undefined ? {} : { resources }),
+                control: controlOf(loaded),
+              }
+            : readiness,
+        });
       } catch (error) {
         sendError(codeOf(error));
         return EXIT.failure;

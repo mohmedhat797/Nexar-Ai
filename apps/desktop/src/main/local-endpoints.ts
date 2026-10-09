@@ -53,7 +53,14 @@ export class LocalEndpointService {
         const id = validated.id ?? `server-${randomUUID().slice(0, 20)}`;
         if (validated.id === undefined && existing.some((entry) => entry.id === id))
           throw new NexarError('CONFLICT', 'Server id collision');
-        const entry = EndpointInputSchema.parse({ id, kind: validated.kind, baseUrl });
+        // The UI cannot set `toolCalling`, but an edit must not drop the owner's declaration.
+        const toolCalling = existing.find((current) => current.id === id)?.toolCalling;
+        const entry = EndpointInputSchema.parse({
+          id,
+          kind: validated.kind,
+          baseUrl,
+          ...(toolCalling === undefined ? {} : { toolCalling }),
+        });
         const updated =
           validated.id === undefined
             ? [...existing, entry]

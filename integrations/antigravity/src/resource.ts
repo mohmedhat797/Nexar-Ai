@@ -42,6 +42,15 @@ export function antigravityResource(
     cost: { model: 'subscription' },
     dataLocality: 'third-party',
     tags: ['native-agent', 'experimental'],
+    metadata: {
+      connection: {
+        id: 'google.subscription',
+        provider: 'google',
+        method: 'subscription',
+        authClass: 'vendor-native',
+        support: 'experimental',
+      },
+    },
     ...overrides,
   };
 }

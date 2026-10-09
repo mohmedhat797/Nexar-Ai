@@ -15,7 +15,15 @@
 //   NEXAR_FAKE_PLANE_REPORT    `big` makes the report large; `truncated` flags it truncated
 //   NEXAR_FAKE_PLANE_LANES     `1` makes a committed outcome list its lanes
 //   NEXAR_FAKE_PLANE_PROJECTS  comma separated plane project ids (default `plane-proj`)
-//   NEXAR_FAKE_PLANE_DIFF      `big` makes the diff large and truncated
+//   NEXAR_FAKE_PLANE_RESOURCES `1` reports `readiness.resources` to a Desktop that sent
+//                              `features: ['resources']` (an older Desktop never receives it)
+//   NEXAR_FAKE_PLANE_CONTROL   `1` adds `readiness.control` (the Code control policy) next to the resources
+//   NEXAR_FAKE_PLANE_LANE_FACTS `1` adds the executor facts to the lanes of a committed or reported outcome
+//   NEXAR_FAKE_PLANE_ACCEPTANCE `engine` | `native` makes the commit that follows an approval list a
+//                              feature and a review lane on different resources with executor facts:
+//                              `engine` has the feature lane driven by DSH on a control resource,
+//                              `native` has it fall back with `control-unavailable`
+//   NEXAR_FAKE_PLANE_DIFF    `big` makes the diff large and truncated
 //   NEXAR_FAKE_PLANE_LOG       when set, a JSON-lines log of the frames received and of the
 //                              environment variable NAMES this process started with
 import { appendFileSync } from 'node:fs';
@@ -31,6 +39,35 @@ const TASK_ID = 'task_fake_1';
 const APPROVAL_ID = `apr_${'f'.repeat(32)}`;
 const COMMIT = 'c'.repeat(40);
 const PATCH_SHA = 'a'.repeat(64);
+
+const FAKE_RESOURCES = [
+  {
+    id: 'claude-code',
+    connection: {
+      id: 'anthropic.subscription',
+      provider: 'anthropic',
+      method: 'subscription',
+      authClass: 'vendor-native',
+      support: 'official',
+    },
+    auth: 'authenticated',
+    availability: 'available',
+    control: { openworker: false, dsh: false },
+  },
+  {
+    id: 'pi:deepseek-chat',
+    connection: {
+      id: 'deepseek.api',
+      provider: 'deepseek',
+      method: 'api',
+      authClass: 'official-api',
+      support: 'official',
+    },
+    auth: 'unknown',
+    availability: 'unknown',
+    control: { openworker: true, dsh: true },
+  },
+];
 
 function log(entry) {
   if (logPath !== undefined) appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
@@ -116,8 +153,39 @@ function runReport(runId, plan = false) {
           : '# Repository review\n\nThe repository implementation supports this proposal.\n\n- src/index.ts: entry point wires the proposal.\n',
       truncated: process.env.NEXAR_FAKE_PLANE_REPORT === 'truncated',
     },
-    lanes: [{ role: 'report', resourceId: 'dsh:deepseek' }],
+    lanes: [
+      {
+        role: 'report',
+        resourceId: 'dsh:deepseek',
+        ...(process.env.NEXAR_FAKE_PLANE_LANE_FACTS === '1'
+          ? { executor: 'engine', engine: 'dsh', controlResourceId: 'pi:deepseek-chat' }
+          : {}),
+      },
+    ],
   });
+}
+
+/** The acceptance lane set (NXR-066): feature and review on different resources, with executor facts. */
+function acceptanceLanes() {
+  const set = process.env.NEXAR_FAKE_PLANE_ACCEPTANCE;
+  if (set !== 'engine' && set !== 'native') return {};
+  return {
+    lanes: [
+      {
+        role: 'feature',
+        resourceId: 'dsh:deepseek',
+        ...(set === 'engine'
+          ? { executor: 'engine', engine: 'dsh', controlResourceId: 'pi:deepseek-chat' }
+          : { executor: 'native', executorReason: 'control-unavailable' }),
+      },
+      {
+        role: 'review',
+        resourceId: 'claude-code:sonnet',
+        executor: 'native',
+        executorReason: 'engine-not-selected',
+      },
+    ],
+  };
 }
 
 function handleRun(frame) {
@@ -177,8 +245,24 @@ function handleRun(frame) {
         ...(process.env.NEXAR_FAKE_PLANE_LANES === '1'
           ? {
               lanes: [
-                { role: 'implementation', resourceId: 'dsh:deepseek' },
-                { role: 'review', resourceId: 'claude-code:sonnet' },
+                {
+                  role: 'implementation',
+                  resourceId: 'dsh:deepseek',
+                  ...(process.env.NEXAR_FAKE_PLANE_LANE_FACTS === '1'
+                    ? {
+                        executor: 'engine',
+                        engine: 'dsh',
+                        controlResourceId: 'pi:deepseek-chat',
+                      }
+                    : {}),
+                },
+                {
+                  role: 'review',
+                  resourceId: 'claude-code:sonnet',
+                  ...(process.env.NEXAR_FAKE_PLANE_LANE_FACTS === '1'
+                    ? { executor: 'native', executorReason: 'engine-not-selected' }
+                    : {}),
+                },
               ],
             }
           : {}),
@@ -252,7 +336,23 @@ function handle(frame) {
         type: 'ready',
         protocol: scenario === 'bad-ready' ? 'nexar-plane/2' : 'nexar-plane/1',
         planeVersion: '0.0.0-fake',
-        readiness: readiness(),
+        // Like the real plane: `resources` only for a Desktop that asked for the feature.
+        readiness:
+          process.env.NEXAR_FAKE_PLANE_RESOURCES === '1' &&
+          Array.isArray(frame.features) &&
+          frame.features.includes('resources')
+            ? {
+                ...readiness(),
+                resources: FAKE_RESOURCES,
+                ...(process.env.NEXAR_FAKE_PLANE_CONTROL === '1'
+                  ? {
+                      control: {
+                        code: { mode: 'pinned', resourceId: 'pi:deepseek-chat', fallback: 'none' },
+                      },
+                    }
+                  : {}),
+              }
+            : readiness(),
       });
       return;
     }
@@ -298,6 +398,7 @@ function handle(frame) {
             status: 'committed',
             branch: 'nexar/task-fake-1',
             commit: COMMIT,
+            ...acceptanceLanes(),
           });
         } else {
           completed(runId, { taskId: TASK_ID, status: 'not-accepted', reason: 'owner-denied' });

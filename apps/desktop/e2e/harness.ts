@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ import {
   type Locator,
   type Page,
 } from 'playwright-core';
+import { defaultConfig } from '@nexar/core';
 import { expect, onTestFailed } from 'vitest';
 
 /*
@@ -26,6 +27,52 @@ export const hasText = (locator: Locator, needle: string): Promise<void> =>
   expect.poll(() => text(locator).catch(() => ''), POLL).toContain(needle);
 export const isVisible = (locator: Locator): Promise<void> =>
   expect.poll(() => locator.isVisible().catch(() => false), POLL).toBe(true);
+
+/** Native runtimes a developer may have signed in on PATH: E2E must never route to them. */
+const REAL_RUNTIMES = ['claude-code', 'codex', 'antigravity', 'deepseek-harness'];
+
+/**
+ * The offline E2E config: Desktop's first run configures no resource, so scenarios that execute
+ * turns get the built-in echo test double explicitly, as the default. The `e2e` tag keeps it apart
+ * from the legacy first-run shape (which Desktop migrates away). Discovery stays on (provider keys
+ * add pi catalog resources) but never yields a developer's real signed-in CLIs.
+ */
+export async function seedE2EConfig(
+  userData: string,
+  /** Owner-listed local endpoints (NXR-063 E2E): discovery lists them as pi resources. */
+  localEndpoints: readonly {
+    readonly id: string;
+    readonly kind: 'openai-compatible';
+    readonly baseUrl: string;
+    readonly toolCalling: boolean;
+  }[] = [],
+): Promise<void> {
+  const path = join(userData, 'nexar.config.json');
+  const exists = await access(path).then(
+    () => true,
+    () => false,
+  );
+  if (exists) return;
+  await mkdir(userData, { recursive: true });
+  const echo = JSON.parse(JSON.stringify(defaultConfig().resources[0])) as Record<string, unknown>;
+  await writeFile(
+    path,
+    JSON.stringify({
+      version: 1,
+      resources: [{ ...echo, tags: ['e2e'] }],
+      routing: { policy: 'resource-intelligence', defaultResourceId: 'local-echo' },
+      telemetry: { jsonlPath: '.nexar/telemetry.jsonl' },
+      discovery: {
+        enabled: true,
+        excludeIds: REAL_RUNTIMES,
+        ...(localEndpoints.length === 0
+          ? {}
+          : { sources: { localEndpoints: { enabled: true, endpoints: localEndpoints } } }),
+      },
+      projects: [],
+    }),
+  );
+}
 
 export interface Harness {
   readonly base: string;
@@ -49,6 +96,7 @@ export async function createHarness(): Promise<Harness> {
   let output: string[] = [];
 
   const launch: Harness['launch'] = async (userData, extraEnv = {}) => {
+    await seedE2EConfig(userData);
     const env = Object.fromEntries(
       Object.entries(process.env).filter(
         (entry): entry is [string, string] => entry[1] !== undefined,

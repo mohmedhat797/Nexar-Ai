@@ -1,6 +1,7 @@
 import { createModels, createProvider } from '@earendil-works/pi-ai';
 import type { Model } from '@earendil-works/pi-ai';
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
+import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy';
 
 /**
  * Nexar-local structural view of the few pi-ai `Models` members this package calls.
@@ -10,13 +11,15 @@ import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completio
 export interface PiModelLike {
   readonly id: string;
   readonly provider: string;
+  readonly api?: string;
 }
 
-/** The request context handed to pi-ai (a single user turn; no tools in v0.1). */
+/** The request context handed to pi-ai (messages are built by the adapter or the model-turn port). */
 export interface PiContextLike {
   readonly systemPrompt?: string;
-  // Mutable array: pi-ai's own `Context.messages` is, and this must stay assignable to it.
-  readonly messages: { role: 'user'; content: string; timestamp: number }[];
+  // Mutable arrays: pi-ai's own `Context` has them, and this must stay assignable to it.
+  readonly messages: object[];
+  readonly tools?: object[];
 }
 
 /** Reasoning effort levels accepted by the pi-ai simple options. */
@@ -29,13 +32,34 @@ export type PiReasoningLevel = (typeof PI_REASONING_LEVELS)[number];
 export interface PiRequestOptionsLike {
   readonly signal?: AbortSignal;
   readonly maxTokens?: number;
+  readonly temperature?: number;
   readonly reasoning?: PiReasoningLevel;
   readonly apiKey?: string;
+  /** Test seam (plan calls only): pi-ai's per-request `fetch`. */
+  readonly fetch?: typeof fetch;
+  /** Plan boundary only: inspect structured SSE failures before pi-ai formats error text. */
+  readonly onProviderStreamEvent?: (event: unknown) => void;
+  readonly onPayload?: (payload: unknown) => unknown;
+}
+
+/** The content-block fields this package reads; provider-private ones feed extras. */
+export interface PiContentBlockLike {
+  readonly type: string;
+  readonly text?: string;
+  readonly textSignature?: string;
+  readonly thinking?: string;
+  readonly thinkingSignature?: string;
+  readonly redacted?: boolean;
+  readonly id?: string;
+  readonly name?: string;
+  readonly arguments?: Readonly<Record<string, unknown>>;
+  readonly thoughtSignature?: string;
+  readonly namespace?: string;
 }
 
 /** The subset of a pi-ai assistant message this package reads. */
 export interface PiAssistantMessageLike {
-  readonly content: readonly { readonly type: string; readonly text?: string }[];
+  readonly content: readonly PiContentBlockLike[];
   readonly usage: {
     readonly input: number;
     readonly output: number;
@@ -57,6 +81,20 @@ export interface PiModelsLike {
     context: PiContextLike,
     options?: PiRequestOptionsLike,
   ): Promise<PiAssistantMessageLike>;
+  /** Streaming variant (events carry text deltas); absent on minimal test doubles. */
+  streamSimple?(
+    model: PiModelLike,
+    context: PiContextLike,
+    options?: PiRequestOptionsLike,
+  ): PiEventStreamLike;
+}
+
+/** The pi-ai event stream, reduced to text deltas and the final message. */
+export interface PiEventStreamLike extends AsyncIterable<{
+  readonly type: string;
+  readonly delta?: string;
+}> {
+  result(): Promise<PiAssistantMessageLike>;
 }
 
 /** The pinned upstream version (kept in step with package.json's exact pin). */
@@ -198,6 +236,39 @@ export function createLocalEndpointModels(endpoint: LocalEndpoint): PiModelsLike
       auth: { apiKey: { name: endpoint.provider, resolve: () => Promise.resolve({ auth: {} }) } },
       models: [model],
       api: openAICompletionsApi(),
+    }),
+  );
+  return models;
+}
+
+/** A returned account slug needs no static catalog entry. Numeric zeros are private unknown
+ * bookkeeping required by pi-ai, never advertised limits/rates or reported cash costs. */
+export function createChatGptPlanModels(id: string): PiModelsLike {
+  const model: Model<'openai-responses'> = {
+    id,
+    name: id,
+    provider: 'openai',
+    api: 'openai-responses',
+    baseUrl: 'https://api.openai.com/v1',
+    input: ['text'],
+    reasoning: false,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 0,
+    maxTokens: 0,
+    compat: {
+      supportsMaxOutputTokens: false,
+      supportsAdditionalTools: true,
+      supportsToolSearch: false,
+    },
+  };
+  const models = createModels();
+  models.setProvider(
+    createProvider({
+      id: 'openai',
+      baseUrl: model.baseUrl,
+      models: [model],
+      api: openAIResponsesApi(),
+      auth: { apiKey: { name: 'openai', resolve: () => Promise.resolve({ auth: {} }) } },
     }),
   );
   return models;

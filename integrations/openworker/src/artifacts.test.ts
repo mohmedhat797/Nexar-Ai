@@ -2,7 +2,7 @@ import { link, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { collectDrafts } from './artifacts.js';
+import { collectDrafts, openWorkerWorkspaceDir } from './artifacts.js';
 
 let dir: string;
 let outside: string;
@@ -70,5 +70,36 @@ describe('collectDrafts', () => {
     await writeFile(join(dir, 'a', 'b', 'deep.md'), 'x');
     const shallow = await collectDrafts(dir, { maxDepth: 1, maxBytes: 10 });
     expect(shallow.files.map((f) => f.name)).not.toContain('a/b/deep.md');
+  });
+
+  it('skips tool-output, workers and hidden directories/files (unrelated files)', async () => {
+    await mkdir(join(dir, 'tool-output'));
+    await writeFile(join(dir, 'tool-output', '0011-read_file-content.txt'), 'log');
+    await mkdir(join(dir, 'workers'));
+    await writeFile(join(dir, 'workers', 'worker.md'), 'worker-data');
+    await mkdir(join(dir, '.hidden-dir'));
+    await writeFile(join(dir, '.hidden-dir', 'hidden.md'), 'hidden');
+    await writeFile(join(dir, '.dotfile.md'), 'dot');
+    await writeFile(join(dir, 'statement-of-work-live.md'), '# SOW');
+
+    const { files, skipped } = await collectDrafts(dir);
+    expect(files.map((f) => f.name)).toEqual(['statement-of-work-live.md']);
+    expect(skipped).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('openWorkerWorkspaceDir', () => {
+  it('resolves session workspace under scratchBase or homedir', () => {
+    const ws = openWorkerWorkspaceDir('turn_123', { scratchBase: '/custom/base' });
+    expect(ws.replace(/\\/g, '/')).toMatch(/\/custom\/base\/turn_123$/);
+
+    const homeWs = openWorkerWorkspaceDir('turn_abc', { homedir: '/mock/home' });
+    expect(homeWs.replace(/\\/g, '/')).toMatch(/\/mock\/home\/OpenWorker\/turn_abc$/);
+  });
+
+  it('rejects invalid session identifiers', () => {
+    expect(() => openWorkerWorkspaceDir('')).toThrow(/Invalid/);
+    expect(() => openWorkerWorkspaceDir('../escape')).toThrow(/Invalid/);
+    expect(() => openWorkerWorkspaceDir('has space')).toThrow(/Invalid/);
   });
 });

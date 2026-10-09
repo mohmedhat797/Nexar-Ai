@@ -13,8 +13,8 @@ import {
 import { OpenWorkerHttpClient } from './client.js';
 import type { OpenWorkerClient } from './client.js';
 
-/** Supported upstream range (ADR-026): `>=0.3.0 <0.4.0`. */
-export const SUPPORTED_OPENWORKER_RANGE = { min: [0, 3, 0], maxExclusive: [0, 4, 0] } as const;
+/** Supported upstream range (ADR-026): `>=0.3.1 <0.4.0`. */
+export const SUPPORTED_OPENWORKER_RANGE = { min: [0, 3, 1], maxExclusive: [0, 4, 0] } as const;
 
 export type OpenWorkerState =
   | 'ready'
@@ -56,14 +56,22 @@ export interface OpenWorkerSupervisorOptions {
 export interface ProviderEntry {
   readonly provider: string;
   readonly apiKey: string;
+  /** An OpenAI-compatible endpoint on this machine: `http://127.0.0.1:<port>/v1`. */
+  readonly baseUrl?: string;
 }
 
 const VERSION_TIMEOUT_MS = 10_000;
 const POLL_INTERVAL_MS = 100;
 const PROVIDER_NAME = /^[A-Za-z0-9._-]{1,64}$/;
+/** Upstream's provider routes report a refusal as 200 `{ ok: false, error }`. */
+const refused = (result: unknown): boolean =>
+  typeof result === 'object' && result !== null && (result as { ok?: unknown }).ok === false;
+const LOOPBACK_BASE_URL = /^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}\/v1$/;
 
 function parseVersion(output: string): readonly [number, number, number] | undefined {
-  const match = /(\d{1,6})\.(\d{1,6})\.(\d{1,6})/.exec(output);
+  const match = /^openworker (0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/.exec(
+    output.trim(),
+  );
   return match === null ? undefined : [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
@@ -145,26 +153,56 @@ export class OpenWorkerSupervisor {
     if (child !== undefined) await terminateProcessTree(child, this.#options.env ?? process.env);
   }
 
-  /** One `POST /v1/providers` per entry; keys travel in the request body only. */
-  async configureProviders(entries: readonly ProviderEntry[]): Promise<void> {
+  #readyHttp(): OpenWorkerHttpClient {
     const http = this.#http;
     if (this.#status.state !== 'ready' || http === undefined) {
       throw new NexarError('INTEGRATION_UNAVAILABLE', 'OpenWorker is not ready');
     }
+    return http;
+  }
+
+  /**
+   * One `POST /v1/providers` per entry; keys travel in the request body only. Upstream merges the
+   * fields into the stored profile and drops an optional field sent empty, so `base_url` is always
+   * sent: without `baseUrl` it is cleared, and a direct key never reaches an earlier endpoint.
+   * Upstream answers a refusal with 200 `{ ok: false }`.
+   */
+  async configureProviders(entries: readonly ProviderEntry[]): Promise<void> {
+    const http = this.#readyHttp();
     for (const entry of entries) {
-      if (!PROVIDER_NAME.test(entry.provider) || entry.apiKey === '') {
+      if (
+        !PROVIDER_NAME.test(entry.provider) ||
+        entry.apiKey === '' ||
+        (entry.baseUrl !== undefined && !LOOPBACK_BASE_URL.test(entry.baseUrl))
+      ) {
         throw new NexarError('VALIDATION_ERROR', 'Invalid OpenWorker provider entry');
       }
     }
     for (const entry of entries) {
       try {
-        await http.request('POST', '/v1/providers', {
+        const result = await http.request('POST', '/v1/providers', {
           name: entry.provider,
-          fields: { api_key: entry.apiKey },
+          fields: { api_key: entry.apiKey, base_url: entry.baseUrl ?? '' },
         });
+        if (refused(result)) throw new Error('refused');
       } catch {
         throw new NexarError('CONFIGURATION_ERROR', 'OpenWorker provider configuration failed');
       }
+    }
+  }
+
+  /** `DELETE /v1/providers/{name}`: upstream forgets the whole stored profile (key and endpoint). */
+  async removeProvider(provider: string): Promise<void> {
+    const http = this.#readyHttp();
+    if (!PROVIDER_NAME.test(provider)) {
+      throw new NexarError('VALIDATION_ERROR', 'Invalid OpenWorker provider entry');
+    }
+    try {
+      if (refused(await http.request('DELETE', `/v1/providers/${provider}`))) {
+        throw new Error('refused');
+      }
+    } catch {
+      throw new NexarError('CONFIGURATION_ERROR', 'OpenWorker provider removal failed');
     }
   }
 

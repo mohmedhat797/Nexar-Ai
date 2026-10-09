@@ -7,14 +7,23 @@
     "lib": ["ES2023"],
     "types": ["node"]
   },
-  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts"],
+  "include": [
+    "src/main/**/*.ts",
+    "src/control-gateway/**/*.ts",
+    "src/signin-callback/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts"
+  ],
   "exclude": ["**/*.test.ts", "dist"],
   "references": [
     { "path": "../../packages/approvals" },
     { "path": "../../packages/artifacts" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/core" },
+    { "path": "../../packages/engine-gateway" },
     { "path": "../../packages/host" },
+    { "path": "../../integrations/openai-account" },
+    { "path": "../../integrations/openai-compat" },
     { "path": "../../integrations/openworker" },
     { "path": "../../packages/operating" },
     { "path": "../../packages/plane-protocol" },

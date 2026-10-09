@@ -58,3 +58,33 @@ export function piModelResource(input: PiModelResourceInput): ResourceDescriptor
     dataLocality: isLoopback ? 'local' : 'third-party',
   };
 }
+
+/**
+ * A model the owner's connected ChatGPT plan can run (ADR-022 amendment 2026-10-05): `model-turn`
+ * (the route is the standard Responses API), plan-billed, no cash cost reported. The credential is a
+ * reference to the Desktop connection; the token is resolved per call by the host's seam.
+ */
+export function chatGptPlanModelResource(model: string, displayName?: string): ResourceDescriptor {
+  return {
+    id: resourceId(`chatgpt-plan:${model}`),
+    displayName: displayName ?? `ChatGPT plan / ${model}`,
+    kind: { type: 'model', provider: 'openai', model, access: 'subscription' },
+    capabilities: ['text-generation', 'knowledge-work', 'model-turn'],
+    runtime: { adapter: PI_ADAPTER_ID, locality: 'remote' },
+    auth: {
+      mode: 'subscription',
+      credential: { source: 'connection', name: 'chatgpt-plan' },
+    },
+    cost: { model: 'subscription', plan: 'chatgpt' },
+    dataLocality: 'third-party',
+    metadata: {
+      connection: {
+        id: 'openai.chatgpt-plan',
+        provider: 'openai',
+        method: 'subscription',
+        authClass: 'official-account',
+        support: 'official',
+      },
+    },
+  };
+}

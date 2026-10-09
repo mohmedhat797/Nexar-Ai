@@ -19,6 +19,7 @@ import {
   type EgressCounts,
 } from '../composition.js';
 import { renderTable } from '../format.js';
+import { relayScriptPath } from '../relay-path.js';
 import { EXIT, UsageError, exitCodeFor } from '../io.js';
 
 const USAGE = [
@@ -191,6 +192,7 @@ async function run(ctx: CommandContext, words: readonly string[]): Promise<numbe
     ctx.logger,
     ctx.seams.engineering,
     ctx.seams.sandbox?.availability,
+    { relayScript: relayScriptPath() },
   );
   const gateTotal = runtime.projects.get(toProjectId(project))?.engineering?.gates.length ?? 0;
 
@@ -374,6 +376,7 @@ async function cleanup(ctx: CommandContext, taskId: string | undefined): Promise
     ctx.logger,
     ctx.seams.engineering,
     ctx.seams.sandbox?.availability,
+    { relayScript: relayScriptPath() },
   );
   await runner.cleanup(taskId);
   ctx.io.stdout(`${taskId} worktree removed\n`);

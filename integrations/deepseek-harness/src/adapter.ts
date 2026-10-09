@@ -61,6 +61,11 @@ export interface DeepSeekHarnessAdapterOptions {
    * rejected (deny by default). `store` additionally lets allow-listed tool decisions be recorded.
    */
   readonly approvals?: { readonly gate: ApprovalGate; readonly store?: ApprovalStore };
+  /**
+   * Absolute path, inside the lane sandbox, of the Node that runs the Intelligence Bridge relay for
+   * a gateway session. Default: the `binary` command when it is itself an absolute `node` path.
+   */
+  readonly nodeCommand?: string;
 }
 
 /**
@@ -80,6 +85,7 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
   private readonly defaultTimeoutMs: number;
   private readonly now: () => Date;
   private readonly approvals: DeepSeekHarnessAdapterOptions['approvals'];
+  private readonly nodeCommand: string | undefined;
 
   constructor(options: DeepSeekHarnessAdapterOptions = {}) {
     this.binary = normalizeBinary(options.binary);
@@ -90,6 +96,7 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
     this.now = options.now ?? (() => new Date());
     this.approvals = options.approvals;
+    this.nodeCommand = options.nodeCommand;
   }
 
   supports(resource: ResourceDescriptor): boolean {
@@ -131,6 +138,7 @@ export class DeepSeekHarnessExecutionAdapter implements ExecutionAdapter {
         approvals: this.approvals,
         initializeTimeoutMs: this.initializeTimeoutMs,
         defaultTimeoutMs: this.defaultTimeoutMs,
+        nodeCommand: this.nodeCommand,
       });
     }
     const runtime = parseRuntimeOptions(resource);

@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, win32 } from 'node:path';
 import { z } from 'zod';
-import { NexarError } from '@nexar/contracts';
+import {
+  DEFAULT_CONTROL_RESOURCE_POLICY,
+  NexarError,
+  type ControlResourcePolicy,
+} from '@nexar/contracts';
 import { DENSITIES, MODES, THEMES, type DesktopSettings } from '../shared/api.js';
 import { PLANE_PROJECT_PATTERN } from '../shared/plane.js';
 import {
@@ -15,6 +19,7 @@ import {
 } from '../shared/behavior.js';
 import { API_PROVIDER_IDS } from '../shared/providers.js';
 import { writeFileAtomic } from './atomic-write.js';
+import { migratePlanResourceId } from './plan-inventory-identity.js';
 
 export const DEFAULT_SETTINGS: DesktopSettings = {
   theme: 'light',
@@ -118,9 +123,83 @@ function parseCowork(raw: unknown): CoworkConfigResult {
   const parsed = CoworkSchema.safeParse(raw);
   return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
 }
+// ---- Orchestration (NXR-063) ------------------------------------------------------------------
+
+const ControlResourceSchema = z
+  .strictObject({
+    mode: z.enum(['auto', 'pinned']),
+    resourceId: z.string().min(1).max(200).optional(),
+    fallback: z.enum(['auto', 'none']),
+  })
+  .refine((value) => (value.mode === 'pinned') === (value.resourceId !== undefined), {
+    message: 'resourceId is required exactly when pinned',
+  })
+  .transform((value): ControlResourcePolicy => ({
+    mode: value.mode,
+    ...(value.resourceId === undefined
+      ? {}
+      : { resourceId: migratePlanResourceId(value.resourceId) }),
+    fallback: value.fallback,
+  }));
+
+const OrchestrationSchema = z
+  .strictObject({
+    cowork: z.strictObject({ controlResource: ControlResourceSchema.optional() }).optional(),
+  })
+  .transform((value): OrchestrationSettings => ({
+    cowork: { controlResource: value.cowork?.controlResource ?? DEFAULT_CONTROL_RESOURCE_POLICY },
+  }));
+
+/** Which resource drives a Cowork turn's control loop (the owner's policy; no IPC or UI yet). */
+export interface OrchestrationSettings {
+  readonly cowork: { readonly controlResource: ControlResourcePolicy };
+}
+
+export const DEFAULT_ORCHESTRATION: OrchestrationSettings = {
+  cowork: { controlResource: DEFAULT_CONTROL_RESOURCE_POLICY },
+};
+
+/** A damaged `orchestration` section fails closed (no gateway path) and is preserved verbatim. */
+export type OrchestrationResult =
+  { readonly valid: true; readonly value: OrchestrationSettings } | { readonly valid: false };
+
+function parseOrchestration(raw: unknown): OrchestrationResult {
+  if (raw === undefined) return { valid: true, value: DEFAULT_ORCHESTRATION };
+  const parsed = OrchestrationSchema.safeParse(raw);
+  return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
+}
+
+// ---- Legacy ChatGPT model preferences (never an availability source, NXR-068) -----------------
+
+/** Model ids the owner lists for the ChatGPT plan; the same slug alphabet resource ids use. */
+const PlanModelSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+const ChatGptPlanSchema = z
+  .strictObject({ models: z.array(PlanModelSchema).min(1).max(16) })
+  .transform((value): ChatGptPlanSettings => ({ models: [...new Set(value.models)] }));
+
+/** Legacy owner hints; fresh account/route discovery alone establishes availability. */
+export interface ChatGptPlanSettings {
+  readonly models: readonly string[];
+}
+
+export const DEFAULT_CHATGPT_PLAN: ChatGptPlanSettings = { models: [] };
+
+/** Legacy metadata is preserved verbatim, including damaged sections. */
+export type ChatGptPlanResult =
+  { readonly valid: true; readonly value: ChatGptPlanSettings } | { readonly valid: false };
+
+function parseChatGptPlan(raw: unknown): ChatGptPlanResult {
+  if (raw === undefined) return { valid: true, value: DEFAULT_CHATGPT_PLAN };
+  const parsed = ChatGptPlanSchema.safeParse(raw);
+  return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
+}
+
 // ---- AI behavior (NXR-053) --------------------------------------------------------------------
 
-const ResourceIdSchema = z.string().regex(BEHAVIOR_RESOURCE_PATTERN);
+const ResourceIdSchema = z
+  .string()
+  .regex(BEHAVIOR_RESOURCE_PATTERN)
+  .transform(migratePlanResourceId);
 const BehaviorSchema = z
   .strictObject({
     cowork: z
@@ -141,18 +220,39 @@ const BehaviorSchema = z
     code: value.code ?? { permission: DEFAULT_CODE_PERMISSION },
   }));
 
-/** What a ehavior:set call may carry: any subset of known values, nothing else. */
+/** A control-resource patch: `pinned` names a resource, `auto` never does (any id is dropped). */
+const ControlPatchSchema = z
+  .strictObject({
+    mode: z.enum(['auto', 'pinned']),
+    resourceId: ResourceIdSchema.optional(),
+    fallback: z.enum(['auto', 'none']),
+  })
+  .refine((value) => value.mode === 'auto' || value.resourceId !== undefined, {
+    message: 'resourceId is required when pinned',
+  })
+  .transform((value): ControlResourcePolicy => ({
+    mode: value.mode,
+    fallback: value.fallback,
+    ...(value.mode === 'pinned' && value.resourceId !== undefined
+      ? { resourceId: value.resourceId }
+      : {}),
+  }));
+
+/** What a `behavior:set` call may carry: any subset of known values, nothing else. */
 export const BehaviorPatchSchema = z.strictObject({
   cowork: z
     .strictObject({
       permission: z.enum(COWORK_PERMISSIONS).optional(),
       preferredResourceId: ResourceIdSchema.nullable().optional(),
+      controlResource: ControlPatchSchema.optional(),
     })
     .optional(),
   code: z
     .strictObject({
       permission: z.enum(CODE_PERMISSIONS).optional(),
       preferredResourceId: ResourceIdSchema.nullable().optional(),
+      // Accepted only so the handler can refuse it with a clear code: the plane owns this policy.
+      controlResource: ControlPatchSchema.optional(),
     })
     .optional(),
 });
@@ -162,7 +262,7 @@ export const DEFAULT_BEHAVIOR: BehaviorSettings = {
   code: { permission: DEFAULT_CODE_PERMISSION },
 };
 
-/** A damaged ehavior section fails closed (no turn starts on it) and is preserved verbatim. */
+/** A damaged `behavior` section fails closed (no turn starts on it) and is preserved verbatim. */
 export type BehaviorResult =
   { readonly valid: true; readonly value: BehaviorSettings } | { readonly valid: false };
 
@@ -201,6 +301,11 @@ interface Loaded {
   readonly codePlane: CodePlaneConfigResult;
   readonly coworkRaw: unknown;
   readonly cowork: CoworkConfigResult;
+  readonly orchestrationRaw: unknown;
+  readonly orchestration: OrchestrationResult;
+  /** Owner-edited; never written by Nexar, kept verbatim. */
+  readonly chatgptPlanRaw: unknown;
+  readonly chatgptPlan: ChatGptPlanResult;
 }
 
 function parseCodePlane(raw: unknown): CodePlaneConfigResult {
@@ -227,15 +332,22 @@ export class SettingsStore {
     let codePlaneRaw: unknown;
     let coworkRaw: unknown;
     let behaviorRaw: unknown;
+    let orchestrationRaw: unknown;
+    let chatgptPlanRaw: unknown;
     try {
       const file = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
       if (typeof file === 'object' && file !== null && !Array.isArray(file)) {
-        const { codePlane, cowork, behavior, ...rest } = file as Record<string, unknown>;
+        const { codePlane, cowork, behavior, orchestration, chatgptPlan, ...rest } = file as Record<
+          string,
+          unknown
+        >;
         const parsed = AppearanceSchema.safeParse(rest);
         if (parsed.success) appearance = parsed.data;
         codePlaneRaw = Object.hasOwn(file, 'codePlane') ? codePlane : undefined;
         coworkRaw = Object.hasOwn(file, 'cowork') ? cowork : undefined;
         behaviorRaw = Object.hasOwn(file, 'behavior') ? behavior : undefined;
+        orchestrationRaw = Object.hasOwn(file, 'orchestration') ? orchestration : undefined;
+        chatgptPlanRaw = Object.hasOwn(file, 'chatgptPlan') ? chatgptPlan : undefined;
       }
     } catch {
       // Missing or unreadable: defaults.
@@ -248,6 +360,10 @@ export class SettingsStore {
       cowork: parseCowork(coworkRaw),
       behaviorRaw,
       behavior: parseBehavior(behaviorRaw),
+      orchestrationRaw,
+      orchestration: parseOrchestration(orchestrationRaw),
+      chatgptPlanRaw,
+      chatgptPlan: parseChatGptPlan(chatgptPlanRaw),
     };
     return this.current;
   }
@@ -265,10 +381,25 @@ export class SettingsStore {
       next.behavior.valid && next.behaviorRaw === undefined
         ? {}
         : { behavior: next.behavior.valid ? next.behavior.value : next.behaviorRaw };
+    const orchestrationSection =
+      next.orchestration.valid && next.orchestrationRaw === undefined
+        ? {}
+        : {
+            orchestration: next.orchestration.valid
+              ? next.orchestration.value
+              : next.orchestrationRaw,
+          };
     await writeFileAtomic(
       this.path,
       JSON.stringify(
-        { ...next.appearance, ...section, ...coworkSection, ...behaviorSection },
+        {
+          ...next.appearance,
+          ...section,
+          ...coworkSection,
+          ...behaviorSection,
+          ...orchestrationSection,
+          ...(next.chatgptPlanRaw === undefined ? {} : { chatgptPlan: next.chatgptPlanRaw }),
+        },
         null,
         2,
       ) + '\n',
@@ -354,6 +485,38 @@ export class SettingsStore {
       const value = BehaviorSchema.parse(mergeBehavior(loaded.behavior.value, patch));
       await this.write({ ...loaded, behaviorRaw: value, behavior: { valid: true, value } });
       return value;
+    });
+  }
+
+  /** Main-process only: the validated ChatGPT plan model list (owner-edited). */
+  async getChatGptPlan(): Promise<ChatGptPlanResult> {
+    return (await this.load()).chatgptPlan;
+  }
+
+  /** Main-process only: the validated orchestration settings. */
+  async getOrchestration(): Promise<OrchestrationResult> {
+    return (await this.load()).orchestration;
+  }
+
+  /** Sets the Cowork control-resource policy. Refused while the section is damaged. */
+  setCoworkControlResource(policy: ControlResourcePolicy): Promise<ControlResourcePolicy> {
+    return this.serialized(async () => {
+      const loaded = await this.load();
+      if (!loaded.orchestration.valid) {
+        throw new NexarError('CONFIGURATION_ERROR', 'The orchestration settings are not valid');
+      }
+      const parsed = ControlResourceSchema.safeParse(policy);
+      if (!parsed.success) {
+        throw new NexarError('VALIDATION_ERROR', 'Invalid control resource policy');
+      }
+      const controlResource = parsed.data;
+      const value: OrchestrationSettings = { cowork: { controlResource } };
+      await this.write({
+        ...loaded,
+        orchestrationRaw: value,
+        orchestration: { valid: true, value },
+      });
+      return controlResource;
     });
   }
 

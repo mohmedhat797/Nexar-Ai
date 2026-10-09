@@ -10,6 +10,7 @@ export default tseslint.config(
       '**/coverage/**',
       '**/node_modules/**',
       'docs/research/**',
+      '.nexar/**',
     ],
   },
   eslint.configs.recommended,

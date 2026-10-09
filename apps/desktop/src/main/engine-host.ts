@@ -1,13 +1,20 @@
 import { dirname, join } from 'node:path';
 import { ApprovalGate, FileApprovalStore, type ApprovalStore } from '@nexar/approvals';
-import type { Logger, ResourceSnapshot, SecretResolver } from '@nexar/contracts';
+import type {
+  Logger,
+  ResourceDescriptor,
+  ResourceSnapshot,
+  SecretResolver,
+} from '@nexar/contracts';
 import {
   compose,
   composeWorkflows,
   loadHostConfig,
   nexarStateDir,
   type Composition,
+  type ConnectionSeam,
   type HostEnvironment,
+  type InventoryExecutionGuard,
 } from '@nexar/host';
 import type { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
 
@@ -33,6 +40,11 @@ export interface EngineHostOptions {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly logger: Logger;
   readonly resolveSecret?: SecretResolver;
+  /** The ChatGPT plan's token seam for the pi adapter (main only; ADR-022 amendment 2026-10-05). */
+  readonly connections?: ConnectionSeam;
+  /** Resources the app publishes itself (the connected plan); read on every (re)composition. */
+  readonly extraResources?: () => Promise<readonly ResourceDescriptor[]>;
+  readonly inventoryGuard?: InventoryExecutionGuard;
   /** Startup phase names for diagnostics (no data); see NEXAR_DESKTOP_STARTUP_TRACE. */
   readonly trace?: (phase: string) => void;
 }
@@ -54,9 +66,16 @@ export async function createEngineHost(options: EngineHostOptions): Promise<Engi
     // The same store `nexar approvals` decides on, so ACP and engineering requests land here.
     const store = new FileApprovalStore(join(nexarStateDir(loaded, io), 'approvals'));
     const gate = new ApprovalGate({ mode: 'store', store, logger: options.logger });
+    // A failing source publishes nothing: the plan's resources are simply absent.
+    const extraResources = await (options.extraResources?.() ?? Promise.resolve([])).catch(
+      () => [],
+    );
     const composition = await compose(loaded, io, options.logger, {
       workingDirectoryPolicy: 'project-only',
       approvals: { gate, store },
+      extraResources,
+      ...(options.inventoryGuard === undefined ? {} : { inventoryGuard: options.inventoryGuard }),
+      ...(options.connections === undefined ? {} : { connections: options.connections }),
       ...(options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret }),
     });
     options.trace?.('engine-compose');
@@ -66,6 +85,7 @@ export async function createEngineHost(options: EngineHostOptions): Promise<Engi
   }
 
   let current = await build();
+  let reloading: Promise<void> = Promise.resolve();
 
   return {
     configPath: options.configPath,
@@ -81,8 +101,12 @@ export async function createEngineHost(options: EngineHostOptions): Promise<Engi
       }
       return registry.snapshot();
     },
-    async reload() {
-      current = await build();
+    reload() {
+      const next = reloading.then(async () => {
+        current = await build();
+      });
+      reloading = next.catch(() => undefined);
+      return next;
     },
   };
 }

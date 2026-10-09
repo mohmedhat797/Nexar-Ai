@@ -17,6 +17,8 @@ describe('upstream isolation (ADR-008)', () => {
         'PI_PROVIDER_CREDENTIAL_NAMES',
         'checkProviderApiKey',
         'PiExecutionAdapter',
+        'PiModelTurnPort',
+        'chatGptPlanModelResource',
         'localEndpointDiscoverySource',
         'piCatalogDiscoverySource',
         'piModelResource',

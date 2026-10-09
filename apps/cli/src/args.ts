@@ -7,6 +7,7 @@ import {
   type NexarTask,
   type ProcessLauncher,
   type ResourceId,
+  type ResourceSnapshot,
 } from '@nexar/contracts';
 import type { Nexar } from '@nexar/core';
 import type { ApprovalStore } from '@nexar/approvals';
@@ -17,6 +18,12 @@ import { UsageError, type CliIo } from './io.js';
 type OptionValue = string | boolean | (string | boolean)[] | undefined;
 
 export type { EngineeringRunnerPort };
+
+/** The part of a resource registry the plane reads for `readiness.resources`. */
+export interface PlaneRegistry {
+  snapshot(): readonly ResourceSnapshot[];
+  refresh(options?: { readonly timeoutMs?: number }): Promise<readonly ResourceSnapshot[]>;
+}
 
 /** Result of a `<command> --version` probe. */
 export type VersionProbe =
@@ -41,6 +48,10 @@ export interface CliSeams {
     readonly approvalStore?: ApprovalStore;
     /** Reads a bounded host file (`/etc/wsl.conf`, the kernel release); `undefined` when absent. */
     readonly readText?: (path: string, maxBytes: number) => Promise<string | undefined>;
+    /** Replaces the registry behind `readiness.resources` (a fake in tests). */
+    readonly registry?: () => PlaneRegistry;
+    /** Budget for building `readiness.resources` (compose + probes). Default 3 s. */
+    readonly resourcesBudgetMs?: number;
     /** Replaces the built-in plan catalog listing. */
     readonly planIds?: () => Promise<readonly string[]>;
     /** How often the pending approval is looked up while a run awaits the owner. Default 250 ms. */

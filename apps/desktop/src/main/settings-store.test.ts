@@ -2,8 +2,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { inventoryResourceId } from '@nexar/resource-registry';
 import {
   DEFAULT_BEHAVIOR,
+  DEFAULT_ORCHESTRATION,
   DEFAULT_CODE_PLANE,
   MAX_PLANE_PROJECTS,
   SettingsStore,
@@ -173,6 +175,51 @@ describe('Code plane settings', () => {
 });
 
 describe('AI behavior settings (NXR-053)', () => {
+  it('resolves legacy plan preference and control pins to the same route without rewriting settings', async () => {
+    const raw = JSON.stringify({
+      ...base,
+      behavior: {
+        cowork: { permission: 'drafts-only', preferredResourceId: 'chatgpt-plan:gpt-5.4' },
+        code: { permission: 'auto-edit', preferredResourceId: 'chatgpt-plan:gpt-5.4' },
+      },
+      orchestration: {
+        cowork: {
+          controlResource: {
+            mode: 'pinned',
+            resourceId: 'chatgpt-plan:gpt-5.4',
+            fallback: 'none',
+          },
+        },
+      },
+    });
+    await writeFile(path, raw);
+    const canonical = inventoryResourceId(
+      {
+        provider: 'openai',
+        connectionId: 'openai.chatgpt-plan',
+        runtimeId: 'pi',
+        routeId: 'openai.responses.account',
+        machine: 'desktop',
+      },
+      { kind: 'model', id: 'gpt-5.4' },
+    );
+    const store = new SettingsStore(path);
+    expect(await store.getBehavior()).toEqual({
+      valid: true,
+      value: {
+        cowork: { permission: 'drafts-only', preferredResourceId: canonical },
+        code: { permission: 'auto-edit', preferredResourceId: canonical },
+      },
+    });
+    expect(await store.getOrchestration()).toEqual({
+      valid: true,
+      value: {
+        cowork: { controlResource: { mode: 'pinned', resourceId: canonical, fallback: 'none' } },
+      },
+    });
+    expect(await readFile(path, 'utf8')).toBe(raw);
+  });
+
   const behaviorOf = async (section: unknown) => {
     await writeFile(path, JSON.stringify({ ...base, behavior: section }));
     return new SettingsStore(path).getBehavior();
@@ -264,5 +311,122 @@ describe('AI behavior settings (NXR-053)', () => {
     expect(file['codePlane']).toMatchObject({ projects: { a: 'plane-a' } });
     // A new store sees the persisted value.
     expect(await new SettingsStore(path).getBehavior()).toMatchObject({ valid: true });
+  });
+});
+
+describe('Orchestration settings (NXR-063)', () => {
+  const orchestrationOf = async (section: unknown) => {
+    await writeFile(path, JSON.stringify({ ...base, orchestration: section }));
+    return new SettingsStore(path).getOrchestration();
+  };
+
+  it('defaults to Auto with fallback when the file or section is missing', async () => {
+    expect(await new SettingsStore(path).getOrchestration()).toEqual({
+      valid: true,
+      value: DEFAULT_ORCHESTRATION,
+    });
+    expect(DEFAULT_ORCHESTRATION.cowork.controlResource).toEqual({
+      mode: 'auto',
+      fallback: 'auto',
+    });
+    expect(await orchestrationOf({})).toEqual({ valid: true, value: DEFAULT_ORCHESTRATION });
+  });
+
+  it('accepts auto and pinned policies', async () => {
+    const pinned = { mode: 'pinned', resourceId: 'pi:local', fallback: 'none' };
+    expect(await orchestrationOf({ cowork: { controlResource: pinned } })).toEqual({
+      valid: true,
+      value: { cowork: { controlResource: pinned } },
+    });
+  });
+
+  it.each([
+    { cowork: { controlResource: { mode: 'pinned', fallback: 'auto' } } },
+    { cowork: { controlResource: { mode: 'auto', resourceId: 'x', fallback: 'auto' } } },
+    {
+      cowork: {
+        controlResource: { mode: 'pinned', resourceId: 'x'.repeat(201), fallback: 'auto' },
+      },
+    },
+    { cowork: { controlResource: { mode: 'auto' } } },
+    { cowork: { controlResource: { mode: 'auto', fallback: 'auto', extra: 1 } } },
+    { other: 1 },
+    'text',
+  ])('fails closed on a damaged section %#', async (section) => {
+    expect(await orchestrationOf(section)).toEqual({ valid: false });
+  });
+
+  it('writes the policy, keeps other sections, and refuses to overwrite a damaged one', async () => {
+    await writeFile(path, JSON.stringify({ ...base, cowork: { allowedProviders: [] } }));
+    const store = new SettingsStore(path);
+    await store.setCoworkControlResource({ mode: 'pinned', resourceId: 'r1', fallback: 'auto' });
+    const saved = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+    expect(saved['orchestration']).toEqual({
+      cowork: { controlResource: { mode: 'pinned', resourceId: 'r1', fallback: 'auto' } },
+    });
+    expect(saved['cowork']).toEqual({ allowedProviders: [] });
+    expect((await new SettingsStore(path).getOrchestration()).valid).toBe(true);
+    await expect(
+      store.setCoworkControlResource({ mode: 'pinned', fallback: 'auto' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    const damaged = { cowork: { controlResource: { mode: 'nope' } } };
+    await writeFile(path, JSON.stringify({ ...base, orchestration: damaged }));
+    const broken = new SettingsStore(path);
+    await expect(
+      broken.setCoworkControlResource({ mode: 'auto', fallback: 'auto' }),
+    ).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
+    await broken.set({ theme: 'dark' });
+    const kept = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+    expect(kept['orchestration']).toEqual(damaged);
+  });
+});
+
+describe('ChatGPT plan models (NXR-067)', () => {
+  const modelsOf = async (section: unknown) => {
+    await writeFile(path, JSON.stringify({ ...base, chatgptPlan: section }));
+    return new SettingsStore(path).getChatGptPlan();
+  };
+
+  it('has no assumed model when the file or the section is missing', async () => {
+    expect(await new SettingsStore(path).getChatGptPlan()).toEqual({
+      valid: true,
+      value: { models: [] },
+    });
+    await writeFile(path, JSON.stringify(base));
+    expect(await new SettingsStore(path).getChatGptPlan()).toMatchObject({ valid: true });
+  });
+
+  it('accepts the owner list, de-duplicated', async () => {
+    expect(await modelsOf({ models: ['gpt-5.2', 'gpt-5.4', 'gpt-5.2'] })).toEqual({
+      valid: true,
+      value: { models: ['gpt-5.2', 'gpt-5.4'] },
+    });
+  });
+
+  it.each([
+    ['an empty list', { models: [] }],
+    ['an uppercase id', { models: ['GPT-5'] }],
+    ['a path-like id', { models: ['../x'] }],
+    ['an id with a colon', { models: ['a:b'] }],
+    ['a non-string id', { models: [5] }],
+    ['an unknown key', { models: ['gpt-5.2'], extra: true }],
+    ['a non-object section', 'gpt-5.2'],
+    ['more than sixteen models', { models: Array.from({ length: 17 }, (_, i) => `m${String(i)}`) }],
+  ])('treats %s as damaged', async (_label, section) => {
+    expect(await modelsOf(section)).toEqual({ valid: false });
+  });
+
+  it('keeps the owner section verbatim and the appearance keys when other settings are saved', async () => {
+    const section = { models: ['gpt-5.4'] };
+    await writeFile(path, JSON.stringify({ ...base, chatgptPlan: section }));
+    const store = new SettingsStore(path);
+    await store.set({ theme: 'dark' });
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
+      theme: 'dark',
+      chatgptPlan: section,
+    });
+    // The section does not turn the appearance keys into defaults.
+    expect(await new SettingsStore(path).get()).toMatchObject({ theme: 'dark', mode: 'cowork' });
   });
 });

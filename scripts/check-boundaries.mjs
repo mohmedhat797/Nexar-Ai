@@ -10,6 +10,7 @@ const UPSTREAMS = [
   { prefix: '@modelcontextprotocol/', owner: 'integrations/mcp/' },
   { prefix: '@mariozechner/', owner: null }, // deprecated scope: never allowed
   { prefix: '@deepseek-ai/', owner: null }, // Nexar speaks the DSH wire protocol, no npm deps (ADR-002)
+  { prefix: '@anthropic-ai/claude-agent-sdk', owner: 'integrations/claude-code/' },
   { prefix: '@anthropic-ai/', owner: null },
   { prefix: '@openai/', owner: null },
 ];

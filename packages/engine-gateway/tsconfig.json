@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/*.test.ts", "src/fixtures.ts", "dist"],
+  "references": [
+    {
+      "path": "../contracts"
+    },
+    {
+      "path": "../operating"
+    },
+    {
+      "path": "../resource-controller"
+    }
+  ]
+}

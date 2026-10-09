@@ -32,6 +32,10 @@ ADR (or amend status) when you change one.
 | [024](024-operating-layer-and-sessions.md)         | Nexar Operating Layer and Operating Sessions                       | Accepted                       |
 | [025](025-code-lane-wsl-bridge.md)                 | Code lane: Desktop to WSL2 engineering-plane bridge                | Accepted                       |
 | [026](026-cowork-lane-supervised-openworker.md)    | Cowork lane: a Nexar-supervised OpenWorker                         | Accepted                       |
+| [027](027-resource-orchestration-architecture.md)  | Nexar-owned resources, Engine Gateway and plan-level strategy      | Accepted                       |
 
 Template: Status · Context · Decision · Rationale · Alternatives considered · Consequences · Risks ·
 Follow-up work.
+
+[ADR-028: Dynamic Provider Sessions and Model Inventory](028-dynamic-provider-sessions-and-model-inventory.md)
+is accepted (2026-10-06); implementation NXR-068 blocks v0.6 live acceptance.

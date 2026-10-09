@@ -1,15 +1,18 @@
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ApprovalGate, FileApprovalStore, type ApprovalStore } from '@nexar/approvals';
 import { LocalArtifactStore } from '@nexar/artifacts';
 import {
   NexarError,
+  type ConnectionCredentialResolver,
   type DiscoverySource,
   type DiscoverySourceReport,
   type EgressEvent,
   type ExecutionAdapter,
   type Logger,
+  type ModelTurnPort,
   type ProcessLauncher,
+  type ResourceDescriptor,
   type SecretResolver,
   type TelemetrySink,
 } from '@nexar/contracts';
@@ -31,13 +34,16 @@ import {
 } from '@nexar/integration-claude-code';
 import { CodexExecutionAdapter, codexCliDiscoverySource } from '@nexar/integration-codex';
 import {
+  DEEPSEEK_HARNESS_ADAPTER_ID,
   DeepSeekHarnessExecutionAdapter,
   deepseekHarnessCliDiscoverySource,
 } from '@nexar/integration-deepseek-harness';
 import { DelegateSkillsExecutionAdapter } from '@nexar/integration-delegate-skills';
 import { EchoExecutionAdapter } from '@nexar/integration-echo';
 import {
+  PI_ADAPTER_ID,
   PiExecutionAdapter,
+  PiModelTurnPort,
   localEndpointDiscoverySource,
   piCatalogDiscoverySource,
 } from '@nexar/integration-pi';
@@ -50,7 +56,9 @@ import {
   TelemetryQuotaSource,
 } from '@nexar/telemetry';
 import { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
+import { PlaneLaneEngine } from './lane-engine.js';
 import type { EngineeringRunnerPort, EngineeringSeams, HostEnvironment } from './seams.js';
+import { guardInventoryAdapter, type InventoryExecutionGuard } from './inventory-guard.js';
 
 export interface Composition {
   readonly loaded: LoadedConfig;
@@ -126,6 +134,54 @@ export function loadHostConfig(
   });
 }
 
+/**
+ * This process's Node when a toolchain mount contains it, so a relay started inside the sandbox can
+ * run on it (ADR-027 section 9b); otherwise none, and DSH lanes get no bridge rather than a guess.
+ */
+export function sandboxVisibleNode(
+  toolchainPaths: readonly string[],
+  execPath: string = process.execPath,
+): string | undefined {
+  return toolchainPaths.some((root) => {
+    const rel = relative(root, execPath);
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  })
+    ? execPath
+    : undefined;
+}
+
+/**
+ * The owner's account connections as the pi adapter sees them (Desktop main only; the CLI and the
+ * plane pass none, so a connection credential is refused there).
+ */
+export interface ConnectionSeam {
+  readonly resolve: ConnectionCredentialResolver;
+  readonly onPlanModelRejected?: (descriptor: ResourceDescriptor) => void;
+  readonly isPlanModelAvailable?: (descriptor: ResourceDescriptor) => boolean;
+  /** Test seam: the `fetch` plan calls go through. Production never sets it. */
+  readonly fetch?: typeof fetch;
+}
+
+function connectionOptions(connections: ConnectionSeam | undefined): {
+  readonly resolveCredential?: ConnectionCredentialResolver;
+  readonly fetch?: typeof fetch;
+  readonly onPlanModelRejected?: (descriptor: ResourceDescriptor) => void;
+  readonly isPlanModelAvailable?: (descriptor: ResourceDescriptor) => boolean;
+} {
+  return connections === undefined
+    ? {}
+    : {
+        resolveCredential: connections.resolve,
+        ...(connections.onPlanModelRejected === undefined
+          ? {}
+          : { onPlanModelRejected: connections.onPlanModelRejected }),
+        ...(connections.isPlanModelAvailable === undefined
+          ? {}
+          : { isPlanModelAvailable: connections.isPlanModelAvailable }),
+        ...(connections.fetch === undefined ? {} : { fetch: connections.fetch }),
+      };
+}
+
 /** Every execution adapter the host knows about; the secret resolver reaches pi and DSH only. */
 export function createAdapters(
   io: HostEnvironment,
@@ -133,11 +189,16 @@ export function createAdapters(
   options: {
     readonly approvals?: { readonly gate: ApprovalGate; readonly store: ApprovalStore };
     readonly resolveSecret?: SecretResolver;
+    readonly connections?: ConnectionSeam;
+    readonly inventoryGuard?: InventoryExecutionGuard;
+    /** Engineering toolchain mounts: the sandbox shows them at the same paths (ADR-019). */
+    readonly toolchainPaths?: readonly string[];
   } = {},
 ): readonly ExecutionAdapter[] {
   const secrets =
     options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret };
-  return [
+  const nodeCommand = sandboxVisibleNode(options.toolchainPaths ?? []);
+  const adapters: readonly ExecutionAdapter[] = [
     new EchoExecutionAdapter(),
     new ClaudeCodeExecutionAdapter({ env: io.env }),
     new CodexExecutionAdapter({ env: io.env }),
@@ -146,14 +207,34 @@ export function createAdapters(
       env: io.env,
       stateDir: join(configDir, '.nexar', 'runtimes', 'deepseek-harness'),
       ...(options.approvals === undefined ? {} : { approvals: options.approvals }),
+      ...(nodeCommand === undefined ? {} : { nodeCommand }),
       ...secrets,
     }),
-    new PiExecutionAdapter({ env: io.env, ...secrets }),
+    new PiExecutionAdapter({ env: io.env, ...secrets, ...connectionOptions(options.connections) }),
     new DelegateSkillsExecutionAdapter({
       env: io.env,
       stateDir: join(configDir, '.nexar', 'runtimes', 'delegate-skills'),
     }),
   ];
+  return options.inventoryGuard === undefined
+    ? adapters
+    : adapters.map((adapter) => guardInventoryAdapter(adapter, options.inventoryGuard!));
+}
+
+/**
+ * Model-turn ports for the Control Model Gateway (ADR-027 section 7A): pi resources only; any other
+ * resource has no port, so it can never be pinned as a control resource.
+ */
+export function createControlModelTurnPorts(
+  io: HostEnvironment,
+  options: { readonly resolveSecret?: SecretResolver; readonly connections?: ConnectionSeam } = {},
+): (descriptor: ResourceDescriptor) => ModelTurnPort | undefined {
+  const port = new PiModelTurnPort({
+    env: io.env,
+    ...connectionOptions(options.connections),
+    ...(options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret }),
+  });
+  return (descriptor) => (descriptor.runtime.adapter === PI_ADAPTER_ID ? port : undefined);
 }
 
 /**
@@ -175,12 +256,24 @@ export async function compose(
      * Harness adapters. The CLI passes none, so a keystore reference there is `AUTH_REQUIRED`.
      */
     readonly resolveSecret?: SecretResolver;
+    /** The owner's account connections (Desktop main only), handed to the pi adapter. */
+    readonly connections?: ConnectionSeam;
+    /**
+     * Resources published by the host itself (Desktop: the connected ChatGPT plan). Configured
+     * resources win an id collision, as for discovered ones.
+     */
+    readonly extraResources?: readonly ResourceDescriptor[];
+    readonly inventoryGuard?: InventoryExecutionGuard;
   } = {},
 ): Promise<Composition> {
   const configDir = stateBaseDir(loaded, io);
   // Configured resources always win; discovered ones only add new ids (ADR-020 §9).
   const discoveryConfig = loaded.config.discovery;
-  let resources = mergeDiscovered(loaded.config.resources, []).resources;
+  const hostBatch =
+    options.extraResources === undefined || options.extraResources.length === 0
+      ? []
+      : [{ source: 'host', descriptors: options.extraResources }];
+  let resources = mergeDiscovered(loaded.config.resources, hostBatch).resources;
   let discovery: Composition['discovery'];
   if (discoveryConfig.enabled || options.discover === 'always') {
     const { sources, disabled } = discoverySources(discoveryConfig, io.env);
@@ -191,13 +284,18 @@ export async function compose(
       timeoutMs: discoveryConfig.timeoutMs,
     });
     const result = await service.discover();
-    const merged = mergeDiscovered(loaded.config.resources, result.batches, {
+    const merged = mergeDiscovered(loaded.config.resources, [...result.batches, ...hostBatch], {
       excludeIds: discoveryConfig.excludeIds,
     });
     resources = merged.resources;
     discovery = { reports: result.reports, collisions: merged.collisions };
   }
-  const adapters = createAdapters(io, configDir, options);
+  const adapters = createAdapters(io, configDir, {
+    ...options,
+    ...(loaded.config.engineering === undefined
+      ? {}
+      : { toolchainPaths: loaded.config.engineering.toolchainPaths }),
+  });
   // Without a telemetry file nothing can be accounted: quota stays unknown rather than "0 used".
   const telemetryPath =
     loaded.source === 'default'
@@ -330,6 +428,7 @@ export async function composeEngineering(
   logger: Logger,
   seams: EngineeringSeams = {},
   availability?: () => Promise<SandboxAvailability>,
+  options: { readonly relayScript?: string } = {},
 ): Promise<EngineeringComposition> {
   const engineering = requireEngineeringConfig(loaded);
   const stateDir = nexarStateDir(loaded, io);
@@ -354,6 +453,25 @@ export async function composeEngineering(
       ...(availability === undefined ? {} : { availability }),
     });
 
+  // Engine gateway sessions (ADR-027 section 9b) exist only when a DeepSeek Harness resource does.
+  const hasEngine = runtime.registry
+    .snapshot()
+    .some((s) => s.descriptor.runtime.adapter === DEEPSEEK_HARNESS_ADAPTER_ID);
+  const laneTimeouts = loaded.config.projects.map((p) => p.engineering?.laneTimeoutMs ?? 0);
+  const controlPolicy = loaded.config.orchestration?.code?.controlResource;
+  const laneEngine = hasEngine
+    ? new PlaneLaneEngine({
+        runtime,
+        io,
+        logger,
+        stateDir,
+        // The grant outlives the longest lane by a minute; close revokes it earlier.
+        ttlMs: Math.max(30 * 60 * 1000, ...laneTimeouts) + 60_000,
+        ...(controlPolicy === undefined ? {} : { controlPolicy }),
+        ...(options.relayScript === undefined ? {} : { relayScript: options.relayScript }),
+      })
+    : undefined;
+
   const runner: EngineeringRunnerPort =
     seams?.runner ??
     new EngineeringRunner({
@@ -365,6 +483,8 @@ export async function composeEngineering(
       artifacts: new LocalArtifactStore({ projects: runtime.projects }),
       telemetry: engineeringTelemetry(loaded, io),
       logger,
+      strategist: runtime.controller,
+      ...(laneEngine === undefined ? {} : { laneEngine }),
       stateDir,
       author: engineering.author,
       approvalTtlMs: engineering.approvalTtlMs,

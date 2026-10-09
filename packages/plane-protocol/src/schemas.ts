@@ -35,6 +35,11 @@ const id = (pattern: RegExp): z.ZodString => z.string().regex(pattern);
 const nonNegative = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const boundedText = (max: number): z.ZodString => z.string().min(1).max(max);
 
+/** Optional protocol features a Desktop can request in `initialize`. */
+export const PLANE_FEATURES = ['resources'] as const;
+/** Same shape as `resourceId()` in `@nexar/contracts`. */
+export const RESOURCE_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
+
 const runId = id(RUN_ID_PATTERN);
 const approvalId = id(APPROVAL_ID_PATTERN);
 const taskId = id(TASK_ID_PATTERN);
@@ -45,6 +50,15 @@ export const initializeFrameSchema = z.strictObject({
   type: z.literal('initialize'),
   // Not a literal: a different version must reach the plane so it can answer with a clear error.
   protocol: boundedText(64),
+  /**
+   * Optional features this Desktop understands (additive). The plane adds `readiness.resources` only
+   * when `resources` is listed, so a Desktop with the strict readiness schema never receives it.
+   */
+  features: z
+    .array(z.enum(PLANE_FEATURES))
+    .max(8)
+    .refine((features) => new Set(features).size === features.length, 'duplicate feature')
+    .optional(),
 });
 
 export const lineageSchema = z.strictObject({
@@ -114,6 +128,38 @@ export const desktopFrameSchema = z.discriminatedUnion('type', [
 
 // ---- Plane to Desktop -----------------------------------------------------------------------
 
+/** One plane resource: ids and enums only; no detail text, path or secret (ADR-027 section 11). */
+export const planeResourceSchema = z.strictObject({
+  id: id(RESOURCE_ID_PATTERN),
+  connection: z
+    .strictObject({
+      id: boundedText(200),
+      provider: boundedText(200),
+      method: z.enum(['subscription', 'api', 'local', 'custom']),
+      authClass: z.enum([
+        'vendor-native',
+        'official-api',
+        'official-account',
+        'experimental-client-compat',
+        'none',
+      ]),
+      support: z.enum(['official', 'experimental']),
+    })
+    .optional(),
+  auth: z.enum(['authenticated', 'unauthenticated', 'not-required', 'unknown']),
+  availability: z.enum(['available', 'degraded', 'unavailable', 'unknown']),
+  control: z.strictObject({ openworker: z.boolean(), dsh: z.boolean() }),
+});
+
+/** The plane's owner policy for the Code lane's control resource (`orchestration.code`). */
+export const planeControlSchema = z.strictObject({
+  code: z.strictObject({
+    mode: z.enum(['auto', 'pinned']),
+    resourceId: id(RESOURCE_ID_PATTERN).optional(),
+    fallback: z.enum(['auto', 'none']),
+  }),
+});
+
 export const readinessSchema = z.strictObject({
   sandbox: z.enum(['ok', 'unavailable']),
   selftest: z.enum(['pass', 'fail', 'skipped']),
@@ -122,6 +168,10 @@ export const readinessSchema = z.strictObject({
   kernel: z.string().max(200),
   plans: z.array(id(PLAN_ID_PATTERN)).max(32),
   projects: z.array(id(PROJECT_ID_PATTERN)).max(200),
+  /** Only sent when `initialize` requested the `resources` feature. */
+  resources: z.array(planeResourceSchema).max(64).optional(),
+  /** Only sent when `initialize` requested the `resources` feature. */
+  control: planeControlSchema.optional(),
 });
 
 export const readyFrameSchema = z.strictObject({
@@ -209,6 +259,11 @@ export const reportSchema = z.strictObject({
 export const outcomeLaneSchema = z.strictObject({
   role: boundedText(64),
   resourceId: boundedText(128),
+  // Additive, only sent when `initialize` requested `resources`: who orchestrated a write lane.
+  executor: z.enum(['engine', 'native']).optional(),
+  engine: z.enum(['openworker', 'dsh']).optional(),
+  executorReason: boundedText(64).optional(),
+  controlResourceId: id(RESOURCE_ID_PATTERN).optional(),
 });
 
 export const outcomeSchema = z
@@ -268,6 +323,9 @@ export type DiffRequestFrame = z.infer<typeof diffRequestFrameSchema>;
 export type ShutdownFrame = z.infer<typeof shutdownFrameSchema>;
 export type DesktopFrame = z.infer<typeof desktopFrameSchema>;
 
+export type PlaneFeature = (typeof PLANE_FEATURES)[number];
+export type PlaneResource = z.infer<typeof planeResourceSchema>;
+export type PlaneControl = z.infer<typeof planeControlSchema>;
 export type PlaneReadiness = z.infer<typeof readinessSchema>;
 export type ReadyFrame = z.infer<typeof readyFrameSchema>;
 export type ProgressEvent = z.infer<typeof progressEventSchema>;

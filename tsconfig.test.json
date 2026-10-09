@@ -7,6 +7,11 @@
     "declarationMap": false,
     "types": ["node"],
     "paths": {
+      "@nexar/engine-gateway/testing": ["./packages/engine-gateway/src/control-test-kit.ts"],
+      "@nexar/integration-openai-account/testing": [
+        "./integrations/openai-account/src/fake-auth-server.ts"
+      ],
+      "@nexar/integration-pi/testing": ["./integrations/pi/src/fake-responses-server.ts"],
       "@nexar/integration-*": ["./integrations/*/src/index.ts"],
       "@nexar/cli": ["./apps/cli/src/index.ts"],
       "@nexar/*": ["./packages/*/src/index.ts"]

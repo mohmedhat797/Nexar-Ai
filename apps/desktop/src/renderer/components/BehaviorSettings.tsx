@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import type {
   BehaviorPatch,
   BehaviorView,
@@ -6,6 +6,7 @@ import type {
   CoworkPermissionId,
   ResourceRow,
 } from '../../shared/api.js';
+import type { ControlPolicyView, ControlView } from '../../shared/behavior.js';
 import { call, errorText, nexar } from '../bridge.js';
 
 type Mode = 'cowork' | 'code';
@@ -58,28 +59,54 @@ function useBehavior(): BehaviorState {
   const [view, setView] = useState<BehaviorView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const latest = useRef(0);
+  const writing = useRef(false);
 
   useEffect(() => {
     let live = true;
-    call(nexar.getBehavior()).then(
-      (next) => live && setView(next),
-      (e: unknown) => live && setError(errorText(e)),
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = async (): Promise<void> => {
+      if (writing.current) {
+        if (live) timer = setTimeout(() => void read(), 15_000);
+        return;
+      }
+      const mine = ++latest.current;
+      try {
+        const next = await call(nexar.getBehavior());
+        if (live && mine === latest.current) {
+          setView(next);
+          setError(null);
+        }
+      } catch (e) {
+        if (live && mine === latest.current) setError(errorText(e));
+      } finally {
+        if (live) timer = setTimeout(() => void read(), 15_000);
+      }
+    };
+    void read();
     return () => {
       live = false;
+      latest.current += 1;
+      clearTimeout(timer);
     };
   }, []);
 
   const apply = useCallback((patch: BehaviorPatch): void => {
+    const mine = ++latest.current;
+    writing.current = true;
     setBusy(true);
     call(nexar.setBehavior(patch)).then(
       (next) => {
+        if (mine !== latest.current) return;
         setView(next);
         setError(null);
+        writing.current = false;
         setBusy(false);
       },
       (e: unknown) => {
+        if (mine !== latest.current) return;
         setError(errorText(e));
+        writing.current = false;
         setBusy(false);
       },
     );
@@ -112,7 +139,14 @@ function ResourceSelect({
       >
         <option value="">Let Nexar decide</option>
         {resources.map((r) => (
-          <option key={r.id} value={r.id}>
+          <option
+            key={r.id}
+            value={r.id}
+            disabled={
+              r.provenance.startsWith('discovered:inventory:') &&
+              (r.availability === 'unavailable' || r.auth === 'unauthenticated')
+            }
+          >
             {r.displayName}
           </option>
         ))}
@@ -172,6 +206,101 @@ function PermissionGroup<T extends string>({
           </span>
         </label>
       ))}
+    </div>
+  );
+}
+
+const ENGINE_LABEL: Readonly<Record<Mode, string>> = {
+  cowork: 'OpenWorker',
+  code: 'DeepSeek Harness',
+};
+const MODE_LABEL: Readonly<Record<Mode, string>> = { cowork: 'Cowork', code: 'Code' };
+export const NO_CONTROL_CANDIDATES =
+  'No resource can run the control loop; add an API model or a local endpoint with tool calling.';
+
+/** `Auto`, or `Auto → <label>` when the gateway's current pick is known. */
+export function autoLabel(control: ControlView): string {
+  if (control.effectiveResourceId === undefined) return 'Auto';
+  const known = control.candidates.find((c) => c.id === control.effectiveResourceId);
+  return `Auto → ${known?.label ?? control.effectiveResourceId}`;
+}
+
+/** One mode's orchestration: engine (fixed), control resource and fallback; Code is read-only. */
+function OrchestrationMode({
+  mode,
+  control,
+  disabled,
+  onChange,
+}: {
+  mode: Mode;
+  control: ControlView;
+  disabled: boolean;
+  onChange: (policy: ControlPolicyView) => void;
+}): ReactElement {
+  const { policy } = control;
+  const locked = disabled || !control.editable;
+  const pinned = policy.mode === 'pinned' ? policy.resourceId : undefined;
+  const stale = pinned !== undefined && !control.candidates.some((c) => c.id === pinned);
+  const setResource = (value: string): void =>
+    onChange(
+      value === ''
+        ? { mode: 'auto', fallback: policy.fallback }
+        : { mode: 'pinned', resourceId: value, fallback: policy.fallback },
+    );
+  return (
+    <div className="stack" data-testid={`orch-${mode}`}>
+      <h3>{MODE_LABEL[mode]}</h3>
+      <div className="field">
+        <span className="strong">Engine</span>
+        <span data-testid={`orch-${mode}-engine`}>{ENGINE_LABEL[mode]}</span>
+      </div>
+      <label className="field">
+        <span className="strong">Control resource</span>
+        <select
+          value={pinned ?? ''}
+          disabled={locked}
+          data-testid={`orch-${mode}-control`}
+          onChange={(event) => setResource(event.target.value)}
+        >
+          <option value="">{autoLabel(control)}</option>
+          {stale && <option value={pinned}>{pinned}</option>}
+          {control.candidates.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span className="strong">Fallback</span>
+        <select
+          value={policy.fallback}
+          disabled={locked}
+          data-testid={`orch-${mode}-fallback`}
+          onChange={(event) =>
+            onChange({
+              mode: policy.mode,
+              ...(policy.mode === 'pinned' && policy.resourceId !== undefined
+                ? { resourceId: policy.resourceId }
+                : {}),
+              fallback: event.target.value === 'none' ? 'none' : 'auto',
+            })
+          }
+        >
+          <option value="auto">Auto</option>
+          <option value="none">None</option>
+        </select>
+      </label>
+      {control.candidates.length === 0 && (
+        <p className="small muted" data-testid={`orch-${mode}-empty`}>
+          {NO_CONTROL_CANDIDATES}
+        </p>
+      )}
+      {!control.editable && control.reason !== undefined && (
+        <p className="small muted" data-testid={`orch-${mode}-reason`}>
+          {control.reason}
+        </p>
+      )}
     </div>
   );
 }
@@ -244,6 +373,21 @@ export function BehaviorSettings({
         The Code preference applies to Code turns that run directly. Engineering runs on the plane
         pick their own resources (not supported yet).
       </p>
+
+      <h2>Orchestration</h2>
+      <p className="muted">Which resource drives each engine&apos;s control loop.</p>
+      <OrchestrationMode
+        mode="cowork"
+        control={view.control.cowork}
+        disabled={busy}
+        onChange={(controlResource) => apply({ cowork: { controlResource } })}
+      />
+      <OrchestrationMode
+        mode="code"
+        control={view.control.code}
+        disabled={busy}
+        onChange={() => undefined}
+      />
 
       <h2>Reasoning effort</h2>
       <p className="muted" data-testid="behavior-effort">

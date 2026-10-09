@@ -370,19 +370,28 @@ function boundEngineering(value: TurnEngineering): TurnEngineering {
     if (!Array.isArray(value.lanes) || value.lanes.length > MAX_ENGINEERING_LANES) {
       throw invalid('engineering');
     }
-    out.lanes = value.lanes.map((lane: { role?: unknown; resourceId?: unknown }) => {
-      const { role, resourceId } = lane;
+    out.lanes = value.lanes.map((lane: Record<string, unknown>) => {
+      const { role, resourceId, executor, engine, executorReason, controlResourceId } = lane;
+      const bounded = (v: unknown, max: number): v is string =>
+        typeof v === 'string' && v.length >= 1 && v.length <= max;
       if (
-        typeof role !== 'string' ||
-        role.length < 1 ||
-        role.length > 64 ||
-        typeof resourceId !== 'string' ||
-        resourceId.length < 1 ||
-        resourceId.length > 128
+        !bounded(role, 64) ||
+        !bounded(resourceId, 128) ||
+        (executor !== undefined && executor !== 'engine' && executor !== 'native') ||
+        (engine !== undefined && engine !== 'openworker' && engine !== 'dsh') ||
+        (executorReason !== undefined && !bounded(executorReason, 64)) ||
+        (controlResourceId !== undefined && !bounded(controlResourceId, 128))
       ) {
         throw invalid('engineering');
       }
-      return { role, resourceId };
+      return {
+        role,
+        resourceId,
+        ...(executor === undefined ? {} : { executor }),
+        ...(engine === undefined ? {} : { engine }),
+        ...(executorReason === undefined ? {} : { executorReason }),
+        ...(controlResourceId === undefined ? {} : { controlResourceId }),
+      };
     });
   }
   if (value.branch !== undefined) {

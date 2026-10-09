@@ -8,12 +8,15 @@ export const LOCAL_ENDPOINTS_SOURCE_ID = 'local-endpoints';
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_MODELS = 200;
 const MAX_NAME_LENGTH = 200;
+const DEFAULT_LOCAL_CAPABILITIES = ['text-generation', 'reasoning', 'knowledge-work'] as const;
 const ENDPOINT_ID = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 
 export interface LocalEndpointInput {
   readonly id: string;
   readonly kind: 'ollama' | 'openai-compatible';
   readonly baseUrl: string;
+  /** Owner declares the server supports tool calling; grants `model-turn` to its models. Default false. */
+  readonly toolCalling?: boolean;
 }
 
 export interface LocalEndpointDiscoveryOptions {
@@ -137,9 +140,30 @@ async function listEndpoint(
     const id = slugifyResourceId(`local.${endpoint.id}.${name}`);
     if (id === undefined || seen.has(id)) continue;
     seen.add(id);
+    const base = piModelResource({
+      id,
+      provider: endpoint.id,
+      model: name,
+      baseUrl,
+      // Opt-in: a local server's tool-calling support is the owner's declaration, never inferred.
+      ...(endpoint.toolCalling === true
+        ? { capabilities: [...DEFAULT_LOCAL_CAPABILITIES, 'model-turn'] }
+        : {}),
+    });
     out.push({
-      ...piModelResource({ id, provider: endpoint.id, model: name, baseUrl }),
+      ...base,
       cost: loopback ? { model: 'local-compute' } : { model: 'unknown' },
+      // Endpoints are keyless (no auth header is ever sent), so the connection needs no auth.
+      metadata: {
+        ...base.metadata,
+        connection: {
+          id: `local.${endpoint.id}`,
+          provider: 'local',
+          method: endpoint.kind === 'ollama' ? 'local' : 'custom',
+          authClass: 'none',
+          support: 'official',
+        },
+      },
     });
   }
   return out;

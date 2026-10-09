@@ -431,6 +431,7 @@ describe('OperatingService', () => {
         submissionKey: nextKey(),
         text: 'Implement the missing part.',
         maxCostUsd: 0.01,
+        maxDelegatedUnits: 1,
       });
       const restarted = h.makeService(); // e.g. after an app restart: no options remembered
       await expect(
@@ -1149,6 +1150,40 @@ describe('OperatingService', () => {
   });
 
   describe('cowork lane', () => {
+    it('rejects invalid restrictions before a turn exists and forwards a trusted one-unit limit without replaying it', async () => {
+      const { h, service, requests } = await coworkHarness();
+      const session = await h.newSession();
+      await expect(
+        service.submit({
+          sessionId: session.id,
+          submissionKey: nextKey(),
+          text: 'Review',
+          maxDelegatedUnits: 0,
+        }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      expect((await h.session(session.id)).turns).toHaveLength(0);
+      const submissionKey = nextKey();
+      await service.submit({
+        sessionId: session.id,
+        submissionKey,
+        text: 'Review',
+        maxDelegatedUnits: 1,
+      });
+      await service.whenIdle();
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({ maxDelegatedUnits: 1 });
+      expect(
+        (
+          await service.submit({
+            sessionId: session.id,
+            submissionKey,
+            text: 'Review',
+            maxDelegatedUnits: 16,
+          })
+        ).created,
+      ).toBe(false);
+      expect(requests).toHaveLength(1);
+    });
     function coworkHarness() {
       return harness().then((h) => {
         const requests: DirectRequest[] = [];
@@ -1192,6 +1227,30 @@ describe('OperatingService', () => {
       expect(turn?.artifacts).toHaveLength(1);
     });
 
+    it.each([
+      [
+        { path: 'gateway', controlDecisionId: 'dec-1', restarts: 1 } as const,
+        { path: 'gateway', resourceId: 'res-1', restarts: 1 },
+      ],
+      [{ path: 'direct-key' } as const, { path: 'direct-key' }],
+    ])('records how the control loop ran on the task: %j', async (control, recorded) => {
+      const h = await harness();
+      h.availability.cowork = true;
+      const service = h.makeService({
+        executeCowork: async (request) => {
+          await request.onTask('task-cw');
+          return { taskId: 'task-cw', text: 'a', artifacts: [], resourceId: 'res-1', control };
+        },
+      });
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      const task = (await h.session(s.id)).turns[0]?.tasks[0];
+      expect(task?.control).toEqual(recorded);
+      // The decision id stays in telemetry and records of the engine, not in the session.
+      expect(JSON.stringify(task)).not.toContain('dec-1');
+    });
+
     it('falls back to direct with openworker-unavailable when the lane is unavailable', async () => {
       const { h, requests, service } = await coworkHarness();
       h.availability.cowork = false;
@@ -1204,6 +1263,50 @@ describe('OperatingService', () => {
         effectiveLane: 'direct',
         fallbackReason: 'openworker-unavailable',
       });
+    });
+
+    it('records openworker-control-unavailable when the lanes port names that reason', async () => {
+      const { h, requests } = await coworkHarness();
+      h.availability.cowork = false;
+      const service = h.makeService({
+        lanes: {
+          available: () => false,
+          fallbackReason: () => 'openworker-control-unavailable',
+        },
+        executeCowork: () => Promise.reject(new Error('unused')),
+      });
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      expect(requests).toHaveLength(0);
+      expect(h.requests).toHaveLength(1);
+      expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
+        requestedLane: 'cowork',
+        effectiveLane: 'direct',
+        fallbackReason: 'openworker-control-unavailable',
+      });
+    });
+
+    it('keeps openworker-unavailable when the reason port has nothing or throws', async () => {
+      const throwing = (): string => {
+        throw new Error('x');
+      };
+      for (const fallbackReason of [(): undefined => undefined, throwing]) {
+        const { h } = await coworkHarness();
+        const service = h.makeService({
+          lanes: {
+            available: () => false,
+            fallbackReason,
+          },
+          executeCowork: () => Promise.reject(new Error('unused')),
+        });
+        const s = await h.newSession('cowork');
+        await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize.' });
+        await service.whenIdle();
+        expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
+          fallbackReason: 'openworker-unavailable',
+        });
+      }
     });
 
     it('falls back when there is no Cowork executor even if the lane reports available', async () => {

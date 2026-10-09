@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { NexarError, isNexarError } from '@nexar/contracts';
+import { NexarError, coworkDelegationLimit, isNexarError } from '@nexar/contracts';
 import type { ArtifactRef, Logger, TaskKind } from '@nexar/contracts';
 import type {
   ContextManifest,
@@ -73,9 +73,28 @@ const DEFAULT_BEHAVIOR: BehaviorProfile = {
 };
 
 /** A Cowork turn (ADR-026): the same request as a direct one; its correlation is already delegated. */
-export type CoworkRequest = DirectRequest & { readonly permission: CoworkPermission };
+export type CoworkRequest = DirectRequest & {
+  readonly permission: CoworkPermission;
+  /** Owner-supplied turn restriction; never read from model output. */
+  readonly maxDelegatedUnits?: number;
+};
 
-export type CoworkResult = Omit<DirectResult, 'fallback'>;
+/** A unit a Cowork engine delegated through the Intelligence Bridge (ids and an enum only). */
+export interface CoworkDelegation {
+  readonly unitId: string;
+  readonly resourceId?: string;
+  readonly outcome: string;
+}
+
+/** How the engine's control loop ran: through Nexar's gateway, or the interim direct key. */
+export type CoworkControl =
+  | { readonly path: 'gateway'; readonly controlDecisionId: string; readonly restarts: number }
+  | { readonly path: 'direct-key' };
+
+export type CoworkResult = Omit<DirectResult, 'fallback'> & {
+  readonly delegations?: readonly CoworkDelegation[];
+  readonly control?: CoworkControl;
+};
 
 /** The longest goal the engineering plane accepts (ADR-025: same bound as the runner). */
 export const MAX_CODE_GOAL_CHARS = 20_000;
@@ -133,6 +152,11 @@ export interface OperatingPorts {
   readonly lanes: {
     available(lane: 'cowork' | 'code', projectId: string): boolean;
     reason?(lane: 'cowork' | 'code', projectId: string): string | undefined;
+    /**
+     * A fixed id recorded as the fallback reason when the Cowork lane is unavailable, when it is more
+     * precise than the default `openworker-unavailable` (e.g. `openworker-control-unavailable`).
+     */
+    fallbackReason?(lane: 'cowork'): string | undefined;
     /** Whether an available lane can run this intent (default: yes). */
     supports?(lane: 'cowork' | 'code', kind: TaskKind): boolean;
     /** Whether the Code lane can run the report-only implementation plan (default: no). */
@@ -170,6 +194,7 @@ export interface SubmitTurnInput {
   readonly explicitKind?: TaskKind;
   readonly preferredResourceIds?: readonly string[];
   readonly maxCostUsd?: number;
+  readonly maxDelegatedUnits?: number;
 }
 
 export interface SubmitTurnResult {
@@ -182,6 +207,7 @@ export interface SubmitTurnResult {
 interface RunOptions {
   readonly preferredResourceIds?: readonly string[] | undefined;
   readonly maxCostUsd?: number | undefined;
+  readonly maxDelegatedUnits?: number | undefined;
   readonly behavior: BehaviorProfile;
 }
 
@@ -219,6 +245,7 @@ export class OperatingService {
   }
 
   async submit(input: SubmitTurnInput): Promise<SubmitTurnResult> {
+    coworkDelegationLimit(input);
     const session = await this.load(input.sessionId);
     const intent = classifyIntent({
       text: input.text,
@@ -230,6 +257,7 @@ export class OperatingService {
     const options: RunOptions = {
       preferredResourceIds: input.preferredResourceIds,
       maxCostUsd: input.maxCostUsd,
+      maxDelegatedUnits: input.maxDelegatedUnits,
       behavior,
     };
 
@@ -477,6 +505,14 @@ export class OperatingService {
     }
   }
 
+  private coworkFallbackReason(): string {
+    try {
+      return this.ports.lanes.fallbackReason?.('cowork') ?? 'openworker-unavailable';
+    } catch {
+      return 'openworker-unavailable';
+    }
+  }
+
   /**
    * Records where a turn will really execute (ADR-024 §9: never claim an orchestrator ran when it
    * did not). The Code lane runs only engineering intents the plane supports; any other turn that
@@ -490,7 +526,7 @@ export class OperatingService {
       decision.effectiveLane === 'direct' &&
       decision.fallbackReason === 'orchestrator-unavailable'
     ) {
-      return { ...decision, fallbackReason: 'openworker-unavailable' };
+      return { ...decision, fallbackReason: this.coworkFallbackReason() };
     }
     if (decision.effectiveLane !== 'code' || kind === 'coding') return decision;
     const supported =
@@ -686,9 +722,15 @@ export class OperatingService {
         onTask: link,
         onProgress,
       };
-      const result: DirectResult = viaCowork
+      const result: DirectResult & Pick<CoworkResult, 'delegations' | 'control'> = viaCowork
         ? await executeCowork(
-            { ...request, permission: behavior.cowork.permission },
+            {
+              ...request,
+              permission: behavior.cowork.permission,
+              ...(options.maxDelegatedUnits === undefined
+                ? {}
+                : { maxDelegatedUnits: options.maxDelegatedUnits }),
+            },
             controller.signal,
           )
         : await this.ports.executeDirect(request, controller.signal);
@@ -704,6 +746,21 @@ export class OperatingService {
         ...(result.resourceId === undefined ? {} : { resourceId: result.resourceId }),
         ...(result.policyId === undefined ? {} : { policyId: result.policyId }),
         ...(result.fallback === undefined ? {} : { fallback: result.fallback }),
+        ...(result.delegations === undefined || result.delegations.length === 0
+          ? {}
+          : { delegations: result.delegations }),
+        ...(result.control === undefined
+          ? {}
+          : {
+              control:
+                result.control.path === 'gateway'
+                  ? {
+                      path: 'gateway' as const,
+                      ...(result.resourceId === undefined ? {} : { resourceId: result.resourceId }),
+                      restarts: result.control.restarts,
+                    }
+                  : { path: 'direct-key' as const },
+            }),
       });
       await store.completeTurn(sessionId, turnId, {
         state: cancelled ? 'cancelled' : 'succeeded',

@@ -39,6 +39,15 @@ export function claudeCodeResource(
     cost: { model: 'subscription' },
     dataLocality: 'third-party',
     tags: ['native-agent'],
+    metadata: {
+      connection: {
+        id: 'anthropic.subscription',
+        provider: 'anthropic',
+        method: 'subscription',
+        authClass: 'vendor-native',
+        support: 'official',
+      },
+    },
     ...overrides,
   };
 }

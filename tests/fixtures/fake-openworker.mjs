@@ -8,7 +8,7 @@ import { FakeOpenWorkerServer } from '../../integrations/openworker/src/test/fak
 const argv = process.argv.slice(2);
 const env = process.env;
 if (argv[0] === 'version') {
-  process.stdout.write(`openworker ${env.NEXAR_FAKE_OPENWORKER_VERSION ?? '0.3.0'}\n`);
+  process.stdout.write(`openworker ${env.NEXAR_FAKE_OPENWORKER_VERSION ?? '0.3.1'}\n`);
   process.exit(0);
 }
 

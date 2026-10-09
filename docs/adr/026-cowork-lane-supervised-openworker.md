@@ -19,7 +19,7 @@ and binding the server's lifetime to its parent.
 ### 1. Seam: a private, supervised `openworker-server` and its session protocol
 
 - Desktop main launches its **own** `openworker-server` (never the owner's desktop sidecar): pinned
-  version range starting at `0.3.0`, executable from owner configuration or `PATH`, shell-free, with a
+  version range `>=0.3.1 <0.4.0`, executable from owner configuration or `PATH`, shell-free, with a
   minimal explicit environment: `COWORKER_STATE_DIR` (private, under
   `%LOCALAPPDATA%\Nexar\Runtime\openworker`, outside the ACL-guarded state tree), a fresh random
   `COWORKER_API_TOKEN` per launch (in memory only, never written), `COWORKER_EXIT_WITH_PARENT=1` with
@@ -100,3 +100,21 @@ interrupted turns are never replayed.
 - **Pre-1.0 upstream API.** Pinned version range, contract tests against a fake server, version probe.
 - **Loopback listener of the child.** Per-launch random token, loopback only, Nexar the sole client,
   process tied to Desktop's lifetime.
+
+## Amendment (2026-10-04): resource orchestration
+
+§4 is superseded ([ADR-027](027-resource-orchestration-architecture.md) §7–9): OpenWorker's control loop uses an owner-pinned or NRC-Auto
+control resource with `model-turn` from Nexar's registry (subscription, API, local or custom) through
+the Control Model Gateway (NXR-063); until then, direct provider configuration with an allowed API key
+remains a temporary compatibility path. Substantive units are delegated to Nexar (NXR-059). §5's "no
+MCP servers" becomes "only the turn-scoped Nexar bridge server". OpenWorker's own `openai-codex` auth
+store is not used as a Nexar connection.
+
+## Amendment (2026-10-07): OpenWorker 0.3.1 maintenance floor
+
+The [tagged source review](../research/upstream/openworker-0.3.1-compatibility.md) verifies the
+existing HTTP/WS seam against v0.3.1. Require `>=0.3.1 <0.4.0`, preferred acceptance target 0.3.1;
+retain separate server/version executable overrides and fail-closed version validation. HTTP-200
+MCP/root refusals stop execution. No protocol migration, headless adoption, OpenShell migration
+or runtime discovery implementation is part of this amendment. ADR-027/028 remain authoritative
+for resources and inventories.

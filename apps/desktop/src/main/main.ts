@@ -1,17 +1,34 @@
+import { randomUUID } from 'node:crypto';
 import { userInfo } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
-import { isNexarError } from '@nexar/contracts';
+import { NexarError, isNexarError, type ResourceDescriptor } from '@nexar/contracts';
+import { createOpenAiAccountClient } from '@nexar/integration-openai-account';
+import { BridgeHost, ControlModelGateway } from '@nexar/engine-gateway';
 import { FileSessionStore } from '@nexar/sessions';
-import { checkProviderCredential, createNativeSubscriptions } from '@nexar/host';
+import {
+  checkProviderCredential,
+  createControlModelTurnPorts,
+  createEngineExecutor,
+  createNativeSubscriptions,
+  createNativeModelInventories,
+  engineAllocator,
+} from '@nexar/host';
 import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { createBridge } from './bridge.js';
 import { CodePlane } from './code-plane.js';
+import { ControlGatewayChild } from './control-gateway-child.js';
 import { CoworkService, createScriptSpawn } from './cowork.js';
 import { ConfigStore } from './config-store.js';
-import { createEngineHost } from './engine-host.js';
+import { createEngineHost, type EngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
+import { ChatGptPlanService } from './chatgpt-plan.js';
+import { chatGptPlanInventoryDefinition } from './chatgpt-plan-resources.js';
+import { ProviderInventoryService } from './provider-inventory.js';
+import { chatGptTestHooks } from './chatgpt-test-hooks.js';
+import { installationId } from './installation-id.js';
 import { ProviderService } from './providers.js';
+import { SigninCallbackSupervisor } from './signin-callback-child.js';
 import { SubscriptionService } from './subscriptions.js';
 import { LocalEndpointService } from './local-endpoints.js';
 import { createStderrLogger } from './logger.js';
@@ -56,7 +73,7 @@ app.setPath('sessionData', runtimePath);
 app.setPath('crashDumps', join(runtimePath, 'Crashpad'));
 
 /** Upper bound on ending the lanes' children and releasing the sessions lease at quit. */
-const QUIT_CLEANUP_BOUND_MS = 5_000;
+const QUIT_CLEANUP_BOUND_MS = 15_000;
 
 function decider(): string {
   try {
@@ -88,7 +105,7 @@ async function start(): Promise<void> {
   installWebContentsLockdown();
 
   const logger = createStderrLogger();
-  const config = new ConfigStore(join(userData, 'nexar.config.json'));
+  const config = new ConfigStore(join(userData, 'nexar.config.json'), logger);
   await config.ensure();
   const settings = new SettingsStore(join(userData, 'desktop-settings.json'));
   // The installed app's catalogs are shipped beside app.asar, outside the workspace layout.
@@ -108,13 +125,98 @@ async function start(): Promise<void> {
   }
   const keys = new DesktopKeyStore({ userData, encryption: safeStorage });
   traceStartup('stores');
+  const underTestOverride = userDataOverride !== undefined && userDataOverride !== '';
+  // The ChatGPT plan connection (ADR-022 amendment 2026-10-05): sign-ins start only from the owner's click;
+  // the loopback callback lives in a per-sign-in child, never in this process. Its resources are
+  // republished (a recomposition) whenever the connection appears or disappears.
+  const planTest = chatGptTestHooks(process.env, underTestOverride);
+  const engineRef: { current?: EngineHost } = {};
+  const inventoryRef: { current?: ProviderInventoryService } = {};
+  const chatgptPlan = new ChatGptPlanService({
+    keys,
+    callback: new SigninCallbackSupervisor(),
+    openExternal: planTest?.openExternal ?? ((url) => shell.openExternal(url)),
+    installationId: () => installationId(userData),
+    logger,
+    ...(planTest === undefined
+      ? {}
+      : { client: createOpenAiAccountClient({ issuer: planTest.issuer }) }),
+    onChanging: () => inventoryRef.current?.invalidate('chatgpt-plan'),
+    onChange: () => {
+      const inventory = inventoryRef.current;
+      if (inventory !== undefined) void inventory.refresh('chatgpt-plan').catch(() => undefined);
+    },
+  });
+  app.on('before-quit', () => chatgptPlan.dispose());
+  const providerInventory = new ProviderInventoryService({
+    definitions: [
+      ...createNativeModelInventories({ env: engineEnv, privateDirectory: userData }),
+      chatGptPlanInventoryDefinition(
+        chatgptPlan,
+        planTest?.responsesFetch === undefined ? {} : { fetch: planTest.responsesFetch },
+      ),
+    ],
+    cachePath: join(userData, 'provider-model-inventory.json'),
+    logger,
+    onChange: () => engineRef.current?.reload() ?? Promise.resolve(),
+  });
+  inventoryRef.current = providerInventory;
+  await providerInventory.restore();
+  app.on('before-quit', () => providerInventory.dispose());
+  // The token seam reaches the pi adapter and the control ports here only; the CLI and the plane get none.
+  const planConnections = {
+    isPlanModelAvailable: (descriptor: ResourceDescriptor) =>
+      providerInventory.isModelAvailable('chatgpt-plan', descriptor),
+    onPlanModelRejected: (descriptor: ResourceDescriptor) =>
+      providerInventory.rejectResource(descriptor),
+    resolve: async (
+      descriptor: ResourceDescriptor,
+      signal: AbortSignal,
+      options?: { readonly refresh?: boolean },
+    ) => {
+      const generation = providerInventory.snapshot('chatgpt-plan').generation;
+      const token = await chatgptPlan.accessToken(
+        options?.refresh === true ? { refresh: true } : {},
+      );
+      if (signal.aborted) throw new NexarError('EXECUTION_CANCELLED', 'Execution was cancelled');
+      if (
+        generation !== providerInventory.snapshot('chatgpt-plan').generation ||
+        !providerInventory.isModelAvailable('chatgpt-plan', descriptor)
+      ) {
+        throw new NexarError('RESOURCE_UNAVAILABLE', 'Model inventory is not current', {
+          retryable: false,
+        });
+      }
+      return token;
+    },
+    ...(planTest?.responsesFetch === undefined ? {} : { fetch: planTest.responsesFetch }),
+  };
   const engine = await createEngineHost({
     configPath: config.path,
     env: engineEnv,
     logger,
     resolveSecret: keys.resolveSecret,
+    connections: planConnections,
+    extraResources: () => Promise.resolve(providerInventory.descriptors()),
+    inventoryGuard: {
+      isAvailable: (descriptor) => providerInventory.isAvailable(descriptor),
+      onModelRejected: (descriptor) => providerInventory.rejectResource(descriptor),
+    },
     trace: traceStartup,
   });
+  engineRef.current = engine;
+  // Existing credentials may refresh metadata; this never starts browser sign-in.
+  // Test launches without a fake provider must not contact a real vendor.
+  if (!underTestOverride || planTest?.responsesFetch !== undefined) {
+    void providerInventory.refresh('chatgpt-plan').catch(() => undefined);
+  }
+  const inventoryTimer = setInterval(() => {
+    if (!underTestOverride || planTest?.responsesFetch !== undefined) {
+      void providerInventory.refresh('chatgpt-plan').catch(() => undefined);
+    }
+  }, 5 * 60_000);
+  inventoryTimer.unref();
+  app.on('before-quit', () => clearInterval(inventoryTimer));
   const providers = new ProviderService({
     keys,
     clipboard,
@@ -126,6 +228,7 @@ async function start(): Promise<void> {
   });
   const subscriptions = new SubscriptionService(
     createNativeSubscriptions({ env: engineEnv, cwd: app.getPath('home') }),
+    (runtime) => providerInventory.invalidate(runtime),
   );
   app.on('before-quit', () => subscriptions.dispose());
 
@@ -169,8 +272,57 @@ async function start(): Promise<void> {
   // `NEXAR_DESKTOP_USER_DATA` override OpenWorker is never launched unless the fake named by
   // `NEXAR_DESKTOP_TEST_OPENWORKER` is given. Neither variable is ever set in production.
   const testOpenWorker = process.env['NEXAR_DESKTOP_TEST_OPENWORKER'];
-  const underTestOverride = userDataOverride !== undefined && userDataOverride !== '';
+  // The Intelligence Bridge endpoint (ADR-027 §9a): a per-launch local pipe/socket, never a port.
+  // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
+  // exists unless delegation is used. Stopped at quit.
+  const coworkRef: { current?: CoworkService } = {};
+  const bridgeHostRef: { current?: BridgeHost } = {};
+  // The Control Model Gateway (ADR-027 §7A) behind the host's `control` op: pi resources only, over the
+  // engine's current registry snapshot and routing policy (read per call, so a config reload is picked up).
+  const controlPorts = createControlModelTurnPorts(
+    { env: engineEnv, cwd: dirname(config.path) },
+    { resolveSecret: keys.resolveSecret, connections: planConnections },
+  );
+  const controlGateway = new ControlModelGateway({
+    ports: controlPorts,
+    candidates: () => engine.composition().runtime.registry.snapshot(),
+    policy: {
+      get name() {
+        return engine.composition().runtime.policy.name;
+      },
+      get version() {
+        return engine.composition().runtime.policy.version;
+      },
+      evaluate: (input) => engine.composition().runtime.policy.evaluate(input),
+    },
+    clock: () => new Date(),
+    newId: randomUUID,
+    logger,
+    // controlFailed of a grant reads these (the host is created right after).
+    onEvent: (event) => bridgeHostRef.current?.noteControlEvent(event),
+  });
+  const bridgeHost = new BridgeHost({
+    gateway: controlGateway,
+    allocator: engineAllocator(engine),
+    executor: createEngineExecutor(engine),
+    clock: () => new Date(),
+    newId: randomUUID,
+    logger,
+    runtimeDir: join(runtimePath, 'bridge'),
+    // Delegated units of a Cowork turn are recorded on its result (ids and enums only).
+    onEvent: (event) => coworkRef.current?.noteBridgeEvent(event),
+  });
+  bridgeHostRef.current = bridgeHost;
+  // The loopback Chat Completions translator child (ADR-027 section 7A): created here, started on first
+  // need (a Cowork turn on the gateway path asks for its `baseUrl()`), ended at quit.
+  const controlGatewayChild = new ControlGatewayChild({
+    endpoint: () => bridgeHost.ensureStarted(),
+    logger,
+  });
   const cowork = new CoworkService({
+    bridgeHost,
+    controlGateway,
+    controlChild: controlGatewayChild,
     settings,
     engine,
     keys,
@@ -195,6 +347,7 @@ async function start(): Promise<void> {
         { sessionId: request.sessionId, turnId: request.turnId },
       ),
   });
+  coworkRef.current = cowork;
   // Quitting ends the lanes' children (a plane run, a starting or running OpenWorker) as soon as it
   // begins, and the exit waits (bounded) for that before the sessions lease is given back (best
   // effort, so the next launch needs no stale recovery). Exiting first left a supervised server
@@ -209,6 +362,9 @@ async function start(): Promise<void> {
     app,
     async () => {
       await lanesStopped?.catch(() => undefined);
+      await providerInventory.flush();
+      await controlGatewayChild.stop();
+      await bridgeHost.stop();
       if (sessions !== undefined) await sessionStore.releaseLease();
     },
     QUIT_CLEANUP_BOUND_MS,
@@ -220,6 +376,8 @@ async function start(): Promise<void> {
     settings,
     providers,
     subscriptions,
+    chatgptPlan,
+    providerInventory,
     localEndpoints: new LocalEndpointService(config, engine),
     logger,
     // Looked up per call, so a test can replace `dialog.showOpenDialog`.

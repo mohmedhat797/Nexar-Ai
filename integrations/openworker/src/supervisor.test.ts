@@ -78,7 +78,7 @@ describe('OpenWorkerSupervisor', () => {
     const { supervisor, stateDir, spawned } = harness();
     expect(supervisor.client()).toBeUndefined();
     const [a, b] = await Promise.all([supervisor.start(), supervisor.start()]);
-    expect(a).toEqual({ state: 'ready', version: '0.3.0', reason: 'OpenWorker is ready' });
+    expect(a).toEqual({ state: 'ready', version: '0.3.1', reason: 'OpenWorker is ready' });
     expect(b).toBe(a);
     expect(await supervisor.start()).toBe(a);
     expect(supervisor.status()).toBe(a);
@@ -160,12 +160,15 @@ describe('OpenWorkerSupervisor', () => {
     expect(tokens[1]).not.toBe(token);
   });
 
-  it('requires the token: a client with another token is rejected', async () => {
+  it('public health is not authentication: protected mutations require the token', async () => {
     const { supervisor, spawned } = harness();
     await supervisor.start();
     const port = Number((jsonl(join(root, 'state', 'launch.jsonl'))[0]!['argv'] as string[])[3]);
     const wrong = new OpenWorkerHttpClient({ port, token: 'wrong' });
-    expect(await wrong.health()).toBe(false);
+    expect(await wrong.health()).toBe(true);
+    await expect(wrong.attachRoot('s1', root, false)).rejects.toMatchObject({
+      code: 'INTEGRATION_UNAVAILABLE',
+    });
     const right = new OpenWorkerHttpClient({
       port,
       token: spawned.find((s) => s.args[0] === '--host')!.env['COWORKER_API_TOKEN']!,
@@ -187,21 +190,33 @@ describe('OpenWorkerSupervisor', () => {
     expect(supervisor.client()).toBeUndefined();
   });
 
-  it.each([['0.2.9'], ['0.4.0'], ['1.0.0'], ['garbage']])(
-    'reports unsupported-version for %s',
+  it.each([
+    '0.2.9',
+    '0.3.0',
+    '0.4.0',
+    '1.0.0',
+    'garbage',
+    '',
+    '0.3',
+    '0.3.1.4',
+    '0.3.1-rc.1',
+    '00.3.1',
+    '0.3.1 trailing',
+  ])('reports unsupported-version for %s', async (version) => {
+    const { supervisor, spawned } = harness({ FAKE_OW_VERSION: version });
+    const status = await supervisor.start();
+    expect(status.state).toBe('unsupported-version');
+    expect(status.reason).toBe('OpenWorker version is not supported');
+    expect(spawned.map((s) => s.args[0])).toEqual(['version']); // no server was started
+  });
+
+  it.each(['0.3.1', '0.3.2', '0.3.9'])(
+    'accepts patch version %s inside the range',
     async (version) => {
-      const { supervisor, spawned } = harness({ FAKE_OW_VERSION: version });
-      const status = await supervisor.start();
-      expect(status.state).toBe('unsupported-version');
-      expect(status.reason).toBe('OpenWorker version is not supported');
-      expect(spawned.map((s) => s.args[0])).toEqual(['version']); // no server was started
+      const { supervisor } = harness({ FAKE_OW_VERSION: version });
+      expect(await supervisor.start()).toMatchObject({ state: 'ready', version });
     },
   );
-
-  it('accepts patch versions inside the range', async () => {
-    const { supervisor } = harness({ FAKE_OW_VERSION: '0.3.7' });
-    expect(await supervisor.start()).toMatchObject({ state: 'ready', version: '0.3.7' });
-  });
 
   it('reports startup-failed within the bound when health never comes up', async () => {
     const { supervisor } = harness({ FAKE_OW_NEVER_READY: '1' }, { startupTimeoutMs: 600 });
@@ -239,8 +254,14 @@ describe('OpenWorkerSupervisor', () => {
     ]);
     const records = jsonl(join(stateDir, 'records.jsonl'));
     expect(records).toEqual([
-      { kind: 'provider', body: { name: 'anthropic', fields: { api_key: 'sk-ant-body-only' } } },
-      { kind: 'provider', body: { name: 'openai', fields: { api_key: 'sk-openai-body-only' } } },
+      {
+        kind: 'provider',
+        body: { name: 'anthropic', fields: { api_key: 'sk-ant-body-only', base_url: '' } },
+      },
+      {
+        kind: 'provider',
+        body: { name: 'openai', fields: { api_key: 'sk-openai-body-only', base_url: '' } },
+      },
     ]);
     const everywhereElse = JSON.stringify([
       spawned.map((s) => [s.args, s.env]),
@@ -252,6 +273,62 @@ describe('OpenWorkerSupervisor', () => {
     expect(everywhereElse).not.toMatch(/body-only/);
     log.mockRestore();
     err.mockRestore();
+  });
+
+  it('sends a loopback base_url with the entry and refuses any other', async () => {
+    const { supervisor, stateDir } = harness();
+    await supervisor.start();
+    await supervisor.configureProviders([
+      { provider: 'openai', apiKey: 'token-body-only', baseUrl: 'http://127.0.0.1:41234/v1' },
+    ]);
+    expect(jsonl(join(stateDir, 'records.jsonl'))).toEqual([
+      {
+        kind: 'provider',
+        body: {
+          name: 'openai',
+          fields: { api_key: 'token-body-only', base_url: 'http://127.0.0.1:41234/v1' },
+        },
+      },
+    ]);
+    for (const baseUrl of [
+      'https://127.0.0.1:41234/v1',
+      'http://localhost:41234/v1',
+      'http://127.0.0.1/v1',
+      'http://127.0.0.1:0/v1',
+      'http://127.0.0.1:41234/v1/',
+      'http://127.0.0.1:41234/v2',
+      'http://127.0.0.1:41234@evil.example/v1',
+      'http://127.0.0.1:123456/v1',
+      '',
+    ]) {
+      await expect(
+        supervisor.configureProviders([{ provider: 'openai', apiKey: 'k', baseUrl }]),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
+    expect(jsonl(join(stateDir, 'records.jsonl'))).toHaveLength(1);
+  });
+
+  it('treats an upstream { ok: false } answer as a failed provider configuration', async () => {
+    const { supervisor } = harness({ FAKE_OW_REFUSE_PROVIDERS: '1' });
+    await supervisor.start();
+    await expect(
+      supervisor.configureProviders([{ provider: 'openai', apiKey: 'sk-refused' }]),
+    ).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
+    await expect(supervisor.removeProvider('openai')).rejects.toMatchObject({
+      code: 'CONFIGURATION_ERROR',
+    });
+  });
+
+  it('removes a stored provider profile by name', async () => {
+    const { supervisor, stateDir } = harness();
+    await supervisor.start();
+    await supervisor.removeProvider('openai');
+    expect(jsonl(join(stateDir, 'records.jsonl'))).toEqual([
+      { kind: 'provider-removed', body: { name: 'openai' } },
+    ]);
+    await expect(supervisor.removeProvider('../x')).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
   });
 
   it('reports provider failures by code only', async () => {
@@ -309,7 +386,7 @@ describe('OpenWorkerSupervisor', () => {
           // A version probe that would answer only after the test: stop() must not wait for it.
           const child = spawn(
             process.execPath,
-            ['-e', "setTimeout(() => console.log('openworker 0.3.0'), 8000)"],
+            ['-e', "setTimeout(() => console.log('openworker 0.3.1'), 8000)"],
             options,
           );
           if (args[0] === 'version') versions.push(child);

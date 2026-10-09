@@ -87,6 +87,101 @@ describe('subscription preload boundary', () => {
   });
 });
 
+describe('inventory preload boundary', () => {
+  const inventory = {
+    sourceId: 'chatgpt-plan',
+    refreshing: false,
+    resources: [],
+    inventory: {
+      identity: {
+        provider: 'openai',
+        connectionId: 'openai.chatgpt-plan',
+        runtimeId: 'pi',
+        routeId: 'openai.responses.account',
+        machine: 'desktop',
+      },
+      generation: 0,
+      status: 'unavailable',
+      source: 'official-api',
+      auth: 'unknown',
+      entries: [],
+    },
+  };
+  it('accepts only fixed sources and strict public metadata for the requested source', async () => {
+    electron.invoke.mockResolvedValue({ ok: true, value: inventory });
+    expect(await api.refreshModelInventory('chatgpt-plan')).toEqual({ ok: true, value: inventory });
+    expect(electron.invoke).toHaveBeenLastCalledWith(CHANNELS.inventoryRefresh, {
+      sourceId: 'chatgpt-plan',
+    });
+    for (const value of [
+      { ...inventory, sourceId: 'codex' },
+      { ...inventory, accessToken: SECRET },
+      { ...inventory, inventory: { ...inventory.inventory, accountId: SECRET } },
+    ]) {
+      electron.invoke.mockResolvedValue({ ok: true, value });
+      const result = await api.refreshModelInventory('chatgpt-plan');
+      expect(result.ok).toBe(false);
+      expect(JSON.stringify(result)).not.toContain(SECRET);
+    }
+    electron.invoke.mockClear();
+    expect((await api.refreshModelInventory('arbitrary-command' as never)).ok).toBe(false);
+    expect(electron.invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChatGPT plan preload boundary', () => {
+  const status = {
+    state: 'connected',
+    planSharing: true,
+    message: 'Connected. Sign out in Nexar to forget this sign-in on this computer.',
+  };
+  const methods = [
+    [() => api.chatgptPlanStatus(), CHANNELS.chatgptPlanStatus],
+    [() => api.connectChatgptPlan(), CHANNELS.chatgptPlanConnect],
+    [() => api.cancelChatgptPlan(), CHANNELS.chatgptPlanCancel],
+    [() => api.disconnectChatgptPlan(), CHANNELS.chatgptPlanDisconnect],
+  ] as const;
+
+  it('sends fixed channels with no arguments and returns the status DTO', async () => {
+    electron.invoke.mockResolvedValue({ ok: true, value: status });
+    for (const [method, channel] of methods) {
+      expect(await method()).toEqual({ ok: true, value: status });
+      expect(electron.invoke).toHaveBeenLastCalledWith(channel, {});
+    }
+  });
+
+  it('contains tokens, identifiers and free text returned by main', async () => {
+    for (const value of [
+      { ...status, accessToken: SECRET },
+      { ...status, email: SECRET },
+      { ...status, url: SECRET },
+      { ...status, message: SECRET },
+      { ...status, state: SECRET },
+      { ...status, reason: SECRET },
+    ]) {
+      electron.invoke.mockResolvedValue({ ok: true, value });
+      for (const [method] of methods) {
+        const result = await method();
+        expect(result.ok).toBe(false);
+        expect(JSON.stringify(result)).not.toContain(SECRET);
+      }
+    }
+    electron.invoke.mockResolvedValue({
+      ok: false,
+      error: { code: 'PROVIDER_ERROR', message: SECRET },
+    });
+    expect(JSON.stringify(await api.connectChatgptPlan())).not.toContain(SECRET);
+    electron.invoke.mockRejectedValue(new Error(SECRET));
+    expect(JSON.stringify(await api.connectChatgptPlan())).not.toContain(SECRET);
+  });
+
+  it('passes a fixed provider error through', async () => {
+    const error = { code: 'PROVIDER_ERROR', message: 'Provider setup could not be completed' };
+    electron.invoke.mockResolvedValue({ ok: false, error });
+    expect(await api.connectChatgptPlan()).toEqual({ ok: false, error });
+  });
+});
+
 describe('provider preload boundary', () => {
   it('sends only fixed channels and provider ids and validates safe metadata', async () => {
     electron.invoke.mockResolvedValue({ ok: true, value: [row] });

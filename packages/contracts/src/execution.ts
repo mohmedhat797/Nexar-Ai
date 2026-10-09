@@ -1,7 +1,8 @@
 import type { ArtifactRef } from './artifacts.js';
+import type { ControlEngine } from './connection.js';
 import type { AdapterId } from './ids.js';
 import type { QuotaObservation } from './intelligence.js';
-import type { EngineeringWorkspace } from './launcher.js';
+import type { EngineeringWorkspace, LaunchServices } from './launcher.js';
 import type { Logger } from './logging.js';
 import { unavailable } from './measured.js';
 import type { Measured } from './measured.js';
@@ -39,6 +40,20 @@ export interface ExecutionRequest {
   readonly resource: ResourceDescriptor;
 }
 
+/**
+ * A lane's engine gateway session (ADR-027 section 9b): the Nexar services an orchestrating engine
+ * may use, pinned to one control decision. `token` is a secret: never logged, recorded or echoed.
+ */
+export interface ExecutionGateway {
+  readonly engine: ControlEngine;
+  /** Host paths for `LaunchSpec.services`. */
+  readonly services: LaunchServices;
+  readonly token: string;
+  readonly model: 'nexar-control';
+  readonly controlResourceId: string;
+  readonly controlDecisionId: string;
+}
+
 /** Ambient facilities (cancellation, logging, streaming) supplied by the caller. */
 export interface ExecutionContext {
   readonly signal: AbortSignal;
@@ -50,6 +65,8 @@ export interface ExecutionContext {
    * and MUST spawn its runtime only through `launcher.prepare`.
    */
   readonly workspace?: EngineeringWorkspace;
+  /** Present only for a lane with an engine gateway session; adapters that do not know it ignore it. */
+  readonly gateway?: ExecutionGateway;
 }
 
 /** What an adapter returns, including what was actually resolved at runtime. */

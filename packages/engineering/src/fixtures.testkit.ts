@@ -18,6 +18,7 @@ import {
   measured,
   type ExecutionAdapter,
   type ExecutionContext,
+  type ExecutionGateway,
   type ExecutionRequest,
   type ExecutionResult,
   type LaunchSpec,
@@ -126,6 +127,7 @@ export interface LaneCall {
   readonly access: 'read-only' | 'read-write' | undefined;
   readonly workspacePath: string | undefined;
   readonly isolation: 'none' | 'sandbox' | undefined;
+  readonly gateway: ExecutionGateway | undefined;
 }
 
 export type LaneHandler = (call: LaneCall, context: ExecutionContext) => string | Promise<string>;
@@ -186,6 +188,7 @@ export class ScriptedAdapter implements ExecutionAdapter {
       access: context.workspace?.access,
       workspacePath: context.workspace?.path,
       isolation: context.workspace?.launcher.isolation,
+      gateway: context.gateway,
     };
     this.calls.push(call);
     const queued = this.queues.get(call.lane)?.shift();

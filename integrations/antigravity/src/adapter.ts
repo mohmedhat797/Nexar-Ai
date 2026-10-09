@@ -2,7 +2,6 @@ import type { spawn } from 'node:child_process';
 import { spawnRuntime } from '@nexar/process';
 import { NexarError } from '@nexar/contracts';
 import type {
-  AuthState,
   ExecutionAdapter,
   ExecutionContext,
   ExecutionRequest,
@@ -116,9 +115,8 @@ export class AntigravityExecutionAdapter implements ExecutionAdapter {
   }
 
   /**
-   * Free probe: `agy --version` then `agy models`. Never `-p`/`--print` and never a prompt (an
-   * unauthenticated `agy -p` starts an interactive OAuth flow and hangs); stdin is closed and
-   * each command has a 5 s timeout.
+   * Installation/version probe only. Catalog refresh belongs to the owner-triggered inventory
+   * source; neither installation nor a model list establishes the runtime's authentication.
    */
   async probe(resource: ResourceDescriptor, signal: AbortSignal): Promise<ResourceState> {
     const observedAt = this.clock().toISOString();
@@ -129,10 +127,7 @@ export class AntigravityExecutionAdapter implements ExecutionAdapter {
     const version = await this.runProbe(command, [...prefix, '--version'], env, signal);
     if (version.outcome.kind === 'aborted') throw cancelled();
     if (version.outcome.kind === 'spawn-error') {
-      return unavailableState(
-        observedAt,
-        `agy binary not runnable: ${version.outcome.error.message}`,
-      );
+      return unavailableState(observedAt, 'agy binary not runnable');
     }
     if (version.outcome.kind === 'timeout') {
       return unavailableState(observedAt, 'agy --version timed out');
@@ -141,30 +136,27 @@ export class AntigravityExecutionAdapter implements ExecutionAdapter {
       return unavailableState(observedAt, 'agy --version failed');
     }
     const line = version.lines.find((l) => l.trim() !== '')?.trim() ?? '';
-    const match = /(\d+\.\d+\.\d+\S*)/.exec(line);
+    const match =
+      line.length <= 100
+        ? /^(?:agy )?(\d{1,5}\.\d{1,5}\.\d{1,5})(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?(?:\+[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?$/.exec(
+            line,
+          )
+        : null;
     this.runtimeVersion = match?.[1];
-    let detail = line === '' ? 'agy' : line;
+    let detail = this.runtimeVersion === undefined ? 'agy' : `agy ${this.runtimeVersion}`;
     if (this.runtimeVersion !== TESTED_AGY_VERSION) {
       detail = `${detail} (Nexar tested with agy ${TESTED_AGY_VERSION})`;
     }
 
-    // `models` only lists models (free); unauthenticated it prints "Please sign in" and exits.
-    const models = await this.runProbe(command, [...prefix, 'models'], env, signal);
-    if (models.outcome.kind === 'aborted') throw cancelled();
-    const auth: AuthState =
-      models.outcome.kind === 'exited'
-        ? parseModels(models.lines, models.outcome.exitCode, models.outcome.stderr)
-        : 'unknown';
-
     if (!settings.acknowledgeExperimental) {
       return {
         availability: 'degraded',
-        auth,
+        auth: 'unknown',
         detail: `experimental: set acknowledgeExperimental (${detail})`,
         observedAt,
       };
     }
-    return { availability: 'available', auth, detail, observedAt };
+    return { availability: 'available', auth: 'unknown', detail, observedAt };
   }
 
   async execute(request: ExecutionRequest, context: ExecutionContext): Promise<ExecutionResult> {
@@ -437,12 +429,4 @@ function spawnFailure(error: NodeJS.ErrnoException, command: string): NexarError
 
 function unavailableState(observedAt: string, detail: string): ResourceState {
   return { availability: 'unavailable', auth: 'unknown', detail, observedAt };
-}
-
-/** `Please sign in` -> unauthenticated; a non-empty model list -> authenticated; else unknown. */
-function parseModels(lines: readonly string[], exitCode: number | null, stderr: string): AuthState {
-  const text = `${lines.join('\n')}\n${stderr}`;
-  if (/please sign in/i.test(text)) return 'unauthenticated';
-  if (exitCode === 0 && lines.some((l) => l.trim() !== '')) return 'authenticated';
-  return 'unknown';
 }

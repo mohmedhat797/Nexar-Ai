@@ -1,4 +1,4 @@
-import { isAbsolute } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import type { OpenWorkerClient } from './client.js';
 import type { PermissionRequest } from './policy.js';
 
@@ -77,6 +77,30 @@ function frameText(frame: Record<string, unknown>): string | undefined {
   return typeof text === 'string' ? text : undefined;
 }
 
+/** v0.3.1 sends single-file write paths in arguments; never forward content or infer patch targets. */
+function permissionTarget(frame: Record<string, unknown>, scratchDir: string): string | undefined {
+  const target = frame['target'];
+  if (
+    (frame['name'] !== 'write_file' && frame['name'] !== 'replace_in_file') ||
+    frame['arguments'] === undefined
+  ) {
+    return typeof target === 'string' ? target : undefined;
+  }
+  const args = frame['arguments'];
+  const path = isRecord(args) && typeof args['path'] === 'string' ? args['path'] : undefined;
+  if (path === undefined || path === '') return undefined;
+  // Legacy fixtures may supply both fields. Conflicting destinations must not gain permission.
+  if (target !== undefined) {
+    if (typeof target !== 'string') return undefined;
+    const left = resolve(scratchDir, target);
+    const right = resolve(scratchDir, path);
+    const same =
+      process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right;
+    if (!same) return undefined;
+  }
+  return path;
+}
+
 function validRequest(request: CoworkTurnRequest): boolean {
   return (
     IDENTIFIER.test(request.sessionId) &&
@@ -94,7 +118,7 @@ function validRequest(request: CoworkTurnRequest): boolean {
  * reported as `failed` with a fixed code. Progress carries identifiers only, never arguments or text.
  */
 export async function runCoworkTurn(
-  client: OpenWorkerClient,
+  client: Pick<OpenWorkerClient, 'attachRoot' | 'openSession'>,
   request: CoworkTurnRequest,
 ): Promise<CoworkTurnResult> {
   if (!validRequest(request)) {
@@ -169,7 +193,7 @@ export async function runCoworkTurn(
             return fail(COWORK_ERROR_CODES.malformedFrame, true);
           if (++decisions > MAX_DECISIONS) return fail(COWORK_ERROR_CODES.tooManyPermissions, true);
           const category = frame['category'];
-          const target = frame['target'];
+          const target = permissionTarget(frame, request.scratchDir);
           const permission = {
             name,
             ...(typeof category === 'string' ? { category } : {}),

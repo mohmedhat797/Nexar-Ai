@@ -1,32 +1,51 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, isAbsolute, join, relative, sep } from 'node:path';
 import { ApprovalGate } from '@nexar/approvals';
 import { LocalArtifactStore, type ArtifactMediaType } from '@nexar/artifacts';
 import {
+  DEFAULT_CONTROL_RESOURCE_POLICY,
   NexarError,
+  coworkDelegationLimit,
   isNexarError,
   projectId as asProjectId,
   type ArtifactRef,
+  type ControlResourcePolicy,
   type Logger,
   type NexarTask,
 } from '@nexar/contracts';
 import {
   COWORK_ERROR_CODES,
   OpenWorkerSupervisor,
+  DELEGATION_TOOLS,
   collectDrafts,
   decidePermission,
   isWriteTool,
   openWorkerProviderFor,
+  openWorkerWorkspaceDir,
   recordCoworkDecision,
   runCoworkTurn,
+  type DraftFile,
   type OpenWorkerState,
   type OpenWorkerStatus,
 } from '@nexar/integration-openworker';
-import type { CoworkRequest, CoworkResult } from '@nexar/operating';
+import type {
+  BridgeEvent,
+  BridgeGrantInput,
+  BridgeHost,
+  ControlModelGateway,
+} from '@nexar/engine-gateway';
+import { DelegationUnitLimit } from '@nexar/engine-gateway';
+import type {
+  CoworkControl,
+  CoworkDelegation,
+  CoworkRequest,
+  CoworkResult,
+} from '@nexar/operating';
 import { providerCredentialNames } from '@nexar/host';
 import type { CoworkStatusDto } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
+import { relayLaunch, type RelayLaunch } from './bridge-relay-path.js';
 import { NoArgs, defineChannel, type CallContext, type ChannelDefinition } from './channel.js';
 import type { DesktopKeyStore } from './desktop-key-store.js';
 import type { EngineHost } from './engine-host.js';
@@ -48,6 +67,7 @@ export const COWORK_REASONS = {
   'no-provider': 'No allowed provider with a saved key can run Cowork',
   'settings-invalid': 'The Cowork settings are not valid',
   'startup-failed': 'OpenWorker did not start',
+  'control-unavailable': 'No control-compatible resource can run Cowork',
 } as const;
 
 export interface CoworkTimings {
@@ -70,6 +90,18 @@ export const DEFAULT_COWORK_TIMINGS: CoworkTimings = {
 };
 
 const MAX_APPROVAL_LABEL_CHARS = 80;
+
+/** The name OpenWorker registers the Intelligence Bridge relay under: it fixes the tool prefix. */
+const BRIDGE_SERVER_NAME = 'nexar';
+const MAX_DELEGATIONS = 32;
+
+/** OpenWorker's provider and model string for the Control Model Gateway (ADR-027 section 7A). */
+const CONTROL_PROVIDER = 'openai';
+const CONTROL_MODEL = 'openai:nexar-control';
+
+/** One fixed line, outside the untrusted context: where a substantive unit may be delegated. */
+export const DELEGATION_INSTRUCTION =
+  'Nexar: delegate substantive drafting, analysis or review units with nexar.intelligence_submit, then poll nexar.intelligence_status with the returned jobId until the unit is done. Do not call sleep_for, sleep_until, wake_on or any timer tool — wait by polling nexar.intelligence_status directly in this turn until done, then write the final deliverable.';
 
 /** A model-chosen file name as a short, single-line label (no control characters). */
 function writeLabel(target: string | undefined): string {
@@ -128,7 +160,8 @@ export interface UsableResource {
 }
 
 export interface CoworkServiceOptions {
-  readonly settings: Pick<SettingsStore, 'getCowork'>;
+  readonly settings: Pick<SettingsStore, 'getCowork'> &
+    Partial<Pick<SettingsStore, 'getOrchestration'>>;
   readonly engine: EngineHost;
   readonly keys: Pick<DesktopKeyStore, 'metadata' | 'resolveSecret'>;
   readonly logger: Logger;
@@ -140,11 +173,25 @@ export interface CoworkServiceOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly timings?: Partial<CoworkTimings>;
   readonly now?: () => number;
+  /** The Intelligence Bridge (ADR-027 section 9a). Absent: turns run without delegation. */
+  readonly bridgeHost?: Pick<BridgeHost, 'ensureStarted' | 'mint' | 'revoke'> &
+    Partial<Pick<BridgeHost, 'restartControl' | 'controlFailed'>>;
+  /**
+   * The Control Model Gateway (preview only) and the loopback translator child. Both present (with a
+   * bridge host that can restart control): OpenWorker's control loop runs through Nexar. Absent: the
+   * interim direct-key path only.
+   */
+  readonly controlGateway?: Pick<ControlModelGateway, 'preview'>;
+  readonly controlChild?: { baseUrl(): Promise<string> };
+  /** How OpenWorker launches the bridge relay. Default: this app's own bundled relay. */
+  readonly relay?: () => RelayLaunch;
   /** The task for a turn, with Nexar-set lineage and these resources excluded. */
   readonly createTask: (
     request: CoworkRequest,
     excludedResourceIds: readonly string[],
   ) => NexarTask;
+  /** Custom base directory for OpenWorker scratch workspaces (test override). */
+  readonly openWorkerScratchBase?: string | undefined;
 }
 
 const MISSING_STATUS: CoworkStatus = {
@@ -175,6 +222,47 @@ export function createScriptSpawn(
   }) as unknown as typeof nodeSpawn;
 }
 
+/** The turn's one bridge grant on the gateway path: control decision, owner policy, restart hooks. */
+interface TurnGrant {
+  readonly grantId: string;
+  readonly token: string;
+  readonly controlDecisionId: string;
+  readonly resourceId: string;
+  readonly policy: ControlResourcePolicy;
+  /** True when the grant's current control decision failed. */
+  readonly failed: () => boolean;
+  /** A new decision on the next eligible resource (throws the gateway's refusal). */
+  readonly restart: () => { readonly controlDecisionId: string; readonly resourceId: string };
+}
+
+interface DirectRoute {
+  readonly model: string;
+  readonly resourceId: string;
+  readonly policyId: string;
+}
+
+type Selected =
+  | { readonly kind: 'gateway'; readonly grant: TurnGrant }
+  | { readonly kind: 'direct'; readonly route: DirectRoute };
+
+/** The control resource failed (or could not be restarted): fixed code, text and reason. */
+const controlFailure = (): NexarError =>
+  new NexarError('PROVIDER_ERROR', 'The control resource failed', {
+    details: { reason: 'control-resource-failed' },
+  });
+
+interface OpenDelegation {
+  grantId: string;
+  /** True when the delegation minted the grant itself (no gateway grant): it must revoke it. */
+  owned: boolean;
+  /** True once the relay is registered and the turn may delegate. */
+  active: boolean;
+  /** True once a registration was attempted: cleanup must delete the entry. */
+  registering: boolean;
+}
+
+type Client = NonNullable<ReturnType<OpenWorkerSupervisor['client']>>;
+
 export class CoworkService {
   private readonly timings: CoworkTimings;
   private readonly now: () => number;
@@ -184,6 +272,10 @@ export class CoworkService {
   private inflight: Promise<CoworkStatus> | undefined;
   private readonly active = new Set<AbortController>();
   private disposed = false;
+  /** Serializes turns while delegation is active (one bridge grant and one MCP entry at a time). */
+  private turnLock: Promise<unknown> = Promise.resolve();
+  /** Delegated units per open grant, filled from bridge events (ids and enums only). */
+  private readonly delegated = new Map<string, CoworkDelegation[]>();
 
   constructor(private readonly options: CoworkServiceOptions) {
     this.timings = { ...DEFAULT_COWORK_TIMINGS, ...options.timings };
@@ -247,6 +339,53 @@ export class CoworkService {
     return cached.status.state === 'ready' ? undefined : cached.status.reason;
   }
 
+  /**
+   * The fixed fallback reason id the operating layer records when the lane is unavailable because
+   * no control resource can run it (`undefined`: the default `openworker-unavailable` applies).
+   */
+  fallbackReason(): string | undefined {
+    const status = this.cached?.status;
+    return status?.state === 'configuration-missing' &&
+      status.reason === COWORK_REASONS['control-unavailable']
+      ? 'openworker-control-unavailable'
+      : undefined;
+  }
+
+  /** Everything the gateway path needs is wired (tests and some sessions omit it). */
+  private gatewayConfigured(): boolean {
+    const { controlGateway, controlChild, bridgeHost } = this.options;
+    return (
+      controlGateway !== undefined &&
+      controlChild !== undefined &&
+      bridgeHost?.restartControl !== undefined &&
+      bridgeHost.controlFailed !== undefined
+    );
+  }
+
+  /**
+   * The gateway path for a turn: the owner's control policy and the resource it would pin now.
+   * `undefined` when it is not possible: not wired, a damaged `orchestration` section (fails
+   * closed), or no eligible control resource. Never a paid call.
+   */
+  private async gatewayChoice(): Promise<
+    { readonly policy: ControlResourcePolicy; readonly resourceId: string } | undefined
+  > {
+    const { controlGateway, settings } = this.options;
+    if (controlGateway === undefined || !this.gatewayConfigured()) return undefined;
+    const orchestration = await settings.getOrchestration?.();
+    if (orchestration?.valid === false) return undefined;
+    const policy = orchestration?.value.cowork.controlResource ?? DEFAULT_CONTROL_RESOURCE_POLICY;
+    // Resource states are probed once (never paid calls) so selection does not see unknown as down.
+    await this.options.engine.snapshots(false).catch(() => undefined);
+    const preview = controlGateway.preview('openworker', policy);
+    return preview === undefined ? undefined : { policy, resourceId: preview.resourceId };
+  }
+
+  /** The control resource a turn would pin now (a preview); `undefined` when none qualifies. */
+  async effectiveControlResourceId(): Promise<string | undefined> {
+    return (await this.gatewayChoice())?.resourceId;
+  }
+
   private async probe(): Promise<CoworkStatus> {
     if (this.options.disabled === true || this.disposed) return MISSING_STATUS;
     const config = await this.options.settings.getCowork();
@@ -281,10 +420,14 @@ export class CoworkService {
       return MISSING_STATUS;
     }
     if (started.state !== 'ready') return this.fixed(started.state, started.version);
-    if ((await this.usable()).length === 0) {
+    // Ready when the control loop can run through Nexar (a preview, never a paid call) or an
+    // interim direct-key resource is usable.
+    if ((await this.gatewayChoice()) === undefined && (await this.usable()).length === 0) {
       return {
         state: 'configuration-missing',
-        reason: COWORK_REASONS['no-provider'],
+        reason: this.gatewayConfigured()
+          ? COWORK_REASONS['control-unavailable']
+          : COWORK_REASONS['no-provider'],
         ...(started.version === undefined ? {} : { version: started.version }),
       };
     }
@@ -355,7 +498,30 @@ export class CoworkService {
 
   // ---- turn -----------------------------------------------------------------------------------
 
-  async run(request: CoworkRequest, signal: AbortSignal): Promise<CoworkResult> {
+  /** Feeds a bridge event; only a completed unit of an open grant of this service is recorded. */
+  noteBridgeEvent(event: BridgeEvent): void {
+    const units = this.delegated.get(event.grantId);
+    if (units === undefined || event.type !== 'bridge.completed') return;
+    if (event.unitId === undefined || event.outcome === undefined) return;
+    if (units.length >= MAX_DELEGATIONS) return;
+    units.push({
+      unitId: event.unitId,
+      ...(event.resourceId === undefined ? {} : { resourceId: event.resourceId }),
+      outcome: event.outcome,
+    });
+  }
+
+  run(request: CoworkRequest, signal: AbortSignal): Promise<CoworkResult> {
+    if (this.options.bridgeHost === undefined) return this.runTurn(request, signal);
+    const turn = (): Promise<CoworkResult> => this.runTurn(request, signal);
+    const next = this.turnLock.then(turn, turn);
+    this.turnLock = next.catch(() => undefined);
+    return next;
+  }
+
+  private async runTurn(request: CoworkRequest, signal: AbortSignal): Promise<CoworkResult> {
+    // Validate before any probe, task, provider or grant operation; models cannot supply this field.
+    const maximum = coworkDelegationLimit(request);
     if (this.disposed) throw new NexarError('INTEGRATION_UNAVAILABLE', 'Desktop is shutting down');
     if (signal.aborted)
       throw new NexarError('EXECUTION_CANCELLED', 'The Cowork turn was cancelled');
@@ -368,7 +534,7 @@ export class CoworkService {
       throw new NexarError('INTEGRATION_UNAVAILABLE', status.reason);
     }
     const supervisor = this.supervisor.value;
-    const { nexar, projects } = this.options.engine.composition().runtime;
+    const { projects } = this.options.engine.composition().runtime;
     const project = projects.get(asProjectId(request.projectId));
     const root = project?.realRoots[0];
     if (project === undefined || root === undefined) {
@@ -378,10 +544,209 @@ export class CoworkService {
     const readOnly = request.permission === 'read-only';
     request.onProgress('status', 'Routing the task');
     const usable = await this.usable();
+    // The control path (ADR-027 section 7A): through Nexar when the owner's policy has a resource,
+    // else the interim direct-key path (ADR-026 section 4), else the lane cannot run.
+    const choice = await this.gatewayChoice();
+    if (choice === undefined && usable.length === 0 && this.gatewayConfigured()) {
+      throw new NexarError('INTEGRATION_UNAVAILABLE', COWORK_REASONS['control-unavailable']);
+    }
     const excluded = await this.excluded();
     const task = this.options.createTask(request, excluded);
     await request.onTask(task.id);
-    // Resource states are probed once (never paid calls) so the NRC does not see unknown as down.
+
+    const controller = new AbortController();
+    const forward = (): void => controller.abort();
+    signal.addEventListener('abort', forward, { once: true });
+    this.active.add(controller);
+    const scratchParent = join(this.options.stateDir, 'scratch');
+    let scratch: string | undefined;
+    let gatewayGrantId: string | undefined;
+    let delegation: OpenDelegation | undefined;
+    const unitLimit = new DelegationUnitLimit(maximum, {
+      sessionId: request.sessionId,
+      turnId: request.turnId,
+      projectId: request.projectId,
+      engine: 'openworker',
+    });
+    try {
+      const opened =
+        choice === undefined
+          ? undefined
+          : await this.openGateway(supervisor, request, readOnly, choice.policy, unitLimit);
+      gatewayGrantId = opened?.grantId;
+      let selected: Selected =
+        opened === undefined
+          ? { kind: 'direct', route: await this.routeDirectKey(supervisor, task, usable) }
+          : { kind: 'gateway', grant: opened };
+      scratch = await this.newScratch(scratchParent);
+      let scratchRoot = scratch;
+      const recordings: Promise<unknown>[] = [];
+      delegation = await this.openDelegation(
+        client,
+        request,
+        readOnly,
+        selected.kind === 'gateway' ? selected.grant : undefined,
+        unitLimit,
+      );
+      const delegating = delegation?.active === true;
+      request.onProgress('status', 'Running Cowork');
+      let restarts = 0;
+      let turn: Awaited<ReturnType<typeof runCoworkTurn>>;
+      let currentSessionId = request.turnId;
+      for (;;) {
+        currentSessionId =
+          restarts === 0 ? request.turnId : `${request.turnId}-r${String(restarts)}`;
+        turn = await runCoworkTurn(client, {
+          // A restart is a whole new upstream session: the loop is never switched mid-way.
+          sessionId: currentSessionId,
+          prompt: delegating ? `${request.prompt}\n\n${DELEGATION_INSTRUCTION}` : request.prompt,
+          model: selected.kind === 'gateway' ? CONTROL_MODEL : selected.route.model,
+          scratchDir: scratchRoot,
+          projectRoot: root,
+          signal: controller.signal,
+          timeoutMs: this.timings.turnTimeoutMs,
+          // Discuss denies MCP before our callback. Active delegation needs approval mode;
+          // the read-only grant and policy still deny writes and every non-Bridge tool.
+          mode: readOnly && !delegating ? 'discuss' : 'interactive',
+          onProgress: (identifier) => request.onProgress('progress', `Cowork: ${identifier}`),
+          decide: (permission) => {
+            const outcome = decidePermission(permission, {
+              scratchRoot,
+              readOnly,
+              ...(delegating ? { delegationTools: DELEGATION_TOOLS } : {}),
+            });
+            // Ask before every write: a scratch write the policy would allow waits for the owner.
+            // Everything else stays decided by policy; settings only narrow.
+            if (
+              request.permission === 'ask-before-write' &&
+              outcome.decision === 'allow' &&
+              isWriteTool(permission.name)
+            ) {
+              return this.askOwner(request, task, permission, controller.signal);
+            }
+            recordings.push(
+              recordCoworkDecision(
+                this.options.engine.approvals(),
+                {
+                  sessionId: request.sessionId,
+                  turnId: request.turnId,
+                  taskId: task.id,
+                  projectId: request.projectId,
+                },
+                permission,
+                outcome,
+              ).catch((error: unknown) => {
+                this.options.logger.warn('cowork decision record failed', {
+                  code: codeOf(error),
+                });
+              }),
+            );
+            return outcome.decision;
+          },
+        });
+        await Promise.all(recordings);
+
+        if (turn.outcome === 'cancelled' || controller.signal.aborted) {
+          throw new NexarError('EXECUTION_CANCELLED', 'The Cowork turn was cancelled');
+        }
+        // Only a failure the gateway attributes to the control resource restarts the turn, once and
+        // only when the owner's policy allows a fallback (ADR-027 section 8, boundary 3).
+        if (turn.outcome === 'failed' && selected.kind === 'gateway' && selected.grant.failed()) {
+          if (restarts > 0 || selected.grant.policy.fallback !== 'auto') throw controlFailure();
+          try {
+            selected = {
+              kind: 'gateway',
+              grant: { ...selected.grant, ...selected.grant.restart() },
+            };
+          } catch (error) {
+            this.options.logger.warn('cowork control restart failed', { code: codeOf(error) });
+            throw controlFailure();
+          }
+          restarts += 1;
+          request.onProgress('status', 'Restarting on another control resource');
+          await rm(scratch, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+          scratch = await this.newScratch(scratchParent);
+          scratchRoot = scratch;
+          continue;
+        }
+        break;
+      }
+
+      if (turn.outcome === 'failed') {
+        const [code, message] =
+          (turn.errorCode === undefined ? undefined : TURN_FAILURES[turn.errorCode]) ??
+          GENERIC_FAILURE;
+        this.options.logger.warn('cowork turn failed', { errorCode: turn.errorCode ?? 'unknown' });
+        throw new NexarError(code, message);
+      }
+
+      // Read only Cowork imports no draft, whatever the scratch folder holds.
+      const artifacts = readOnly
+        ? []
+        : await this.importDrafts(request, task, scratchRoot, currentSessionId);
+      const delegations =
+        delegation === undefined ? [] : [...(this.delegated.get(delegation.grantId) ?? [])];
+      const picked =
+        selected.kind === 'direct'
+          ? {
+              resourceId: selected.route.resourceId,
+              policyId: selected.route.policyId,
+              control: { path: 'direct-key' } as CoworkControl,
+            }
+          : {
+              resourceId: selected.grant.resourceId,
+              policyId: `control@1:${selected.grant.policy.mode}`,
+              control: {
+                path: 'gateway',
+                controlDecisionId: selected.grant.controlDecisionId,
+                restarts,
+              } as CoworkControl,
+            };
+      return {
+        taskId: task.id,
+        text: turn.text,
+        artifacts,
+        ...picked,
+        ...(delegations.length === 0 ? {} : { delegations }),
+      };
+    } finally {
+      unitLimit.close();
+      signal.removeEventListener('abort', forward);
+      this.active.delete(controller);
+      if (delegation !== undefined) await this.closeDelegation(client, delegation);
+      if (gatewayGrantId !== undefined) {
+        // OpenWorker keeps provider fields in its private secret store: forget the turn's token and
+        // loopback endpoint, then revoke the grant so a copy left behind authenticates nothing.
+        await supervisor.removeProvider(CONTROL_PROVIDER).catch((error: unknown) => {
+          this.options.logger.warn('cowork control provider cleanup failed', {
+            code: codeOf(error),
+          });
+        });
+        this.closeGrant(gatewayGrantId);
+      }
+      if (scratch !== undefined) {
+        await rm(scratch, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }).catch(
+          () => undefined,
+        );
+      }
+    }
+  }
+
+  private async newScratch(parent: string): Promise<string> {
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+    return realpath(await mkdtemp(join(parent, 'turn-')));
+  }
+
+  /**
+   * The interim direct-key path (ADR-026 section 4): the NRC routes the task over the resources the
+   * owner allowed, and the saved key goes to the private loopback server for that provider only.
+   */
+  private async routeDirectKey(
+    supervisor: OpenWorkerSupervisor,
+    task: NexarTask,
+    usable: readonly UsableResource[],
+  ): Promise<DirectRoute> {
+    const { nexar } = this.options.engine.composition().runtime;
     // Resource states are probed once (never paid calls) so the NRC does not see unknown as down.
     await this.options.engine.snapshots(false);
     const decision = await nexar.route(task);
@@ -392,8 +757,6 @@ export class CoworkService {
     if (chosen === undefined) {
       throw new NexarError('NO_ELIGIBLE_RESOURCE', 'No eligible resource can run Cowork');
     }
-
-    // The key goes to the private loopback server only, for the chosen (owner-allowed) provider.
     const apiKey = ((): string | undefined => {
       try {
         return this.options.keys.resolveSecret(chosen.credentialName);
@@ -405,90 +768,153 @@ export class CoworkService {
       throw new NexarError('NO_ELIGIBLE_RESOURCE', 'No eligible resource can run Cowork');
     }
     await supervisor.configureProviders([{ provider: chosen.provider, apiKey }]);
+    return {
+      model: `${chosen.provider}:${chosen.model}`,
+      resourceId: decision.selected.resourceId,
+      policyId: `${decision.policy.name}@${decision.policy.version}`,
+    };
+  }
 
-    const controller = new AbortController();
-    const forward = (): void => controller.abort();
-    signal.addEventListener('abort', forward, { once: true });
-    this.active.add(controller);
-    const scratchParent = join(this.options.stateDir, 'scratch');
-    let scratch: string | undefined;
+  /** `attempts`: a gateway grant must outlive a restart, which re-runs the turn once. */
+  private grantInput(
+    request: CoworkRequest,
+    readOnly: boolean,
+    unitLimit: DelegationUnitLimit,
+    attempts = 1,
+  ): BridgeGrantInput {
+    return {
+      sessionId: request.sessionId,
+      turnId: request.turnId,
+      correlationId: request.correlation.correlationId,
+      projectId: request.projectId,
+      engine: 'openworker',
+      access: readOnly ? 'read-only' : 'draft',
+      ...(request.maxCostUsd === undefined ? {} : { budgetUsd: request.maxCostUsd }),
+      maxUnits: unitLimit.maximum,
+      unitLimit,
+      ttlMs: this.timings.turnTimeoutMs * attempts,
+    };
+  }
+
+  /**
+   * The gateway path: ONE grant for the turn (control decision included), and OpenWorker's `openai`
+   * provider pointed at the loopback translator with that grant's token as its key. No saved key is
+   * resolved. `undefined` when the path cannot be opened (the grant, if any, is revoked).
+   */
+  private async openGateway(
+    supervisor: OpenWorkerSupervisor,
+    request: CoworkRequest,
+    readOnly: boolean,
+    policy: ControlResourcePolicy,
+    unitLimit: DelegationUnitLimit,
+  ): Promise<TurnGrant | undefined> {
+    const { bridgeHost: host, controlChild } = this.options;
+    if (host?.restartControl === undefined || host.controlFailed === undefined) return undefined;
+    if (controlChild === undefined) return undefined;
+    const restartControl = host.restartControl.bind(host);
+    const controlFailed = host.controlFailed.bind(host);
+    let grantId: string | undefined;
     try {
-      await mkdir(scratchParent, { recursive: true, mode: 0o700 });
-      scratch = await realpath(await mkdtemp(join(scratchParent, 'turn-')));
-      const scratchRoot = scratch;
-      const recordings: Promise<unknown>[] = [];
-      request.onProgress('status', 'Running Cowork');
-      const turn = await runCoworkTurn(client, {
-        sessionId: request.turnId,
-        prompt: request.prompt,
-        model: `${chosen.provider}:${chosen.model}`,
-        scratchDir: scratchRoot,
-        projectRoot: root,
-        signal: controller.signal,
-        timeoutMs: this.timings.turnTimeoutMs,
-        // Read only: the upstream session itself is put in discuss mode, and policy denies anyway.
-        mode: readOnly ? 'discuss' : 'interactive',
-        onProgress: (identifier) => request.onProgress('progress', `Cowork: ${identifier}`),
-        decide: (permission) => {
-          const outcome = decidePermission(permission, { scratchRoot, readOnly });
-          // Ask before every write: a scratch write the policy would allow waits for the owner.
-          // Everything else stays decided by policy; settings only narrow.
-          if (
-            request.permission === 'ask-before-write' &&
-            outcome.decision === 'allow' &&
-            isWriteTool(permission.name)
-          ) {
-            return this.askOwner(request, task, permission, controller.signal);
-          }
-          recordings.push(
-            recordCoworkDecision(
-              this.options.engine.approvals(),
-              {
-                sessionId: request.sessionId,
-                turnId: request.turnId,
-                taskId: task.id,
-                projectId: request.projectId,
-              },
-              permission,
-              outcome,
-            ).catch((error: unknown) => {
-              this.options.logger.warn('cowork decision record failed', { code: codeOf(error) });
-            }),
-          );
-          return outcome.decision;
+      await host.ensureStarted();
+      const baseUrl = await controlChild.baseUrl();
+      const minted = host.mint(this.grantInput(request, readOnly, unitLimit, 2), { policy });
+      grantId = minted.grantId;
+      this.delegated.set(minted.grantId, []);
+      if (minted.controlDecisionId === undefined || minted.resourceId === undefined) {
+        throw new NexarError('POLICY_REJECTED', 'Control is not available');
+      }
+      await supervisor.configureProviders([
+        { provider: CONTROL_PROVIDER, apiKey: minted.token, baseUrl },
+      ]);
+      const id = minted.grantId;
+      return {
+        grantId: id,
+        token: minted.token,
+        controlDecisionId: minted.controlDecisionId,
+        resourceId: minted.resourceId,
+        policy,
+        failed: () => controlFailed(id),
+        restart: () => restartControl(id),
+      };
+    } catch (error) {
+      this.options.logger.warn('cowork control gateway unavailable', { code: codeOf(error) });
+      if (grantId !== undefined) this.closeGrant(grantId);
+      return undefined;
+    }
+  }
+
+  /**
+   * Registers the Intelligence Bridge relay with OpenWorker (the token lives only in that private
+   * registration), on the turn's gateway grant when it has one, else on a grant of its own. A
+   * failure never fails the turn: it runs without delegation.
+   */
+  private async openDelegation(
+    client: Client,
+    request: CoworkRequest,
+    readOnly: boolean,
+    shared: TurnGrant | undefined,
+    unitLimit: DelegationUnitLimit,
+  ): Promise<OpenDelegation | undefined> {
+    const host = this.options.bridgeHost;
+    if (host === undefined) return undefined;
+    const open: OpenDelegation = {
+      grantId: shared?.grantId ?? '',
+      owned: shared === undefined,
+      active: false,
+      registering: false,
+    };
+    try {
+      const endpoint = await host.ensureStarted();
+      let token = shared?.token;
+      if (token === undefined) {
+        const grant = host.mint(this.grantInput(request, readOnly, unitLimit));
+        open.grantId = grant.grantId;
+        this.delegated.set(grant.grantId, []);
+        token = grant.token;
+      }
+      const launch = (this.options.relay ?? relayLaunch)();
+      const relayEnv = { ...launch.env };
+      delete relayEnv['NEXAR_BRIDGE_STANDALONE_ONLY'];
+      open.registering = true;
+      await client.registerMcpServer(BRIDGE_SERVER_NAME, {
+        command: launch.command,
+        args: launch.args,
+        env: {
+          ...relayEnv,
+          NEXAR_BRIDGE_ENDPOINT: endpoint,
+          NEXAR_BRIDGE_TOKEN: token,
+          // Derived only from the trusted turn scope, including fallback/restart grants.
+          ...(unitLimit.maximum === 1 ? { NEXAR_BRIDGE_STANDALONE_ONLY: '1' } : {}),
         },
       });
-      await Promise.all(recordings);
+      open.active = true;
+      return open;
+    } catch (error) {
+      this.options.logger.warn('cowork delegation unavailable', { code: codeOf(error) });
+      await this.closeDelegation(client, open);
+      return undefined;
+    }
+  }
 
-      if (turn.outcome === 'cancelled' || controller.signal.aborted) {
-        throw new NexarError('EXECUTION_CANCELLED', 'The Cowork turn was cancelled');
-      }
-      if (turn.outcome === 'failed') {
-        const [code, message] =
-          (turn.errorCode === undefined ? undefined : TURN_FAILURES[turn.errorCode]) ??
-          GENERIC_FAILURE;
-        this.options.logger.warn('cowork turn failed', { errorCode: turn.errorCode ?? 'unknown' });
-        throw new NexarError(code, message);
-      }
-
-      // Read only Cowork imports no draft, whatever the scratch folder holds.
-      const artifacts = readOnly ? [] : await this.importDrafts(request, task, scratchRoot);
-      return {
-        taskId: task.id,
-        text: turn.text,
-        artifacts,
-        resourceId: decision.selected.resourceId,
-        policyId: `${decision.policy.name}@${decision.policy.version}`,
-      };
-    } finally {
-      signal.removeEventListener('abort', forward);
-      this.active.delete(controller);
-      if (scratch !== undefined) {
-        await rm(scratch, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }).catch(
-          () => undefined,
-        );
+  /** Best effort, in this order: the MCP entry (it holds the token), then an owned grant. */
+  private async closeDelegation(client: Client, open: OpenDelegation): Promise<void> {
+    if (open.registering) {
+      try {
+        await client.deleteMcpServer(BRIDGE_SERVER_NAME);
+      } catch (error) {
+        this.options.logger.warn('cowork delegation cleanup failed', { code: codeOf(error) });
       }
     }
+    if (open.owned && open.grantId !== '') this.closeGrant(open.grantId);
+  }
+
+  private closeGrant(grantId: string): void {
+    try {
+      this.options.bridgeHost?.revoke(grantId);
+    } catch (error) {
+      this.options.logger.warn('cowork delegation revoke failed', { code: codeOf(error) });
+    }
+    this.delegated.delete(grantId);
   }
 
   /**
@@ -542,34 +968,69 @@ export class CoworkService {
     request: CoworkRequest,
     task: NexarTask,
     scratch: string,
+    sessionId?: string,
   ): Promise<ArtifactRef[]> {
     const { runtime } = this.options.engine.composition();
-    const { files } = await collectDrafts(scratch);
+    const candidateDirs: string[] = [scratch];
+    if (sessionId !== undefined) {
+      try {
+        const ws = openWorkerWorkspaceDir(sessionId, {
+          scratchBase: this.options.openWorkerScratchBase,
+        });
+        candidateDirs.push(ws);
+      } catch {
+        /* invalid session id format, omit */
+      }
+    }
     const store = new LocalArtifactStore({ projects: runtime.projects });
     const refs: ArtifactRef[] = [];
-    for (const file of files) {
-      const mediaType = Object.hasOwn(DRAFT_MEDIA, extname(file.name).toLowerCase())
-        ? DRAFT_MEDIA[extname(file.name).toLowerCase()]
-        : undefined;
-      if (mediaType === undefined) continue;
+    const seenNames = new Set<string>();
+
+    for (const dir of candidateDirs) {
+      let files: readonly DraftFile[];
       try {
-        // Re-check at open time: only a plain, unlinked, unchanged-size regular file is imported.
-        const info = await lstat(file.path);
-        if (!info.isFile() || info.isSymbolicLink() || info.nlink > 1 || info.size !== file.size) {
-          continue;
+        const collected = await collectDrafts(dir);
+        files = collected.files;
+      } catch {
+        continue;
+      }
+      for (const file of files) {
+        if (seenNames.has(file.name)) continue;
+        const mediaType = Object.hasOwn(DRAFT_MEDIA, extname(file.name).toLowerCase())
+          ? DRAFT_MEDIA[extname(file.name).toLowerCase()]
+          : undefined;
+        if (mediaType === undefined) continue;
+        try {
+          // Re-check at open time: only a plain, unlinked, unchanged-size regular file is imported.
+          const info = await lstat(file.path);
+          if (
+            !info.isFile() ||
+            info.isSymbolicLink() ||
+            info.nlink > 1 ||
+            info.size !== file.size
+          ) {
+            continue;
+          }
+          const canonicalFile = await realpath(file.path);
+          const canonicalDir = await realpath(dir);
+          const rel = relative(canonicalDir, canonicalFile);
+          if (rel === '' || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) {
+            continue;
+          }
+          refs.push(
+            await store.store({
+              projectId: asProjectId(request.projectId),
+              taskId: task.id,
+              filename: file.name.replaceAll('/', '-'),
+              content: await readFile(canonicalFile),
+              mediaType,
+              draft: true,
+            }),
+          );
+          seenNames.add(file.name);
+        } catch (error) {
+          this.options.logger.warn('cowork draft import failed', { code: codeOf(error) });
         }
-        refs.push(
-          await store.store({
-            projectId: asProjectId(request.projectId),
-            taskId: task.id,
-            filename: file.name.replaceAll('/', '-'),
-            content: await readFile(file.path),
-            mediaType,
-            draft: true,
-          }),
-        );
-      } catch (error) {
-        this.options.logger.warn('cowork draft import failed', { code: codeOf(error) });
       }
     }
     if (refs.length > 0) {

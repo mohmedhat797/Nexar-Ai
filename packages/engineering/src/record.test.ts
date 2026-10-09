@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { isEngineeringLineage, readEngineeringRecord, type EngineeringRecord } from './index.js';
+import {
+  isEngineeringLineage,
+  isStrategyRecord,
+  readEngineeringRecord,
+  type EngineeringRecord,
+} from './index.js';
 import { writeEngineeringRecord } from './record.js';
 
 const lineage = {
@@ -85,6 +90,81 @@ describe('engineering record lineage', () => {
       join(dir, 'record.json'),
       JSON.stringify({ ...base, lineage: { ...lineage, sessionId: 'nope' } }),
     );
+    await expect(readEngineeringRecord(state, base.taskId)).rejects.toMatchObject({
+      code: 'INTERNAL_ERROR',
+    });
+  });
+});
+
+describe('engineering record strategy', () => {
+  const strategy = {
+    policy: 'strategy@1',
+    configId: 'abc123def456',
+    units: 2,
+    fallback: 'INTERNAL_ERROR',
+  };
+  const lane = {
+    laneId: 'feature',
+    role: 'feature',
+    round: 0,
+    taskId: 't1',
+    reasonCodes: [],
+    outcome: 'succeeded' as const,
+    latencyMs: 1,
+  };
+
+  const writeRaw = (state: string, body: unknown): void => {
+    const dir = join(state, 'engineering', base.taskId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'record.json'), JSON.stringify(body));
+  };
+
+  it('round-trips the strategy stamp and planned/fallback lane fields', async () => {
+    const state = tempState();
+    const lanes = [{ ...lane, planned: 'impl', fallback: true }];
+    await writeEngineeringRecord(state, { ...base, strategy, lanes });
+    const read = await readEngineeringRecord(state, base.taskId);
+    expect(read?.strategy).toEqual(strategy);
+    expect(read?.lanes[0]).toMatchObject({ planned: 'impl', fallback: true });
+  });
+
+  it('reads an old record without strategy, planned or fallback', async () => {
+    const state = tempState();
+    await writeEngineeringRecord(state, { ...base, lanes: [lane] });
+    const read = await readEngineeringRecord(state, base.taskId);
+    expect(read).not.toHaveProperty('strategy');
+    expect(read?.lanes[0]).not.toHaveProperty('planned');
+  });
+
+  it('accepts a minimal strategy stamp', () => {
+    expect(isStrategyRecord({ policy: 'strategy@1', units: 0 })).toBe(true);
+  });
+
+  it.each([
+    ['null', null],
+    ['an array', []],
+    ['a missing policy', { units: 1 }],
+    ['a free-text policy', { policy: 'plan the goal now', units: 1 }],
+    ['an oversized configId', { policy: 'strategy@1', configId: 'a'.repeat(129), units: 1 }],
+    ['an extra field', { policy: 'strategy@1', units: 1, goal: 'x' }],
+    ['a string count', { policy: 'strategy@1', units: '1' }],
+    ['a negative count', { policy: 'strategy@1', units: -1 }],
+    ['a fractional count', { policy: 'strategy@1', units: 1.5 }],
+    ['an absurd count', { policy: 'strategy@1', units: 1_000_000 }],
+    ['a non-code fallback', { policy: 'strategy@1', units: 1, fallback: 'two words' }],
+  ])('rejects a strategy with %s', (_name, value) => {
+    expect(isStrategyRecord(value)).toBe(false);
+  });
+
+  it.each([
+    ['a malformed strategy', { strategy: { policy: '../x', units: 1 } }],
+    ['a non-string planned', { lanes: [{ ...lane, planned: 7 }] }],
+    ['a path as planned', { lanes: [{ ...lane, planned: '../../etc/passwd' }] }],
+    ['a non-boolean fallback', { lanes: [{ ...lane, fallback: 'yes' }] }],
+    ['a non-object lane', { lanes: ['feature'] }],
+  ])('refuses a record with %s', async (_name, patch) => {
+    const state = tempState();
+    writeRaw(state, { ...base, ...patch });
     await expect(readEngineeringRecord(state, base.taskId)).rejects.toMatchObject({
       code: 'INTERNAL_ERROR',
     });

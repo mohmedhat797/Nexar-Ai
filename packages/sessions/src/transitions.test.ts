@@ -454,7 +454,38 @@ describe('completeTurn', () => {
       expect(turn.outcome?.engineering).toEqual(reported);
     });
 
+    it('keeps the executor facts of a lane and drops unknown lane keys', () => {
+      const lane = {
+        role: 'implementation',
+        resourceId: 'dsh:deepseek',
+        executor: 'engine' as const,
+        engine: 'dsh' as const,
+        controlResourceId: 'pi:deepseek-chat',
+      };
+      const { turn } = completeTurn(
+        running(),
+        T1,
+        {
+          state: 'succeeded',
+          outcome: {
+            text: 'r',
+            engineering: {
+              planeTaskId: 'task_1',
+              status: 'reported',
+              lanes: [{ ...lane, extra: 'x' } as typeof lane],
+            },
+          },
+        },
+        T_2,
+      );
+      expect(turn.outcome?.engineering?.lanes).toEqual([lane]);
+    });
+
     it.each([
+      { lanes: [{ role: 'r', resourceId: 'x', executor: 'other' }] },
+      { lanes: [{ role: 'r', resourceId: 'x', engine: 'codex' }] },
+      { lanes: [{ role: 'r', resourceId: 'x', executorReason: '' }] },
+      { lanes: [{ role: 'r', resourceId: 'x', controlResourceId: 'c'.repeat(129) }] },
       { lanes: Array.from({ length: 17 }, () => ({ role: 'r', resourceId: 'x' })) },
       { lanes: [{ role: '', resourceId: 'x' }] },
       { lanes: [{ role: 'r', resourceId: 'x'.repeat(129) }] },

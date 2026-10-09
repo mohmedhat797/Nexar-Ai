@@ -54,7 +54,19 @@ describe('piCatalogDiscoverySource', () => {
     });
     expect(gpt?.capabilities).not.toContain('long-context');
     expect(gpt?.limits).toEqual({ contextWindowTokens: 128_000, maxOutputTokens: 8192 });
-    expect(gpt?.metadata).toEqual({ rates: 'catalog' });
+    expect(gpt?.metadata).toEqual({
+      rates: 'catalog',
+      connection: {
+        id: 'openrouter.api',
+        provider: 'openrouter',
+        method: 'api',
+        authClass: 'official-api',
+        support: 'official',
+      },
+    });
+    // pi-ai carries tool schemas for its catalog providers; 	ool-use stays a native-agent property.
+    expect(gpt?.capabilities).toContain('model-turn');
+    expect(gpt?.capabilities).not.toContain('tool-use');
     expect(gpt?.auth).toEqual({
       mode: 'api-key',
       credential: { source: 'env', name: 'OPENROUTER_API_KEY' },
@@ -162,6 +174,40 @@ describe('localEndpointDiscoverySource', () => {
   });
   afterAll(async () => {
     await new Promise((r) => server.close(r));
+  });
+
+  it('sets the local connection and grants model-turn only to endpoints declared toolCalling', async () => {
+    const found = await localEndpointDiscoverySource({
+      endpoints: [
+        { id: 'ollama', kind: 'ollama', baseUrl: `${base}/ollama/`, toolCalling: true },
+        { id: 'lab', kind: 'openai-compatible', baseUrl: `${base}/oai` },
+        {
+          id: 'lab2',
+          kind: 'openai-compatible',
+          baseUrl: `${base}/tenant/oai`,
+          toolCalling: false,
+        },
+      ],
+    }).discover(ctx());
+    const byEndpoint = (prefix: string) => found.filter((d) => d.id.startsWith(prefix));
+    for (const d of byEndpoint('local.ollama.')) {
+      expect(d.capabilities).toContain('model-turn');
+      expect(d.metadata?.['connection']).toEqual({
+        id: 'local.ollama',
+        provider: 'local',
+        method: 'local',
+        authClass: 'none',
+        support: 'official',
+      });
+    }
+    for (const d of [...byEndpoint('local.lab.'), ...byEndpoint('local.lab2.')]) {
+      expect(d.capabilities).not.toContain('model-turn');
+      expect(d.metadata?.['connection']).toMatchObject({ method: 'custom', authClass: 'none' });
+    }
+    expect(byEndpoint('local.lab2.')[0]?.metadata?.['connection']).toMatchObject({
+      id: 'local.lab2',
+    });
+    expect(found.every((d) => d.auth.mode === 'none')).toBe(true);
   });
 
   it('lists Ollama and OpenAI-compatible models as local-compute resources', async () => {

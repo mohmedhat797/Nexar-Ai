@@ -7,13 +7,17 @@ import {
   isNexarError,
   resourceId as toResourceId,
   taskId as toTaskId,
+  type ControlEngine,
   type EngineeringLineage,
   type EngineeringStep,
   type Logger,
   type ProcessLauncher,
   type ResourceId,
+  type ResourceStrategy,
   type TelemetrySink,
   type UsageReport,
+  type WorkGraph,
+  type WorkUnit,
 } from '@nexar/contracts';
 import type { Nexar } from '@nexar/core';
 import type { Project, ProjectEngineeringSettings } from '@nexar/projects';
@@ -27,6 +31,7 @@ import type {
   removeTaskWorktree,
 } from '@nexar/worktrees';
 import { networkFor, runCommand, type CommandRun } from './commands.js';
+import type { LaneEngine, LaneEngineSession, LaneEngineUnavailable } from './lane-engine.js';
 import type { ChangePlan, LoadedPlan, PlanLane, ReportPlan } from './plan.js';
 import { MAX_OUTCOME_LANES, boundReport } from './report.js';
 import {
@@ -37,6 +42,7 @@ import {
   type LaneRecord,
   type PatchRecord,
   type ReviewRecord,
+  type StrategyRecord,
 } from './record.js';
 import { renderLaneTemplate, type LaneTemplate, type LaneValues } from './render.js';
 import { parseReviewVerdict, type ReviewVerdict } from './verdict.js';
@@ -102,6 +108,16 @@ export interface EngineeringRunOptions {
   readonly onProgress?: (event: EngineeringProgress) => void;
 }
 
+/** One completed lane: role and resource, plus the executor facts of an engine gateway attempt. */
+export interface OutcomeLane {
+  readonly role: string;
+  readonly resourceId: string;
+  readonly executor?: 'engine' | 'native';
+  readonly engine?: ControlEngine;
+  readonly executorReason?: string;
+  readonly controlResourceId?: string;
+}
+
 export interface EngineeringOutcome {
   readonly taskId: string;
   readonly status: 'committed' | 'reported' | 'not-accepted' | 'failed' | 'cancelled';
@@ -112,8 +128,16 @@ export interface EngineeringOutcome {
   /** Present only when a report plan produced its report (status `reported`). Bounded to 64 KiB. */
   readonly report?: { readonly text: string; readonly truncated: boolean };
   /** The lane executions that completed, in order (at most 16). Roles and resource ids only. */
-  readonly lanes?: readonly { readonly role: string; readonly resourceId: string }[];
+  readonly lanes?: readonly OutcomeLane[];
   readonly recordPath: string;
+}
+
+/**
+ * Plans the resource of every lane upfront. Structurally satisfied by the Resource Controller
+ * (`ResourceStrategist`); each lane's normal routing is the runtime revalidation of the plan.
+ */
+export interface EngineeringStrategist {
+  planStrategy(graph: WorkGraph): Promise<ResourceStrategy>;
 }
 
 export interface ExecutionDependencies {
@@ -130,6 +154,8 @@ export interface ExecutionDependencies {
   readonly author: { readonly name: string; readonly email: string };
   readonly approvalTtlMs: number;
   readonly worktrees: WorktreeOps;
+  readonly strategist?: EngineeringStrategist;
+  readonly laneEngine?: LaneEngine;
 }
 
 export interface ExecutionTarget {
@@ -216,7 +242,10 @@ export class EngineeringExecution {
   private readonly patches: PatchRecord[] = [];
   private readonly reviews: ReviewRecord[] = [];
   private readonly rwResources = new Set<ResourceId>();
-  private readonly laneExecutions: { role: string; resourceId: string }[] = [];
+  private readonly laneExecutions: OutcomeLane[] = [];
+  /** Planned resource per lane id (only lanes the strategy selected a resource for). */
+  private readonly planned = new Map<string, ResourceId>();
+  private strategy: StrategyRecord | undefined;
   private readonly startedAt: string;
   private status: EngineeringStatus = 'running';
   private reason: string | undefined;
@@ -245,6 +274,7 @@ export class EngineeringExecution {
       recordPath = await this.persist();
       await this.begin();
       const { plan } = this.deps;
+      await this.planLanes(plan.lanes);
       if (plan.mode === 'report') await this.runReport(plan);
       else await this.runChange(plan);
     } catch (error) {
@@ -377,6 +407,7 @@ export class EngineeringExecution {
         ? {}
         : { report: { sha256: this.report.sha256, bytes: this.report.bytes } }),
       ...(this.target.lineage === undefined ? {} : { lineage: this.target.lineage }),
+      ...(this.strategy === undefined ? {} : { strategy: this.strategy }),
     };
   }
 
@@ -475,6 +506,62 @@ export class EngineeringExecution {
     }
   }
 
+  /**
+   * Plans every plan lane before the first one runs. Rework (`debugging`) lanes are not planned.
+   * Any failure leaves the task unplanned, exactly as without a strategist.
+   */
+  private async planLanes(lanes: readonly PlanLane[]): Promise<void> {
+    const { strategist } = this.deps;
+    if (strategist === undefined) return;
+    try {
+      const units: WorkUnit[] = [];
+      let previous: PlanLane | undefined;
+      let lastWriter: PlanLane | undefined;
+      for (const lane of lanes) {
+        const { preferred } = this.spec(lane);
+        const reviews = lane.role === 'review' ? lastWriter : undefined;
+        units.push({
+          unitId: lane.id,
+          task: {
+            id: toTaskId(`${this.target.taskId}:${lane.id}`),
+            kind: lane.taskKind,
+            requirements: {
+              capabilities: lane.capabilities,
+              ...(preferred === undefined ? {} : { preferredResourceIds: preferred }),
+            },
+          },
+          ...(lane.role === 'report' ? {} : { laneRole: lane.role }),
+          ...(previous === undefined ? {} : { dependsOn: [previous.id] }),
+          ...(reviews === undefined ? {} : { reviewOf: reviews.id }),
+        });
+        previous = lane;
+        if (lane.access === 'read-write') lastWriter = lane;
+      }
+      const strategy = await strategist.planStrategy({
+        graphId: this.target.taskId,
+        units,
+        reviewDiversity: this.target.settings.reviewDiversity,
+      });
+      for (const { unitId, decision } of strategy.units) {
+        if (decision.outcome === 'selected') this.planned.set(unitId, decision.selected.resourceId);
+      }
+      const { policy } = strategy;
+      this.strategy = {
+        policy: `${policy.name}@${policy.version}`,
+        ...(policy.configId === undefined ? {} : { configId: policy.configId }),
+        units: strategy.units.length,
+        ...(policy.base.fallback === undefined ? {} : { fallback: policy.base.fallback.reason }),
+      };
+    } catch (error) {
+      this.planned.clear();
+      this.strategy = undefined;
+      this.deps.logger.warn('resource strategy could not be planned', {
+        taskId: this.target.taskId,
+        code: isNexarError(error) ? error.code : 'INTERNAL_ERROR',
+      });
+    }
+  }
+
   private spec(lane: PlanLane): LaneSpec {
     const preferred = this.target.settings.lanePreferences[lane.role];
     return {
@@ -518,6 +605,42 @@ export class EngineeringExecution {
     this.progress({ type: 'lane.started', lane: lane.id, role: lane.role, round });
     const prompt = renderLaneTemplate(lane.brief, values);
     let current: { taskId: string; startedMs: number } | undefined;
+    const planned = this.planned.get(lane.id);
+    // The plan's pick leads; the owner's lane preferences follow. Runtime routing still decides.
+    const plannedFirst =
+      planned === undefined
+        ? lane.preferred
+        : [planned, ...(lane.preferred ?? []).filter((id) => id !== planned)];
+    // Only write lanes may get an engine gateway session (ADR-027 section 9b).
+    const engine = access === 'read-write' ? await this.openLaneEngine(lane, round) : undefined;
+    const session = engine !== undefined && 'session' in engine ? engine.session : undefined;
+    // The engine's resource leads so routing selects it when it can; routing still decides.
+    const preferred =
+      session === undefined
+        ? plannedFirst
+        : [
+            session.engineResourceId,
+            ...(plannedFirst ?? []).filter((id) => id !== session.engineResourceId),
+          ];
+    const executorFor = (routedResourceId: string | undefined, controlFailed = false) => {
+      if (engine === undefined) return {};
+      if (!('session' in engine)) {
+        return { executor: 'native' as const, executorReason: engine.reason };
+      }
+      const { gateway, engineResourceId } = engine.session;
+      const ids = {
+        engine: gateway.engine,
+        controlResourceId: gateway.controlResourceId,
+        controlDecisionId: gateway.controlDecisionId,
+      };
+      if (controlFailed) {
+        return { executor: 'engine' as const, executorReason: 'control-resource-failed', ...ids };
+      }
+      if (routedResourceId === undefined) return {};
+      return routedResourceId === engineResourceId
+        ? { executor: 'engine' as const, ...ids }
+        : { executor: 'native' as const, executorReason: 'engine-not-selected' };
+    };
 
     const attempt = async (excluded: readonly ResourceId[]) => {
       const task = nexar.createTask({
@@ -527,7 +650,7 @@ export class EngineeringExecution {
         projectId: this.target.project.id,
         requirements: {
           capabilities: lane.capabilities,
-          ...(lane.preferred === undefined ? {} : { preferredResourceIds: lane.preferred }),
+          ...(preferred === undefined ? {} : { preferredResourceIds: preferred }),
           ...(excluded.length === 0 ? {} : { excludedResourceIds: excluded }),
         },
         metadata: { engineeringTaskId: this.target.taskId, lane: lane.id, role: lane.role, round },
@@ -535,6 +658,9 @@ export class EngineeringExecution {
       current = { taskId: task.id, startedMs: clock().getTime() };
       return nexar.run(task, {
         workspace: { path: workspacePath, access, launcher },
+        ...(session === undefined
+          ? {}
+          : { gateway: session.gateway, gatewayResourceId: session.engineResourceId }),
         timeoutMs: this.target.settings.laneTimeoutMs,
         ...(this.options.signal === undefined ? {} : { signal: this.options.signal }),
       });
@@ -577,8 +703,18 @@ export class EngineeringExecution {
         usage: outcome.record.usage,
         latencyMs: outcome.record.latencyMs,
         outputSha256,
+        ...(planned === undefined ? {} : { planned, fallback: planned !== resourceId }),
+        ...executorFor(resourceId),
       });
-      this.laneExecutions.push({ role: lane.role, resourceId });
+      const facts = executorFor(resourceId);
+      this.laneExecutions.push({
+        role: lane.role,
+        resourceId,
+        ...('executor' in facts ? { executor: facts.executor } : {}),
+        ...('engine' in facts ? { engine: facts.engine } : {}),
+        ...('executorReason' in facts ? { executorReason: facts.executorReason } : {}),
+        ...('controlResourceId' in facts ? { controlResourceId: facts.controlResourceId } : {}),
+      });
       if (lane.access === 'read-write') this.rwResources.add(toResourceId(resourceId));
       await this.step('lane.completed', {
         lane: lane.id,
@@ -597,8 +733,14 @@ export class EngineeringExecution {
       };
     } catch (error) {
       if (error instanceof TaskEnd) throw error;
-      const code = isNexarError(error) ? error.code : 'INTERNAL_ERROR';
       const aborted = this.options.signal?.aborted === true;
+      // A pinned control resource that failed ends the lane as a provider failure (restart is a follow-up).
+      const controlFailed = !aborted && session?.controlFailed?.() === true;
+      const code = controlFailed
+        ? 'PROVIDER_ERROR'
+        : isNexarError(error)
+          ? error.code
+          : 'INTERNAL_ERROR';
       const outcome: LaneRecord['outcome'] = aborted
         ? 'cancelled'
         : code === 'EXECUTION_TIMEOUT'
@@ -614,6 +756,8 @@ export class EngineeringExecution {
         outcome,
         errorCode: code,
         latencyMs: clock().getTime() - started,
+        ...(planned === undefined ? {} : { planned }),
+        ...executorFor(undefined, controlFailed),
       });
       await this.step('lane.completed', {
         lane: lane.id,
@@ -624,6 +768,49 @@ export class EngineeringExecution {
       });
       if (aborted) throw new TaskEnd('cancelled', 'cancelled');
       throw new TaskEnd('failed', `lane.${lane.id}.${code}`);
+    } finally {
+      await this.closeLaneEngine(session);
+    }
+  }
+
+  /** Opens the lane's engine session, or says why there is none. Never throws. */
+  private async openLaneEngine(
+    lane: LaneSpec,
+    round: number,
+  ): Promise<{ session: LaneEngineSession } | { reason: LaneEngineUnavailable } | undefined> {
+    const { laneEngine } = this.deps;
+    if (laneEngine === undefined) return undefined;
+    try {
+      const opened = await laneEngine.open(
+        {
+          engineeringTaskId: this.target.taskId,
+          laneId: lane.id,
+          role: lane.role,
+          round,
+          projectId: this.target.project.id,
+          access: 'read-write',
+        },
+        this.options.signal ?? new AbortController().signal,
+      );
+      return 'unavailable' in opened ? { reason: opened.unavailable } : { session: opened };
+    } catch (error) {
+      this.deps.logger.warn('engine session could not be opened', {
+        taskId: this.target.taskId,
+        code: isNexarError(error) ? error.code : 'INTERNAL_ERROR',
+      });
+      return { reason: 'engine-unavailable' };
+    }
+  }
+
+  private async closeLaneEngine(session: LaneEngineSession | undefined): Promise<void> {
+    if (session === undefined) return;
+    try {
+      await session.close();
+    } catch (error) {
+      this.deps.logger.warn('engine session could not be closed', {
+        taskId: this.target.taskId,
+        code: isNexarError(error) ? error.code : 'INTERNAL_ERROR',
+      });
     }
   }
 
@@ -639,6 +826,13 @@ export class EngineeringExecution {
     usage?: UsageReport;
     latencyMs: number;
     outputSha256?: string;
+    planned?: string;
+    fallback?: boolean;
+    executor?: NonNullable<LaneRecord['executor']>;
+    engine?: NonNullable<LaneRecord['engine']>;
+    executorReason?: string;
+    controlResourceId?: string;
+    controlDecisionId?: string;
   }): void {
     this.lanes.push(lane);
   }

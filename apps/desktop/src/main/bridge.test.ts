@@ -111,7 +111,7 @@ describe('schemas', () => {
 });
 
 describe('first run, app and settings', () => {
-  it('writes a valid default config', async () => {
+  it('writes a valid config; the harness declares the echo test double on top of it', async () => {
     const raw = JSON.parse(await h.config.readText()) as Record<string, unknown>;
     const parsed = parseConfig(raw, 'test', { baseDir: h.userData });
     expect(parsed.routing.policy).toBe('resource-intelligence');
@@ -299,8 +299,9 @@ describe('project files', () => {
       expect(result.ok && result.value.entries).toHaveLength(500);
       expect(result.ok && result.value.truncated).toBe(true);
     },
-    // The 520 real fixture files and containment reads encounter Windows antivirus scanning.
-    process.platform === 'win32' ? 15_000 : undefined,
+    // The 520 real fixture files and containment reads encounter Windows antivirus scanning; a
+    // GitHub Windows runner took 21.5 s (run 37255914090), so the budget is generous there.
+    process.platform === 'win32' ? 60_000 : undefined,
   );
 
   it('previews UTF-8 text files', async () => {

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   EngineeringWorkspace,
   ExecutionContext,
+  ExecutionGateway,
   ExecutionRequest,
   ExecutionResult,
   ProcessLauncher,
@@ -123,5 +124,61 @@ describe('engine: engineering workspace', () => {
       expect((error as Error).message).not.toContain(base);
     }
     expect(adapter.requests).toHaveLength(0);
+  });
+
+  describe('gateway session', () => {
+    const SENTINEL = 'sentinel-token-0000';
+    const gateway: ExecutionGateway = {
+      engine: 'dsh',
+      services: { dir: '/svc', gateway: true, bridge: true },
+      token: SENTINEL,
+      model: 'nexar-control',
+      controlResourceId: 'ctl',
+      controlDecisionId: 'dec-1',
+    };
+    const task = (nexar: Awaited<ReturnType<typeof setup>>['nexar']) =>
+      nexar.createTask({ kind: 'coding', prompt: 'p', projectId: 'demo' });
+
+    it('hands the gateway to the adapter context unchanged', async () => {
+      const { nexar, adapter } = await setup();
+      await nexar.run(task(nexar), { workspace: ws(worktree), gateway });
+      expect(adapter.contexts[0]?.gateway).toBe(gateway);
+    });
+
+    it('omits it by default and when gatewayResourceId names another resource', async () => {
+      const { nexar, adapter } = await setup();
+      await nexar.run(task(nexar), { workspace: ws(worktree) });
+      await nexar.run(task(nexar), {
+        workspace: ws(worktree),
+        gateway,
+        gatewayResourceId: 'other-resource',
+      });
+      expect(adapter.contexts[0]?.gateway).toBeUndefined();
+      expect(adapter.contexts[1]?.gateway).toBeUndefined();
+    });
+
+    it('passes it when gatewayResourceId names the routed resource', async () => {
+      const { nexar, adapter } = await setup();
+      await nexar.run(task(nexar), {
+        workspace: ws(worktree),
+        gateway,
+        gatewayResourceId: 'local-echo',
+      });
+      expect(adapter.contexts[0]?.gateway).toBe(gateway);
+    });
+
+    it('is refused without a workspace', async () => {
+      const { nexar, adapter } = await setup();
+      await expect(nexar.run(task(nexar), { gateway })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
+      expect(adapter.requests).toHaveLength(0);
+    });
+
+    it('never reaches telemetry', async () => {
+      const { nexar, sink } = await setup();
+      await nexar.run(task(nexar), { workspace: ws(worktree), gateway });
+      expect(JSON.stringify(sink.events)).not.toContain(SENTINEL);
+    });
   });
 });

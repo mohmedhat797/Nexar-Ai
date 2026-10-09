@@ -14,6 +14,9 @@
       "default": "./dist/index.js"
     }
   },
+  "scripts": {
+    "build": "node scripts/build-relay.mjs"
+  },
   "files": [
     "dist"
   ],
@@ -35,5 +38,8 @@
     "@nexar/sandbox": "workspace:*",
     "@nexar/telemetry": "workspace:*",
     "@nexar/workflows": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }

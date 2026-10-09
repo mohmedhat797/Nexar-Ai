@@ -1,0 +1,26 @@
+{
+  "name": "@nexar/integration-openai-account",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/fake-auth-server.d.ts",
+      "default": "./dist/fake-auth-server.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@nexar/contracts": "workspace:*",
+    "jose": "6.2.12",
+    "zod": "^4.6.5"
+  }
+}

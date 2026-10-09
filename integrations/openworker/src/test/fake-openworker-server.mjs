@@ -6,7 +6,7 @@ import { FakeOpenWorkerServer } from './fake-server.ts';
 
 const argv = process.argv.slice(2);
 if (argv[0] === 'version') {
-  process.stdout.write(`openworker ${process.env.FAKE_OW_VERSION ?? '0.3.0'}\n`);
+  process.stdout.write(`openworker ${process.env.FAKE_OW_VERSION ?? '0.3.1'}\n`);
   process.exit(0);
 }
 
@@ -28,6 +28,7 @@ const server = new FakeOpenWorkerServer({
   startDelayMs: Number(process.env.FAKE_OW_START_DELAY_MS ?? 0),
   neverReady: process.env.FAKE_OW_NEVER_READY === '1',
   failProviders: process.env.FAKE_OW_FAIL_PROVIDERS === '1',
+  refuseProviders: process.env.FAKE_OW_REFUSE_PROVIDERS === '1',
   onRecord: (entry) => record('records.jsonl', entry),
 });
 await server.listen();

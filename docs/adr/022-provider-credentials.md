@@ -130,3 +130,41 @@ discovered never means authenticated.
   status remains unknown and its login action is disabled; model metadata is not authentication.
   Default native CLI profiles remain separate from explicitly configured resources with other homes.
   See the [versioned research snapshot](../research/upstream/native-subscription-auth.md).
+
+## Amendment (2026-10-04): resource orchestration
+
+Connections are first-class ([ADR-027](027-resource-orchestration-architecture.md) §1–3): a provider may hold `subscription`, `api` and
+`local`/`custom` connections at once, each with an auth class (`vendor-native`, `official-api`,
+`official-account`, `experimental-client-compat`, `none`) and a support class (`official`,
+`experimental`).
+
+**Owner authentication policy (2026-10-04), superseding the stricter rule of §1.** Nexar prefers
+vendor-owned native authentication and official account mechanisms. Experimental client-compatible
+subscription authentication may also be supported when explicitly enabled by the owner, provided:
+
+- credentials are obtained by Nexar's **own** isolated login for that connection and stored in
+  Nexar's key store under it;
+- credentials are **never** harvested from another application (credential files, CLI token stores,
+  browser cookies, OS keyrings), and another application's auth store is never reused;
+- the connection is clearly labelled experimental, disabled by default and visible to routing as
+  such;
+- vendor support status, terms/account risk, token storage, refresh behaviour and backend
+  assumptions are documented per adapter before it ships (NXR-067).
+
+Routes a vendor's terms explicitly prohibit (Antigravity Additional Terms §6) are excluded unless a
+later owner ADR decides otherwise. "A subscription never powers pi-ai or DSH" now reads: never through
+extracted vendor tokens; a Nexar-owned experimental model adapter may serve as a control or work
+resource under this policy.
+
+## Amendment (2026-10-05): ChatGPT plan through official token sharing
+
+OpenAI documents "Sign in with ChatGPT" token sharing (`chatgpt.tokens.use.direct`) for open-source
+and local personal apps: a user access token that spends the owner's ChatGPT Plus/Pro plan on the
+public Responses API ([research](../research/upstream/chatgpt-sign-in-token-sharing.md)). Nexar
+supports it as an **`official-account`** connection (support `official`), not as experimental
+client-compat: Nexar's own PKCE sign-in (issued `client_id`, `agent_name_hint` "Nexar", a
+per-installation host id), tokens in the key store under the connection, refresh in main, the ID
+token validated against OpenAI's JWKS, plan use only when the granted scope includes
+`chatgpt.tokens.use.direct`. Desktop main still opens no listener: the loopback callback runs in a
+short-lived supervised child for one sign-in. The owner starts every sign-in; disconnecting deletes
+the tokens. The experimental Codex-client route for ChatGPT is not built.

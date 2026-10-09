@@ -49,3 +49,8 @@ Deterministic rules can be too coarse for mixed tasks; mitigated by explicit
 
 v0.4: quota/cost/latency awareness, historical success scoring from telemetry, reservation policy
 (e.g. keep premium subscription headroom for high-judgment tasks).
+
+## Amendment (2026-10-04): resource orchestration
+
+The NRC gains a plan-level **Resource Strategy Planner** (`strategy@1`) and runtime
+revalidation ([ADR-027](027-resource-orchestration-architecture.md) §10). It remains "who executes"; it never decomposes work.

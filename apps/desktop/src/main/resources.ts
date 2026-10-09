@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { ResourceDescriptor, ResourceSnapshot } from '@nexar/contracts';
+import {
+  connectionOf,
+  isControlCompatible,
+  type ResourceDescriptor,
+  type ResourceSnapshot,
+} from '@nexar/contracts';
 import { assessQuota } from '@nexar/resource-controller';
 import type { ResourceRow } from '../shared/api.js';
 import { CHANNELS } from '../shared/channels.js';
@@ -19,6 +24,7 @@ export function describeKind(kind: ResourceDescriptor['kind']): string {
 
 function toRow(snapshot: ResourceSnapshot, quota: ResourceRow['quota']): ResourceRow {
   const { descriptor, state } = snapshot;
+  const connection = connectionOf(descriptor);
   return {
     id: descriptor.id,
     displayName: descriptor.displayName,
@@ -31,6 +37,19 @@ function toRow(snapshot: ResourceSnapshot, quota: ResourceRow['quota']): Resourc
     costModel: descriptor.cost.model,
     capabilities: descriptor.capabilities,
     ...(state.detail === undefined ? {} : { detail: state.detail }),
+    ...(connection === undefined
+      ? {}
+      : {
+          connection: {
+            provider: connection.provider,
+            method: connection.method,
+            support: connection.support,
+          },
+        }),
+    control: {
+      openworker: isControlCompatible(descriptor, 'openworker'),
+      dsh: isControlCompatible(descriptor, 'dsh'),
+    },
   };
 }
 

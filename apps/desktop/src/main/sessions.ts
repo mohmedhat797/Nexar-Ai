@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
-import { NexarError, projectId, type ArtifactRef } from '@nexar/contracts';
+import { NexarError, coworkDelegationLimit, projectId, type ArtifactRef } from '@nexar/contracts';
 import type { OperatingService } from '@nexar/operating';
 import type { Project } from '@nexar/projects';
 import {
@@ -52,14 +52,28 @@ const TitleSchema = z
   .max(MAX_TITLE_CHARS)
   .refine((s) => !/[\p{Cc}\p{Cf}]/u.test(s), 'must not contain control characters');
 
-const SubmitSchema = z.strictObject({
-  sessionId: SessionIdSchema,
-  submissionKey: SubmissionKeySchema,
-  text: PromptSchema,
-  kind: TaskKindSchema.optional(),
-  preferredResourceIds: ResourceIdListSchema.optional(),
-  maxCostUsd: z.number().finite().nonnegative().max(10_000).optional(),
-});
+const SubmitSchema = z.preprocess(
+  (value, ctx) => {
+    if (value !== null && typeof value === 'object') {
+      try {
+        coworkDelegationLimit(value);
+      } catch {
+        ctx.addIssue({ code: 'custom', message: 'delegation-limit.invalid' });
+        return z.NEVER;
+      }
+    }
+    return value;
+  },
+  z.strictObject({
+    sessionId: SessionIdSchema,
+    submissionKey: SubmissionKeySchema,
+    text: PromptSchema,
+    kind: TaskKindSchema.optional(),
+    preferredResourceIds: ResourceIdListSchema.optional(),
+    maxCostUsd: z.number().finite().nonnegative().max(10_000).optional(),
+    maxDelegatedUnits: z.number().int().min(1).max(16).optional(),
+  }),
+);
 
 // --- guards -----------------------------------------------------------------------------------
 
@@ -149,6 +163,14 @@ function toEngineeringDto(e: TurnEngineering): TurnEngineeringDto {
           lanes: e.lanes.map((lane) => ({
             role: plainText(lane.role),
             resourceId: plainText(lane.resourceId),
+            ...(lane.executor === undefined ? {} : { executor: lane.executor }),
+            ...(lane.engine === undefined ? {} : { engine: lane.engine }),
+            ...(lane.executorReason === undefined
+              ? {}
+              : { executorReason: plainText(lane.executorReason) }),
+            ...(lane.controlResourceId === undefined
+              ? {}
+              : { controlResourceId: plainText(lane.controlResourceId) }),
           })),
         }),
     ...(e.branch === undefined ? {} : { branch: plainText(e.branch) }),
@@ -185,6 +207,15 @@ function toTurnDto(project: Project, turn: Turn): TurnDto {
       taskId: t.taskId,
       state: t.state,
       ...(t.resourceId === undefined ? {} : { resourceId: t.resourceId }),
+      ...(t.control === undefined
+        ? {}
+        : {
+            control: {
+              path: t.control.path,
+              ...(t.control.resourceId === undefined ? {} : { resourceId: t.control.resourceId }),
+              ...(t.control.restarts === undefined ? {} : { restarts: t.control.restarts }),
+            },
+          }),
     })),
     artifacts,
     ...(turn.outcome === undefined
@@ -250,6 +281,7 @@ async function submitTurn(
       ? {}
       : { preferredResourceIds: args.preferredResourceIds }),
     ...(args.maxCostUsd === undefined ? {} : { maxCostUsd: args.maxCostUsd }),
+    ...(args.maxDelegatedUnits === undefined ? {} : { maxDelegatedUnits: args.maxDelegatedUnits }),
   });
   return { turn: toTurnDto(project, result.turn), created: result.created, action: result.action };
 }

@@ -12,8 +12,16 @@ export type PiAiProviderEntry =
   | { readonly keystore: string; readonly apiKeyEnv?: undefined };
 export type PiAiProviders = Readonly<Record<string, PiAiProviderEntry>>;
 
+/** The route name, model id and credential variable of Nexar's control route (ADR-027 section 9b). */
+export const NEXAR_ROUTE = 'nexar';
+export const NEXAR_CONTROL_MODEL = 'nexar-control';
+export const NEXAR_CONTROL_TOKEN_ENV = 'NEXAR_CONTROL_TOKEN';
+const NEXAR_ROUTE_BASE_URL = /^http:\/\/127\.0\.0\.1:\d{1,5}\/v1$/;
+
 export interface PatchOverlayOptions {
   readonly piAiProviders?: PiAiProviders | undefined;
+  /** The in-sandbox Control Model Gateway; renders the pi-ai route `nexar`. */
+  readonly nexarRoute?: { readonly baseURL: string } | undefined;
 }
 
 /** Where a credential variable's value comes from. */
@@ -75,11 +83,35 @@ export function validatePiAiProviders(providers: PiAiProviders): void {
 export function renderPatchOverlay(options: PatchOverlayOptions = {}): string {
   const lines = ['- id: session-log-deepseek', '  disabled: true'];
   const providers = options.piAiProviders;
-  if (providers !== undefined && Object.keys(providers).length > 0) {
-    validatePiAiProviders(providers);
+  const route = options.nexarRoute;
+  const hasProviders = providers !== undefined && Object.keys(providers).length > 0;
+  if (hasProviders) validatePiAiProviders(providers);
+  if (route !== undefined && !NEXAR_ROUTE_BASE_URL.test(route.baseURL)) {
+    throw new NexarError(
+      'CONFIGURATION_ERROR',
+      `nexarRoute.baseURL must match ${String(NEXAR_ROUTE_BASE_URL)}`,
+    );
+  }
+  if (route !== undefined && providers !== undefined && NEXAR_ROUTE in providers) {
+    throw new NexarError(
+      'CONFIGURATION_ERROR',
+      `piAiProviders must not declare the reserved route ${NEXAR_ROUTE}`,
+    );
+  }
+  if (hasProviders || route !== undefined) {
     lines.push('- id: llm-pi-ai', '  config:', '    providers:');
-    for (const [name, entry] of Object.entries(providers)) {
+    for (const [name, entry] of Object.entries(providers ?? {})) {
       lines.push(`      "${name}":`, `        apiKeyEnv: "${piAiProviderVariable(entry).name}"`);
+    }
+    if (route !== undefined) {
+      lines.push(
+        `      "${NEXAR_ROUTE}":`,
+        '        api: "openai-completions"',
+        `        baseURL: "${route.baseURL}"`,
+        `        apiKeyEnv: "${NEXAR_CONTROL_TOKEN_ENV}"`,
+        '        models:',
+        `          - id: "${NEXAR_CONTROL_MODEL}"`,
+      );
     }
   }
   return `${lines.join('\n')}\n`;

@@ -14,10 +14,27 @@ import {
   type RoutingHistory,
   type RoutingInput,
   type RoutingPolicy,
+  type ResourceStrategy,
+  type StrategyLedger,
+  type StrategyPolicyStamp,
+  type WorkGraph,
+  type WorkUnit,
 } from '@nexar/contracts';
 import type { ResourceRegistry } from '@nexar/resource-registry';
 import { isFallbackRoutingPolicy } from './fallback.js';
 import { estimateTaskSize, laneRoleOf } from './size.js';
+import { allocateNext, planStrategy, type StrategySettings } from './strategy.js';
+
+/** Plans resources for a whole work graph (ADR-027 §10). */
+export interface ResourceStrategist {
+  planStrategy(graph: WorkGraph, settings?: StrategySettings): Promise<ResourceStrategy>;
+  /** Allocates one more unit against a running ledger (dynamic engines, ADR-027 section 7B). */
+  allocate(
+    ledger: StrategyLedger,
+    unit: WorkUnit,
+    settings?: StrategySettings,
+  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger }>;
+}
 
 /** Supplies quota observations per resource (ADR-020 §4); read outside the policy. */
 export interface QuotaSource {
@@ -49,7 +66,7 @@ export interface ResourceControllerOptions {
 type SelectedDecision = Extract<RouteDecision, { outcome: 'selected' }>;
 
 /** Composes registry + policy into explainable routing decisions. */
-export class ResourceController implements ResourceRouter {
+export class ResourceController implements ResourceRouter, ResourceStrategist {
   private readonly registry: ResourceRegistry;
   private readonly policy: RoutingPolicy;
   private readonly clock: () => Date;
@@ -68,20 +85,113 @@ export class ResourceController implements ResourceRouter {
     this.logger = options.logger;
   }
 
-  async route(task: NexarTask): Promise<RouteDecision> {
+  /** Plans a whole work graph with `strategy@1` from the same inputs `route()` reads. */
+  async planStrategy(graph: WorkGraph, settings?: StrategySettings): Promise<ResourceStrategy> {
     const now = this.clock();
+    const { candidates, history } = await this.gather(now);
+    const input = {
+      graph,
+      candidates,
+      now,
+      ...(history === undefined ? {} : { history }),
+      ...(settings === undefined ? {} : { settings }),
+    };
+    try {
+      return planStrategy({ ...input, policy: this.policy });
+    } catch (error) {
+      // Same rule as route(): fail closed unless the policy can rank its hard-filter stage.
+      if (!isFallbackRoutingPolicy(this.policy)) throw error;
+      const policy = this.policy;
+      const fallback = {
+        from: `${policy.name}@${policy.version}`,
+        reason: error instanceof NexarError ? error.code : 'INTERNAL_ERROR',
+      };
+      this.logger?.warn('routing policy failed; using deterministic fallback', { ...fallback });
+      const planned = planStrategy({
+        ...input,
+        policy: {
+          name: 'deterministic',
+          version: '1',
+          ...(policy.configId === undefined ? {} : { configId: policy.configId }),
+          evaluate: (i) => policy.evaluateFallback(i),
+        },
+      });
+      return {
+        ...planned,
+        policy: { ...planned.policy, base: { ...planned.policy.base, fallback } },
+      };
+    }
+  }
+
+  /** Allocates one unit against `ledger` with the same inputs and fallback rule as `route()`. */
+  async allocate(
+    ledger: StrategyLedger,
+    unit: WorkUnit,
+    settings?: StrategySettings,
+  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger }> {
+    const now = this.clock();
+    const { candidates, history } = await this.gather(now);
+    const input = {
+      ledger,
+      unit,
+      candidates,
+      now,
+      ...(history === undefined ? {} : { history }),
+      ...(settings === undefined ? {} : { settings }),
+    };
+    try {
+      return allocateNext({ ...input, policy: this.policy });
+    } catch (error) {
+      // Same rule as route(): fail closed unless the policy can rank its hard-filter stage.
+      if (!isFallbackRoutingPolicy(this.policy)) throw error;
+      const policy = this.policy;
+      const fallback = {
+        from: `${policy.name}@${policy.version}`,
+        reason: error instanceof NexarError ? error.code : 'INTERNAL_ERROR',
+      };
+      this.logger?.warn('routing policy failed; using deterministic fallback', { ...fallback });
+      const allocated = allocateNext({
+        ...input,
+        policy: {
+          name: 'deterministic',
+          version: '1',
+          ...(policy.configId === undefined ? {} : { configId: policy.configId }),
+          evaluate: (i) => policy.evaluateFallback(i),
+        },
+      });
+      const stamp = allocated.decision.policy as StrategyPolicyStamp;
+      const stamped: StrategyPolicyStamp = {
+        ...stamp,
+        fallback,
+        base: { ...stamp.base, fallback },
+      };
+      return { ...allocated, decision: { ...allocated.decision, policy: stamped } };
+    }
+  }
+
+  /** Refresh-or-snapshot, quotas and history: the inputs shared by `route()` and `planStrategy()`. */
+  private async gather(now: Date): Promise<{
+    candidates: readonly ResourceSnapshot[];
+    history: RoutingHistory | undefined;
+  }> {
     const probed = this.refreshBeforeRouting
       ? await this.registry.refresh()
       : this.registry.snapshot();
     const candidates = await this.withQuotas(probed, now);
+    // A failing history source means "no history" (neutral factors), never a failed route.
+    const history = await this.historySource?.read(now).catch(() => undefined);
+    return { candidates, history };
+  }
+
+  async route(task: NexarTask): Promise<RouteDecision> {
+    const now = this.clock();
+    const { candidates, history } = await this.gather(now);
     const laneRole = laneRoleOf(task);
     const facts: RoutingFacts = {
       now: now.toISOString(),
       size: estimateTaskSize(task),
       ...(laneRole === undefined ? {} : { laneRole }),
     };
-    // A failing history source means "no history" (neutral factors), never a failed route.
-    const history = await this.historySource?.read(now).catch(() => undefined);
     const input: RoutingInput = {
       task: { id: task.id, kind: task.kind, requirements: task.requirements },
       candidates,

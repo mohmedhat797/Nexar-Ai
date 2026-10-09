@@ -13,6 +13,10 @@ export type {
 } from './behavior.js';
 import type { SubscriptionRow } from './subscriptions.js';
 export type { SubscriptionRow } from './subscriptions.js';
+import type { ChatGptPlanStatus } from './chatgpt-plan.js';
+import type { InventoryRow, InventorySourceId } from './provider-inventory.js';
+export type { InventoryRow, InventorySourceId } from './provider-inventory.js';
+export type { ChatGptPlanStatus } from './chatgpt-plan.js';
 import type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 export type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 
@@ -77,6 +81,14 @@ export interface ResourceRow {
   readonly costModel: string;
   readonly capabilities: readonly string[];
   readonly detail?: string;
+  /** How the resource's provider is reached (ADR-027 section 3); absent when not inferable. */
+  readonly connection?: {
+    readonly provider?: string;
+    readonly method: 'subscription' | 'api' | 'local' | 'custom';
+    readonly support: 'official' | 'experimental';
+  };
+  /** Whether the resource can drive that engine's control loop (`model-turn`). */
+  readonly control: { readonly openworker: boolean; readonly dsh: boolean };
 }
 
 export type MeasuredNumber =
@@ -179,6 +191,17 @@ export interface ProjectPlaneDto {
   readonly planeProject?: string;
 }
 
+/** One resource of the engineering plane, read-only. Ids and enums only (ADR-027 section 11). */
+export interface PlaneResourceDto {
+  readonly id: string;
+  readonly provider?: string;
+  readonly method?: 'subscription' | 'api' | 'local' | 'custom';
+  readonly support?: 'official' | 'experimental';
+  readonly auth: 'authenticated' | 'unauthenticated' | 'not-required' | 'unknown';
+  readonly availability: 'available' | 'degraded' | 'unavailable' | 'unknown';
+  readonly control: { readonly openworker: boolean; readonly dsh: boolean };
+}
+
 /** The engineering plane's state. Ids and fixed texts only; never a path, distro or command. */
 export interface PlaneStatusDto {
   readonly state: PlaneStateDto;
@@ -187,6 +210,14 @@ export interface PlaneStatusDto {
   readonly kernel?: string;
   /** Plane project ids the owner can map Desktop projects to. */
   readonly projects: readonly string[];
+  /** The plane's resources; absent when the plane (older) does not report them. */
+  readonly planeResources?: readonly PlaneResourceDto[];
+  /** The plane's Code control-resource policy; absent when an older plane does not report it. */
+  readonly codeControl?: {
+    readonly mode: 'auto' | 'pinned';
+    readonly resourceId?: string;
+    readonly fallback: 'auto' | 'none';
+  };
   readonly checkedAt: string;
   /** Present when the call named a Desktop project. */
   readonly project?: ProjectPlaneDto;
@@ -301,6 +332,12 @@ export interface TurnDto {
     readonly taskId: string;
     readonly state: string;
     readonly resourceId?: string;
+    /** Cowork: how the control loop ran. Ids, an enum and a count only. */
+    readonly control?: {
+      readonly path: 'gateway' | 'direct-key';
+      readonly resourceId?: string;
+      readonly restarts?: number;
+    };
   }[];
   readonly artifacts: readonly ArtifactDto[];
   readonly outcome?: {
@@ -316,7 +353,14 @@ export interface TurnEngineeringDto {
   readonly planeTaskId: string;
   readonly status: 'committed' | 'reported' | 'not-accepted' | 'failed' | 'cancelled';
   /** Lane role to the resource id that served it (change and report runs). */
-  readonly lanes?: readonly { readonly role: string; readonly resourceId: string }[];
+  readonly lanes?: readonly {
+    readonly role: string;
+    readonly resourceId: string;
+    readonly executor?: 'engine' | 'native';
+    readonly engine?: 'openworker' | 'dsh';
+    readonly executorReason?: string;
+    readonly controlResourceId?: string;
+  }[];
   readonly branch?: string;
   readonly commit?: string;
   readonly files?: number;
@@ -338,6 +382,8 @@ export interface SubmitTurnArgs {
   readonly kind?: string;
   readonly preferredResourceIds?: readonly string[];
   readonly maxCostUsd?: number;
+  /** Trusted owner restriction, integer 1–16; omission preserves the Cowork default. */
+  readonly maxDelegatedUnits?: number;
 }
 
 export interface SubmitTurnResult {
@@ -370,6 +416,14 @@ export interface NexarApi {
   refreshSubscription(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
   startSubscriptionLogin(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
   cancelSubscriptionLogin(runtime: SubscriptionRuntimeId): Promise<BridgeResult<SubscriptionRow>>;
+  /** The ChatGPT plan connection (NXR-067): status only; no token, code or URL crosses the bridge. */
+  chatgptPlanStatus(): Promise<BridgeResult<ChatGptPlanStatus>>;
+  /** Owner-initiated; resolves when the browser sign-in finishes or is cancelled. */
+  connectChatgptPlan(): Promise<BridgeResult<ChatGptPlanStatus>>;
+  cancelChatgptPlan(): Promise<BridgeResult<ChatGptPlanStatus>>;
+  disconnectChatgptPlan(): Promise<BridgeResult<ChatGptPlanStatus>>;
+  listModelInventories(): Promise<BridgeResult<readonly InventoryRow[]>>;
+  refreshModelInventory(sourceId: InventorySourceId): Promise<BridgeResult<InventoryRow>>;
   saveProviderKeyFromClipboard(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   removeProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   checkProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;

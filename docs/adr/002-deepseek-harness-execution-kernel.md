@@ -72,3 +72,12 @@ DSH is unverified; approval fail-closed behavior in SDK mode is unverified.
 
 Live smoke test with `DEEPSEEK_API_KEY` (manual, documented); ACP adapter with cancel + approvals
 (v0.3); contract tests against DSH's `llm-mock-server`; version-upgrade playbook.
+
+## Amendment (2026-10-04): resource orchestration
+
+DSH is the **Code orchestration engine inside Nexar's engineering envelope**, not only a lane
+resource ([ADR-027](027-resource-orchestration-architecture.md) §9). Its control loop and its work units go through the plane's Engine Gateway
+(§7): the control resource is any plane resource with `model-turn` (owner-pinned or NRC Auto, §8), so
+`DEEPSEEK_API_KEY` is no longer a product prerequisite. DSH's own sub-agent providers are not Nexar
+routes (NXR-064). Without a compatible control resource, lanes run the NRC-selected native agent
+directly, recorded as `executor: native`.

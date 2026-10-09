@@ -22,3 +22,5 @@ export type { AgyEffort, AntigravitySettings } from './settings.js';
 export { antigravityCliDiscoverySource } from './discovery.js';
 export { createAntigravitySubscription } from './subscription.js';
 export type { AntigravitySubscriptionOptions } from './subscription.js';
+export { antigravityModelInventorySource } from './inventory.js';
+export type { AntigravityModelInventoryOptions } from './inventory.js';

@@ -63,3 +63,10 @@ embedded pi-ai.
 
 Live smoke test (opt-in, needs an API key or local Ollama); streaming events; tool calling; model
 catalog import into resource discovery (v0.4).
+
+## Amendment (2026-10-04): resource orchestration
+
+pi-ai remains the direct execution adapter for `api` and `local`/`custom` connections ([ADR-027](027-resource-orchestration-architecture.md)
+§4); its OAuth/subscription flows stay disabled. pi-ai resources carry `model-turn` and may serve as
+engine control resources through the Control Model Gateway (§6–7). pi-ai is not the whole provider
+gateway.

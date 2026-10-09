@@ -20,6 +20,9 @@
       "path": "../core"
     },
     {
+      "path": "../engine-gateway"
+    },
+    {
       "path": "../engineering"
     },
     {
@@ -39,6 +42,9 @@
     },
     {
       "path": "../../integrations/echo"
+    },
+    {
+      "path": "../../integrations/openai-compat"
     },
     {
       "path": "../../integrations/pi"

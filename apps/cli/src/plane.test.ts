@@ -4,7 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ApprovalGate, InMemoryApprovalStore, type OutwardAction } from '@nexar/approvals';
-import { isNexarError, type ProcessLauncher } from '@nexar/contracts';
+import {
+  adapterId,
+  isNexarError,
+  resourceId,
+  type ProcessLauncher,
+  type ResourceDescriptor,
+  type ResourceSnapshot,
+  type ResourceState,
+} from '@nexar/contracts';
 import type {
   EngineeringInput,
   EngineeringOutcome,
@@ -23,7 +31,7 @@ import {
   type PlaneFrame,
 } from '@nexar/plane-protocol';
 import type { SandboxAvailability, SelfTestResult } from '@nexar/sandbox';
-import type { CliSeams, EngineeringRunnerPort } from './args.js';
+import type { CliSeams, EngineeringRunnerPort, PlaneRegistry } from './args.js';
 import { runCli } from './cli.js';
 import type { CliIo } from './io.js';
 
@@ -174,13 +182,14 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  async function writeConfig(engineering: unknown = {}): Promise<void> {
+  async function writeConfig(engineering: unknown = {}, orchestration?: unknown): Promise<void> {
     await writeFile(
       join(dir, 'nexar.config.json'),
       JSON.stringify({
         version: 1,
         resources: [echo],
         routing: { policy: 'deterministic', defaultResourceId: 'local-echo' },
+        ...(orchestration === undefined ? {} : { orchestration }),
         engineering: {
           toolchainPaths: [],
           worktreesDir: join(dir, 'wt'),
@@ -469,6 +478,263 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
       });
       await handshake();
       expect(framesOf('ready')[0]?.readiness.plans).toContain('implement-review');
+    });
+  });
+
+  describe('readiness.resources', () => {
+    const descriptor = (
+      id: string,
+      kind: ResourceDescriptor['kind'],
+      capabilities: ResourceDescriptor['capabilities'],
+      auth: ResourceDescriptor['auth'] = { mode: 'none' },
+    ): ResourceDescriptor => ({
+      id: resourceId(id),
+      displayName: id,
+      kind,
+      capabilities,
+      runtime: { adapter: adapterId('a'), locality: 'local' },
+      auth,
+      cost: { model: 'unknown' },
+      dataLocality: 'local',
+    });
+    const state = (auth: ResourceState['auth'], availability: ResourceState['availability']) => ({
+      availability,
+      auth,
+      observedAt: '2026-01-01T00:00:00.000Z',
+    });
+    const snapshots: ResourceSnapshot[] = [
+      {
+        descriptor: descriptor(
+          'pi-deepseek',
+          { type: 'model', provider: 'deepseek', model: 'm', access: 'api' },
+          ['text-generation', 'model-turn'],
+        ),
+        state: state('unknown', 'unknown'),
+      },
+      {
+        descriptor: descriptor(
+          'claude-code',
+          { type: 'agent', agent: 'claude-code', interface: 'cli' },
+          ['coding'],
+        ),
+        state: state('authenticated', 'available'),
+      },
+      {
+        descriptor: descriptor('codex', { type: 'agent', agent: 'codex', interface: 'cli' }, [
+          'coding',
+        ]),
+        state: state('unauthenticated', 'unavailable'),
+      },
+    ];
+    const fakeRegistry = (list: readonly ResourceSnapshot[]) => ({
+      snapshot: () => list,
+      refresh: () => Promise.resolve(list),
+    });
+    const unknownOf = (list: readonly ResourceSnapshot[]): ResourceSnapshot[] =>
+      list.map((s) => ({ ...s, state: state('unknown', 'unknown') }));
+    const hangingRegistry = (list: readonly ResourceSnapshot[]) => ({
+      snapshot: () => unknownOf(list),
+      refresh: () => new Promise<readonly ResourceSnapshot[]>(() => undefined),
+    });
+    const withResources = (registry: () => PlaneRegistry, budget?: number) => ({
+      plane: {
+        ...planeSeams(),
+        registry,
+        ...(budget === undefined ? {} : { resourcesBudgetMs: budget }),
+      },
+    });
+
+    it('omits resources unless initialize asked for the feature', async () => {
+      start(
+        approvalRunner(),
+        withResources(() => fakeRegistry(snapshots)),
+      );
+      await handshake();
+      const [ready] = framesOf('ready');
+      expect(ready?.readiness).not.toHaveProperty('resources');
+      expect(out).not.toContain('"resources"');
+    });
+
+    it('lists the registry sorted by id with connection and control compatibility', async () => {
+      start(
+        approvalRunner(),
+        withResources(() => fakeRegistry(snapshots)),
+      );
+      input.frame({ ...initialize, features: ['resources'] });
+      await waitFor(() => out.includes('"type":"ready"'), 'ready');
+      const [ready] = framesOf('ready');
+      expect(ready?.readiness.resources).toEqual([
+        {
+          id: 'claude-code',
+          connection: {
+            id: 'anthropic.subscription',
+            provider: 'anthropic',
+            method: 'subscription',
+            authClass: 'vendor-native',
+            support: 'official',
+          },
+          auth: 'authenticated',
+          availability: 'available',
+          control: { openworker: false, dsh: false },
+        },
+        {
+          id: 'codex',
+          connection: {
+            id: 'openai.subscription',
+            provider: 'openai',
+            method: 'subscription',
+            authClass: 'vendor-native',
+            support: 'official',
+          },
+          auth: 'unauthenticated',
+          availability: 'unavailable',
+          control: { openworker: false, dsh: false },
+        },
+        {
+          id: 'pi-deepseek',
+          connection: {
+            id: 'deepseek.api',
+            provider: 'deepseek',
+            method: 'api',
+            authClass: 'official-api',
+            support: 'official',
+          },
+          auth: 'unknown',
+          availability: 'unknown',
+          control: { openworker: true, dsh: true },
+        },
+      ]);
+    });
+
+    it('reports the Code control policy with the resources feature only', async () => {
+      start(
+        approvalRunner(),
+        withResources(() => fakeRegistry(snapshots)),
+      );
+      input.frame({ ...initialize, features: ['resources'] });
+      await waitFor(() => out.includes('"type":"ready"'), 'ready');
+      expect(framesOf('ready')[0]?.readiness.control).toEqual({
+        code: { mode: 'auto', fallback: 'auto' },
+      });
+    });
+
+    it('reports the configured Code control policy', async () => {
+      await writeConfig(
+        {},
+        {
+          code: {
+            controlResource: { mode: 'pinned', resourceId: 'pi-deepseek', fallback: 'none' },
+          },
+        },
+      );
+      start(
+        approvalRunner(),
+        withResources(() => fakeRegistry(snapshots)),
+      );
+      input.frame({ ...initialize, features: ['resources'] });
+      await waitFor(() => out.includes('"type":"ready"'), 'ready');
+      expect(framesOf('ready')[0]?.readiness.control).toEqual({
+        code: { mode: 'pinned', resourceId: 'pi-deepseek', fallback: 'none' },
+      });
+    });
+
+    it('omits the control policy for a Desktop that did not ask for the feature', async () => {
+      start(
+        approvalRunner(),
+        withResources(() => fakeRegistry(snapshots)),
+      );
+      await handshake();
+      expect(framesOf('ready')[0]?.readiness).not.toHaveProperty('control');
+    });
+
+    describe('lane executor facts', () => {
+      const facts = {
+        status: 'committed',
+        lanes: [
+          {
+            role: 'implementation',
+            resourceId: 'dsh:deepseek',
+            executor: 'engine',
+            engine: 'dsh',
+            controlResourceId: 'pi-deepseek',
+          },
+          {
+            role: 'review',
+            resourceId: 'claude-code',
+            executor: 'native',
+            executorReason: 'engine-not-selected',
+          },
+        ],
+      } as const;
+
+      it('are sent to a Desktop that asked for the feature', async () => {
+        start(scriptedRunner(facts));
+        input.frame({ ...initialize, features: ['resources'] });
+        await waitFor(() => out.includes('"type":"ready"'), 'ready');
+        input.frame(runFrame());
+        await waitFor(() => framesOf('completed').length === 1, 'completed');
+        expect(framesOf('completed')[0]?.outcome.lanes).toEqual(facts.lanes);
+      });
+
+      it('are left out for an older Desktop, which keeps only role and resource', async () => {
+        start(scriptedRunner(facts));
+        await handshake();
+        input.frame(runFrame());
+        await waitFor(() => framesOf('completed').length === 1, 'completed');
+        expect(framesOf('completed')[0]?.outcome.lanes).toEqual([
+          { role: 'implementation', resourceId: 'dsh:deepseek' },
+          { role: 'review', resourceId: 'claude-code' },
+        ]);
+      });
+    });
+
+    it('caps the list at 64 resources', async () => {
+      const many = Array.from({ length: 70 }, (_, i) => ({
+        ...snapshots[0]!,
+        descriptor: {
+          ...snapshots[0]!.descriptor,
+          id: resourceId(`r${String(i).padStart(2, '0')}`),
+        },
+      }));
+      start(
+        approvalRunner(),
+        withResources(() => fakeRegistry(many)),
+      );
+      input.frame({ ...initialize, features: ['resources'] });
+      await waitFor(() => out.includes('"type":"ready"'), 'ready');
+      expect(framesOf('ready')[0]?.readiness.resources).toHaveLength(64);
+    });
+
+    it('omits the field when the listing fails, and still becomes ready', async () => {
+      start(
+        approvalRunner(),
+        withResources(() => {
+          throw new Error('boom /secret/path');
+        }),
+      );
+      input.frame({ ...initialize, features: ['resources'] });
+      await waitFor(() => out.includes('"type":"ready"'), 'ready');
+      expect(framesOf('ready')[0]?.readiness).not.toHaveProperty('resources');
+      expect(out).not.toContain('/secret/path');
+    });
+
+    it('stays within the handshake budget when probing hangs', async () => {
+      start(
+        approvalRunner(),
+        withResources(() => hangingRegistry(snapshots), 100),
+      );
+      const began = Date.now();
+      input.frame({ ...initialize, features: ['resources'] });
+      await waitFor(() => out.includes('"type":"ready"'), 'ready');
+      expect(Date.now() - began).toBeLessThan(2_000);
+      // Nothing was probed in time: the registry's own (unknown) states are reported.
+      expect(
+        framesOf('ready')[0]?.readiness.resources?.map((r) => [r.id, r.auth, r.availability]),
+      ).toEqual([
+        ['claude-code', 'unknown', 'unknown'],
+        ['codex', 'unknown', 'unknown'],
+        ['pi-deepseek', 'unknown', 'unknown'],
+      ]);
     });
   });
 

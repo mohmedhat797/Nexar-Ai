@@ -59,6 +59,12 @@
       "path": "./integrations/pi"
     },
     {
+      "path": "./integrations/openai-compat"
+    },
+    {
+      "path": "./integrations/openai-account"
+    },
+    {
       "path": "./packages/host"
     },
     {
@@ -87,6 +93,9 @@
     },
     {
       "path": "./packages/workflows"
+    },
+    {
+      "path": "./packages/engine-gateway"
     }
   ]
 }

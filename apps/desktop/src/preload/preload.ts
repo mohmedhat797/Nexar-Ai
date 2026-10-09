@@ -10,6 +10,12 @@ import {
   PROVIDER_ERROR_MESSAGE,
 } from '../shared/providers.js';
 import type { BridgeResult } from '../shared/api.js';
+import { ChatGptPlanStatusSchema } from '../shared/chatgpt-plan.js';
+import {
+  InventoryArgsSchema,
+  InventoryListSchema,
+  InventoryRowSchema,
+} from '../shared/provider-inventory.js';
 import {
   EndpointListSchema,
   EndpointSaveSchema,
@@ -53,6 +59,7 @@ async function invokeProvider<S extends z.ZodType>(
             'CONFIGURATION_ERROR',
             'POLICY_REJECTED',
             'CONFLICT',
+            'PROVIDER_ERROR',
             'INTERNAL_ERROR',
           ]),
           message: z.enum([
@@ -69,6 +76,13 @@ async function invokeProvider<S extends z.ZodType>(
     const requested = SubscriptionArgsSchema.parse(args);
     const row = SubscriptionRowSchema.safeParse(safe.value);
     if (!row.success || row.data.runtime !== requested.runtime) {
+      return { ok: false, error: { code: 'INTERNAL_ERROR', message: PROVIDER_ERROR_MESSAGE } };
+    }
+  }
+  if (safe?.ok && argsSchema === InventoryArgsSchema) {
+    const requested = InventoryArgsSchema.parse(args);
+    const row = InventoryRowSchema.safeParse(safe.value);
+    if (!row.success || row.data.sourceId !== requested.sourceId) {
       return { ok: false, error: { code: 'INTERNAL_ERROR', message: PROVIDER_ERROR_MESSAGE } };
     }
   }
@@ -91,6 +105,23 @@ const api: NexarApi = {
   setBehavior: (args) => invoke(CHANNELS.behaviorSet, args),
   listProviders: () =>
     invokeProvider(CHANNELS.providersList, {}, ProviderListSchema, z.strictObject({})),
+  chatgptPlanStatus: () =>
+    invokeProvider(CHANNELS.chatgptPlanStatus, {}, ChatGptPlanStatusSchema, z.strictObject({})),
+  connectChatgptPlan: () =>
+    invokeProvider(CHANNELS.chatgptPlanConnect, {}, ChatGptPlanStatusSchema, z.strictObject({})),
+  cancelChatgptPlan: () =>
+    invokeProvider(CHANNELS.chatgptPlanCancel, {}, ChatGptPlanStatusSchema, z.strictObject({})),
+  disconnectChatgptPlan: () =>
+    invokeProvider(CHANNELS.chatgptPlanDisconnect, {}, ChatGptPlanStatusSchema, z.strictObject({})),
+  listModelInventories: () =>
+    invokeProvider(CHANNELS.inventoryList, {}, InventoryListSchema, z.strictObject({})),
+  refreshModelInventory: (sourceId) =>
+    invokeProvider(
+      CHANNELS.inventoryRefresh,
+      { sourceId },
+      InventoryRowSchema,
+      InventoryArgsSchema,
+    ),
   listSubscriptions: () =>
     invokeProvider(CHANNELS.subscriptionsList, {}, SubscriptionListSchema, z.strictObject({})),
   refreshSubscription: (runtime) =>

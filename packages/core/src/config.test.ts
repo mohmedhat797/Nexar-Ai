@@ -149,6 +149,27 @@ describe('parseConfig', () => {
     });
   });
 
+  describe('connection credentials', () => {
+    const withCredential = (credential: unknown) => ({
+      ...apiResource,
+      auth: { mode: 'subscription', credential },
+    });
+    const parse = (credential: unknown) =>
+      parseConfig(config({ resources: [withCredential(credential)] }), 'test');
+
+    it('accepts only the ChatGPT plan connection', () => {
+      expect(parse({ source: 'connection', name: 'chatgpt-plan' }).resources).toHaveLength(1);
+    });
+
+    it.each([
+      ['another connection name', { source: 'connection', name: 'other' }],
+      ['an uppercase name', { source: 'connection', name: 'CHATGPT_PLAN' }],
+      ['extra keys', { source: 'connection', name: 'chatgpt-plan', value: 'x' }],
+      ['a missing name', { source: 'connection' }],
+    ])('rejects %s', (_label, credential) => {
+      expect(() => parse(credential)).toThrow(NexarError);
+    });
+  });
   it('rejects dangling references and duplicates', () => {
     const dangling = config({ routing: { policy: 'deterministic', defaultResourceId: 'nope' } });
     expect(message(() => parseConfig(dangling, 'test'))).toContain('nope');

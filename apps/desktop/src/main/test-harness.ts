@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { defaultConfig } from '@nexar/core';
 import { FileSessionStore } from '@nexar/sessions';
 import type { BridgeResult, SessionEvent, TaskEvent } from '../shared/api.js';
 import { createBridge, type Bridge } from './bridge.js';
@@ -40,6 +41,11 @@ export async function createHarness(overrides: Partial<BridgeDeps> = {}): Promis
 
   const config = new ConfigStore(join(userData, 'nexar.config.json'));
   await config.ensure();
+  // The first-run config configures nothing; tests that route need the echo test double explicitly.
+  await config.update((raw) => {
+    raw.resources = JSON.parse(JSON.stringify(defaultConfig().resources)) as unknown;
+    raw.routing = { policy: 'resource-intelligence', defaultResourceId: 'local-echo' };
+  });
   const logger = createStderrLogger('error', {}, () => undefined);
   // An empty environment: discovery finds no CLIs, so the registry holds only configured resources.
   const engine = await createEngineHost({ configPath: config.path, env: {}, logger });

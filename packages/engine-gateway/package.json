@@ -1,0 +1,27 @@
+{
+  "name": "@nexar/engine-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/control-test-kit.d.ts",
+      "default": "./dist/control-test-kit.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@nexar/contracts": "workspace:*",
+    "@nexar/operating": "workspace:*",
+    "@nexar/resource-controller": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

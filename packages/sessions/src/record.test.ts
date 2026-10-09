@@ -119,6 +119,47 @@ describe('session records', () => {
     }
   });
 
+  it('round-trips lane executor facts and a task control path, and rejects anything else', () => {
+    const lane = {
+      role: 'implementation',
+      resourceId: 'dsh:deepseek',
+      executor: 'engine',
+      engine: 'dsh',
+      executorReason: 'engine-not-selected',
+      controlResourceId: 'pi:deepseek-chat',
+    };
+    const engineering = { planeTaskId: 'task_1', status: 'reported', lanes: [lane] };
+    const stored = edit((r) => {
+      turnOf(r)['outcome'] = { text: 'x', engineering };
+    });
+    expect(parseSession(stored).turns[0]?.outcome?.engineering).toEqual(engineering);
+    for (const bad of [{ executor: 'other' }, { engine: 'codex' }, { token: 't' }]) {
+      expectCorrupt(
+        edit((r) => {
+          turnOf(r)['outcome'] = { engineering: { ...engineering, lanes: [{ ...lane, ...bad }] } };
+        }),
+      );
+    }
+
+    const task = { taskId: 'task_1', state: 'succeeded' };
+    const control = { path: 'gateway', resourceId: 'ctl-model', restarts: 1 };
+    const withControl = edit((r) => {
+      turnOf(r)['tasks'] = [{ ...task, control }];
+    });
+    expect(parseSession(withControl).turns[0]?.tasks[0]?.control).toEqual(control);
+    for (const bad of [
+      { path: 'other' },
+      { path: 'gateway', restarts: -1 },
+      { path: 'gateway', token: 't' },
+    ]) {
+      expectCorrupt(
+        edit((r) => {
+          turnOf(r)['tasks'] = [{ ...task, control: bad }];
+        }),
+      );
+    }
+  });
+
   it('binds the record to the expected id', () => {
     expectCorrupt(serializeSession(valid()), `ses_${'b'.repeat(32)}`);
   });

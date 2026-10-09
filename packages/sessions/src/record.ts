@@ -87,6 +87,23 @@ const taskSchema = z.strictObject({
   resourceId: label(128).optional(),
   policyId: label(128).optional(),
   fallback: z.boolean().optional(),
+  delegations: z
+    .array(
+      z.strictObject({
+        unitId: label(64),
+        resourceId: label(128).optional(),
+        outcome: label(32),
+      }),
+    )
+    .max(32)
+    .optional(),
+  control: z
+    .strictObject({
+      path: z.enum(['gateway', 'direct-key']),
+      resourceId: label(128).optional(),
+      restarts: z.number().int().min(0).max(8).optional(),
+    })
+    .optional(),
 });
 
 const artifactSchema = z.strictObject({
@@ -117,7 +134,16 @@ const engineeringSchema = z.strictObject({
   planeTaskId: z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/),
   status: z.enum(['committed', 'reported', 'not-accepted', 'failed', 'cancelled']),
   lanes: z
-    .array(z.strictObject({ role: label(64), resourceId: label(128) }))
+    .array(
+      z.strictObject({
+        role: label(64),
+        resourceId: label(128),
+        executor: z.enum(['engine', 'native']).optional(),
+        engine: z.enum(['openworker', 'dsh']).optional(),
+        executorReason: label(64).optional(),
+        controlResourceId: label(128).optional(),
+      }),
+    )
     .max(MAX_ENGINEERING_LANES)
     .optional(),
   branch: label(200).optional(),

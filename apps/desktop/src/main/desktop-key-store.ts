@@ -24,10 +24,23 @@ export const credentialNames = [
   'XAI_API_KEY',
 ] as const;
 
+/**
+ * Structured secrets (a token record, base64url-encoded by its owner) live under their own names:
+ * they are never readable through 
+esolveSecret, so config cannot hand one to an adapter as a key.
+ */
+export const blobNames = ['chatgpt-plan'] as const;
+
 type CredentialName = (typeof credentialNames)[number];
+type BlobName = (typeof blobNames)[number];
+type EntryName = CredentialName | BlobName;
 const NAMES: ReadonlySet<string> = new Set(credentialNames);
+const BLOB_NAMES: ReadonlySet<string> = new Set(blobNames);
 const KEY = /^[A-Za-z0-9_.:-]{16,4096}$/;
 const LAST_FOUR = /^[A-Za-z0-9_.:-]{4}$/;
+const BLOB = /^[A-Za-z0-9_-]{16,24576}$/;
+/** Blobs record no part of their content as a hint. */
+const BLOB_TAG = '----';
 const LINUX_BACKENDS: ReadonlySet<string> = new Set([
   'gnome_libsecret',
   'kwallet',
@@ -35,7 +48,7 @@ const LINUX_BACKENDS: ReadonlySet<string> = new Set([
   'kwallet6',
 ]);
 const MAX_FILE_BYTES = 256 * 1024;
-const MAX_CIPHER_BYTES = 16 * 1024;
+const MAX_CIPHER_BYTES = 32 * 1024;
 const queues = new Map<string, Promise<void>>();
 
 export interface DesktopEncryption {
@@ -58,7 +71,7 @@ interface Entry {
 
 interface Document {
   readonly version: 1;
-  readonly entries: Partial<Record<CredentialName, Entry>>;
+  readonly entries: Partial<Record<EntryName, Entry>>;
 }
 
 interface DirectoryIdentity {
@@ -83,6 +96,11 @@ function unavailable(): NexarError {
 function nameOf(name: string): CredentialName {
   if (!NAMES.has(name)) throw invalid();
   return name as CredentialName;
+}
+
+function blobNameOf(name: string): BlobName {
+  if (!BLOB_NAMES.has(name)) throw invalid();
+  return name as BlobName;
 }
 
 function errno(error: unknown): string | undefined {
@@ -134,7 +152,7 @@ function parseDocument(text: string): Document {
   const entries: Document['entries'] = {};
   for (const [name, entry] of Object.entries(value['entries'])) {
     if (
-      !NAMES.has(name) ||
+      !(NAMES.has(name) || BLOB_NAMES.has(name)) ||
       !object(entry) ||
       !exactKeys(entry, ['ciphertext', 'lastFour']) ||
       typeof entry['lastFour'] !== 'string' ||
@@ -143,7 +161,7 @@ function parseDocument(text: string): Document {
       throw unavailable();
     }
     decodeCipher(entry['ciphertext']);
-    entries[name as CredentialName] = {
+    entries[name as EntryName] = {
       ciphertext: entry['ciphertext'] as string,
       lastFour: entry['lastFour'],
     };
@@ -211,10 +229,44 @@ export class DesktopKeyStore {
   async save(requestedName: string, key: string): Promise<void> {
     const name = nameOf(requestedName);
     if (typeof key !== 'string' || !KEY.test(key)) throw invalid();
+    await this.put(name, key, key.slice(-4));
+  }
+
+  async remove(requestedName: string): Promise<void> {
+    await this.delete(nameOf(requestedName));
+  }
+
+  /** Stores a structured secret (base64url text) atomically, replacing any previous value. */
+  async saveBlob(requestedName: string, value: string): Promise<void> {
+    const name = blobNameOf(requestedName);
+    if (typeof value !== 'string' || !BLOB.test(value)) throw invalid();
+    await this.put(name, value, BLOB_TAG);
+  }
+
+  /** Decrypts on demand; `undefined` when nothing is stored. Never cached. */
+  readBlob(requestedName: string): string | undefined {
+    const name = blobNameOf(requestedName);
+    try {
+      const entry = this.load().document.entries[name];
+      if (entry === undefined) return undefined;
+      if (!this.availability()) throw unavailable();
+      const value = this.encryption.decryptString(decodeCipher(entry.ciphertext));
+      if (typeof value !== 'string' || !BLOB.test(value)) throw unavailable();
+      return value;
+    } catch {
+      throw unavailable();
+    }
+  }
+
+  async removeBlob(requestedName: string): Promise<void> {
+    await this.delete(blobNameOf(requestedName));
+  }
+
+  private async put(name: EntryName, secret: string, lastFour: string): Promise<void> {
     let entry: Entry;
     try {
       if (!this.availability()) throw unavailable();
-      const encrypted = this.encryption.encryptString(key);
+      const encrypted = this.encryption.encryptString(secret);
       if (
         !Buffer.isBuffer(encrypted) ||
         encrypted.length === 0 ||
@@ -222,7 +274,7 @@ export class DesktopKeyStore {
       ) {
         throw unavailable();
       }
-      entry = { ciphertext: encrypted.toString('base64'), lastFour: key.slice(-4) };
+      entry = { ciphertext: encrypted.toString('base64'), lastFour };
     } catch {
       throw unavailable();
     }
@@ -233,8 +285,7 @@ export class DesktopKeyStore {
     });
   }
 
-  async remove(requestedName: string): Promise<void> {
-    const name = nameOf(requestedName);
+  private async delete(name: EntryName): Promise<void> {
     await this.serialized(async () => {
       const loaded = this.load();
       if (loaded.document.entries[name] === undefined) return;

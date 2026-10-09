@@ -15,3 +15,4 @@ export type { CodexSettings, ReasoningEffort } from './settings.js';
 export { codexCliDiscoverySource } from './discovery.js';
 export { createCodexSubscription } from './subscription.js';
 export type { CodexSubscriptionOptions } from './subscription.js';
+export { codexDefaultInventorySource } from './inventory.js';

@@ -25,12 +25,45 @@ export interface BehaviorSettings {
   };
 }
 
+/** The owner's choice of which resource drives an engine's control loop (ADR-027 section 8). */
+export interface ControlPolicyView {
+  readonly mode: 'auto' | 'pinned';
+  readonly resourceId?: string | undefined;
+  readonly fallback: 'auto' | 'none';
+}
+
+/** A resource that can drive the control loop: ids, enums and the display name only. */
+export interface ControlCandidate {
+  readonly id: string;
+  readonly label: string;
+  readonly provider?: string | undefined;
+  readonly method?: 'subscription' | 'api' | 'local' | 'custom' | undefined;
+  readonly support?: 'official' | 'experimental' | undefined;
+}
+
+export interface ControlView {
+  readonly policy: ControlPolicyView;
+  /** False when the policy cannot be changed from Desktop; `reason` then says why (fixed text). */
+  readonly editable: boolean;
+  readonly candidates: readonly ControlCandidate[];
+  /** What the gateway would pick now (a preview, never a paid call). */
+  readonly effectiveResourceId?: string | undefined;
+  readonly reason?: string | undefined;
+}
+
+export const DEFAULT_CONTROL_POLICY_VIEW: ControlPolicyView = { mode: 'auto', fallback: 'auto' };
+export const CODE_CONTROL_READ_ONLY_REASON =
+  "Set orchestration.code.controlResource in the engineering plane's config";
+export const COWORK_CONTROL_INVALID_REASON = 'The Cowork orchestration settings are not valid';
+
 /** A patch: any subset; `null` clears a preferred resource (Nexar decides again). */
 export interface BehaviorPatch {
   readonly cowork?:
     | {
         readonly permission?: CoworkPermissionId | undefined;
         readonly preferredResourceId?: string | null | undefined;
+        /** `auto` drops the resource id; `pinned` needs a currently compatible one. */
+        readonly controlResource?: ControlPolicyView | undefined;
       }
     | undefined;
   readonly code?:
@@ -54,6 +87,7 @@ export interface BehaviorView {
   readonly lockedRules: readonly string[];
   readonly unsupported: readonly UnsupportedOption[];
   readonly reasoningEffort: string;
+  readonly control: { readonly cowork: ControlView; readonly code: ControlView };
 }
 
 export const LOCKED_RULES: readonly string[] = [

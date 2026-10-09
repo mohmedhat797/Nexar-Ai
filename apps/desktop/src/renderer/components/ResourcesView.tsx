@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { Fragment, useState, type ReactElement } from 'react';
 import type { ResourceRow } from '../../shared/api.js';
 import { describeQuota } from '../../shared/quota.js';
 import { COST_LABEL } from './RoutingCard.js';
@@ -24,6 +24,55 @@ const AUTH_LABEL: Readonly<Record<string, string>> = {
   unknown: 'Unknown',
 };
 
+/** `anthropic · subscription · official`; `unknown` when the connection is not inferable. */
+export function connectionText(connection: ResourceRow['connection']): string {
+  if (connection === undefined) return 'unknown';
+  return [connection.provider ?? 'unknown provider', connection.method, connection.support].join(
+    ' · ',
+  );
+}
+
+/** Which engines can run the resource as their control loop. */
+export function controlText(control: ResourceRow['control']): string {
+  const engines = [
+    ...(control.openworker ? ['OpenWorker'] : []),
+    ...(control.dsh ? ['DeepSeek Harness'] : []),
+  ];
+  return engines.length === 0 ? 'none' : engines.join(', ');
+}
+
+function ResourceDetails({ r }: { r: ResourceRow }): ReactElement {
+  return (
+    <dl className="facts" data-testid="resource-details">
+      <dt>Id</dt>
+      <dd className="mono">{r.id}</dd>
+      <dt>Connection</dt>
+      <dd data-testid="resource-connection">{connectionText(r.connection)}</dd>
+      <dt>Adapter</dt>
+      <dd>{r.adapter}</dd>
+      <dt>Capabilities</dt>
+      <dd data-testid="resource-capabilities">
+        {r.capabilities.length === 0 && 'none'}
+        {r.capabilities.map((c) => (
+          <span key={c} className={`chip${c === 'model-turn' ? ' chip-ok' : ''}`}>
+            {c}
+          </span>
+        ))}
+      </dd>
+      <dt>Auth</dt>
+      <dd>{AUTH_LABEL[r.auth] ?? r.auth}</dd>
+      <dt>Quota</dt>
+      <dd>{describeQuota(r.quota)}</dd>
+      <dt>Cost model</dt>
+      <dd>{COST_MODEL_LABEL[r.costModel] ?? r.costModel}</dd>
+      <dt>Availability</dt>
+      <dd>{r.detail === undefined ? r.availability : `${r.availability} · ${r.detail}`}</dd>
+      <dt>Control</dt>
+      <dd data-testid="resource-control">{controlText(r.control)}</dd>
+    </dl>
+  );
+}
+
 export function ResourcesView({
   resources,
   loading,
@@ -35,6 +84,7 @@ export function ResourcesView({
   error: string | null;
   onRefresh: () => void;
 }): ReactElement {
+  const [details, setDetails] = useState(false);
   return (
     <section className="page" aria-label="AI resources">
       <header className="page-header">
@@ -45,9 +95,20 @@ export function ResourcesView({
             never treated as unlimited.
           </p>
         </div>
-        <button type="button" className="btn" onClick={onRefresh} disabled={loading}>
-          {loading ? 'Checking…' : 'Refresh'}
-        </button>
+        <div className="row">
+          <button
+            type="button"
+            className="btn"
+            aria-pressed={details}
+            data-testid="resources-details-toggle"
+            onClick={() => setDetails(!details)}
+          >
+            {details ? 'Hide details' : 'Show details'}
+          </button>
+          <button type="button" className="btn" onClick={onRefresh} disabled={loading}>
+            {loading ? 'Checking…' : 'Refresh'}
+          </button>
+        </div>
       </header>
       {error !== null && (
         <div className="notice notice-bad" role="alert">
@@ -67,23 +128,32 @@ export function ResourcesView({
         </thead>
         <tbody>
           {resources.map((r) => (
-            <tr key={r.id} data-testid="resource-row">
-              <td>
-                <div className="strong">{r.displayName}</div>
-                <div className="muted small mono">
-                  {r.id} · {r.kind}
-                </div>
-              </td>
-              <td>
-                <span className={`chip ${statusTone(r.availability)}`} title={r.detail}>
-                  {r.availability}
-                </span>
-              </td>
-              <td>{AUTH_LABEL[r.auth] ?? r.auth}</td>
-              <td>{describeQuota(r.quota)}</td>
-              <td>{COST_MODEL_LABEL[r.costModel] ?? r.costModel}</td>
-              <td>{r.provenance}</td>
-            </tr>
+            <Fragment key={r.id}>
+              <tr data-testid="resource-row">
+                <td>
+                  <div className="strong">{r.displayName}</div>
+                  <div className="muted small mono">
+                    {r.id} · {r.kind}
+                  </div>
+                </td>
+                <td>
+                  <span className={`chip ${statusTone(r.availability)}`} title={r.detail}>
+                    {r.availability}
+                  </span>
+                </td>
+                <td>{AUTH_LABEL[r.auth] ?? r.auth}</td>
+                <td>{describeQuota(r.quota)}</td>
+                <td>{COST_MODEL_LABEL[r.costModel] ?? r.costModel}</td>
+                <td>{r.provenance}</td>
+              </tr>
+              {details && (
+                <tr data-testid="resource-details-row">
+                  <td colSpan={6}>
+                    <ResourceDetails r={r} />
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
         </tbody>
       </table>

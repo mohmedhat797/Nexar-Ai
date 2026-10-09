@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type {
   DesktopSettings,
   ProjectDto,
@@ -51,6 +51,8 @@ export function App(): ReactElement {
   const [resources, setResources] = useState<readonly ResourceRow[]>([]);
   const [resourcesLoading, setResourcesLoading] = useState(false);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
+  const resourceRequest = useRef(0);
+  const refreshingResources = useRef(false);
   const [pending, setPending] = useState(0);
   const [banner, setBanner] = useState<string | null>(null);
   const { turns, start, cancel } = useTurns();
@@ -89,22 +91,43 @@ export function App(): ReactElement {
     applyDensity(settings.density);
   }, [settings.theme, settings.density]);
 
-  const loadResources = useCallback((refresh: boolean) => {
+  const loadResources = useCallback(async (refresh: boolean): Promise<void> => {
+    // Passive reads must not supersede an owner's in-flight probe refresh.
+    if (refreshingResources.current) return;
+    if (refresh) refreshingResources.current = true;
+    const mine = ++resourceRequest.current;
     setResourcesLoading(true);
-    call(nexar.listResources({ refresh })).then(
-      (rows) => {
+    try {
+      const rows = await call(nexar.listResources({ refresh }));
+      if (mine === resourceRequest.current) {
         setResources(rows);
         setResourcesError(null);
-        setResourcesLoading(false);
-      },
-      (error: unknown) => {
+      }
+    } catch (error) {
+      if (mine === resourceRequest.current) {
         setResourcesError(errorText(error));
-        setResourcesLoading(false);
-      },
-    );
+      }
+    } finally {
+      if (refresh) refreshingResources.current = false;
+      if (mine === resourceRequest.current) setResourcesLoading(false);
+    }
   }, []);
 
-  useEffect(() => loadResources(false), [loadResources]);
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Cached registry reads track completed inventory refreshes; no vendor inventory is fetched.
+    const read = async (): Promise<void> => {
+      await loadResources(false);
+      if (live) timer = setTimeout(() => void read(), 15_000);
+    };
+    void read();
+    return () => {
+      live = false;
+      resourceRequest.current += 1;
+      clearTimeout(timer);
+    };
+  }, [loadResources]);
 
   const loadPending = useCallback(() => {
     call(nexar.listApprovals({}))
@@ -160,7 +183,7 @@ export function App(): ReactElement {
 
   const goView = (next: View): void => {
     setView(next);
-    if (next === 'resources') loadResources(false);
+    if (next === 'resources') void loadResources(false);
   };
 
   const main = ((): ReactElement => {
@@ -180,7 +203,7 @@ export function App(): ReactElement {
             resources={resources}
             loading={resourcesLoading}
             error={resourcesError}
-            onRefresh={() => loadResources(true)}
+            onRefresh={() => void loadResources(true)}
           />
         );
       case 'approvals':

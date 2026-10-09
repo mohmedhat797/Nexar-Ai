@@ -28,8 +28,12 @@ export const EndpointInputSchema = z.strictObject({
   id: EndpointIdSchema,
   kind: z.enum(['ollama', 'openai-compatible']),
   baseUrl: EndpointUrlSchema,
+  /** Mirrors the core config flag; set by editing the config, preserved when the UI saves. */
+  toolCalling: z.boolean().optional(),
 });
-export const EndpointSaveSchema = EndpointInputSchema.extend({ id: EndpointIdSchema.optional() });
+export const EndpointSaveSchema = EndpointInputSchema.omit({ toolCalling: true }).extend({
+  id: EndpointIdSchema.optional(),
+});
 export const EndpointRemoveSchema = z.strictObject({ id: EndpointIdSchema });
 export const EndpointRowSchema = EndpointInputSchema.extend({
   modelCount: z.number().int().min(0).max(200),

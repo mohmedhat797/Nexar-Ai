@@ -9,6 +9,7 @@ import {
   type Page,
 } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { seedE2EConfig } from './harness.js';
 
 const MAIN = fileURLToPath(new URL('../dist/main/main.js', import.meta.url));
 const EXECUTABLE = process.env['NEXAR_DESKTOP_EXECUTABLE'];
@@ -108,6 +109,7 @@ beforeAll(async () => {
   projectDir = join(base, 'my-project with spaces');
   await mkdir(join(projectDir, 'notes'), { recursive: true });
   await writeFile(join(projectDir, 'readme-seed.txt'), 'seeded file content\n');
+  await seedE2EConfig(userData);
 });
 
 afterAll(async () => {
