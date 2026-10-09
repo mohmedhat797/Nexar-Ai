@@ -132,6 +132,9 @@ importers:
       '@nexar/process':
         specifier: workspace:*
         version: link:../../packages/process
+      '@nexar/project-memory':
+        specifier: workspace:*
+        version: link:../../packages/project-memory
       '@nexar/projects':
         specifier: workspace:*
         version: link:../../packages/projects
@@ -505,6 +508,9 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@nexar/project-memory':
+        specifier: workspace:*
+        version: link:../project-memory
       '@nexar/sessions':
         specifier: workspace:*
         version: link:../sessions
@@ -523,6 +529,15 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../contracts
+
+  packages/project-memory:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/projects:
     dependencies:

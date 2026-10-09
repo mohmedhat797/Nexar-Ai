@@ -219,6 +219,11 @@ export class FileSessionStore {
     });
   }
 
+  /** Whether this process is the single writer (used to gate other owner-state writers, B9). */
+  holdsLease(): boolean {
+    return this.leaseHeld;
+  }
+
   /** Removes the lease only if it is still ours. */
   releaseLease(): Promise<void> {
     return sanitize(async () => {

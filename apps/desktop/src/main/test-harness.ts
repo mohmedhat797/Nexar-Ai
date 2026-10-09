@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultConfig } from '@nexar/core';
+import { FileProjectMemoryStore } from '@nexar/project-memory';
 import { FileSessionStore } from '@nexar/sessions';
 import type { BridgeResult, SessionEvent, TaskEvent } from '../shared/api.js';
 import { createBridge, type Bridge } from './bridge.js';
@@ -85,6 +86,10 @@ export async function createHarness(overrides: Partial<BridgeDeps> = {}): Promis
     appInfo: { version: '0.0.0-test', platform: 'test' },
     decider: 'desktop:test',
     sessions: sessionStore,
+    projectMemory: new FileProjectMemoryStore({
+      stateDir: join(userData, '.nexar'),
+      isWriter: () => sessionStore.holdsLease(),
+    }),
     broadcastSession: (event) => {
       sessionEvents.push(event);
     },

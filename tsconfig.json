@@ -80,6 +80,9 @@
       "path": "./packages/sessions"
     },
     {
+      "path": "./packages/project-memory"
+    },
+    {
       "path": "./packages/plane-protocol"
     },
     {

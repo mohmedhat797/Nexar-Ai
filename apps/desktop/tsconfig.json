@@ -29,6 +29,7 @@
     { "path": "../../packages/plane-protocol" },
     { "path": "../../packages/process" },
     { "path": "../../packages/projects" },
+    { "path": "../../packages/project-memory" },
     { "path": "../../packages/resource-controller" },
     { "path": "../../packages/sessions" },
     { "path": "../../packages/workflows" }

@@ -5,6 +5,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } fr
 import { NexarError, isNexarError, type ResourceDescriptor } from '@nexar/contracts';
 import { createOpenAiAccountClient } from '@nexar/integration-openai-account';
 import { BridgeHost, ControlModelGateway } from '@nexar/engine-gateway';
+import { FileProjectMemoryStore } from '@nexar/project-memory';
 import { FileSessionStore } from '@nexar/sessions';
 import {
   checkProviderCredential,
@@ -246,6 +247,12 @@ async function start(): Promise<void> {
     if (!isNexarError(error) || error.code !== 'CONFLICT') throw error;
     logger.warn('sessions are open in another Nexar process', { code: error.code });
   }
+  // Project memory (ADR-030 §7): owner-confirmed knowledge, written only while this process holds the
+  // sessions lease (single writer), read into every turn's required context.
+  const projectMemory = new FileProjectMemoryStore({
+    stateDir: join(userData, '.nexar'),
+    isWriter: () => sessionStore.holdsLease(),
+  });
   // The Code lane (ADR-025): Desktop reaches the WSL2 engineering plane through `wsl.exe`. Under the
   // test-only `NEXAR_DESKTOP_USER_DATA` override the real WSL is never touched: the lane uses the
   // fake plane named by `NEXAR_DESKTOP_TEST_PLANE`, or is simply unavailable. Neither variable is
@@ -386,6 +393,7 @@ async function start(): Promise<void> {
     appInfo: { version: app.getVersion(), platform: process.platform },
     decider: decider(),
     sessions,
+    projectMemory,
     codePlane,
     cowork,
     // A turn outlives the call that started it; every live window hears about it.

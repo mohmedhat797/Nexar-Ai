@@ -343,7 +343,7 @@ describe('Code lane through sessions', () => {
     ).toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } });
     // The goal reached the plane as the context prompt (untrusted wrapper), with the manifest recorded.
     const stored = await h.sessionStore.get(session.id);
-    expect(stored?.turns[0]?.context?.policy).toBe('context@1/code-goal:context');
+    expect(stored?.turns[0]?.context?.policy).toBe('context@2/code-goal:context');
   });
 
   it('shows plane approvals in the Approvals surface and decides them on the plane', async () => {

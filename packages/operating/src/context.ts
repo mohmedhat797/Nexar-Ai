@@ -1,19 +1,29 @@
 import { createHash } from 'node:crypto';
 import { NexarError } from '@nexar/contracts';
 import type { ArtifactRef } from '@nexar/contracts';
+import { MAX_REQUIRED_CONTEXT_CHARS, renderProjectMemory } from '@nexar/project-memory';
+import type { ProjectMemoryEntry } from '@nexar/project-memory';
 import type { ContextManifest, OperatingSession, Turn } from '@nexar/sessions';
 
 /*
- * `context@1` (ADR-024 §10): a deterministic, bounded context built only from the session's own
- * turns. Prior owner text and prior model output are rendered inside `<untrusted-input>` (ADR-017)
- * and never reach a trusted system prompt. Artifacts appear by safe display name only, never by URI.
- * The manifest explains inclusion and carries counts and a hash, never content.
+ * `context@2` (ADR-030 §7): `context@1` (ADR-024 §10) plus a required block of owner-confirmed
+ * project memory that is always included, completely, ahead of the conversation. The conversation
+ * part is exactly `context@1`'s: deterministic, bounded, built only from the session's own turns.
+ * Prior owner text and prior model output are rendered inside `<untrusted-input>` (ADR-017) and never
+ * reach a trusted system prompt. Artifacts appear by safe display name only, never by URI.
+ * The manifest explains inclusion and carries counts and hashes, never content.
+ *
+ * The required block is owner-authored, so it is not wrapped, but every entry is one line: it cannot
+ * forge structure. It is never truncated and never dropped: over its bound the turn fails instead.
  */
 
-export const CONTEXT_POLICY = 'context@1';
+export const CONTEXT_POLICY = 'context@2';
+/** Policy of manifests recorded before project memory existed; they still parse and display. */
+export const CONTEXT_POLICY_V1 = 'context@1';
 export const MAX_CONTEXT_TURNS = 6;
 export const MAX_CONTEXT_CHARS = 24_000;
 export const MAX_CONTEXT_SIDE_CHARS = 2_000;
+export { MAX_REQUIRED_CONTEXT_CHARS };
 const MAX_ARTIFACT_NAME_CHARS = 200;
 
 export interface BuildContextInput {
@@ -22,10 +32,14 @@ export interface BuildContextInput {
   readonly turnId: string;
   /** Returns a safe display name for an artifact, or undefined to drop it. */
   readonly describeArtifact?: ((ref: ArtifactRef) => string | undefined) | undefined;
+  /** Owner-confirmed project memory; rendered completely, outside the conversation budget. */
+  readonly required?: readonly ProjectMemoryEntry[] | undefined;
 }
 
 export interface BuiltContext {
   readonly prompt: string;
+  /** The rendered project memory block (also inside `prompt`), `''` when there is none. */
+  readonly requiredContext: string;
   readonly manifest: ContextManifest;
 }
 
@@ -104,9 +118,11 @@ export function buildContext(input: BuildContextInput): BuiltContext {
   const included = newestFirst.reverse();
 
   const lane = current.lane?.effectiveLane ?? 'direct';
+  const required = renderProjectMemory(input.required ?? []);
   const lines: string[] = [
     `Session policy: mode=${session.mode}; lane=${lane}; project=${neutralize(session.projectId)}`,
   ];
+  if (required.block !== '') lines.push(required.block);
   if (included.length > 0) {
     const conversation: string[] = [];
     for (const item of included) {
@@ -136,6 +152,12 @@ export function buildContext(input: BuildContextInput): BuiltContext {
     chars: prompt.length,
     artifactIds,
     hash: createHash('sha256').update(prompt).digest('hex'),
+    ...(required.block === ''
+      ? {}
+      : {
+          requiredIds: required.ids,
+          requiredHash: createHash('sha256').update(required.block).digest('hex'),
+        }),
   };
-  return { prompt, manifest };
+  return { prompt, requiredContext: required.block, manifest };
 }

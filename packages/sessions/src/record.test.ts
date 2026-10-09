@@ -189,4 +189,32 @@ describe('session records', () => {
     expect(() => serializeSession(broken)).toThrow(NexarError);
     expect(() => serializeSession({ ...valid(), title: '' })).toThrow(NexarError);
   });
+
+  it('parses context@1 manifests without the required-context fields and context@2 with them', () => {
+    const base = {
+      turnIds: [],
+      omittedTurns: 0,
+      truncatedTurnIds: [],
+      chars: 10,
+      artifactIds: [],
+      hash: 'h'.repeat(64),
+    };
+    const withContext = (context: Record<string, unknown>): string =>
+      edit((r) => (turnOf(r)['context'] = context));
+
+    const v1 = parseSession(withContext({ policy: 'context@1', ...base }), SID);
+    expect(v1.turns[0]?.context).toEqual({ policy: 'context@1', ...base });
+
+    const v2 = {
+      policy: 'context@2',
+      ...base,
+      requiredIds: [`mem_${'1'.repeat(32)}`],
+      requiredHash: 'a'.repeat(64),
+    };
+    expect(parseSession(withContext(v2), SID).turns[0]?.context).toEqual(v2);
+
+    expectCorrupt(withContext({ ...v2, requiredIds: ['nope'] }), SID);
+    expectCorrupt(withContext({ ...v2, requiredHash: 'short' }), SID);
+    expectCorrupt(withContext({ ...v2, extra: 1 }), SID);
+  });
 });

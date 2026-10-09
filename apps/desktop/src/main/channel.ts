@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { NexarError, isNexarError, projectId, type Logger, type ProjectId } from '@nexar/contracts';
 import { resolveContainedPath, type Project } from '@nexar/projects';
 import type { OperatingService } from '@nexar/operating';
+import type { FileProjectMemoryStore } from '@nexar/project-memory';
 import type { FileSessionStore } from '@nexar/sessions';
 import type { AppInfo, SessionEvent, TaskEvent } from '../shared/api.js';
 import type { ConfigStore } from './config-store.js';
@@ -51,6 +52,9 @@ export type SessionService = Pick<
   | 'rename'
 >;
 
+/** Owner-confirmed project memory (ADR-030 §7); writes need the sessions lease. */
+export type ProjectMemoryService = Pick<FileProjectMemoryStore, 'list' | 'add' | 'remove'>;
+
 export interface BridgeDeps {
   readonly engine: EngineHost;
   readonly config: ConfigStore;
@@ -72,6 +76,8 @@ export interface BridgeDeps {
   readonly decider: string;
   /** `undefined` when another Nexar process holds the sessions lease: every session channel fails. */
   readonly sessions: SessionService | undefined;
+  /** Project memory behind the `projectMemory:*` channels and every turn's required context. */
+  readonly projectMemory?: ProjectMemoryService | undefined;
   /** Pushes a session change to every live window (ids and short status lines only). */
   readonly broadcastSession: (event: SessionEvent) => void;
 }

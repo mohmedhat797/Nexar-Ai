@@ -373,6 +373,17 @@ export interface SessionDto extends SessionSummaryDto {
   readonly turns: readonly TurnDto[];
 }
 
+export type ProjectMemoryKindDto =
+  'constraint' | 'decision' | 'requirement' | 'review-obligation' | 'pending-work';
+
+/** One owner-confirmed project memory entry: ids, kind, text, time; never a path. */
+export interface ProjectMemoryDto {
+  readonly id: string;
+  readonly kind: ProjectMemoryKindDto;
+  readonly text: string;
+  readonly createdAt: string;
+}
+
 export interface SubmitTurnArgs {
   readonly sessionId: string;
   /** Client-generated idempotency key, `^[A-Za-z0-9_-]{16,64}$`; reuse it when retrying. */
@@ -477,6 +488,19 @@ export interface NexarApi {
     title: string;
     expectedRevision?: number;
   }): Promise<BridgeResult<SessionDto>>;
+  /** Owner-confirmed project memory (ADR-030 §7): included completely in every turn. */
+  listProjectMemory(projectId: string): Promise<BridgeResult<readonly ProjectMemoryDto[]>>;
+  addProjectMemory(args: {
+    projectId: string;
+    kind: ProjectMemoryKindDto;
+    text: string;
+    sessionId?: string;
+    turnId?: string;
+  }): Promise<BridgeResult<ProjectMemoryDto>>;
+  removeProjectMemory(args: {
+    projectId: string;
+    entryId: string;
+  }): Promise<BridgeResult<{ readonly removed: boolean }>>;
   codeStatus(args?: { projectId?: string }): Promise<BridgeResult<PlaneStatusDto>>;
   /** Re-probes the engineering plane now (otherwise the status is cached for a minute). */
   refreshCode(args?: { projectId?: string }): Promise<BridgeResult<PlaneStatusDto>>;

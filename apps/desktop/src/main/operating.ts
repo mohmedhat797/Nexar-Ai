@@ -37,7 +37,7 @@ function displayPath(project: Project, ref: ArtifactRef): string | undefined {
 export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingService | undefined {
   const store = deps.sessions;
   if (store === undefined) return undefined;
-  const { codePlane, cowork } = deps;
+  const { codePlane, cowork, projectMemory } = deps;
   // The direct pipeline only needs `deps`; it never emits task events for session turns.
   const ctx: CallContext = { deps, jobs, emit: () => undefined, operating: undefined };
 
@@ -120,6 +120,9 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
       supportsPlan: () => codePlane?.supportsPlan() ?? false,
     },
     behavior: (mode) => behaviorProfile(deps.settings, mode),
+    ...(projectMemory === undefined
+      ? {}
+      : { projectMemory: (id: string) => projectMemory.list(id) }),
     executeDirect,
     ...(codePlane === undefined
       ? {}

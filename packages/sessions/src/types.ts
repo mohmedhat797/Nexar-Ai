@@ -74,6 +74,10 @@ export interface ContextManifest {
   readonly chars: number;
   readonly artifactIds: readonly string[];
   readonly hash: string;
+  /** `context@2`: ids of the project memory entries rendered into the required block. */
+  readonly requiredIds?: readonly string[];
+  /** `context@2`: sha256 hex of the required block (absent when there was none). */
+  readonly requiredHash?: string;
 }
 
 export type TurnEngineeringStatus =

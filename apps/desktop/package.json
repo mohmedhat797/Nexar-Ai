@@ -27,6 +27,7 @@
     "@nexar/operating": "workspace:*",
     "@nexar/plane-protocol": "workspace:*",
     "@nexar/process": "workspace:*",
+    "@nexar/project-memory": "workspace:*",
     "@nexar/projects": "workspace:*",
     "@nexar/resource-controller": "workspace:*",
     "@nexar/resource-registry": "workspace:*",

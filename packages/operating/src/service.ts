@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { NexarError, coworkDelegationLimit, isNexarError } from '@nexar/contracts';
 import type { ArtifactRef, Logger, TaskKind } from '@nexar/contracts';
+import type { ProjectMemoryEntry } from '@nexar/project-memory';
 import type {
   ContextManifest,
   FileSessionStore,
@@ -35,6 +36,8 @@ export interface DirectRequest {
   readonly projectId: string;
   readonly kind: TaskKind;
   readonly prompt: string;
+  /** The rendered project memory block (context@2), also inside `prompt`; absent when none. */
+  readonly requiredContext?: string;
   readonly correlation: OperatingCorrelation;
   readonly preferredResourceIds?: readonly string[];
   readonly maxCostUsd?: number;
@@ -100,19 +103,21 @@ export type CoworkResult = Omit<DirectResult, 'fallback'> & {
 export const MAX_CODE_GOAL_CHARS = 20_000;
 
 /** Policy strings recorded on the context manifest of a Code-lane turn: which goal was sent. */
-export const CODE_GOAL_CONTEXT_POLICY = 'context@1/code-goal:context';
-export const CODE_GOAL_REQUEST_ONLY_POLICY = 'context@1/code-goal:request-only';
+export const CODE_GOAL_CONTEXT_POLICY = 'context@2/code-goal:context';
+export const CODE_GOAL_REQUEST_ONLY_POLICY = 'context@2/code-goal:request-only';
 
 export interface CodeRequest {
   readonly sessionId: string;
   readonly turnId: string;
   readonly projectId: string;
   readonly intent: 'coding' | 'review' | 'plan';
-  /** The context@1 prompt, or the turn's own text when the prompt is over 20,000 characters. */
+  /** The context@2 prompt, or the turn's own text when the prompt is over 20,000 characters. */
   readonly goal: string;
+  /** The rendered project memory block; always sent, even when `goal` is the request only. */
+  readonly requiredContext?: string;
   /**
    * The turn's own text (the owner's current request). The task title, and so the commit subject,
-   * derives from it, never from the context@1 header of `goal`.
+   * derives from it, never from the context header of `goal`.
    */
   readonly turnText: string;
   readonly correlation: OperatingCorrelation;
@@ -167,6 +172,11 @@ export interface OperatingPorts {
    * the turn is then not started. Without it the defaults apply (drafts only, auto-edit).
    */
   readonly behavior?: (mode: OperatingSession['mode']) => Promise<BehaviorProfile>;
+  /**
+   * Owner-confirmed project memory (ADR-030 §7), included completely in every turn. A failure fails
+   * the turn: it never proceeds without required context. Without the port there is none.
+   */
+  readonly projectMemory?: (projectId: string) => Promise<readonly ProjectMemoryEntry[]>;
   readonly executeDirect: (request: DirectRequest, signal: AbortSignal) => Promise<DirectResult>;
   /** The Code lane (ADR-025). Without it a `code` effective lane executes through `executeDirect`. */
   readonly executeCode?: (request: CodeRequest, signal: AbortSignal) => Promise<CodeResult>;
@@ -568,12 +578,15 @@ export class OperatingService {
       const turn = session.turns.find((t) => t.id === turnId);
       if (turn === undefined) throw reject('VALIDATION_ERROR', 'unknown-turn');
       const describe = this.ports.describeArtifact;
-      const { prompt, manifest } = buildContext({
+      const required = (await this.ports.projectMemory?.(session.projectId)) ?? [];
+      const { prompt, requiredContext, manifest } = buildContext({
         session,
         turnId,
         describeArtifact:
           describe === undefined ? undefined : (ref) => describe(ref, session.projectId),
+        required,
       });
+      const requiredField = requiredContext === '' ? {} : { requiredContext };
       const kind = turn.intent?.kind ?? 'general';
       const { behavior } = options;
       const codeIntent =
@@ -621,6 +634,10 @@ export class OperatingService {
               chars: goal.length,
               artifactIds: [],
               hash: createHash('sha256').update(goal).digest('hex'),
+              ...(manifest.requiredIds === undefined ? {} : { requiredIds: manifest.requiredIds }),
+              ...(manifest.requiredHash === undefined
+                ? {}
+                : { requiredHash: manifest.requiredHash }),
             }
           : { ...manifest, policy: CODE_GOAL_CONTEXT_POLICY };
       }
@@ -650,6 +667,7 @@ export class OperatingService {
             projectId: session.projectId,
             intent: codeIntent,
             goal,
+            ...requiredField,
             turnText: turn.text,
             correlation: rootCorrelation(sessionId, turnId),
             onTask: link,
@@ -710,6 +728,7 @@ export class OperatingService {
         projectId: session.projectId,
         kind,
         prompt,
+        ...requiredField,
         correlation: viaCowork ? delegate(root, 'openworker') : root,
         ...(preferred === undefined || preferred.length === 0
           ? {}
