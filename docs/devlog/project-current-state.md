@@ -5,7 +5,38 @@ TASK" and "BLOCKERS" sections of older handoffs (for example
 [`operating-layer-progress.md`](operating-layer-progress.md), which keeps the detailed history).
 Update this file at every milestone checkpoint.
 
-## Snapshot (2026-10-08, scoped Cowork runtime-limit correction)
+## Snapshot (2026-10-09, v0.6 finalization blocked after targeted acceptance)
+
+Matching Desktop and hardened Plane builds at `3cbd6a66426407be6a588506a32fc47046f888ae`
+were deployed and verified against [exact-head CI 37834534177 attempt 1](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37834534177/attempts/1).
+Plane doctor, six sandbox self-tests and 760 targeted regressions passed. Desktop
+source E2E passed 22 tests; the CI installer SHA256 matched its sidecar. Normal
+startup refreshed seven ChatGPT models without a new login.
+
+The one authorized read-only Cowork attempt **failed the delegation acceptance
+criteria**. Session `ses_c8f833a2e22846963053272b0be3ceb4`, turn
+`turn_67a040c3382820cf98ff6495596b3e10` completed its parent response but submitted
+zero delegated units. Its gateway grant enforced maximum 1 and read-only access;
+cleanup revoked it, no task remained active, no draft was imported and the fixture
+API snapshot was unchanged. Parent success is not delegation acceptance.
+
+The [scoped compatibility correction](evidence/nxr-066-read-only-delegation-correction.md)
+addresses OpenWorker `discuss` mode denying MCP before Nexar's callback. Active
+delegation uses upstream approval mode while Nexar retains read-only grants and
+all existing write, shell, network and unknown-tool denials. Nondelegating read-only
+turns retain `discuss`; the default 16 and trusted 1 unit limits remain unchanged.
+Publication and gate receipts are recorded in the local finalization report.
+
+Owner finalization authorization withdrew the artificial USD 3, five-minute and
+no-internal-retry acceptance ceilings. Existing timeout, cancellation and recovery
+protections remain. **PR #39 is not merged; v0.6 has no official merged baseline.**
+A matching correction deployment and renewed authorization for one paid live
+attempt are required before resuming the failed acceptance. No automatic repeat.
+Desktop is closed; Plane remains at `3cbd6a6`. DSH Control remains an existing
+unconfigured limitation; historical Code acceptance used native fallback.
+NXR-070 implementation is not started and ADR-029 remains Proposed.
+
+## Historical snapshot (2026-10-08, scoped Cowork runtime-limit correction)
 
 The [runtime delegation-limit correction](evidence/nxr-066-runtime-delegation-limit.md)
 adds a trusted per-turn restriction while preserving the 16-unit default. Local

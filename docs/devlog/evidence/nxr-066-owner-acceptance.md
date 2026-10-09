@@ -1,4 +1,22 @@
-# NXR-066b owner acceptance — all live acceptance stages PASSED
+# NXR-066b historical acceptance and current finalization evidence
+
+## Current targeted acceptance (2026-10-09)
+
+**TARGETED_LIVE_ACCEPTANCE_FAIL** at matching Desktop/Plane
+`3cbd6a66426407be6a588506a32fc47046f888ae`. The parent Cowork turn completed,
+but no delegated unit was submitted or completed. Session
+`ses_c8f833a2e22846963053272b0be3ceb4`, turn
+`turn_67a040c3382820cf98ff6495596b3e10`; read-only grant maximum 1, revoked on
+cleanup. No artifact, active execution or fixture API change remained.
+
+See [read-only delegation correction](nxr-066-read-only-delegation-correction.md)
+for the upstream mode incompatibility, regression evidence and remaining gate.
+No repeat paid attempt or merge is authorized by the failed attempt's receipt.
+The owner's finalization instruction withdraws the former artificial cost/time
+ceilings and permits normal runtime recovery, but a second paid acceptance still
+requires renewed authorization. PR #39 remains unmerged.
+
+## Historical NXR-066b acceptance at 2f26b36 — all stages PASSED
 
 Prepared 2026-10-07, updated 2026-10-08 for deployment generation `2f26b36f35d874702e29e4c9ef3f63d6aea1a216`.
 Exact-head CI [37776301563 attempt 2](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/37776301563/attempts/2)

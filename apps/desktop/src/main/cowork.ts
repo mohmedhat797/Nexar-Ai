@@ -605,8 +605,9 @@ export class CoworkService {
           projectRoot: root,
           signal: controller.signal,
           timeoutMs: this.timings.turnTimeoutMs,
-          // Read only: the upstream session itself is put in discuss mode, and policy denies anyway.
-          mode: readOnly ? 'discuss' : 'interactive',
+          // Discuss denies MCP before our callback. Active delegation needs approval mode;
+          // the read-only grant and policy still deny writes and every non-Bridge tool.
+          mode: readOnly && !delegating ? 'discuss' : 'interactive',
           onProgress: (identifier) => request.onProgress('progress', `Cowork: ${identifier}`),
           decide: (permission) => {
             const outcome = decidePermission(permission, {

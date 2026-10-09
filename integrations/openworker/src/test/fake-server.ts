@@ -23,6 +23,7 @@ export type FakeScenario =
   | 'network-access'
   | 'permission-paths'
   | 'delegate'
+  | 'delegate-read-only'
   | 'control-loop'
   | 'sow';
 
@@ -330,6 +331,7 @@ export class FakeOpenWorkerServer {
         );
     };
     let pending: Buffer = Buffer.alloc(0);
+    let mode = 'interactive';
     socket.on('data', (chunk: Buffer) => {
       const decoded = decodeFrames(Buffer.concat([pending, chunk]));
       pending = decoded.rest;
@@ -338,13 +340,14 @@ export class FakeOpenWorkerServer {
           socket.end(Buffer.from([0x88, 0x00]));
         } else if (opcode === 1) {
           const frame = JSON.parse(payload.toString('utf8')) as Frame;
+          if (frame['type'] === 'set_mode') mode = String(frame['mode']);
           this.frames.push(frame);
           if (frame['type'] === 'user_message' || frame['type'] === 'set_mode')
             this.#options.onRecord?.({ kind: String(frame['type']), body: frame });
           const index = this.#waiters.findIndex((waiter) => waiter.type === frame['type']);
           if (index >= 0) this.#waiters.splice(index, 1)[0]!.resolve(frame);
           else if (frame['type'] === 'user_message')
-            void this.#turn(socket, send, activeWorkspace, frame);
+            void this.#turn(socket, send, activeWorkspace, frame, mode);
         }
       }
     });
@@ -390,7 +393,16 @@ export class FakeOpenWorkerServer {
     }
     const config = this.mcpServers.get('nexar');
     const text = config === undefined ? undefined : await this.#runRelay(config, ask);
-    if (text !== undefined && text !== '') writeFileSync(join(workspace, 'draft.md'), text);
+    if (this.scenario === 'delegate-read-only') {
+      // Probe the host's denials even though the upstream interactive mode offers approval cards.
+      for (const name of ['write_file', 'run_shell', 'mcp__untrusted__other']) {
+        send({ type: 'permission_required', name, target: join(workspace, 'draft.md') });
+        const approval = await this.#next('approval');
+        if (approval['decision'] !== 'deny') throw new Error('Read-only policy was widened');
+      }
+    } else if (text !== undefined && text !== '') {
+      writeFileSync(join(workspace, 'draft.md'), text);
+    }
     send({
       type: 'assistant_message',
       text: text === undefined ? 'Delegation failed' : 'Delegated unit done',
@@ -621,6 +633,7 @@ export class FakeOpenWorkerServer {
     send: (frame: Frame | string) => void,
     workspace: string,
     userMessage: Frame,
+    mode: string,
   ): Promise<void> {
     switch (this.scenario) {
       case 'hang':
@@ -703,6 +716,14 @@ export class FakeOpenWorkerServer {
         send({ type: 'turn_done' });
         return;
       case 'delegate':
+      case 'delegate-read-only':
+        // v0.3.1 permissions.py: DISCUSS denies consequential MCP before the host approval card.
+        if (mode === 'discuss') {
+          send({ type: 'turn_start' });
+          send({ type: 'assistant_message', text: 'Discuss mode denied MCP delegation' });
+          send({ type: 'turn_done' });
+          return;
+        }
         return this.#delegate(send, workspace);
       case 'control-loop':
         return this.#controlLoop(send, workspace, userMessage);

@@ -1,5 +1,14 @@
 # NXR-066 Cowork delegation-unit restriction
 
+**2026-10-09 authorization update:** The owner authorized matching deployment,
+one targeted read-only live attempt and conditional merge, and withdrew the
+acceptance-specific USD 3, five-minute and no-internal-retry ceilings. The earlier
+stop gates below are historical requirements of this remediation checkpoint.
+Existing runtime timeouts, cancellation and recovery remain in force. The new
+attempt at `3cbd6a6` failed to delegate because of an independent upstream mode
+incompatibility; see the [correction evidence](nxr-066-read-only-delegation-correction.md).
+No second paid attempt or merge has occurred.
+
 Date: 2026-10-08. Scope: owner-authorized runtime-limit remediation on
 `feat/nexar-resource-orchestration`, based on
 `834a865264ad9b9b06501983c14207b91cedc6f0`. No deployment or live acceptance is

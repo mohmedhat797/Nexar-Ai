@@ -1197,21 +1197,38 @@ describe('Cowork delegation through the Intelligence Bridge (NXR-059b)', () => {
     expect(everything).not.toContain('SECRET-ARGUMENT');
   });
 
-  it('read only: the grant is read only, the delegated unit runs, no draft is imported', async () => {
-    await h.deps.settings.setBehavior({ cowork: { permission: 'read-only' } });
-    const delegating = delegation();
-    const { cowork, call } = await setup({ env: DELEGATE, delegation: delegating });
-    await cowork.refresh();
-    const { sessionId } = await turnOf(call);
-    const turn = await settled(sessionId);
+  it.each([undefined, 1])(
+    'read-only delegation uses approval mode, preserves denials and limit %s',
+    async (limit) => {
+      await h.deps.settings.setBehavior({ cowork: { permission: 'read-only' } });
+      const delegating = delegation();
+      const { cowork, call } = await setup({
+        env: { ...DELEGATE, NEXAR_FAKE_OPENWORKER_SCENARIO: 'delegate-read-only' },
+        delegation: delegating,
+      });
+      await cowork.refresh();
+      const { sessionId } = await turnOf(call, 'Review a short note', limit);
+      const turn = await settled(sessionId);
 
-    expect(delegating.grants.map((g) => g.access)).toEqual(['read-only']);
-    expect(turn.state).toBe('succeeded');
-    expect(turn.artifacts).toHaveLength(0);
-    expect(turn.tasks[0]?.delegations).toEqual([
-      { unitId: 'u1', resourceId: 'res-a', outcome: 'succeeded' },
-    ]);
-  });
+      expect(delegating.grants.map((g) => g.access)).toEqual(['read-only']);
+      expect(delegating.grants.map((g) => g.maxUnits)).toEqual([limit ?? 16]);
+      expect(
+        (await records()).filter((r) => r['kind'] === 'set_mode').map((r) => r['body']),
+      ).toEqual([{ type: 'set_mode', mode: 'interactive' }]);
+      expect(turn.state).toBe('succeeded');
+      expect(turn.artifacts).toHaveLength(0);
+      expect(turn.tasks[0]?.delegations).toEqual([
+        { unitId: 'u1', resourceId: 'res-a', outcome: 'succeeded' },
+      ]);
+      const policy = (await engine.approvals().list()).filter(
+        (r) => r.actionType === 'cowork.tool-call',
+      );
+      expect(policy.filter((r) => r.metadata?.['ruleId'] === 'cowork.delegation')).toHaveLength(2);
+      expect(policy.filter((r) => r.metadata?.['ruleId'] === 'cowork.read-only.deny')).toHaveLength(
+        3,
+      );
+    },
+  );
 
   it('deletes the MCP entry and revokes the grant when the turn fails', async () => {
     const delegating = delegation();
