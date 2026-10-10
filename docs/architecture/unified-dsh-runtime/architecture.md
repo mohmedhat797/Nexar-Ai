@@ -159,3 +159,17 @@ No new policy. The gateway selects the control resource with `selectControlResou
 bridge. Connection identity is the existing connection-scoped resource metadata (ADR-027 §3,
 NXR-070 compatible). A pinned control resource that is unavailable fails the turn unless the
 owner's fallback is `auto`; it is never silently replaced.
+
+## 9. Bounded direct session fallback
+
+Desktop `operating.ts` passes direct session work through NRC after excluding every resource except
+`kind.type = model` bound to the reviewed `pi` or `echo` execution adapters. The pi adapter performs
+one model completion with user/system text and no tools; echo is deterministic offline execution.
+There is no agent loop, runtime session, permission round-trip or delegation in this path. Nexar
+may save returned text through `LocalArtifactStore`, respecting read-only Cowork.
+
+This is classification **A: bounded, non-agent model execution**. Before UDSH-08 the same path could
+route to an independent native agent or DSH SDK loop (classification **B**), contradicting the
+declared fallback boundary. Registered forbidden preferences fail explicitly; empty eligible sets
+fail through NRC. Code/native lanes retain their existing resource eligibility and sandbox contracts. New bounded adapters
+need explicit review before joining this allowlist.

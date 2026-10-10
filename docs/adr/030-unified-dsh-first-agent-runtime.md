@@ -41,13 +41,15 @@ plus the 0.2.x re-check recorded in the architecture document):
    are **DSH profiles**, not engines. A future mode is a new profile (data), never a new harness.
    Native agents (Claude Code, Codex) remain NRC **work resources** (bounded units, Code-lane
    native executor); they are not harnesses.
-2. **Interface: ACP v1 over stdio**, Nexar's own JSON-RPC client (`integrations/deepseek-harness`),
+2. **Managed Cowork/Coding profile interface: ACP v1 over stdio**, Nexar's own JSON-RPC client (`integrations/deepseek-harness`),
    `dsh --profile acp --patch <nexar overlay>`. ACP is the only DSH surface with cancel and
    permission round-trips, both mandatory for Nexar authority (B3). SDK, headless and in-process
    Cordis plugins are rejected (no approvals / one-shot / unstable internals). Nexar configures DSH
    only through documented overlay rows and environment variables listed in the architecture
-   document; it imports no `@deepseek-ai/*` package.
-3. **Pin `@deepseek-ai/dsh@0.2.0-rc.2` exactly.** It is the npm `latest`, the verified version and
+   document; it imports no `@deepseek-ai/*` package. The existing standalone DSH SDK resource adapter
+   remains a compatibility work resource outside these managed profiles; it is not a Cowork runtime
+   and must never be eligible for Desktop direct session fallback.
+3. **Pin `@deepseek-ai/dsh@0.2.0-rc.2` exactly.** It is the reviewed version and
    the one Nexar's ACP code was tested against. `0.2.1-alpha.2` is rejected (alpha channel, newer
    is not more stable). The runtime refuses to start on a version mismatch. Upgrades are deliberate,
    re-verified changes to the pin.
@@ -99,10 +101,25 @@ B8 existing sessions readable and protected · B9 single session writer. Mapping
 
 - Python and OpenWorker are no longer prerequisites; Cowork works on a clean Windows install.
 - Cowork requires a control-compatible (`model-turn`) resource; without one it falls back to
-  `direct` with `fallbackReason: dsh-control-unavailable` (honest fallback, ADR-024 §9).
+  `direct` with `fallbackReason: dsh-control-unavailable` (honest fallback, ADR-024 §9). Desktop
+  direct session execution is **A: bounded, non-agent model execution**: NRC routes one text request
+  only to a `model` descriptor bound to the reviewed `pi` or `echo` adapter; it starts no agent loop,
+  tools, native runtime session or delegation. It may store the returned text as a Nexar draft,
+  except in read-only Cowork. Agent/tool-runtime descriptors and unreviewed adapter bindings are
+  excluded before routing. An owner preference naming a registered forbidden resource fails with
+  `POLICY_REJECTED` (`direct-resource-not-bounded`); no eligible bounded resource fails with
+  `NO_ELIGIBLE_RESOURCE`. Unknown preference ids retain NRC preference semantics. Extending the
+  bounded adapter allowlist requires review and regression evidence. Native Code-lane work resources
+  keep their existing sandboxed execution contract.
 - DSH is a developer preview with breaking changes; the exact pin, version gate, overlay row tests
   and real-runtime CI tests are the containment.
 - Desktop installer grows by the DSH runtime's dependency tree.
+
+UDSH-08 independent implementation findings and evidence are recorded in
+[`UDSH08_Architecture_Review.md`](../architecture/unified-dsh-runtime/UDSH08_Architecture_Review.md).
+The review corrected unrestricted direct fallback, shared Coding ACP state, model-route change
+enforcement and missing persistent control-call accounting. Remaining acceptance gaps are blockers; this ADR remains
+Proposed until the owner explicitly accepts it.
 
 ## Alternatives considered
 

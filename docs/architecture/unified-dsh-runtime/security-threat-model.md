@@ -29,7 +29,7 @@ files, other projects, approvals/grants, session records, project memory, provid
 | T9  | Required context dropped by compaction or truncation          | Rendered in `personaSuffix` (system prompt) and `context@2` required block; overflow fails closed                                                                         | A6/A7                                                 |
 | T10 | Model output promoted to "required"                           | Only owner channels write project memory; no model path                                                                                                                   | memory tests                                          |
 | T11 | Upstream telemetry/session upload                             | `DSH_TELEMETRY_DISABLED=1`; `otel`, `session-telemetry-otel`, `session-log-deepseek` disabled                                                                             | overlay test                                          |
-| T12 | Supply chain (DSH npm tree)                                   | Exact pin, version gate at start, lockfile integrity at install, runtime outside asar but inside the signed install                                                       | packaging test                                        |
+| T12 | Supply chain (DSH npm tree)                                   | Exact pin, version gate at start, lockfile integrity at install, runtime outside asar inside the packaged installation; signing is not evidenced                          | packaging test                                        |
 | T13 | DSH reads project `.env` as credential fallback               | Cowork `cwd` is a fresh scratch; project roots are never the DSH `cwd` on the host                                                                                        | launcher test                                         |
 | T14 | Second session writer                                         | Project memory and sessions written only under the sessions lease                                                                                                         | B9 tests                                              |
 | T15 | Path echo in errors                                           | Errors leave as `{code, message}` with fixed texts                                                                                                                        | existing channel tests                                |
@@ -43,3 +43,14 @@ files, other projects, approvals/grants, session records, project memory, provid
   model's results are drafts only. Follow-up: a Windows AppContainer or WSL-sandboxed Cowork.
 - DSH is a developer preview; overlay row renames would surface as start failures or a changed tool
   list, both caught by the real-runtime CI tests.
+- Desktop direct session fallback permits only reviewed bounded `pi`/`echo` model bindings. Native
+  agents, DSH SDK and unreviewed adapters are excluded before NRC selection. Before UDSH-08 this
+  restriction was absent; see the independent review and `operating.test.ts` regressions.
+- Coding ACP homes and overlays are now unique per run and removed after settlement. If a launcher
+  ignores cancellation and never settles preparation, execution returns after a bounded cleanup
+  grace period; its random private directory is retained until preparation settles. Cleanup failures
+  emit fixed diagnostic codes, never paths or credentials. Such an orphan is not resumed by later
+  turns. No automatic deletion of pre-existing native-session data is introduced.
+- The current Windows package disables code signing (`signAndEditExecutable: false` and
+  `CSC_IDENTITY_AUTO_DISCOVERY=false`). Version checks and lockfile integrity are verified controls;
+  this report does not claim a signed installer or publisher authenticity.
