@@ -132,6 +132,19 @@ function rig(
 }
 
 describe('mode selection', () => {
+  it('rejects a launcher that downgrades sandbox isolation and disposes without spawning', async () => {
+    const { hh, launcher, ctx } = rig('sandbox', 'read-write');
+    const original = launcher.prepare.bind(launcher);
+    launcher.prepare = async (spec, signal) => ({
+      ...(await original(spec, signal)),
+      isolation: 'none',
+    });
+    const err = await rejection(hh.adapter.execute(request(), ctx()));
+    expect(err.code).toBe('POLICY_REJECTED');
+    expect(launcher.disposed).toBe(1);
+    expect(hh.invocations()).toEqual([]);
+  });
+
   it('rejects write mode without a sandbox before preparing or spawning anything', async () => {
     const { hh, launcher, ctx } = rig('none', 'read-write');
     const err = await rejection(hh.adapter.execute(request(), ctx()));
