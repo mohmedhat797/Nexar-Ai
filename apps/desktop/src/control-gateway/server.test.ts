@@ -17,6 +17,64 @@ const TOKEN = 'tok-0123456789abcdef';
 type Frame = { v: number; id: string; token: string; op: string; turn: Record<string, unknown> };
 type Answer = { ok: true; value: unknown } | { ok: false; code: string };
 
+interface ChildExit {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+}
+const childExits = new WeakMap<ChildProcess, Promise<ChildExit>>();
+const liveChildren = new Set<ChildProcess>();
+
+function spawnGateway(script: string): ChildProcess {
+  const proc = spawn(process.execPath, [script], {
+    stdio: ['pipe', 'pipe', 'ignore'],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+  });
+  liveChildren.add(proc);
+  childExits.set(
+    proc,
+    new Promise((resolve) => {
+      proc.once('close', (code, signal) => {
+        liveChildren.delete(proc);
+        resolve({ code, signal });
+      });
+    }),
+  );
+  proc.stdin?.on('error', () => undefined);
+  return proc;
+}
+
+function childClosed(proc: ChildProcess): Promise<ChildExit> {
+  const closed = childExits.get(proc);
+  if (closed === undefined) throw new Error('untracked gateway child');
+  return closed;
+}
+
+function earlyExit(proc: ChildProcess, code: number | null, signal: NodeJS.Signals | null): Error {
+  const status = code === null ? 'null' : `0x${(code >>> 0).toString(16)}`;
+  return new Error(
+    `gateway child exited before ready (pid=${proc.pid}, code=${status}, signal=${signal ?? 'null'})`,
+  );
+}
+
+async function stopChild(proc: ChildProcess): Promise<void> {
+  // Register close at spawn, then wait for stdio teardown before closing the endpoint or deleting files.
+  const timeout = setTimeout(() => proc.kill(), 5_000);
+  try {
+    proc.stdin?.end();
+    expect(await childClosed(proc), `gateway child pid=${proc.pid}`).toEqual({
+      code: 0,
+      signal: null,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+afterAll(async () => {
+  // Also reclaim a process whose launch failed before assignment to a fixture variable.
+  await Promise.all([...liveChildren].map(stopChild));
+});
+
 const result = (patch: Record<string, unknown> = {}): Answer => ({
   ok: true,
   value: {
@@ -182,14 +240,9 @@ describe('control gateway translator', () => {
       logLevel: 'silent',
     });
   }, 60_000);
-  afterAll(() => rm(dir, { recursive: true, force: true }));
 
   async function launch(endpointPath: string): Promise<{ child: ChildProcess; port: number }> {
-    const proc = spawn(process.execPath, [script], {
-      stdio: ['pipe', 'pipe', 'ignore'],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-    });
-    proc.stdin?.on('error', () => undefined);
+    const proc = spawnGateway(script);
     proc.stdin?.write(`${JSON.stringify({ endpoint: endpointPath })}\n`);
     const line = await new Promise<string>((resolve, reject) => {
       let buffered = '';
@@ -197,7 +250,10 @@ describe('control gateway translator', () => {
         buffered += chunk.toString();
         if (buffered.includes('\n')) resolve(buffered.split('\n')[0] ?? '');
       });
-      proc.once('exit', () => reject(new Error('child exited early')));
+      proc.once('error', () =>
+        reject(new Error(`gateway child failed to spawn (pid=${proc.pid})`)),
+      );
+      proc.once('exit', (code, signal) => reject(earlyExit(proc, code, signal)));
     });
     return { child: proc, port: (JSON.parse(line) as { port: number }).port };
   }
@@ -207,9 +263,12 @@ describe('control gateway translator', () => {
     ({ child, port } = await launch(endpoint.path));
   }, 30_000);
   afterAll(async () => {
-    child?.stdin?.end();
-    child?.kill();
-    await endpoint.stop();
+    try {
+      if (child !== undefined) await stopChild(child);
+    } finally {
+      await endpoint.stop();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
   afterEach(() => {
     endpoint.frames.length = 0;
@@ -500,27 +559,20 @@ describe('control gateway translator', () => {
       const reply = await chat(dead.port, sdkRequest());
       expect(reply.status).toBe(502);
     } finally {
-      dead.child.stdin?.end();
-      dead.child.kill();
+      await stopChild(dead.child);
     }
   });
 
   it('exits when stdin closes', async () => {
     const other = await launch(endpoint.path);
-    const exited = new Promise<number | null>((resolve) => other.child.once('exit', resolve));
     other.child.stdin?.end();
-    expect(await exited).toBe(0);
+    expect(await childClosed(other.child)).toEqual({ code: 0, signal: null });
   });
 
   it('exits non-zero on a bad config line', async () => {
-    const proc = spawn(process.execPath, [script], {
-      stdio: ['pipe', 'pipe', 'ignore'],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-    });
-    const exited = new Promise<number | null>((resolve) => proc.once('exit', resolve));
-    proc.stdin?.on('error', () => undefined);
+    const proc = spawnGateway(script);
     proc.stdin?.write('{"endpoint":42}\n');
-    expect(await exited).toBe(2);
+    expect(await childClosed(proc)).toEqual({ code: 2, signal: null });
   });
 
   it('binds loopback only', async () => {
@@ -529,7 +581,7 @@ describe('control gateway translator', () => {
       const reply = await http(probe.port, { path: '/v1/models' });
       expect(reply.status).toBe(200);
     } finally {
-      probe.child.stdin?.end();
+      await stopChild(probe.child);
     }
   });
 });
@@ -577,27 +629,29 @@ describe('control gateway end to end (child -> endpoint -> gateway -> fake port)
       gateway,
     });
     const endpointPath = await host.start();
-    const proc = spawn(process.execPath, [script], {
-      stdio: ['pipe', 'pipe', 'ignore'],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-    });
-    proc.stdin?.on('error', () => undefined);
+    const proc = spawnGateway(script);
     proc.stdin?.write(`${JSON.stringify({ endpoint: endpointPath })}\n`);
-    const line = await new Promise<string>((resolve) => {
+    const line = await new Promise<string>((resolve, reject) => {
       let buffered = '';
       proc.stdout?.on('data', (chunk: Buffer) => {
         buffered += chunk.toString();
         if (buffered.includes('\n')) resolve(buffered.split('\n')[0] ?? '');
       });
+      proc.once('error', () =>
+        reject(new Error(`gateway child failed to spawn (pid=${proc.pid})`)),
+      );
+      proc.once('exit', (code, signal) => reject(earlyExit(proc, code, signal)));
     });
     child = proc;
     port = (JSON.parse(line) as { port: number }).port;
   }, 60_000);
   afterAll(async () => {
-    child.stdin?.end();
-    child.kill();
-    await host.stop();
-    await rm(dir, { recursive: true, force: true });
+    try {
+      await stopChild(child);
+    } finally {
+      await host.stop();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   const grant = {
