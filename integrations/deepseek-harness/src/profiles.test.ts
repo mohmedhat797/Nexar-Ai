@@ -141,6 +141,8 @@ describe('profile tool surfaces', () => {
       'web',
       'web-fetch-http',
       'tool-plugin-manager',
+      'tool-subagent',
+      'tool-subagent-control',
     ]) {
       expect(disabled).toContain(id);
     }

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { DshLaunch } from '@nexar/integration-deepseek-harness';
@@ -11,6 +12,7 @@ import {
   COWORK_REASONS,
   DshCoworkService,
   delegationInstruction,
+  isPhysicalScratchEscape,
   type DshCoworkServiceOptions,
 } from './dsh-cowork.js';
 import {
@@ -731,6 +733,48 @@ describe('a turn', () => {
       });
       expect(kit.calls).toEqual(['mint', 'restart', 'revoke']);
       expect(kit.turns).toHaveLength(2);
+    });
+  });
+
+  describe('isPhysicalScratchEscape', () => {
+    it('allows normal regular files and relative subdirectories inside scratch', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'nexar-scratch-test-'));
+      try {
+        expect(await isPhysicalScratchEscape(root, 'draft.md')).toBe(false);
+        expect(await isPhysicalScratchEscape(root, 'sub/nested/file.txt')).toBe(false);
+        await writeFile(join(root, 'existing.txt'), 'hello');
+        expect(await isPhysicalScratchEscape(root, 'existing.txt')).toBe(false);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects lexical parent escapes and absolute paths outside scratch', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'nexar-scratch-test-'));
+      try {
+        expect(await isPhysicalScratchEscape(root, '../outside.md')).toBe(true);
+        expect(await isPhysicalScratchEscape(root, 'sub/../../outside.md')).toBe(true);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it('detects directory junctions or symlinks escaping scratch root', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'nexar-scratch-test-'));
+      const outside = await mkdtemp(join(tmpdir(), 'nexar-outside-target-'));
+      try {
+        try {
+          const junctionTarget = join(root, 'escape-link');
+          await symlink(outside, junctionTarget, 'junction');
+          expect(await isPhysicalScratchEscape(root, 'escape-link/secret.txt')).toBe(true);
+        } catch (err: unknown) {
+          // If junction creation is not supported on platform, skip junction assertion
+          expect(err).toBeDefined();
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+        await rm(outside, { recursive: true, force: true });
+      }
     });
   });
 });

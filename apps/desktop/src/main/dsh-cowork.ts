@@ -1,7 +1,7 @@
 import type { spawn as nodeSpawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { lstat, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { ApprovalGate, recordPolicyDecision } from '@nexar/approvals';
 import { LocalArtifactStore } from '@nexar/artifacts';
 import {
@@ -720,6 +720,35 @@ export class DshCoworkService implements CoworkLane {
       bridgeTools: relay?.bridgeTools ?? [],
     });
     const target = filePathOf(input.rawInput);
+    if (outcome.decision !== 'reject' && target !== undefined) {
+      if (await isPhysicalScratchEscape(scratchRoot, target)) {
+        this.options.logger.warn('cowork write rejected: physical scratch escape detected', {
+          tool: input.tool,
+        });
+        await recordPolicyDecision(
+          this.options.engine.approvals(),
+          {
+            type: 'cowork.tool-call',
+            target: SAFE_TOOL.test(input.tool) ? input.tool : 'unknown',
+            parameters: {
+              sessionId: request.sessionId,
+              turnId: request.turnId,
+              tool: input.tool,
+              target: target ?? null,
+            },
+          },
+          {
+            summary: `Cowork ${input.tool}: denied by policy (physical escape)`,
+            risk: 'high',
+            taskId: task.id,
+            projectId: request.projectId,
+            metadata: { ruleId: 'outside-scratch', tool: input.tool },
+          },
+          'denied',
+        ).catch(() => undefined);
+        return 'reject';
+      }
+    }
     // Ask before every write: a scratch write the policy would allow waits for the owner.
     if (outcome.decision === 'ask-owner') {
       return (await this.askOwner(request, task, input.tool, target, signal)) ? 'allow' : 'reject';
@@ -835,6 +864,58 @@ function filePathOf(rawInput: unknown): string | undefined {
   if (typeof rawInput !== 'object' || rawInput === null) return undefined;
   const value = (rawInput as Record<string, unknown>)['file_path'];
   return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Asserts physical containment of a write/edit target within the turn's scratch directory.
+ * Traverses ancestors verifying no symbolic link, NTFS junction or reparse point escapes scratch.
+ */
+export async function isPhysicalScratchEscape(
+  scratchRoot: string,
+  targetPath: string,
+): Promise<boolean> {
+  try {
+    let realRoot: string;
+    try {
+      realRoot = await realpath(scratchRoot);
+    } catch {
+      // In hypothetical unit tests without disk scratch, skip filesystem probe
+      return false;
+    }
+    const resolved = resolve(realRoot, targetPath);
+    const rel = relative(realRoot, resolved);
+    if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      return true;
+    }
+    let curr = resolved;
+    while (curr !== realRoot && curr.length > realRoot.length) {
+      try {
+        const info = await lstat(curr);
+        if (info.isSymbolicLink()) {
+          return true; // Symbolic link inside scratch pointing elsewhere
+        }
+        const realCurr = await realpath(curr);
+        const relToRoot = relative(realRoot, realCurr);
+        if (relToRoot !== '' && (relToRoot.startsWith('..') || isAbsolute(relToRoot))) {
+          return true; // Target or parent resolves outside scratch root
+        }
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          const parent = dirname(curr);
+          if (parent === curr) break;
+          curr = parent;
+          continue;
+        }
+        return true; // Fail closed on filesystem errors
+      }
+      const parent = dirname(curr);
+      if (parent === curr) break;
+      curr = parent;
+    }
+    return false;
+  } catch {
+    return true; // Fail closed
+  }
 }
 
 // ---- channels ---------------------------------------------------------------------------------

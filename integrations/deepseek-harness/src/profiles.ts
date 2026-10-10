@@ -29,6 +29,8 @@ export const COWORK_PROFILE: DshProfile = {
     'web',
     'web-fetch-http',
     'tool-plugin-manager',
+    'tool-subagent',
+    'tool-subagent-control',
   ],
   shell: false,
 };
