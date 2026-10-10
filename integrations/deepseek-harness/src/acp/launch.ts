@@ -46,11 +46,9 @@ export interface AcpLaunchOptions {
 /**
  * Builds the sandbox launch spec for `dsh --profile acp` and asks the launcher to wrap it.
  *
- * KNOWN GAP: the launcher passes `spec.env` to bubblewrap as `--setenv` arguments, so the values
- * (including the API key, when one is configured, or the lane's gateway token) are visible in the
- * argv of the bwrap process to the owner's other processes via `/proc`. The host is trusted by the
- * threat model (the gateway token is lane-scoped and short-lived), but a later change should hand
- * the environment over through `bwrap --args <fd>` instead.
+ * The sandbox launcher delivers `spec.env` through `bwrap --args <fd>`, keeping provider keys and
+ * gateway tokens out of process argv while preserving a cleared, explicit child environment.
+ * The ephemeral argument file is private and removed at disposal; the host identity remains trusted.
  *
  * Gateway mode (`options.gateway.engine === 'dsh'`): the spec carries the lane's `services`, the
  * environment gets the lane token as `NEXAR_CONTROL_TOKEN`, and after `prepare` the mounted service

@@ -79,6 +79,8 @@ export interface BwrapProfileInput {
   readonly allowNestedUserNamespaces?: boolean;
   /** The final environment; nothing else is visible inside. */
   readonly env: Readonly<Record<string, string>>;
+  /** Read environment arguments from this inherited fd rather than exposing values in argv. */
+  readonly environmentFd?: number;
   readonly command: string;
   readonly args: readonly string[];
 }
@@ -146,8 +148,15 @@ export function buildBwrapArgs(input: BwrapProfileInput): string[] {
   }
 
   a.push('--remount-ro', '/', '--chdir', SANDBOX_WORKSPACE, '--clearenv');
-  for (const key of Object.keys(input.env).sort()) {
-    a.push('--setenv', key, input.env[key] ?? '');
+  if (input.environmentFd !== undefined) {
+    if (!Number.isSafeInteger(input.environmentFd) || input.environmentFd < 3) {
+      throw new NexarError('CONFIGURATION_ERROR', 'Environment argument fd is invalid');
+    }
+    a.push('--args', String(input.environmentFd));
+  } else {
+    for (const key of Object.keys(input.env).sort()) {
+      a.push('--setenv', key, input.env[key] ?? '');
+    }
   }
 
   a.push('--');

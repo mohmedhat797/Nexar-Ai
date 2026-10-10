@@ -651,7 +651,14 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
   });
 
   it('builds the sandbox launch spec from allowlisted env and one DSH state mount', async () => {
-    const t = setup();
+    const t = setup({
+      beforePrepared: () => {
+        const mount = t.launcher.specs[0]?.mounts?.[0];
+        if (process.platform !== 'win32')
+          expect(statSync(mount?.hostPath as string).mode & 0o777).toBe(0o700);
+        return Promise.resolve();
+      },
+    });
     const running = t.run();
     await decideWhenPending(t.store, 'approve');
     await running;
@@ -675,8 +682,7 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     expect(spec.mounts).toHaveLength(1);
     expect(mount).toMatchObject({ sandboxPath: '/home/agent/.dsh', access: 'read-write' });
     expect(mount?.hostPath.startsWith(t.stateDir)).toBe(true);
-    if (process.platform !== 'win32')
-      expect(statSync(mount?.hostPath as string).mode & 0o777).toBe(0o700);
+    expect(existsSync(mount?.hostPath as string)).toBe(false);
   });
 
   it('omits the credential when it is not set and honors allowHosts', async () => {
