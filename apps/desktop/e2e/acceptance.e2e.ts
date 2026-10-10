@@ -211,6 +211,7 @@ interface TelemetryEvent {
   readonly record?: {
     readonly origin: string;
     readonly taskKind: string;
+    readonly resourceId: string;
     readonly outcome: string;
     readonly routing?: { readonly policy: string; readonly reasonCodes: readonly string[] };
   };
@@ -220,12 +221,23 @@ interface TelemetryEvent {
  * The route decision behind every delegated unit, from telemetry (ids, codes and kinds, no
  * content), and the permission records the turn left.
  */
-async function expectSowTelemetry(userData: string): Promise<void> {
+async function expectSowTelemetry(userData: string, controlRequests: number): Promise<void> {
   const lines = (await readFile(join(userData, '.nexar', 'telemetry.jsonl'), 'utf8')).split('\n');
   const events = lines.filter((l) => l !== '').map((l) => JSON.parse(l) as TelemetryEvent);
-  const unitRuns = events.flatMap((e) =>
+  const runs = events.flatMap((e) =>
     e.type === 'execution.finished' && e.record?.origin === 'control-plane' ? [e.record] : [],
   );
+  const unitRuns = runs.filter((r) => r.taskKind !== 'control-model-turn');
+  const controlRuns = runs.filter((r) => r.taskKind === 'control-model-turn');
+  // The control model and delegated work are independently accounted, once per actual request.
+  expect(controlRuns).toHaveLength(controlRequests);
+  expect(controlRequests).toBeGreaterThan(SOW_UNITS.length * 2);
+  for (const run of controlRuns) {
+    expect(run.resourceId).toContain('local.e2e-control');
+    expect(run.outcome).toBe('succeeded');
+    expect(run.routing?.policy).toBe('resource-intelligence');
+    expect(run.routing?.reasonCodes.length).toBeGreaterThan(0);
+  }
   expect(unitRuns.map((r) => r.taskKind)).toEqual([
     'analysis',
     'analysis',
@@ -309,7 +321,7 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
 
       expect(await pageText(page)).not.toContain(FAKE_ARGUMENT);
       await harness.close(app);
-      await expectSowTelemetry(userData);
+      await expectSowTelemetry(userData, controlTurns.length);
       await expectCleanRecords(userData, [SOW_PROMPT]);
     },
     SOW_TIMEOUT,
@@ -595,7 +607,7 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
         RecordedTurn,
       ];
       expectSowRecords(proposal);
-      await expectSowTelemetry(userData);
+      await expectSowTelemetry(userData, controlTurns.length);
       expect(repository.lane).toMatchObject({ effectiveLane: 'code' });
       expect(repository.outcome?.engineering).toMatchObject({ status: 'reported' });
       expect(repository.outcome?.engineering?.lanes?.[0]).toMatchObject({
