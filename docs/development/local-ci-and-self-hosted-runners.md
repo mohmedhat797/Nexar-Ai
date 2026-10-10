@@ -125,7 +125,7 @@ pnpm ci:local:full
 
 Runs all 16 mandatory gates across static quality, offline tests, production build, CLI smoke, source desktop E2E, Windows desktop packaging, fresh packaged desktop E2E, Linux sandbox checks, and full-history Gitleaks scan.
 
-Result: `NEXAR_LOCAL_CI_PASS`, `NEXAR_LOCAL_CI_FAIL`, or `NEXAR_LOCAL_CI_BLOCKED`.
+Result: `NEXAR_WINDOWS_FULL_PASS` (Windows), `NEXAR_LINUX_FULL_PASS` (Native Linux), `NEXAR_LINUX_WSL2_PASS` (WSL2), or `NEXAR_WINDOWS_FULL_FAIL` / `NEXAR_WINDOWS_FULL_BLOCKED`. Cross-platform aggregation evaluates both into `NEXAR_CROSS_PLATFORM_ACCEPTANCE_PASS` or `NEXAR_CROSS_PLATFORM_ACCEPTANCE_INCOMPLETE`.
 
 ### 3.3 Report Mode (`ci:local:report`)
 
