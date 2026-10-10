@@ -3,10 +3,14 @@
 //   node scripts/install-dsh-runtime.mjs <dir>
 //
 // The package name and version come from integrations/deepseek-harness/dsh-runtime.json (the only
-// pin). The installed entry is verified with `--version` against that pin; its absolute path is the
-// last line on stdout (npm's own output goes to stderr).
+// pin). The dependency graph comes from the committed lockfile
+// integrations/deepseek-harness/dsh-runtime.package-lock.json and is installed with `npm ci`, which
+// fails on any mismatch between the pin, the lockfile and the registry's integrity hashes (threat
+// model T12). Bumping the pin means regenerating that lockfile. The installed entry is verified with
+// `--version` against the pin; its absolute path is the last line on stdout (npm's own output goes
+// to stderr).
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,38 +27,52 @@ const target = process.argv[2];
 if (target === undefined || process.argv.length > 3) fail('usage: install-dsh-runtime.mjs <dir>');
 const dir = resolve(target);
 
-const pinPath = join(
+const pinDir = join(
   dirname(fileURLToPath(import.meta.url)),
   '..',
   'integrations',
   'deepseek-harness',
-  'dsh-runtime.json',
 );
+const pinPath = join(pinDir, 'dsh-runtime.json');
+const lockPath = join(pinDir, 'dsh-runtime.package-lock.json');
 const pin = JSON.parse(readFileSync(pinPath, 'utf8'));
 if (typeof pin.package !== 'string' || !PACKAGE_NAME.test(pin.package)) fail('invalid package pin');
 if (typeof pin.version !== 'string' || !VERSION.test(pin.version)) fail('invalid version pin');
 
+// The lockfile must be for exactly this pin: its root names the same package and version.
+const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
+if (
+  lock.lockfileVersion !== 3 ||
+  lock.packages?.['']?.dependencies?.[pin.package] !== pin.version
+) {
+  fail('the lockfile does not match the pin; regenerate dsh-runtime.package-lock.json');
+}
+
 mkdirSync(dir, { recursive: true });
 writeFileSync(
   join(dir, 'package.json'),
-  `${JSON.stringify({ name: 'nexar-dsh-runtime', version: '0.0.0', private: true }, null, 2)}\n`,
+  `${JSON.stringify(
+    {
+      name: 'nexar-dsh-runtime',
+      version: '0.0.0',
+      private: true,
+      dependencies: { [pin.package]: pin.version },
+    },
+    null,
+    2,
+  )}\n`,
 );
+copyFileSync(lockPath, join(dir, 'package-lock.json'));
 
-// Both values were validated above, so the only shell-interpreted text is a fixed argument list.
+// `npm ci` installs exactly the lockfile and fails when it and package.json disagree. The argument
+// list is fixed (nothing validated above reaches the shell).
 const windows = process.platform === 'win32';
 const install = spawnSync(
   windows ? 'npm.cmd' : 'npm',
-  [
-    'install',
-    '--no-audit',
-    '--no-fund',
-    '--omit=dev',
-    '--save-exact',
-    `${pin.package}@${pin.version}`,
-  ],
+  ['ci', '--no-audit', '--no-fund', '--omit=dev'],
   { cwd: dir, stdio: ['ignore', 2, 2], shell: windows },
 );
-if (install.status !== 0) fail('npm install failed');
+if (install.status !== 0) fail('npm ci failed');
 
 const manifest = JSON.parse(
   readFileSync(join(dir, 'node_modules', ...pin.package.split('/'), 'package.json'), 'utf8'),

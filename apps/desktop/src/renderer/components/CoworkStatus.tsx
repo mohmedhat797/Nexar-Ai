@@ -83,6 +83,10 @@ export function CoworkBanner({ cowork }: { cowork: CoworkStatus }): ReactElement
 export function CoworkFacts({ status }: { status: CoworkStatusDto }): ReactElement {
   return (
     <dl className="facts" data-testid="cowork-facts">
+      <dt>Runtime</dt>
+      <dd data-testid="cowork-runtime">
+        {status.version === undefined ? 'DeepSeek Harness' : `DeepSeek Harness ${status.version}`}
+      </dd>
       <dt>State</dt>
       <dd data-testid="cowork-state">{status.state}</dd>
       <dt>Reason</dt>

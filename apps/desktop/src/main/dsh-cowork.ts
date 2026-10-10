@@ -183,6 +183,8 @@ export interface DshCoworkServiceOptions {
   readonly testEntry?: string | undefined;
   /** `process.resourcesPath` of a packaged app. */
   readonly resourcesPath?: string | undefined;
+  /** `NEXAR_DSH_ENTRY` of an unpackaged build: main passes it only when `!app.isPackaged`. */
+  readonly devEntry?: string | undefined;
   /** `true` under the test override without an entry: DeepSeek Harness is never launched. */
   readonly disabled?: boolean;
   /** TEST SEAM: a launch used instead of the resolved entry. */
@@ -353,6 +355,7 @@ export class DshCoworkService implements CoworkLane {
       testEntry: this.options.testEntry,
       settingsEntry: config.value.dshEntry,
       resourcesPath: this.options.resourcesPath,
+      devEntry: this.options.devEntry,
     });
     return entry === undefined ? undefined : dshLaunchForEntry(entry);
   }

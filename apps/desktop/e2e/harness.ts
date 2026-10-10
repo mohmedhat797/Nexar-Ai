@@ -24,11 +24,16 @@ export const POLL = { timeout: 60_000, interval: 200 };
 /**
  * The real DeepSeek Harness runtime for the Cowork scenarios: scripts/e2e.mjs passes
  * NEXAR_DSH_ENTRY on as NEXAR_DESKTOP_TEST_DSH_ENTRY (CI always sets it). Without it those
- * scenarios skip; a launch only gets the runtime when it spreads dshEnv.
+ * scenarios skip; a launch only gets the runtime when it spreads dshEnv. A packaged executable
+ * (NEXAR_DESKTOP_EXECUTABLE) is never given an entry: it only opts its own bundled runtime in, so
+ * the runtime is resolved from `resources/dsh-runtime` exactly as in production.
  */
-export const DSH_ENTRY = process.env['NEXAR_DESKTOP_TEST_DSH_ENTRY'];
-export const dshEnv: Readonly<Record<string, string>> =
-  DSH_ENTRY === undefined || DSH_ENTRY === '' ? {} : { NEXAR_DESKTOP_TEST_DSH_ENTRY: DSH_ENTRY };
+export const DSH_ENTRY = EXECUTABLE ? undefined : process.env['NEXAR_DESKTOP_TEST_DSH_ENTRY'];
+export const dshEnv: Readonly<Record<string, string>> = EXECUTABLE
+  ? { NEXAR_DESKTOP_TEST_DSH_RUNTIME: 'packaged' }
+  : DSH_ENTRY === undefined || DSH_ENTRY === ''
+    ? {}
+    : { NEXAR_DESKTOP_TEST_DSH_ENTRY: DSH_ENTRY };
 export const hasDsh = Object.keys(dshEnv).length > 0;
 
 export const text = (locator: Locator): Promise<string> => locator.innerText();
@@ -118,6 +123,7 @@ export async function createHarness(): Promise<Harness> {
         name.startsWith('NEXAR_FAKE_PLANE_') ||
         name === 'NEXAR_DESKTOP_TEST_PLANE' ||
         name === 'NEXAR_DESKTOP_TEST_DSH_ENTRY' ||
+        name === 'NEXAR_DESKTOP_TEST_DSH_RUNTIME' ||
         name === 'NEXAR_DSH_ENTRY'
       ) {
         delete env[name];

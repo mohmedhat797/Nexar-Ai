@@ -589,6 +589,23 @@ describe('a turn', () => {
     expect(logs.join('\n')).not.toContain(PROVIDER_KEYS.ANTHROPIC_API_KEY);
   });
 
+  it('fails a turn whose runtime exits mid-turn with a fixed error, and the next turn starts a fresh process', async () => {
+    const marker = join(dirname(h.userData), 'exit-once.marker');
+    const { cowork, spawned } = await ready({ fake: { 'fake-exit-once': marker } });
+    const error = await cowork
+      .run(coworkRequest(projectId).request, signal())
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({
+      code: 'INTEGRATION_UNAVAILABLE',
+      message: 'DeepSeek Harness could not complete the request',
+    });
+    expect(sessionSpawns(spawned)).toBe(1);
+
+    const next = await cowork.run(coworkRequest(projectId).request, signal());
+    expect(next.text).not.toBe('');
+    expect(sessionSpawns(spawned)).toBe(2);
+  });
+
   describe('delegation', () => {
     it('hands the bridge relay to DSH as the nexar MCP server and records delegated units', async () => {
       const { cowork, kit, recordPath } = await ready({ fake: { 'fake-unit': '1' } });

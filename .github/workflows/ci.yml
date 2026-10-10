@@ -21,7 +21,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
@@ -92,7 +92,9 @@ jobs:
         if: runner.os == 'Windows'
         run: pnpm desktop:package:win
 
-      - name: Packaged desktop E2E (native Windows, offline echo)
+      # No runtime entry is passed: the packaged app must find its own bundled DSH runtime
+      # (resources/dsh-runtime) and run the Cowork scenarios on it.
+      - name: Packaged desktop E2E (native Windows, bundled DSH runtime, offline)
         if: runner.os == 'Windows'
         env:
           NEXAR_DESKTOP_EXECUTABLE: ${{ github.workspace }}\release\desktop\win-unpacked\Nexar.exe

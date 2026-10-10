@@ -6,8 +6,12 @@ import { ensureElectron } from './ensure-electron.mjs';
 ensureElectron();
 const config = fileURLToPath(new URL('../e2e/vitest.e2e.config.ts', import.meta.url));
 // The Cowork scenarios drive the real DeepSeek Harness runtime (ADR-030); without an entry they skip.
+// A packaged executable gets no entry at all: it must find its own bundled runtime.
 const env = { ...process.env };
-if (env.NEXAR_DSH_ENTRY) env.NEXAR_DESKTOP_TEST_DSH_ENTRY = env.NEXAR_DSH_ENTRY;
+if (env.NEXAR_DESKTOP_EXECUTABLE) {
+  delete env.NEXAR_DESKTOP_TEST_DSH_ENTRY;
+  delete env.NEXAR_DSH_ENTRY;
+} else if (env.NEXAR_DSH_ENTRY) env.NEXAR_DESKTOP_TEST_DSH_ENTRY = env.NEXAR_DSH_ENTRY;
 else delete env.NEXAR_DESKTOP_TEST_DSH_ENTRY;
 const result = spawnSync('pnpm', ['exec', 'vitest', 'run', '--config', config], {
   stdio: 'inherit',

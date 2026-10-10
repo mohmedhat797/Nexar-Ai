@@ -282,6 +282,12 @@ async function start(): Promise<void> {
     underTestOverride && testDshEntry !== undefined && isAbsolute(testDshEntry)
       ? testDshEntry
       : undefined;
+  // The packaged E2E names no entry: it opts the app's own bundled runtime in with this flag (only
+  // honoured in a packaged app under the override), so the runtime is found as in production.
+  const dshPackagedUnderTest =
+    underTestOverride &&
+    app.isPackaged &&
+    process.env['NEXAR_DESKTOP_TEST_DSH_RUNTIME'] === 'packaged';
   // The Intelligence Bridge endpoint (ADR-027 §9a): a per-launch local pipe/socket, never a port.
   // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
   // exists unless delegation is used. Stopped at quit.
@@ -337,9 +343,11 @@ async function start(): Promise<void> {
     engine,
     logger,
     stateDir: join(runtimePath, 'dsh-cowork'),
-    disabled: underTestOverride && dshTestEntry === undefined,
+    disabled: underTestOverride && dshTestEntry === undefined && !dshPackagedUnderTest,
     testEntry: dshTestEntry,
-    ...(app.isPackaged ? { resourcesPath: process.resourcesPath } : {}),
+    ...(app.isPackaged
+      ? { resourcesPath: process.resourcesPath }
+      : { devEntry: process.env['NEXAR_DSH_ENTRY'] }),
     createTask: (request, excludedResourceIds) =>
       newTask(
         engine,

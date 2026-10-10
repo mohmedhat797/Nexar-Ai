@@ -15,6 +15,10 @@ const stagingRelative = 'dist/desktop-staging';
 const outputRelative = 'release/desktop';
 const staging = resolve(root, stagingRelative);
 const output = resolve(root, outputRelative);
+// The pinned DeepSeek Harness runtime (ADR-030): installed here at build time (never by the app),
+// then shipped outside the asar as `resources/dsh-runtime` (see `extraResources`).
+const runtimeRelative = 'dist/dsh-runtime';
+const runtimeDir = resolve(root, runtimeRelative);
 const require = createRequire(import.meta.url);
 const desktop = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const builderManifestPath = require.resolve('electron-builder/package.json');
@@ -56,7 +60,7 @@ function contained(path) {
 
 async function cleanOutput(path) {
   // Only these fixed repository output directories may be removed; never application state.
-  if (![staging, output].includes(path) || !contained(path) || path === root) {
+  if (![staging, output, runtimeDir].includes(path) || !contained(path) || path === root) {
     throw new Error('Refusing to clean outside the packaging output directories');
   }
   for (let existing = path; existing !== root; existing = dirname(existing)) {
@@ -81,6 +85,36 @@ async function cleanOutput(path) {
 run([pnpmCli, 'build']);
 await cleanOutput(staging);
 await cleanOutput(output);
+await cleanOutput(runtimeDir);
+
+// `install-dsh-runtime.mjs` installs the pin from its lockfile (`npm ci`) and verifies `--version`;
+// its last stdout line is the entry. Packaging fails unless that is the pinned version.
+const pin = JSON.parse(
+  await readFile(join(root, 'integrations', 'deepseek-harness', 'dsh-runtime.json'), 'utf8'),
+);
+const installed = spawnSync(
+  process.execPath,
+  [join(root, 'scripts', 'install-dsh-runtime.mjs'), runtimeDir],
+  { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: false },
+);
+if (installed.error !== undefined) throw installed.error;
+if (installed.status !== 0) process.exit(installed.status ?? 1);
+const entry = installed.stdout.trim().split(/\r?\n/).at(-1) ?? '';
+const packageDir = join(runtimeDir, 'node_modules', ...pin.package.split('/'));
+const packageManifest = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8'));
+const entryFromPackage = relative(packageDir, entry).split(/[\\/]/).join('/');
+if (
+  packageManifest.version !== pin.version ||
+  !entry.toLowerCase().startsWith(packageDir.toLowerCase()) ||
+  !entryFromPackage.endsWith('.js')
+) {
+  throw new Error('The installed DeepSeek Harness runtime is not the pinned version');
+}
+await writeFile(
+  join(runtimeDir, 'runtime.json'),
+  `${JSON.stringify({ package: pin.package, version: pin.version, entry: entryFromPackage }, null, 2)}\n`,
+);
+
 // Keep the deploy target relative: pnpm's legacy deploy fails across Windows drive letters.
 run([pnpmCli, '--filter', '@nexar/desktop', 'deploy', '--prod', '--legacy', stagingRelative]);
 run(

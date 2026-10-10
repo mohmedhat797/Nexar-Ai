@@ -16,6 +16,7 @@
 //   --fake-stop=<reason>       stopReason of the prompt response (default end_turn)
 //   --fake-rpc-message=<text>  error message for the rpc-error scenario
 //   --fake-unit-capability=<c> capability the gateway session's bridge unit asks for (default `unit`)
+//   --fake-exit-once=<path>    exit (code 3) mid-turn unless <path> exists; creates it first
 //   --fake-unit=0|1            run the bridge unit when an `nexar` MCP server was offered (default 1)
 //
 // Gateway mode: when the `--patch <overlay>` file declares the pi-ai route `nexar`, `session/prompt`
@@ -25,7 +26,7 @@
 // The token and prompt text are never recorded.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -47,6 +48,7 @@ const stopReason = setting('stop', 'end_turn');
 const rpcMessage = setting('rpc-message', 'upstream exploded');
 const recordPath = setting('record', undefined);
 const unitCapability = setting('unit-capability', 'unit');
+const exitOnce = setting('exit-once', undefined);
 
 const patchAt = argv.indexOf('--patch');
 const overlay = patchAt === -1 ? undefined : readFileSync(argv[patchAt + 1], 'utf8');
@@ -354,6 +356,11 @@ async function runPrompt(id, sessionId, promptText) {
     sessionUpdate: 'agent_message_chunk',
     content: { type: 'text', text: 'working. ' },
   });
+  if (exitOnce !== undefined && !existsSync(exitOnce)) {
+    // Crash mid-turn the first time only (the marker survives for the next process).
+    writeFileSync(exitOnce, 'x');
+    process.exit(3);
+  }
   if (nexarBaseUrl !== undefined && scenario === 'normal') {
     return runGatewayPrompt(id, sessionId, promptText);
   }

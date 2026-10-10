@@ -113,6 +113,7 @@ describe('Nexar Desktop Cowork lane (DeepSeek Harness)', () => {
       await page.getByTestId('cowork-settings-refresh').click();
       await hasText(page.getByTestId('cowork-state'), 'ready');
       await hasText(page.getByTestId('cowork-version'), '0.');
+      await hasText(page.getByTestId('cowork-runtime'), 'DeepSeek Harness 0.');
 
       // --- Cowork conversation: the banner is ready, the turn is orchestrated by DeepSeek Harness ---
       await page.getByTestId('nav-chat').click();
