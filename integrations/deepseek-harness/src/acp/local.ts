@@ -41,7 +41,8 @@ export interface LocalAcpSessionOptions {
   readonly scratchDir: string;
   /** Absolute; created 0700; must not be inside `scratchDir`. */
   readonly dshHome: string;
-  readonly permissionMode: 'workspace-write' | 'read-only';
+  /** Host-local writes require a per-call ACP decision; no standing write grant. */
+  readonly permissionMode: 'read-only';
   readonly control: { readonly baseURL: string; readonly token: string };
   readonly requiredContext?: string | undefined;
   /** ACP stdio MCP server entries for `session/new` (e.g. `bridgeMcpServer(...)`). */
@@ -80,6 +81,9 @@ export async function runLocalAcpSession(options: LocalAcpSessionOptions): Promi
   try {
     if (options.signal.aborted) {
       throw new NexarError('EXECUTION_CANCELLED', 'execution was cancelled');
+    }
+    if (options.permissionMode !== 'read-only') {
+      throw new NexarError('POLICY_REJECTED', 'host-local dsh requires per-call write permission');
     }
     const scratchDir = await containedScratch(options.scratchBase, options.scratchDir);
     const overlay = renderProfileOverlay({

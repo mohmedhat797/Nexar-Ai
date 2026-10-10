@@ -140,7 +140,15 @@ function nextAction(
   if (script.kind === 'write') {
     return last?.role === 'tool'
       ? { text: script.final }
-      : { call: named('write'), args: { file_path: script.file, content: script.content } };
+      : {
+          call: named('write'),
+          args: {
+            file_path: script.file,
+            content: script.content,
+            sandbox_permissions: 'workspace-write',
+            justification: 'Write the requested draft in scratch.',
+          },
+        };
   }
 
   const units = script.kind === 'sow' ? SOW_UNITS : [DELEGATE_UNIT];
@@ -195,7 +203,12 @@ function nextAction(
     const draftIndex = units.findIndex((u) => u.unitId === 'draft');
     return {
       call: named('write'),
-      args: { file_path: 'draft.md', content: done[draftIndex] ?? done.at(-1) ?? '' },
+      args: {
+        file_path: 'draft.md',
+        content: done[draftIndex] ?? done.at(-1) ?? '',
+        sandbox_permissions: 'workspace-write',
+        justification: 'Write the requested draft in scratch.',
+      },
     };
   }
   return submit(0);

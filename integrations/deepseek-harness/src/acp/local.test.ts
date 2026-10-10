@@ -84,7 +84,7 @@ function setup(
     scratchBase: base,
     scratchDir: scratch,
     dshHome: home,
-    permissionMode: 'workspace-write',
+    permissionMode: 'read-only',
     control: { baseURL: BASE_URL, token: TOKEN },
     prompt: 'MARKER-PROMPT hello',
     decide,
@@ -199,7 +199,7 @@ describe('runLocalAcpSession', () => {
     expect(record.dshHome).toBe(t.home);
     expect(record.envHome).toBe(t.home);
     expect(record.envUserProfile).toBe(t.home);
-    expect(record.envPermissionMode).toBe('workspace-write');
+    expect(record.envPermissionMode).toBe('read-only');
     expect(record.envTelemetryDisabled).toBe('1');
     const serialized = JSON.stringify(record);
     expect(serialized).not.toContain(TOKEN);
@@ -210,6 +210,16 @@ describe('runLocalAcpSession', () => {
     const t = setup();
     await runLocalAcpSession({ ...t.options, permissionMode: 'read-only' });
     expect(t.record().envPermissionMode).toBe('read-only');
+  });
+
+  it('refuses a standing host-local write grant before spawning', async () => {
+    const t = setup();
+    const spawnSpy = vi.fn() as unknown as typeof spawn;
+    const invalid = { ...t.options, permissionMode: 'workspace-write', spawn: spawnSpy };
+    await expect(runLocalAcpSession(invalid as LocalAcpSessionOptions)).rejects.toMatchObject({
+      code: 'POLICY_REJECTED',
+    });
+    expect(spawnSpy).not.toHaveBeenCalled();
   });
 
   it('refuses a scratch directory outside its base without spawning anything', async () => {

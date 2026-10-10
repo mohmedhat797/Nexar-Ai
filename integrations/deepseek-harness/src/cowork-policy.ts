@@ -65,11 +65,14 @@ export function decideCoworkPermission(
   }
 }
 
-/** `drafts-only` lets DSH write inside scratch itself; every other mode makes every write ask. */
-export function coworkPermissionMode(
-  permission: CoworkPermission,
-): 'workspace-write' | 'read-only' {
-  return permission === 'drafts-only' ? 'workspace-write' : 'read-only';
+/**
+ * Standing writes are always disabled. DSH's workspace-write also admits host temp directories
+ * and bypasses ACP for ordinary writes. A write must request workspace-write for that single call;
+ * Nexar decides whether to allow it automatically, ask the owner, or deny it.
+ */
+export function coworkPermissionMode(permission: CoworkPermission): 'read-only' {
+  void permission;
+  return 'read-only';
 }
 
 function containment(
@@ -101,6 +104,7 @@ function flavorOf(root: string): path.PlatformPath | undefined {
 /** Refuses UNC/device/namespace paths, alternate streams, reserved device names and trailing dots/spaces. */
 function safeWindowsPath(target: string): boolean {
   if (target.startsWith('\\\\') || target.startsWith('//')) return false;
+  if (/^[A-Za-z]:(?![\\/])/.test(target)) return false;
   const afterDrive = /^[A-Za-z]:/.test(target) ? target.slice(2) : target;
   if (afterDrive.includes(':')) return false;
   for (const segment of target.split(/[\\/]/)) {

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -465,6 +465,29 @@ describe('a turn', () => {
       expect(all.filter((r) => r.actionType === 'cowork.tool-call')).toEqual([]);
     });
 
+    it('rejects a path replaced by an external junction while owner approval is pending', async () => {
+      const { cowork, call, recordPath } = await ready({
+        fake: {
+          'fake-scenario': 'ask',
+          'fake-tool': 'write',
+          'fake-input': '{"file_path":"nested/a.md"}',
+        },
+      });
+      const running = cowork.run(coworkRequest(projectId, { permission: ask }).request, signal());
+      const request = await pendingWrite();
+      const [name] = await readdir(join(stateDir, 'scratch'));
+      if (name === undefined) throw new Error('missing turn scratch');
+      const outside = join(dirname(h.userData), 'synthetic-outside');
+      await mkdir(outside);
+      await symlink(outside, join(stateDir, 'scratch', name, 'nested'), 'junction');
+      expect((await call(CHANNELS.approvalsApprove, { id: request?.id })).ok).toBe(true);
+      await running;
+      expect(
+        ((await readFakeRecord(recordPath)) as { permissionLabel: string }).permissionLabel,
+      ).toBe('reject-once');
+      expect(await readdir(outside)).toEqual([]);
+    });
+
     it('denies the write when the owner denies it', async () => {
       const { cowork, call, recordPath } = await ready(asking());
       const running = cowork.run(coworkRequest(projectId, { permission: ask }).request, signal());
@@ -737,6 +760,13 @@ describe('a turn', () => {
   });
 
   describe('isPhysicalScratchEscape', () => {
+    it('rejects an unresolved or deleted scratch root', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'nexar-scratch-test-'));
+      await rm(root, { recursive: true, force: true });
+      expect(await isPhysicalScratchEscape(root, 'draft.md')).toBe(true);
+      expect(await isPhysicalScratchEscape(join(root, 'never-created'), 'draft.md')).toBe(true);
+    });
+
     it('allows normal regular files and relative subdirectories inside scratch', async () => {
       const root = await mkdtemp(join(tmpdir(), 'nexar-scratch-test-'));
       try {
@@ -763,14 +793,9 @@ describe('a turn', () => {
       const root = await mkdtemp(join(tmpdir(), 'nexar-scratch-test-'));
       const outside = await mkdtemp(join(tmpdir(), 'nexar-outside-target-'));
       try {
-        try {
-          const junctionTarget = join(root, 'escape-link');
-          await symlink(outside, junctionTarget, 'junction');
-          expect(await isPhysicalScratchEscape(root, 'escape-link/secret.txt')).toBe(true);
-        } catch (err: unknown) {
-          // If junction creation is not supported on platform, skip junction assertion
-          expect(err).toBeDefined();
-        }
+        const junctionTarget = join(root, 'escape-link');
+        await symlink(outside, junctionTarget, 'junction');
+        expect(await isPhysicalScratchEscape(root, 'escape-link/secret.txt')).toBe(true);
       } finally {
         await rm(root, { recursive: true, force: true });
         await rm(outside, { recursive: true, force: true });

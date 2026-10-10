@@ -20,7 +20,10 @@ export const COWORK_PROFILE: DshProfile = {
     'You are a professional assistant working for the owner. You draft documents, proposals, ' +
     'research and analysis as files in your working directory, and you explain what you wrote. ' +
     'You never claim to have sent, published, uploaded or shared anything: you only produce drafts ' +
-    'that the owner reviews and sends themselves.',
+    'that the owner reviews and sends themselves. ' +
+    'For every write or edit, request sandbox_permissions="workspace-write" with a justification. ' +
+    'Nexar authorizes that single operation only inside your working directory. ' +
+    'Never request danger-full-access.',
   disabledRows: [
     'tool-bash',
     'tool-pwsh',
@@ -31,6 +34,9 @@ export const COWORK_PROFILE: DshProfile = {
     'tool-plugin-manager',
     'tool-subagent',
     'tool-subagent-control',
+    'tool-subagent-fork',
+    'tool-subagent-list-agents',
+    'tool-workflow',
   ],
   shell: false,
 };

@@ -47,7 +47,16 @@ function writeTool(request: ModelTurnPortRequest) {
     ...okTurn(),
     text: '',
     toolCalls: [
-      { id: 'call_1', name: 'write', arguments: { file_path: 'proposal.md', content: CONTENT } },
+      {
+        id: 'call_1',
+        name: 'write',
+        arguments: {
+          file_path: 'proposal.md',
+          content: CONTENT,
+          sandbox_permissions: 'workspace-write',
+          justification: 'Write the requested draft in scratch.',
+        },
+      },
     ],
     finishReason: 'tool-calls' as const,
     usage: { inputTokens: measured(1), outputTokens: measured(1) },
@@ -115,10 +124,11 @@ describe.skipIf(ENTRY === undefined)('DshCoworkService on the real runtime', () 
     ).toBe(CONTENT);
     expect(kit.calls).toEqual(['mint', 'revoke']);
     expect(kit.turns.map((t) => t.request.messages.at(-1)?.role)).toEqual(['user', 'tool']);
-    // Inside scratch, DSH either asks (and Nexar allows, recorded) or writes unasked.
+    // Every scratch write requires the Nexar broker, including drafts-only.
     const decisions = (await h.engine.approvals().list()).filter(
       (r) => r.actionType === 'cowork.tool-call',
     );
+    expect(decisions).toHaveLength(1);
     expect(decisions.every((r) => r.status === 'consumed')).toBe(true);
   }, 240_000);
 

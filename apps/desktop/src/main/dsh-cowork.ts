@@ -751,7 +751,11 @@ export class DshCoworkService implements CoworkLane {
     }
     // Ask before every write: a scratch write the policy would allow waits for the owner.
     if (outcome.decision === 'ask-owner') {
-      return (await this.askOwner(request, task, input.tool, target, signal)) ? 'allow' : 'reject';
+      if (!(await this.askOwner(request, task, input.tool, target, signal))) return 'reject';
+      // Approval can take minutes. Never reuse the filesystem check made before waiting.
+      return target !== undefined && !(await isPhysicalScratchEscape(scratchRoot, target))
+        ? 'allow'
+        : 'reject';
     }
     const allowed = outcome.decision === 'allow';
     const tool = SAFE_TOOL.test(input.tool) ? input.tool : 'unknown';
@@ -779,8 +783,12 @@ export class DshCoworkService implements CoworkLane {
       );
     } catch (error) {
       this.options.logger.warn('cowork decision record failed', { code: codeOf(error) });
+      return 'reject';
     }
-    return allowed ? 'allow' : 'reject';
+    return allowed &&
+      (target === undefined || !(await isPhysicalScratchEscape(scratchRoot, target)))
+      ? 'allow'
+      : 'reject';
   }
 
   /**
@@ -867,21 +875,21 @@ function filePathOf(rawInput: unknown): string | undefined {
 }
 
 /**
- * Asserts physical containment of a write/edit target within the turn's scratch directory.
- * Traverses ancestors verifying no symbolic link, NTFS junction or reparse point escapes scratch.
+ * Refuses unverifiable write/edit targets, including links inside scratch and a replaced root.
+ * This pre-execution check narrows races; it is not an OS boundary or an atomic filesystem grant.
  */
 export async function isPhysicalScratchEscape(
   scratchRoot: string,
   targetPath: string,
 ): Promise<boolean> {
   try {
-    let realRoot: string;
-    try {
-      realRoot = await realpath(scratchRoot);
-    } catch {
-      // In hypothetical unit tests without disk scratch, skip filesystem probe
-      return false;
-    }
+    if (!isAbsolute(scratchRoot) || targetPath === '' || targetPath.includes('\0')) return true;
+    const rootInfo = await lstat(scratchRoot);
+    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) return true;
+    const realRoot = await realpath(scratchRoot);
+    // The caller passes the canonical root created for this turn. A replacement junction must
+    // not redefine that authority to its new target.
+    if (relative(resolve(scratchRoot), realRoot) !== '') return true;
     const resolved = resolve(realRoot, targetPath);
     const rel = relative(realRoot, resolved);
     if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
@@ -891,12 +899,12 @@ export async function isPhysicalScratchEscape(
     while (curr !== realRoot && curr.length > realRoot.length) {
       try {
         const info = await lstat(curr);
-        if (info.isSymbolicLink()) {
-          return true; // Symbolic link inside scratch pointing elsewhere
+        if (info.isSymbolicLink() || (info.isFile() && info.nlink !== 1)) {
+          return true; // A hard link can alias an outside file without changing its canonical path.
         }
         const realCurr = await realpath(curr);
         const relToRoot = relative(realRoot, realCurr);
-        if (relToRoot !== '' && (relToRoot.startsWith('..') || isAbsolute(relToRoot))) {
+        if (relToRoot === '..' || relToRoot.startsWith(`..${sep}`) || isAbsolute(relToRoot)) {
           return true; // Target or parent resolves outside scratch root
         }
       } catch (err: unknown) {
@@ -912,7 +920,13 @@ export async function isPhysicalScratchEscape(
       if (parent === curr) break;
       curr = parent;
     }
-    return false;
+    const finalRoot = await lstat(scratchRoot);
+    return (
+      !finalRoot.isDirectory() ||
+      finalRoot.isSymbolicLink() ||
+      finalRoot.dev !== rootInfo.dev ||
+      finalRoot.ino !== rootInfo.ino
+    );
   } catch {
     return true; // Fail closed
   }

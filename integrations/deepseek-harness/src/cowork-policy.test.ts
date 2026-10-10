@@ -94,6 +94,10 @@ describe.each([
       { file_path: ['a.md'] },
       { file_path: '' },
       { file_path: 'a\0b.md' },
+      { path: 'a.md' },
+      { target: 'a.md' },
+      { paths: ['a.md', '../outside.md'] },
+      { patch: { file_path: 'a.md', content: 'x' } },
       'a.md',
       null,
       undefined,
@@ -136,6 +140,7 @@ describe('Windows path hazards', () => {
     'sub\\con.txt',
     '.. \\outside.md',
     'a.md.',
+    'C:a.md',
   ])('rejects %j', (file_path) => {
     expect(write(WIN_ROOT, 'drafts-only', { file_path }).decision).toBe('reject');
   });
@@ -174,8 +179,8 @@ describe('unusable scratch roots', () => {
 });
 
 describe('coworkPermissionMode', () => {
-  it('only drafts-only lets DSH write by itself', () => {
-    expect(coworkPermissionMode('drafts-only')).toBe('workspace-write');
+  it('requires a Nexar decision for every mutation in every mode', () => {
+    expect(coworkPermissionMode('drafts-only')).toBe('read-only');
     expect(coworkPermissionMode('read-only')).toBe('read-only');
     expect(coworkPermissionMode('ask-before-write')).toBe('read-only');
   });

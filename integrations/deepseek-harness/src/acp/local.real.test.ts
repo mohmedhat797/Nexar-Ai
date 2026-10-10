@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { decideCoworkPermission } from '../cowork-policy.js';
@@ -20,7 +20,8 @@ const ENTRY = process.env.NEXAR_DSH_ENTRY;
 const TOKEN = 'real-test-control-token-4f9a1c';
 const INITIALIZE_TIMEOUT_MS = 90_000;
 const TEST_TIMEOUT_MS = 180_000;
-const FORBIDDEN_TOOLS = /bash|pwsh|powershell|web_fetch|web_search/i;
+const FORBIDDEN_TOOLS =
+  /bash|pwsh|powershell|web_fetch|web_search|subagent|workflow|send_message|list_agents|plugin/i;
 
 interface ModelRequest {
   readonly authorization: string | undefined;
@@ -42,6 +43,7 @@ interface FakeModel {
 async function startFakeModel(
   toolArguments: Record<string, unknown>,
   finalText: string,
+  toolName = 'write',
 ): Promise<FakeModel> {
   const requests: ModelRequest[] = [];
   const server: Server = createServer((req, res) => {
@@ -67,7 +69,7 @@ async function startFakeModel(
                     index: 0,
                     id: 'call_1',
                     type: 'function',
-                    function: { name: 'write', arguments: JSON.stringify(toolArguments) },
+                    function: { name: toolName, arguments: JSON.stringify(toolArguments) },
                   },
                 ],
               },
@@ -147,7 +149,7 @@ describe.skipIf(ENTRY === undefined)('dsh --profile acp (real runtime, host-loca
       scratchBase: base,
       scratchDir: dir,
       dshHome: home,
-      permissionMode: 'workspace-write',
+      permissionMode: 'read-only',
       control: { baseURL: model.baseURL, token: TOKEN },
       ...(options.requiredContext === undefined
         ? {}
@@ -174,7 +176,15 @@ describe.skipIf(ENTRY === undefined)('dsh --profile acp (real runtime, host-loca
     'runs a Cowork turn: write into scratch through the nexar route, no shell or web tools',
     async () => {
       const content = '# Proposal\n\nREAL-TEST-CONTENT\n';
-      const model = await startFakeModel({ file_path: 'proposal.md', content }, 'FINAL-TEXT-OK');
+      const model = await startFakeModel(
+        {
+          file_path: 'proposal.md',
+          content,
+          sandbox_permissions: 'workspace-write',
+          justification: 'Write the requested draft in scratch.',
+        },
+        'FINAL-TEXT-OK',
+      );
       try {
         const decisions: string[] = [];
         const { result, dir } = await turn('write', model, { decisions });
@@ -191,8 +201,46 @@ describe.skipIf(ENTRY === undefined)('dsh --profile acp (real runtime, host-loca
         const tools = (model.requests[0]?.body.tools ?? []).map((t) => t.function?.name ?? '');
         expect(tools).toContain('write');
         expect(tools.filter((name) => FORBIDDEN_TOOLS.test(name))).toEqual([]);
-        // Writes inside scratch under workspace-write need no permission round trip; if DSH asks, it is allowed.
+        // No mutation may silently bypass Nexar's decision.
+        expect(decisions.length).toBeGreaterThan(0);
         expect(decisions.every((d) => d.startsWith('write:allow:'))).toBe(true);
+      } finally {
+        await model.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'denies an ordinary write without the per-call authorization request',
+    async () => {
+      const model = await startFakeModel({ file_path: 'unasked.md', content: 'DENIED' }, 'DONE');
+      try {
+        const decisions: string[] = [];
+        const { dir } = await turn('unasked', model, { decisions });
+        expect(existsSync(join(dir, 'unasked.md'))).toBe(false);
+        expect(decisions).toEqual([]);
+        expect(JSON.stringify(model.requests.at(-1)?.body.messages)).toContain('sandbox');
+      } finally {
+        await model.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'documents the host-local read boundary using only a synthetic file outside scratch',
+    async () => {
+      const outside = join(root, 'synthetic-outside.txt');
+      writeFileSync(outside, 'FCR01-SYNTHETIC-HOST-READ');
+      const model = await startFakeModel({ file_path: outside }, 'READ-DONE', 'read');
+      try {
+        const decisions: string[] = [];
+        await turn('host-read', model, { decisions });
+        expect(JSON.stringify(model.requests.at(-1)?.body.messages)).toContain(
+          'FCR01-SYNTHETIC-HOST-READ',
+        );
+        expect(decisions).toEqual([]);
       } finally {
         await model.close();
       }
@@ -231,7 +279,15 @@ describe.skipIf(ENTRY === undefined)('dsh --profile acp (real runtime, host-loca
   it(
     'delivers the required context in the system message',
     async () => {
-      const model = await startFakeModel({ file_path: 'a.md', content: 'x' }, 'CTX-DONE');
+      const model = await startFakeModel(
+        {
+          file_path: 'a.md',
+          content: 'x',
+          sandbox_permissions: 'workspace-write',
+          justification: 'Write the requested draft in scratch.',
+        },
+        'CTX-DONE',
+      );
       try {
         await turn('context', model, {
           requiredContext: 'REQUIRED-CONTEXT-MARKER-77 {{not-a-var}}',
