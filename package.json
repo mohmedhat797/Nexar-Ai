@@ -18,7 +18,10 @@
     "check": "pnpm format:check && pnpm lint && pnpm check:boundaries && pnpm typecheck && pnpm test && pnpm build",
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "desktop:e2e": "pnpm --filter @nexar/desktop e2e",
-    "desktop:package:win": "pnpm --filter @nexar/desktop package:win"
+    "desktop:package:win": "pnpm --filter @nexar/desktop package:win",
+    "ci:local:quick": "node scripts/local-ci/runner.mjs --mode=quick",
+    "ci:local:full": "node scripts/local-ci/runner.mjs --mode=full",
+    "ci:local:report": "node scripts/local-ci/runner.mjs --mode=report"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
