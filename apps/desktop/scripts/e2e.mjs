@@ -12,8 +12,8 @@ if (env.NEXAR_DESKTOP_EXECUTABLE) {
   delete env.NEXAR_DESKTOP_TEST_DSH_ENTRY;
   delete env.NEXAR_DSH_ENTRY;
 } else if (env.NEXAR_DSH_ENTRY) env.NEXAR_DESKTOP_TEST_DSH_ENTRY = env.NEXAR_DSH_ENTRY;
-else delete env.NEXAR_DESKTOP_TEST_DSH_ENTRY;
-const result = spawnSync('pnpm', ['exec', 'vitest', 'run', '--config', config], {
+const configArg = process.platform === 'win32' && config.includes(' ') ? `"${config}"` : config;
+const result = spawnSync('pnpm', ['exec', 'vitest', 'run', '--config', configArg], {
   stdio: 'inherit',
   shell: process.platform === 'win32',
   env,
