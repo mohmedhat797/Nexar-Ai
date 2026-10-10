@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -167,6 +167,7 @@ describe('PermissionBroker: bridge tools', () => {
 // --- the adapter in gateway mode -----------------------------------------------------------------
 
 interface GatewayRecord extends FakeRecord {
+  notifications: { method: string; params?: Record<string, unknown> }[];
   mcpEndpoint?: string;
   mcpTokenIsControlToken?: boolean;
   hasControlToken?: boolean;
@@ -353,12 +354,25 @@ const readRecord = (path: string): GatewayRecord =>
   JSON.parse(readFileSync(path, 'utf8')) as GatewayRecord;
 
 describe('DSH ACP in gateway mode', () => {
+  it('rejects a model route change and removes the isolated state home', async () => {
+    const t = await setup({ flags: { scenario: 'model-change' } });
+    await expect(t.run()).rejects.toMatchObject({
+      code: 'POLICY_REJECTED',
+      details: { reason: 'model-route-changed' },
+    });
+    expect(readRecord(t.recordPath).notifications.map((n) => n.method)).toContain('session/cancel');
+    expect(existsSync(t.launcher.specs[0]!.mounts![0]!.hostPath)).toBe(false);
+  });
   it('runs the loop on the nexar route without any DSH credential', async () => {
     const t = await setup({
       // A keystore credential that is not stored: the own-credential assertion must be skipped.
       auth: { mode: 'api-key', credential: { source: 'keystore', name: 'dsh-key' } },
     });
     const result = await t.run();
+    expect(result.usage.costUsd).toEqual({
+      status: 'unavailable',
+      reason: 'accounted by Nexar control gateway',
+    });
 
     expect(result.text).toBe('working. finished');
     expect(result.resolved).toEqual({
@@ -415,9 +429,9 @@ describe('DSH ACP in gateway mode', () => {
     expect(record.requests[1]?.params).toEqual({ cwd: t.workspacePath, mcpServers: [] });
     expect(t.launcher.disposed).toBe(1);
 
-    const overlayPath = join(t.stateDir, 'acp', String(t.resource.id), 'nexar.patch.yml');
-    if (process.platform !== 'win32') expect(statSync(overlayPath).mode & 0o777).toBe(0o600);
-    expect(existsSync(overlayPath)).toBe(true);
+    const home = t.launcher.specs[0]!.mounts![0]!.hostPath;
+    expect(home.startsWith(join(t.stateDir, 'acp', 'turn-'))).toBe(true);
+    expect(existsSync(home)).toBe(false);
   });
 
   it('offers exactly one stdio `nexar` MCP server when the bridge is mounted', async () => {

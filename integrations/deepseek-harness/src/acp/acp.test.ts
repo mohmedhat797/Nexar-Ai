@@ -68,9 +68,12 @@ class FakeLauncher implements ProcessLauncher {
     private readonly workspacePath: string,
     readonly isolation: 'none' | 'sandbox' = 'sandbox',
     private readonly reportedIsolation: 'none' | 'sandbox' = isolation,
+    private readonly beforePrepared?: () => Promise<void>,
+    private readonly failDispose = false,
   ) {}
-  prepare(spec: LaunchSpec): Promise<PreparedLaunch> {
+  async prepare(spec: LaunchSpec): Promise<PreparedLaunch> {
     this.specs.push(spec);
+    await this.beforePrepared?.();
     const mount = spec.mounts?.[0];
     // Sandbox paths in arguments map back to the mount's host path, as the real mount would resolve them.
     const args = spec.args.map((a) =>
@@ -87,6 +90,7 @@ class FakeLauncher implements ProcessLauncher {
       isolation: this.reportedIsolation,
       dispose: () => {
         this.disposed++;
+        if (this.failDispose) throw new Error('private-path-must-not-leak');
         return Promise.resolve();
       },
     });
@@ -109,13 +113,16 @@ interface Options {
   systemPrompt?: string;
   timeoutMs?: number;
   requiredContext?: string;
+  stateDir?: string;
+  beforePrepared?: () => Promise<void>;
+  failDispose?: boolean;
 }
 
 function setup(o: Options = {}) {
   const dir = makeTempDir();
   const recordPath = join(dir, 'record.json');
   const workspacePath = join(dir, 'ws');
-  const stateDir = join(dir, 'state');
+  const stateDir = o.stateDir ?? join(dir, 'state');
   mkdirSync(workspacePath);
   const store = o.store ?? new InMemoryApprovalStore();
   const gate = new ApprovalGate({ mode: 'store', store, pollIntervalMs: 10 });
@@ -123,6 +130,8 @@ function setup(o: Options = {}) {
     workspacePath,
     o.isolation ?? 'sandbox',
     o.reportedIsolation ?? o.isolation ?? 'sandbox',
+    o.beforePrepared,
+    o.failDispose,
   );
   const flags = Object.entries({ record: recordPath, ...o.flags }).map(
     ([k, v]) => `--fake-${k}=${v}`,
@@ -203,6 +212,125 @@ async function decideWhenPending(
 }
 
 describe('ACP engineering path: permissions via approvals', () => {
+  it('returns a bounded timeout for uncooperative preparation and cleans up when it settles later', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const t = setup({ timeoutMs: 50, beforePrepared: () => gate });
+    const running = t.run().catch((e: unknown) => e);
+    await waitFor(() => (t.launcher.specs.length === 1 ? true : undefined));
+    const home = t.launcher.specs[0]!.mounts![0]!.hostPath;
+    try {
+      expect(await running).toMatchObject({ code: 'EXECUTION_TIMEOUT' });
+      expect(t.launcher.disposed).toBe(0);
+      expect(existsSync(home)).toBe(true);
+    } finally {
+      release();
+    }
+    await waitFor(() => (!existsSync(home) ? true : undefined));
+    expect(t.launcher.disposed).toBe(1);
+    expect(existsSync(t.recordPath)).toBe(false);
+  }, 5000);
+  it('awaits interrupted preparation before disposing and removing its state home', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const t = setup({ beforePrepared: () => gate });
+    let settled = false;
+    const running = t
+      .run()
+      .catch((e: unknown) => e)
+      .finally(() => {
+        settled = true;
+      });
+    await waitFor(() => (t.launcher.specs.length === 1 ? true : undefined));
+    const home = t.launcher.specs[0]!.mounts![0]!.hostPath;
+    try {
+      t.controller.abort();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(settled).toBe(false);
+      expect(existsSync(home)).toBe(true);
+    } finally {
+      release();
+    }
+    expect(await running).toMatchObject({ code: 'EXECUTION_CANCELLED' });
+    expect(t.launcher.disposed).toBe(1);
+    expect(existsSync(home)).toBe(false);
+    expect(existsSync(t.recordPath)).toBe(false);
+  });
+  it('isolates concurrent required-context overlays and removes both homes on cancellation', async () => {
+    const stateDir = join(makeTempDir(), 'shared-state');
+    const a = setup({ stateDir, flags: { scenario: 'hang' }, requiredContext: 'Project A policy' });
+    const b = setup({ stateDir, flags: { scenario: 'hang' }, requiredContext: 'Project B policy' });
+    const running = [a, b].map((t) => t.run().catch((e: unknown) => e));
+    const homes: string[] = [];
+    try {
+      for (const [index, t] of [a, b].entries()) {
+        await waitFor(() =>
+          existsSync(t.recordPath) &&
+          readAcpRecord(t.recordPath).requests.some((r) => r.method === 'session/prompt')
+            ? true
+            : undefined,
+        );
+        const home = t.launcher.specs[0]!.mounts![0]!.hostPath;
+        homes.push(home);
+        const overlayPath = join(home, 'nexar.patch.yml');
+        const overlay = readFileSync(overlayPath, 'utf8');
+        expect(overlay).toContain(index === 0 ? 'Project A policy' : 'Project B policy');
+        expect(overlay).not.toContain(index === 0 ? 'Project B policy' : 'Project A policy');
+        if (process.platform !== 'win32') {
+          expect(statSync(home).mode & 0o777).toBe(0o700);
+          expect(statSync(overlayPath).mode & 0o777).toBe(0o600);
+        }
+      }
+      expect(homes[0]).not.toBe(homes[1]);
+    } finally {
+      a.controller.abort();
+      b.controller.abort();
+      const results = await Promise.all(running);
+      for (const result of results) expect(result).toMatchObject({ code: 'EXECUTION_CANCELLED' });
+    }
+    for (const home of homes) expect(existsSync(home)).toBe(false);
+  });
+
+  it('removes native-key state after success and uses a fresh home on the next run', async () => {
+    const t = setup({ approvals: 'none' });
+    await t.run();
+    const first = t.launcher.specs[0]!.mounts![0]!.hostPath;
+    expect(existsSync(first)).toBe(false);
+    await t.run();
+    const second = t.launcher.specs[1]!.mounts![0]!.hostPath;
+    expect(second).not.toBe(first);
+    expect(existsSync(second)).toBe(false);
+  });
+
+  it('rejects a model route change in native-key mode', async () => {
+    const t = setup({ flags: { scenario: 'model-change' } });
+    await expect(t.run()).rejects.toMatchObject({
+      code: 'POLICY_REJECTED',
+      details: { reason: 'model-route-changed' },
+    });
+    expect(readAcpRecord(t.recordPath).notifications.map((n) => n.method)).toContain(
+      'session/cancel',
+    );
+    expect(existsSync(t.launcher.specs[0]!.mounts![0]!.hostPath)).toBe(false);
+  });
+
+  it('accepts a notification naming the NRC-selected native resource model', async () => {
+    const t = setup({
+      approvals: 'none',
+      flags: {
+        scenario: 'model-change',
+        'model-value': JSON.stringify(['deepseek-official', 'deepseek-v4-flash']),
+        'model-continue': '1',
+      },
+    });
+    await expect(t.run()).resolves.toMatchObject({
+      resolved: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    });
+  });
   it('runs end to end and allow_once is sent after a human approves', async () => {
     const t = setup({
       prompt: PROMPT_MARKER,
@@ -650,5 +778,20 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
 
   it('keeps the adapter id wired for the engineering path', () => {
     expect(adapterId('deepseek-harness')).toBe(DEEPSEEK_HARNESS_ADAPTER_ID);
+  });
+
+  it('fails successful execution on cleanup failure without leaking paths or masking primary failure', async () => {
+    const successful = setup({ failDispose: true, acp: { permissions: { mode: 'deny' } } });
+    await expect(successful.run()).rejects.toMatchObject({
+      code: 'INTEGRATION_UNAVAILABLE',
+      message: 'dsh state cleanup did not complete',
+    });
+    expect(JSON.stringify(successful.logs)).not.toContain('private-path-must-not-leak');
+    const failed = setup({
+      failDispose: true,
+      flags: { scenario: 'rpc-error', 'rpc-message': 'upstream exploded' },
+    });
+    await expect(failed.run()).rejects.toMatchObject({ code: 'PROVIDER_ERROR' });
+    expect(JSON.stringify(failed.logs)).not.toContain('private-path-must-not-leak');
   });
 });

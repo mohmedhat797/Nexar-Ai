@@ -368,11 +368,18 @@ async function runPrompt(id, sessionId, promptText) {
   if (scenario === 'model-change') {
     update(sessionId, {
       sessionUpdate: 'config_option_update',
-      configOptions: [{ id: 'model', currentValue: JSON.stringify(['deepseek-official', 'x']) }],
+      configOptions: [
+        {
+          id: 'model',
+          currentValue: setting('model-value', JSON.stringify(['deepseek-official', 'x'])),
+        },
+      ],
     });
-    await waitForCancel();
-    send({ id, result: { stopReason: 'cancelled' } });
-    return;
+    if (setting('model-continue', '0') !== '1') {
+      await waitForCancel();
+      send({ id, result: { stopReason: 'cancelled' } });
+      return;
+    }
   }
   if (scenario === 'hang') {
     await waitForCancel();

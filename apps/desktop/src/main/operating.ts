@@ -42,7 +42,7 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
   const ctx: CallContext = { deps, jobs, emit: () => undefined, operating: undefined };
 
   async function executeDirect(request: DirectRequest, signal: AbortSignal): Promise<DirectResult> {
-    const { nexar } = deps.engine.composition().runtime;
+    const { nexar, registry } = deps.engine.composition().runtime;
     const project = deps.engine.composition().runtime.projects.get(projectId(request.projectId));
     if (project === undefined) {
       throw new NexarError('VALIDATION_ERROR', 'The conversation project is no longer available');
@@ -60,9 +60,34 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
       request.turnId,
       { sessionId: request.sessionId, turnId: request.turnId },
     );
+    // Direct session turns are bounded model calls, including Cowork fallback (ADR-030).
+    // A model label alone is insufficient: native adapters can accept a mislabeled descriptor.
+    // Extend this allowlist only after reviewing an adapter's lack of tools and an agent loop.
+    const excluded = registry
+      .list()
+      .filter(
+        (resource) =>
+          resource.kind.type !== 'model' ||
+          !['pi', 'echo'].includes(String(resource.runtime.adapter)),
+      )
+      .map((resource) => resource.id);
+    if (task.requirements.preferredResourceIds?.some((id) => excluded.includes(id)) === true) {
+      throw new NexarError('POLICY_REJECTED', 'Direct turns require a bounded model resource', {
+        details: { reason: 'direct-resource-not-bounded' },
+      });
+    }
+    const boundedTask = {
+      ...task,
+      requirements: {
+        ...task.requirements,
+        excludedResourceIds: [
+          ...new Set([...(task.requirements.excludedResourceIds ?? []), ...excluded]),
+        ],
+      },
+    };
     await request.onTask(task.id);
 
-    const outcome = await nexar.run(task, {
+    const outcome = await nexar.run(boundedTask, {
       signal,
       onEvent: (event) => {
         const line = progressLine(event);

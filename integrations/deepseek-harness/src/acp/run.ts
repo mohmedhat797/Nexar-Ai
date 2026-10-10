@@ -1,3 +1,4 @@
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ApprovalGate, ApprovalStore } from '@nexar/approvals';
 import { NexarError, isNexarError, measured, unavailable } from '@nexar/contracts';
@@ -46,7 +47,7 @@ export const SYSTEM_PROMPT_SEPARATOR =
 
 export interface AcpRunDeps {
   readonly binary: BinarySpec;
-  /** Adapter state directory; the per-resource DSH state lives below `acp/<resource id>`. */
+  /** Adapter state directory; each run creates and removes a private home below `acp/`. */
   readonly stateDir: string;
   readonly env: NodeJS.ProcessEnv;
   /** Resolves `keystore` credentials (the adapter's injected resolver). */
@@ -74,16 +75,25 @@ export async function executeAcp(
 
   if (context.signal.aborted)
     throw new NexarError('EXECUTION_CANCELLED', 'execution was cancelled');
+  if (workspace.access === 'read-write' && workspace.launcher.isolation !== 'sandbox') {
+    throw new NexarError(
+      'POLICY_REJECTED',
+      'a read-write engineering workspace requires the sandbox launcher; refusing to start dsh',
+    );
+  }
   if ((task.input.attachments?.length ?? 0) > 0) {
     logger.warn('attachments are not forwarded to dsh');
   }
 
-  const guard = new RunGuard(context.signal, timeoutMs);
   let prepared: PreparedLaunch | undefined;
+  let preparing: Promise<PreparedLaunch> | undefined;
   let proc: RuntimeProcess | undefined;
   let sessionId: string | undefined;
   let broker: PermissionBroker | undefined;
   let promptSettled: Promise<void> | undefined;
+  let dshStateDir: string | undefined;
+  let result: ExecutionResult;
+  let cleanupFailed: boolean;
   const sources: CredentialSources = { env: deps.env, resolveSecret: deps.resolveSecret };
   // Gateway mode (ADR-027 section 9b): the lane's loop runs on Nexar's control route, with no DSH credential.
   const gateway = isGatewayMode(context.gateway) ? context.gateway : undefined;
@@ -97,23 +107,31 @@ export async function executeAcp(
   }
   const provider = gateway === undefined ? runtime.provider : GATEWAY_ROUTE.provider;
   const model = gateway === undefined ? runtime.model : GATEWAY_ROUTE.model;
+  const expectedModel = acpModelValue(provider, model);
+  const guard = new RunGuard(context.signal, timeoutMs);
+  const preparationController = new AbortController();
+  const abortPreparation = (): void => preparationController.abort();
+  context.signal.addEventListener('abort', abortPreparation, { once: true });
+  if (context.signal.aborted) abortPreparation();
 
   try {
-    prepared = await guard.race(
-      prepareAcpLaunch(
-        {
-          binary: deps.binary,
-          workspace,
-          resource,
-          dshStateDir: join(deps.stateDir, 'acp', String(resource.id)),
-          sources,
-          allowHosts: acp.allowHosts,
-          gateway,
-          requiredContext: context.requiredContext,
-        },
-        context.signal,
-      ),
+    const acpStateBase = join(deps.stateDir, 'acp');
+    await mkdir(acpStateBase, { recursive: true, mode: 0o700 });
+    dshStateDir = await mkdtemp(join(acpStateBase, 'turn-'));
+    preparing = prepareAcpLaunch(
+      {
+        binary: deps.binary,
+        workspace,
+        resource,
+        dshStateDir,
+        sources,
+        allowHosts: acp.allowHosts,
+        gateway,
+        requiredContext: context.requiredContext,
+      },
+      preparationController.signal,
     );
+    prepared = await guard.race(preparing);
     if (guard.interrupted) throw new NexarError('EXECUTION_CANCELLED', 'execution was cancelled');
 
     let mcpServers: Record<string, unknown>[] = [];
@@ -176,6 +194,27 @@ export async function executeAcp(
           const reported = asRecord(update.cost);
           if (reported?.currency === 'USD' && typeof reported.amount === 'number') {
             cost = measured(reported.amount);
+          }
+          break;
+        }
+        case 'config_option_update': {
+          const entries: unknown[] = Array.isArray(update.configOptions)
+            ? update.configOptions
+            : [update];
+          if (
+            entries.some((entry) => {
+              const option = asRecord(entry);
+              return (
+                (option?.id ?? option?.configId) === 'model' &&
+                (option?.currentValue ?? option?.value) !== expectedModel
+              );
+            })
+          ) {
+            guard.fail(
+              new NexarError('POLICY_REJECTED', 'dsh changed the model route; aborting the turn', {
+                details: { reason: 'model-route-changed' },
+              }),
+            );
           }
           break;
         }
@@ -292,31 +331,69 @@ export async function executeAcp(
       .catch(() => undefined);
     emit({ type: 'status', message: 'DeepSeek Harness run finished' });
 
-    return {
+    result = {
       text: text.join(''),
       artifacts: [],
       // `usage_update` reports context-window occupancy, not billed tokens: stay unavailable.
       usage: {
         inputTokens: unavailable('ACP does not report billed tokens'),
         outputTokens: unavailable('ACP does not report billed tokens'),
-        costUsd: cost,
+        costUsd: gateway === undefined ? cost : unavailable('accounted by Nexar control gateway'),
       },
       resolved: { provider, model, runtimeVersion: 'dsh-acp' },
       retries: 0,
     };
   } catch (e) {
+    abortPreparation();
     if (guard.interrupted && proc !== undefined && sessionId !== undefined) {
       await cancelSession(proc.client, sessionId, broker, promptSettled);
     }
     throw await mapFailure(classifyRpcError(e), proc, secrets);
   } finally {
     guard.dispose();
+    context.signal.removeEventListener('abort', abortPreparation);
     try {
       if (proc !== undefined) await proc.stop();
     } finally {
-      await prepared?.dispose().catch(() => undefined);
+      // Never delete a home that preparation may still write. An uncooperative launcher must not
+      // defeat the turn deadline: keep the handled cleanup chain alive for eventual settlement.
+      const cleanup = (async () => {
+        const cleanupPrepared = prepared ?? (await preparing?.catch(() => undefined));
+        try {
+          await cleanupPrepared?.dispose();
+        } finally {
+          if (dshStateDir !== undefined) {
+            await rm(dshStateDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+          }
+        }
+      })().then(
+        () => true,
+        () => {
+          logger.warn('dsh state cleanup failed', { code: 'INTEGRATION_UNAVAILABLE' });
+          return false;
+        },
+      );
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        const cleaned = await Promise.race([
+          cleanup,
+          new Promise<boolean>((resolve) => {
+            timer = setTimeout(() => {
+              logger.warn('dsh state cleanup deferred', { code: 'EXECUTION_TIMEOUT' });
+              resolve(false);
+            }, CLOSE_TIMEOUT_MS);
+          }),
+        ]);
+        cleanupFailed = !cleaned;
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
     }
   }
+  if (cleanupFailed) {
+    throw new NexarError('INTEGRATION_UNAVAILABLE', 'dsh state cleanup did not complete');
+  }
+  return result;
 }
 
 /** ACP cancellation: notify, answer pending permissions `cancelled`, then give the turn a moment to end. */

@@ -109,6 +109,7 @@ export async function prepareAcpLaunch(
   };
   const prepared = await workspace.launcher.prepare(spec, signal);
   try {
+    if (signal.aborted) throw new NexarError('EXECUTION_CANCELLED', 'execution was cancelled');
     if (writable && prepared.isolation !== 'sandbox') throw notSandboxed();
     const route: DshOverlayRoute =
       gateway === undefined
