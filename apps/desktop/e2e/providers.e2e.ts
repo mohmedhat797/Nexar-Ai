@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NexarApi } from '../src/shared/api.js';
 import { CHANNELS } from '../src/shared/channels.js';
 import { seedE2EConfig } from './harness.js';
+import { closeAndWait, startupTimings } from './startup-diagnostics.js';
 
 const MAIN = fileURLToPath(new URL('../dist/main/main.js', import.meta.url));
 const EXECUTABLE = process.env['NEXAR_DESKTOP_EXECUTABLE'];
@@ -93,6 +94,7 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     ),
   );
   env['NEXAR_DESKTOP_USER_DATA'] = userData;
+  env['NEXAR_DESKTOP_STARTUP_TRACE'] = '1';
   if (EXECUTABLE) {
     delete env['NEXAR_WORKFLOWS_DIR'];
     delete env['NEXAR_ENGINEERING_PLANS_DIR'];
@@ -112,9 +114,38 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     timeout: 120_000,
   });
   apps.push(app);
-  app.process().stdout?.on('data', (chunk: Buffer) => output.push(chunk.toString()));
-  app.process().stderr?.on('data', (chunk: Buffer) => output.push(chunk.toString()));
-  const page = await app.firstWindow();
+  const child = app.process();
+  let diagnosticOutput = '';
+  const capture = (chunk: Buffer): void => {
+    output.push(chunk.toString());
+    diagnosticOutput = (diagnosticOutput + chunk.toString()).slice(-16_384);
+  };
+  child.stdout?.on('data', capture);
+  child.stderr?.on('data', capture);
+  const began = Date.now();
+  let page: Page;
+  try {
+    page = await app.firstWindow();
+  } catch (error) {
+    // No raw output, paths, clipboard text or provider key reaches failure diagnostics.
+    process.stderr.write(
+      `providers e2e: first-window failure ${JSON.stringify({
+        elapsedMs: Date.now() - began,
+        pid: child.pid,
+        exitCode: child.exitCode,
+        signalCode: child.signalCode,
+        connectedWindows: app.windows().length,
+        startup: startupTimings(diagnosticOutput),
+      })}\n`,
+    );
+    throw error;
+  }
+  process.stderr.write(
+    `providers e2e: first-window ready ${JSON.stringify({
+      elapsedMs: Date.now() - began,
+      startup: startupTimings(diagnosticOutput),
+    })}\n`,
+  );
   page.on('console', (message) => output.push(message.text()));
   page.on('pageerror', (error) => output.push(error.message));
   await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 120_000 });
@@ -132,16 +163,25 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
 }
 
 async function close(app: ElectronApplication): Promise<void> {
-  await app.evaluate(async ({ clipboard }, sentinel) => {
-    const saved = globalThis as unknown as { nexarTestClipboard?: string };
-    const current = await clipboard.readText();
-    if (saved.nexarTestClipboard !== undefined && (current === '' || current === sentinel)) {
-      await clipboard.writeText(saved.nexarTestClipboard);
+  const child = app.process();
+  try {
+    if (child.exitCode === null && child.signalCode === null) {
+      await app.evaluate(async ({ clipboard }, sentinel) => {
+        const saved = globalThis as unknown as { nexarTestClipboard?: string };
+        const current = await clipboard.readText();
+        if (saved.nexarTestClipboard !== undefined && (current === '' || current === sentinel)) {
+          await clipboard.writeText(saved.nexarTestClipboard);
+        }
+        delete saved.nexarTestClipboard;
+      }, SENTINEL);
     }
-    delete saved.nexarTestClipboard;
-  }, SENTINEL);
-  await app.close();
-  apps.splice(apps.indexOf(app), 1);
+  } finally {
+    try {
+      await closeAndWait(child, () => app.close());
+    } finally {
+      if (child.exitCode !== null || child.signalCode !== null) apps.splice(apps.indexOf(app), 1);
+    }
+  }
 }
 
 async function providers(page: Page): Promise<void> {
@@ -244,9 +284,20 @@ await import(${JSON.stringify(pathToFileURL(MAIN).href)});
 });
 
 afterAll(async () => {
-  for (const app of [...apps]) await close(app);
-  expect(await digestTree(OWNER_STATE)).toBe(ownerBefore);
-  if (base !== undefined) await rm(base, { recursive: true, force: true });
+  const failures: unknown[] = [];
+  for (const app of [...apps]) {
+    try {
+      await close(app);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  try {
+    expect(await digestTree(OWNER_STATE)).toBe(ownerBefore);
+  } finally {
+    if (base !== undefined && apps.length === 0) await rm(base, { recursive: true, force: true });
+  }
+  if (failures.length > 0) throw new AggregateError(failures, 'Providers fixture teardown failed');
 });
 
 describe('Desktop Providers', () => {
