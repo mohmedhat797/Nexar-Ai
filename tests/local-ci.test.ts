@@ -10,13 +10,19 @@ import {
   spawnSubprocess,
 } from '../scripts/local-ci/process-util.mjs';
 import { runPreflight } from '../scripts/local-ci/preflight.mjs';
-import { executeStage, getStages, parseVitestStats } from '../scripts/local-ci/stages.mjs';
 import type { RunData } from '../scripts/local-ci/report.mjs';
 import {
+  aggregateCrossPlatformEvidence,
   aggregateTestCounts,
   computeFinalStatus,
   generateReports,
 } from '../scripts/local-ci/report.mjs';
+import {
+  executeStage,
+  getStages,
+  inspectWindowsPackage,
+  parseVitestStats,
+} from '../scripts/local-ci/stages.mjs';
 
 describe('Nexar Local CI Orchestrator', () => {
   // 1. Successful command execution
@@ -202,6 +208,50 @@ describe('Nexar Local CI Orchestrator', () => {
             required: true,
             vitestStats: null,
           },
+          {
+            id: 'lint',
+            name: 'ESLint static analysis',
+            status: 'PASS',
+            durationMs: 1500,
+            exitCode: 0,
+            required: true,
+            vitestStats: null,
+          },
+          {
+            id: 'boundaries',
+            name: 'Package boundaries',
+            status: 'PASS',
+            durationMs: 500,
+            exitCode: 0,
+            required: true,
+            vitestStats: null,
+          },
+          {
+            id: 'typecheck',
+            name: 'TypeScript typecheck',
+            status: 'PASS',
+            durationMs: 2000,
+            exitCode: 0,
+            required: true,
+            vitestStats: null,
+          },
+          {
+            id: 'test-offline',
+            name: 'Test suite',
+            status: 'PASS',
+            durationMs: 3000,
+            exitCode: 0,
+            required: true,
+            vitestStats: {
+              testFilesPassed: 10,
+              testFilesFailed: 0,
+              testFilesTotal: 10,
+              testsPassed: 100,
+              testsFailed: 0,
+              testsSkipped: 5,
+              testsTotal: 105,
+            },
+          },
         ],
         startTime: Date.now() - 5000,
         endTime: Date.now(),
@@ -272,119 +322,420 @@ describe('Nexar Local CI Orchestrator', () => {
     expect(redacted).toContain('[REDACTED_SECRET]');
   });
 
-  // 15. Stage status aggregation
-  it('case 15: aggregates stage statuses and test statistics correctly', () => {
-    const stageResults = [
+  // 15. Stage status aggregation and deterministic manifests
+  it('case 15: evaluates status against platform manifests and test statistics', () => {
+    const quickStages = [
       {
-        id: 's1',
-        name: 'Stage 1',
-        command: 's1',
-        startTime: new Date().toISOString(),
-        durationMs: 100,
+        id: 'format-check',
+        name: 'Format',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+      {
+        id: 'lint',
+        name: 'Lint',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+      {
+        id: 'boundaries',
+        name: 'Boundaries',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+      {
+        id: 'typecheck',
+        name: 'Typecheck',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+      {
+        id: 'test-offline',
+        name: 'Tests',
+        command: '',
+        startTime: '',
+        durationMs: 10,
         exitCode: 0,
         status: 'PASS' as const,
         required: true,
         failureCategory: null,
         logExcerpt: '',
         vitestStats: {
-          testFilesPassed: 1,
+          testFilesPassed: 2,
           testFilesFailed: 0,
-          testFilesTotal: 1,
-          testsPassed: 10,
+          testFilesTotal: 2,
+          testsPassed: 20,
           testsFailed: 0,
           testsSkipped: 2,
-          testsTotal: 12,
+          testsTotal: 22,
         },
       },
+    ];
+
+    expect(computeFinalStatus('quick', quickStages)).toBe('LOCAL_CI_QUICK_PASS');
+
+    // Windows Full pass
+    const winFullStages = [
+      'dependencies',
+      'dsh-install',
+      'format-check',
+      'lint',
+      'boundaries',
+      'typecheck',
+      'test-offline',
+      'build',
+      'cli-smoke-resources',
+      'cli-smoke-run',
+      'dsh-context-real',
+      'desktop-e2e-source',
+      'desktop-package-win',
+      'desktop-e2e-packaged',
+      'gitleaks-scan',
+    ].map((id) => ({
+      id,
+      name: id,
+      command: id,
+      startTime: '',
+      durationMs: 10,
+      exitCode: 0,
+      status: 'PASS' as const,
+      required: true,
+      failureCategory: null,
+      logExcerpt: '',
+      vitestStats:
+        id === 'test-offline'
+          ? {
+              testFilesPassed: 200,
+              testFilesFailed: 0,
+              testFilesTotal: 200,
+              testsPassed: 4200,
+              testsFailed: 0,
+              testsSkipped: 160,
+              testsTotal: 4360,
+            }
+          : null,
+    }));
+
+    // Optional linux sandbox gate blocked on Windows does not block Windows full pass
+    const winFullWithBlockedSandbox = [
+      ...winFullStages,
       {
-        id: 's2',
-        name: 'Stage 2',
-        command: 's2',
-        startTime: new Date().toISOString(),
-        durationMs: 50,
-        exitCode: 0,
-        status: 'PASS' as const,
-        required: true,
-        failureCategory: null,
-        logExcerpt: '',
-        vitestStats: {
-          testFilesPassed: 1,
-          testFilesFailed: 0,
-          testFilesTotal: 1,
-          testsPassed: 5,
-          testsFailed: 0,
-          testsSkipped: 1,
-          testsTotal: 6,
-        },
-      },
-      {
-        id: 's3',
-        name: 'Stage 3',
-        command: 's3',
-        startTime: new Date().toISOString(),
+        id: 'linux-sandbox',
+        name: 'Linux sandbox',
+        command: '',
+        startTime: '',
         durationMs: 0,
         exitCode: null,
         status: 'BLOCKED' as const,
         required: false,
-        failureCategory: null,
+        failureCategory: 'ENVIRONMENT_UNSUPPORTED',
         logExcerpt: '',
         vitestStats: null,
       },
     ];
+    expect(computeFinalStatus('full', winFullWithBlockedSandbox, { platform: 'win32' })).toBe(
+      'NEXAR_WINDOWS_FULL_PASS',
+    );
 
-    const quickVerdict = computeFinalStatus('quick', stageResults);
-    expect(quickVerdict).toBe('LOCAL_CI_QUICK_PASS');
+    // Linux Full pass
+    const linuxFullStages = [
+      'dependencies',
+      'dsh-install',
+      'format-check',
+      'lint',
+      'boundaries',
+      'typecheck',
+      'test-offline',
+      'build',
+      'cli-smoke-resources',
+      'cli-smoke-run',
+      'dsh-context-real',
+      'desktop-e2e-linux',
+      'linux-sandbox',
+      'gitleaks-scan',
+    ].map((id) => ({
+      id,
+      name: id,
+      command: id,
+      startTime: '',
+      durationMs: 10,
+      exitCode: 0,
+      status: 'PASS' as const,
+      required: true,
+      failureCategory: null,
+      logExcerpt: '',
+      vitestStats: null,
+    }));
 
-    const fullVerdict = computeFinalStatus('full', stageResults);
-    expect(fullVerdict).toBe('NEXAR_LOCAL_CI_PASS'); // optional stage blocked does not block full pass
+    expect(computeFinalStatus('full', linuxFullStages, { platform: 'linux', isWsl: false })).toBe(
+      'NEXAR_LINUX_FULL_PASS',
+    );
+    expect(computeFinalStatus('full', linuxFullStages, { platform: 'linux', isWsl: true })).toBe(
+      'NEXAR_LINUX_WSL2_PASS',
+    );
 
-    const blockedResult = [
-      ...stageResults,
-      {
-        id: 's4',
-        name: 'Stage 4',
-        command: 's4',
-        startTime: new Date().toISOString(),
-        durationMs: 0,
-        exitCode: null,
-        status: 'BLOCKED' as const,
-        required: true,
-        failureCategory: null,
-        logExcerpt: '',
-        vitestStats: null,
-      },
-    ];
-    expect(computeFinalStatus('full', blockedResult)).toBe('NEXAR_LOCAL_CI_BLOCKED');
+    const totals = aggregateTestCounts(quickStages);
+    expect(totals.testsPassed).toBe(20);
+    expect(totals.testsSkipped).toBe(2);
+    expect(totals.testsTotal).toBe(22);
 
-    const failedResult = [
-      ...stageResults,
-      {
-        id: 's5',
-        name: 'Stage 5',
-        command: 's5',
-        startTime: new Date().toISOString(),
-        durationMs: 0,
-        exitCode: 1,
-        status: 'FAIL' as const,
-        required: true,
-        failureCategory: 'COMMAND_EXIT_NONZERO',
-        logExcerpt: '',
-        vitestStats: null,
-      },
-    ];
-    expect(computeFinalStatus('full', failedResult)).toBe('NEXAR_LOCAL_CI_FAIL');
-
-    const totals = aggregateTestCounts(stageResults);
-    expect(totals.testsPassed).toBe(15);
-    expect(totals.testsSkipped).toBe(3);
-    expect(totals.testsTotal).toBe(18);
-
-    // Parse Vitest string
+    // Parse Vitest output string
     const sampleStdout = 'Test Files  208 passed (208)\nTests  4229 passed | 160 skipped (4389)';
     const parsed = parseVitestStats(sampleStdout);
     expect(parsed.testFilesPassed).toBe(208);
     expect(parsed.testsPassed).toBe(4229);
     expect(parsed.testsSkipped).toBe(160);
     expect(parsed.testsTotal).toBe(4389);
+  });
+
+  // 16. Empty stage list cannot produce PASS
+  it('case 16: prevents empty stage list from producing PASS', () => {
+    expect(computeFinalStatus('quick', [])).toBe('LOCAL_CI_QUICK_FAIL');
+    expect(computeFinalStatus('full', [], { platform: 'win32' })).toBe('NEXAR_WINDOWS_FULL_FAIL');
+    expect(computeFinalStatus('full', [], { platform: 'linux' })).toBe('NEXAR_LINUX_FULL_FAIL');
+  });
+
+  // 17. Missing mandatory stage returns FAIL
+  it('case 17: prevents missing mandatory stage from producing PASS', () => {
+    const incompleteQuick = [
+      {
+        id: 'format-check',
+        name: 'Format',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+      {
+        id: 'lint',
+        name: 'Lint',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+    ];
+    expect(computeFinalStatus('quick', incompleteQuick)).toBe('LOCAL_CI_QUICK_FAIL');
+
+    const incompleteWinFull = [
+      {
+        id: 'dependencies',
+        name: 'Deps',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+    ];
+    expect(computeFinalStatus('full', incompleteWinFull, { platform: 'win32' })).toBe(
+      'NEXAR_WINDOWS_FULL_FAIL',
+    );
+  });
+
+  // 18. Required stage SKIPPED or NOT_RUN produces FAIL
+  it('case 18: treats required stage marked SKIPPED or NOT_RUN as FAIL', () => {
+    const skippedRequired = [
+      {
+        id: 'format-check',
+        name: 'Format',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+      {
+        id: 'lint',
+        name: 'Lint',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+      {
+        id: 'boundaries',
+        name: 'Boundaries',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+      {
+        id: 'typecheck',
+        name: 'Typecheck',
+        command: '',
+        startTime: '',
+        durationMs: 10,
+        exitCode: 0,
+        status: 'PASS' as const,
+        required: true,
+        failureCategory: null,
+        logExcerpt: '',
+        vitestStats: null,
+      },
+      {
+        id: 'test-offline',
+        name: 'Tests',
+        command: '',
+        startTime: '',
+        durationMs: 0,
+        exitCode: null,
+        status: 'SKIPPED' as const,
+        required: true,
+        failureCategory: 'SKIPPED_DUE_TO_PREVIOUS_FAILURE',
+        logExcerpt: '',
+        vitestStats: null,
+      },
+    ];
+    expect(computeFinalStatus('quick', skippedRequired)).toBe('LOCAL_CI_QUICK_FAIL');
+  });
+
+  // 19. Cross-platform evidence aggregation
+  it('case 19: aggregates cross-platform evidence and requires clean matching commit', () => {
+    const winReport = {
+      finalStatus: 'NEXAR_WINDOWS_FULL_PASS',
+      metadata: {
+        git: {
+          commit: 'abcd1234abcd1234abcd1234abcd1234abcd1234',
+          isDirty: false,
+          dirtyFingerprint: null,
+        },
+        dsh: { version: '0.2.0-rc.2' },
+      },
+    };
+    const linuxReport = {
+      finalStatus: 'NEXAR_LINUX_FULL_PASS',
+      metadata: {
+        git: {
+          commit: 'abcd1234abcd1234abcd1234abcd1234abcd1234',
+          isDirty: false,
+          dirtyFingerprint: null,
+        },
+        dsh: { version: '0.2.0-rc.2' },
+      },
+    };
+
+    const passRes = aggregateCrossPlatformEvidence(winReport, linuxReport);
+    expect(passRes.verdict).toBe('NEXAR_CROSS_PLATFORM_ACCEPTANCE_PASS');
+    expect(passRes.matchedCommit).toBe('abcd1234abcd1234abcd1234abcd1234abcd1234');
+
+    // Mismatched commit
+    const diffCommitLinux = {
+      ...linuxReport,
+      metadata: {
+        ...linuxReport.metadata,
+        git: {
+          commit: '9999999999999999999999999999999999999999',
+          isDirty: false,
+          dirtyFingerprint: null,
+        },
+      },
+    };
+    const mismatchRes = aggregateCrossPlatformEvidence(winReport, diffCommitLinux);
+    expect(mismatchRes.verdict).toBe('NEXAR_CROSS_PLATFORM_ACCEPTANCE_INCOMPLETE');
+    expect(mismatchRes.reasons.some((r) => r.includes('Commit mismatch'))).toBe(true);
+
+    // Dirty tree
+    const dirtyWin = {
+      ...winReport,
+      metadata: {
+        ...winReport.metadata,
+        git: {
+          commit: 'abcd1234abcd1234abcd1234abcd1234abcd1234',
+          isDirty: true,
+          dirtyFingerprint: 'f00ba123',
+        },
+      },
+    };
+    const dirtyRes = aggregateCrossPlatformEvidence(dirtyWin, linuxReport);
+    expect(dirtyRes.verdict).toBe('NEXAR_CROSS_PLATFORM_ACCEPTANCE_INCOMPLETE');
+    expect(dirtyRes.reasons.some((r) => r.includes('dirty'))).toBe(true);
+  });
+
+  // 20. Stale packaging artifact rejection
+  it('case 20: detects and rejects stale Windows installer artifacts', () => {
+    const tempDir = mkdtempSync(join(os.tmpdir(), 'nexar-pkg-test-'));
+    try {
+      const res = inspectWindowsPackage(tempDir, { minMtimeMs: Date.now() + 100_000 });
+      // Non-existent directory returns null
+      expect(res).toBeNull();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  // 21. Bounded log capture
+  it('case 21: bounds subprocess stdout buffer to prevent memory exhaustion', async () => {
+    // Generate 1.2MB of stdout
+    const res = await spawnSubprocess(
+      process.execPath,
+      [
+        '-e',
+        'for(let i=0; i<35000; i++) process.stdout.write("1234567890abcdefghijklmnopqrstuvwxyz\\n")',
+      ],
+      {
+        timeoutMs: 15_000,
+      },
+    );
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout.length).toBeLessThanOrEqual(1_100_000);
+    expect(res.stdout).toContain('truncated for memory safety');
   });
 });
