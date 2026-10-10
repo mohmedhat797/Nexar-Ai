@@ -16,9 +16,17 @@ export interface WindowsPackageArtifacts {
   installerPath: string;
   sizeBytes: number;
   sha256: string;
+  shaMatchesActual?: boolean;
   unpackedExists: boolean;
   unpackedPath: string;
+  bundledDshExists?: boolean;
+  bundledDshVersion?: string | null;
+  bundledDshMatches?: boolean;
   signed: boolean;
+  signatureStatus?: string;
+  mtimeMs?: number;
+  isStale?: boolean;
+  staleReason?: string;
 }
 
 export interface StageDefinition {
@@ -35,6 +43,7 @@ export interface StageContext {
   repoRoot: string;
   signal?: AbortSignal | null;
   dshEntry?: string | null;
+  packageStartTime?: number;
 }
 
 export interface StageRecord {
@@ -52,7 +61,10 @@ export interface StageRecord {
 }
 
 export function parseVitestStats(stdout?: string): VitestStats;
-export function inspectWindowsPackage(repoRoot: string): WindowsPackageArtifacts | null;
+export function inspectWindowsPackage(
+  repoRoot: string,
+  options?: { minMtimeMs?: number | null },
+): WindowsPackageArtifacts | null;
 export function getStages(
   mode: string,
   platformInfo: PlatformInfo,

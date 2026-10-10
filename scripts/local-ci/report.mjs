@@ -4,24 +4,209 @@ import { join } from 'node:path';
 import { getGitInfo } from './platform.mjs';
 import { inspectWindowsPackage } from './stages.mjs';
 
+export const EXPECTED_STAGES = {
+  quick: ['format-check', 'lint', 'boundaries', 'typecheck', 'test-offline'],
+  windows_full: [
+    'dependencies',
+    'dsh-install',
+    'format-check',
+    'lint',
+    'boundaries',
+    'typecheck',
+    'test-offline',
+    'build',
+    'cli-smoke-resources',
+    'cli-smoke-run',
+    'dsh-context-real',
+    'desktop-e2e-source',
+    'desktop-package-win',
+    'desktop-e2e-packaged',
+    'gitleaks-scan',
+  ],
+  linux_full: [
+    'dependencies',
+    'dsh-install',
+    'format-check',
+    'lint',
+    'boundaries',
+    'typecheck',
+    'test-offline',
+    'build',
+    'cli-smoke-resources',
+    'cli-smoke-run',
+    'dsh-context-real',
+    'desktop-e2e-linux',
+    'linux-sandbox',
+    'gitleaks-scan',
+  ],
+};
+
 /**
- * Computes overall validation verdict.
+ * Computes overall validation verdict against deterministic stage manifests.
  */
-export function computeFinalStatus(mode, stageResults) {
+export function computeFinalStatus(mode, stageResults = [], options = {}) {
+  const platform = options.platform || process.platform;
+  const isWsl = Boolean(options.isWsl);
+
+  if (!stageResults || stageResults.length === 0) {
+    if (mode === 'quick') return 'LOCAL_CI_QUICK_FAIL';
+    return platform === 'win32' ? 'NEXAR_WINDOWS_FULL_FAIL' : 'NEXAR_LINUX_FULL_FAIL';
+  }
+
   const hasFailures = stageResults.some((s) => s.status === 'FAIL');
   const hasBlocked = stageResults.some((s) => s.status === 'BLOCKED' && s.required);
 
   if (mode === 'quick') {
-    return hasFailures || hasBlocked ? 'LOCAL_CI_QUICK_FAIL' : 'LOCAL_CI_QUICK_PASS';
+    const expected = EXPECTED_STAGES.quick;
+    const missing = expected.some(
+      (id) => !stageResults.some((s) => s.id === id && s.status === 'PASS'),
+    );
+    if (missing || hasFailures || hasBlocked) {
+      return 'LOCAL_CI_QUICK_FAIL';
+    }
+    return 'LOCAL_CI_QUICK_PASS';
   }
 
-  if (hasFailures) return 'NEXAR_LOCAL_CI_FAIL';
-  if (hasBlocked) return 'NEXAR_LOCAL_CI_BLOCKED';
-  return 'NEXAR_LOCAL_CI_PASS';
+  // Full mode
+  const isWindows = platform === 'win32';
+  const expectedRequired = isWindows ? EXPECTED_STAGES.windows_full : EXPECTED_STAGES.linux_full;
+
+  if (hasFailures) {
+    return isWindows ? 'NEXAR_WINDOWS_FULL_FAIL' : 'NEXAR_LINUX_FULL_FAIL';
+  }
+
+  if (hasBlocked) {
+    return isWindows ? 'NEXAR_WINDOWS_FULL_BLOCKED' : 'NEXAR_LINUX_FULL_BLOCKED';
+  }
+
+  // Verify that every required stage is present and marked PASS
+  for (const reqId of expectedRequired) {
+    const found = stageResults.find((s) => s.id === reqId);
+    if (!found || found.status !== 'PASS') {
+      if (found && found.status === 'BLOCKED') {
+        return isWindows ? 'NEXAR_WINDOWS_FULL_BLOCKED' : 'NEXAR_LINUX_FULL_BLOCKED';
+      }
+      return isWindows ? 'NEXAR_WINDOWS_FULL_FAIL' : 'NEXAR_LINUX_FULL_FAIL';
+    }
+  }
+
+  if (isWindows) {
+    return 'NEXAR_WINDOWS_FULL_PASS';
+  }
+  return isWsl ? 'NEXAR_LINUX_WSL2_PASS' : 'NEXAR_LINUX_FULL_PASS';
 }
 
 /**
- * Aggregates test counts across all stages.
+ * Aggregates and verifies cross-platform evidence across matching clean runs.
+ */
+export function aggregateCrossPlatformEvidence(windowsReport, linuxReport) {
+  const reasons = [];
+
+  if (!windowsReport) {
+    reasons.push('Windows validation report is missing');
+  }
+  if (!linuxReport) {
+    reasons.push('Linux validation report is missing');
+  }
+  if (reasons.length > 0) {
+    return {
+      verdict: 'NEXAR_CROSS_PLATFORM_ACCEPTANCE_INCOMPLETE',
+      reasons,
+      matchedCommit: null,
+      details: null,
+    };
+  }
+
+  const winCommit = windowsReport.metadata?.git?.commit;
+  const linCommit = linuxReport.metadata?.git?.commit;
+
+  if (!winCommit || !linCommit || winCommit !== linCommit) {
+    reasons.push(
+      `Commit mismatch: Windows evaluated ${winCommit ?? 'unknown'}, Linux evaluated ${linCommit ?? 'unknown'}`,
+    );
+  }
+
+  if (windowsReport.metadata?.git?.isDirty) {
+    reasons.push(
+      `Windows tree was dirty (fingerprint: ${windowsReport.metadata.git.dirtyFingerprint})`,
+    );
+  }
+  if (linuxReport.metadata?.git?.isDirty) {
+    reasons.push(
+      `Linux tree was dirty (fingerprint: ${linuxReport.metadata.git.dirtyFingerprint})`,
+    );
+  }
+
+  if (windowsReport.finalStatus !== 'NEXAR_WINDOWS_FULL_PASS') {
+    reasons.push(
+      `Windows verdict is ${windowsReport.finalStatus}, expected NEXAR_WINDOWS_FULL_PASS`,
+    );
+  }
+
+  const validLinuxVerdicts = ['NEXAR_LINUX_FULL_PASS', 'NEXAR_LINUX_WSL2_PASS'];
+  if (!validLinuxVerdicts.includes(linuxReport.finalStatus)) {
+    reasons.push(
+      `Linux verdict is ${linuxReport.finalStatus}, expected NEXAR_LINUX_FULL_PASS or NEXAR_LINUX_WSL2_PASS`,
+    );
+  }
+
+  if (
+    windowsReport.metadata?.dsh?.version !== '0.2.0-rc.2' ||
+    linuxReport.metadata?.dsh?.version !== '0.2.0-rc.2'
+  ) {
+    reasons.push('DSH runtime version is not pinned 0.2.0-rc.2 on both platforms');
+  }
+
+  if (reasons.length > 0) {
+    return {
+      verdict: 'NEXAR_CROSS_PLATFORM_ACCEPTANCE_INCOMPLETE',
+      reasons,
+      matchedCommit: winCommit === linCommit ? winCommit : null,
+      details: {
+        windowsStatus: windowsReport.finalStatus,
+        linuxStatus: linuxReport.finalStatus,
+      },
+    };
+  }
+
+  return {
+    verdict: 'NEXAR_CROSS_PLATFORM_ACCEPTANCE_PASS',
+    reasons: [],
+    matchedCommit: winCommit,
+    details: {
+      windowsStatus: windowsReport.finalStatus,
+      linuxStatus: linuxReport.finalStatus,
+      linuxPlatform:
+        linuxReport.finalStatus === 'NEXAR_LINUX_WSL2_PASS' ? 'WSL2 Ubuntu' : 'Native Ubuntu',
+      evaluatedCommit: winCommit,
+    },
+  };
+}
+
+/**
+ * Extracts distinct test metrics per stage without double counting.
+ */
+export function extractStageTestMetrics(stageResults) {
+  const metrics = [];
+  for (const s of stageResults) {
+    if (s.vitestStats) {
+      metrics.push({
+        stageId: s.id,
+        stageName: s.name,
+        testFilesPassed: s.vitestStats.testFilesPassed,
+        testFilesTotal: s.vitestStats.testFilesTotal,
+        testsPassed: s.vitestStats.testsPassed,
+        testsSkipped: s.vitestStats.testsSkipped,
+        testsFailed: s.vitestStats.testsFailed,
+        testsTotal: s.vitestStats.testsTotal,
+      });
+    }
+  }
+  return metrics;
+}
+
+/**
+ * Aggregates test counts across all stages (for compatibility).
  */
 export function aggregateTestCounts(stageResults) {
   const totals = {
@@ -56,8 +241,12 @@ export function generateReports(runData) {
   const { mode, profile, platformInfo, preflightResult, stageResults, startTime, durationMs } =
     runData;
 
-  const finalStatus = computeFinalStatus(mode, stageResults);
+  const finalStatus = computeFinalStatus(mode, stageResults, {
+    platform: platformInfo.os.platform,
+    isWsl: platformInfo.os.isWsl,
+  });
   const testTotals = aggregateTestCounts(stageResults);
+  const stageTestMetrics = extractStageTestMetrics(stageResults);
   const packageArtifacts = inspectWindowsPackage(platformInfo.repoRoot);
 
   const reportObject = {
@@ -94,6 +283,7 @@ export function generateReports(runData) {
     preflight: preflightResult,
     stages: stageResults,
     testTotals,
+    stageTestMetrics,
     packageArtifacts,
   };
 
@@ -197,9 +387,16 @@ function renderMarkdownReport(data) {
   }
   md += `\n`;
 
-  if (data.testTotals.testsTotal > 0) {
+  if (data.stageTestMetrics && data.stageTestMetrics.length > 0) {
+    md += `## 4. Test Suite Summary by Stage\n\n`;
+    md += `| Stage | Files Passed / Total | Tests Passed | Skipped | Failed | Total |\n`;
+    md += `| --- | --- | --- | --- | --- | --- |\n`;
+    for (const t of data.stageTestMetrics) {
+      md += `| **${t.stageName}** | ${t.testFilesPassed}/${t.testFilesTotal} | ${t.testsPassed} | ${t.testsSkipped} | ${t.testsFailed} | ${t.testsTotal} |\n`;
+    }
+    md += `\n`;
+  } else if (data.testTotals.testsTotal > 0) {
     md += `## 4. Test Suite Summary\n\n`;
-    md += `- **Test Files:** ${data.testTotals.testFilesPassed} passed / ${data.testTotals.testFilesTotal} total\n`;
     md += `- **Tests Passed:** ${data.testTotals.testsPassed}\n`;
     md += `- **Tests Skipped:** ${data.testTotals.testsSkipped}\n`;
     md += `- **Tests Failed:** ${data.testTotals.testsFailed}\n\n`;
@@ -209,24 +406,24 @@ function renderMarkdownReport(data) {
     md += `## 5. Windows Desktop Package\n\n`;
     md += `- **Installer Name:** \`${data.packageArtifacts.installerName}\`\n`;
     md += `- **Size:** ${(data.packageArtifacts.sizeBytes / (1024 * 1024)).toFixed(2)} MB (${data.packageArtifacts.sizeBytes} bytes)\n`;
-    md += `- **SHA256:** \`${data.packageArtifacts.sha256}\`\n`;
-    md += `- **Signature:** ${data.packageArtifacts.signed ? 'Signed' : 'NotSigned (per-user installer)'}\n`;
-    md += `- **Bundled DSH Runtime:** Verified shipped under resources\n\n`;
+    md += `- **SHA256:** \`${data.packageArtifacts.sha256}\` (Byte match: ${data.packageArtifacts.shaMatchesActual ? 'VERIFIED' : 'UNVERIFIED'})\n`;
+    md += `- **Signature:** ${data.packageArtifacts.signed ? 'Signed' : `NotSigned (${data.packageArtifacts.signatureStatus ?? 'per-user installer'})`}\n`;
+    md += `- **Bundled DSH Runtime:** ${data.packageArtifacts.bundledDshMatches ? 'Verified shipped 0.2.0-rc.2 under resources' : data.packageArtifacts.bundledDshExists ? `Mismatched version (${data.packageArtifacts.bundledDshVersion})` : 'Not found under resources'}\n\n`;
   }
 
   md += `## 6. Parity with GitHub CI\n\n`;
-  md += `| Capability | GitHub Actions | Nexar Local CI | Status |\n`;
+  md += `| Capability | GitHub Actions | Nexar Local CI | Coverage Status |\n`;
   md += `| --- | --- | --- | --- |\n`;
-  md += `| Format & Lint & Types | Hosted Ubuntu / Windows | Local Node 22 | Identical |\n`;
-  md += `| Boundary & Secrets Guard | Hosted Ubuntu / Windows | Local runner | Identical |\n`;
-  md += `| Offline Test Suite | Hosted Ubuntu / Windows | Local runner | Identical |\n`;
-  md += `| Production Build | Hosted Ubuntu / Windows | Local runner | Identical |\n`;
-  md += `| CLI Smoke | Hosted Ubuntu / Windows | Local runner | Identical |\n`;
-  md += `| Desktop E2E (Windows) | Hosted Windows runner | Local Windows host | Identical |\n`;
-  md += `| Desktop Packaging (Windows) | Hosted Windows runner | Local Windows host | Identical |\n`;
-  md += `| Packaged Desktop E2E | Hosted Windows runner | Local Windows host | Identical |\n`;
-  md += `| Gitleaks Full Scan | Hosted Ubuntu runner | Local Gitleaks 8.28.0 | Identical |\n`;
-  md += `| Linux bwrap Sandbox | Hosted Ubuntu runner | Linux host / BLOCKED on Windows | Honest status reporting |\n\n`;
+  md += `| Format & Lint & Types | Hosted Ubuntu / Windows | Local Node 22 | Equivalent command coverage (environment differs) |\n`;
+  md += `| Boundary & Secrets Guard | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
+  md += `| Offline Test Suite | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
+  md += `| Production Build | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
+  md += `| CLI Smoke | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
+  md += `| Desktop E2E (Windows) | Hosted Windows runner | Local Windows host | Verified on Windows host |\n`;
+  md += `| Desktop Packaging (Windows) | Hosted Windows runner | Local Windows host | Verified on Windows host |\n`;
+  md += `| Packaged Desktop E2E | Hosted Windows runner | Local Windows host | Verified on Windows host |\n`;
+  md += `| Gitleaks Full Scan | Hosted Ubuntu runner | Local Gitleaks 8.28.0 | Equivalent command coverage |\n`;
+  md += `| Linux bwrap Sandbox | Hosted Ubuntu runner | Linux host / BLOCKED on Windows | Verified on Linux host / Blocked on Windows |\n\n`;
 
   md += `---\n*Generated automatically by Nexar Local CI Orchestrator*\n`;
   return md;

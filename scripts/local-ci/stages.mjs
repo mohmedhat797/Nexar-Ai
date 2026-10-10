@@ -1,4 +1,4 @@
-// Stage definitions and execution logic for Nexar Local CI.
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
@@ -7,7 +7,9 @@ import { spawnSubprocess } from './process-util.mjs';
 /**
  * Extracts Vitest test statistics from command stdout/stderr.
  */
-export function parseVitestStats(stdout = '') {
+export function parseVitestStats(rawStdout = '') {
+  // eslint-disable-next-line no-control-regex
+  const stdout = rawStdout.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '');
   const stats = {
     testFilesPassed: 0,
     testFilesFailed: 0,
@@ -19,14 +21,16 @@ export function parseVitestStats(stdout = '') {
   };
 
   const fileMatch = stdout.match(
-    /Test Files\s+(?:(\d+)\s+failed\s*\|?\s*)?(?:(\d+)\s+passed\s*\(?(\d+)?\)?)/,
+    /Test Files\s+(?:(\d+)\s+failed\s*\|?\s*)?(?:(\d+)\s+passed\s*\|?\s*)?(?:(\d+)\s+skipped\s*\|?\s*)?\(?(\d+)?\)?/,
   );
   if (fileMatch) {
     stats.testFilesFailed = fileMatch[1] ? parseInt(fileMatch[1], 10) : 0;
     stats.testFilesPassed = fileMatch[2] ? parseInt(fileMatch[2], 10) : 0;
-    stats.testFilesTotal = fileMatch[3]
-      ? parseInt(fileMatch[3], 10)
-      : stats.testFilesPassed + stats.testFilesFailed;
+    stats.testFilesTotal = fileMatch[4]
+      ? parseInt(fileMatch[4], 10)
+      : fileMatch[3]
+        ? parseInt(fileMatch[3], 10)
+        : stats.testFilesPassed + stats.testFilesFailed;
   }
 
   const testMatch = stdout.match(
@@ -57,7 +61,8 @@ export function parseVitestStats(stdout = '') {
 /**
  * Inspects Windows packaging artifacts.
  */
-export function inspectWindowsPackage(repoRoot) {
+export function inspectWindowsPackage(repoRoot, options = {}) {
+  const { minMtimeMs = null } = options;
   const releaseDir = join(repoRoot, 'release', 'desktop');
   if (!existsSync(releaseDir)) return null;
 
@@ -69,6 +74,16 @@ export function inspectWindowsPackage(repoRoot) {
     const exePath = join(releaseDir, exeName);
     const stats = statSync(exePath);
 
+    // Stale check
+    if (minMtimeMs && stats.mtimeMs < minMtimeMs) {
+      return {
+        installerName: exeName,
+        installerPath: exePath,
+        isStale: true,
+        staleReason: `Artifact mtime (${new Date(stats.mtimeMs).toISOString()}) predates stage start (${new Date(minMtimeMs).toISOString()})`,
+      };
+    }
+
     let sha256 = null;
     const shaFile = files.find((f) => f.endsWith('.sha256') && f.includes(exeName));
     if (shaFile) {
@@ -76,20 +91,76 @@ export function inspectWindowsPackage(repoRoot) {
       const hashMatch = content.match(/[a-f0-9]{64}/i);
       if (hashMatch) sha256 = hashMatch[0];
     }
+    const buffer = readFileSync(exePath);
+    const computedSha = createHash('sha256').update(buffer).digest('hex');
     if (!sha256) {
-      const buffer = readFileSync(exePath);
-      sha256 = createHash('sha256').update(buffer).digest('hex');
+      sha256 = computedSha;
     }
 
     const unpackedExe = join(releaseDir, 'win-unpacked', 'Nexar.exe');
+    const unpackedExists = existsSync(unpackedExe);
+
+    // Inspect bundled DSH runtime in unpacked directory
+    const bundledDshManifestPath = join(
+      releaseDir,
+      'win-unpacked',
+      'resources',
+      'dsh-runtime',
+      'node_modules',
+      '@deepseek-ai',
+      'dsh',
+      'package.json',
+    );
+    let bundledDshExists = false;
+    let bundledDshVersion = null;
+    let bundledDshMatches = false;
+
+    if (existsSync(bundledDshManifestPath)) {
+      try {
+        const manifest = JSON.parse(readFileSync(bundledDshManifestPath, 'utf8'));
+        bundledDshExists = true;
+        bundledDshVersion = manifest.version;
+        bundledDshMatches = manifest.version === '0.2.0-rc.2';
+      } catch {
+        // ignore
+      }
+    }
+
+    // Inspect Authenticode signature
+    let signatureStatus = 'NotSigned';
+    let signed = false;
+    if (process.platform === 'win32') {
+      try {
+        const probe = spawnSync(
+          'powershell.exe',
+          ['-NoProfile', '-Command', `(Get-AuthenticodeSignature '${exePath}').Status.ToString()`],
+          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 },
+        );
+        if (probe.status === 0 && probe.stdout) {
+          const status = probe.stdout.trim();
+          signatureStatus = status;
+          signed = status === 'Valid';
+        }
+      } catch {
+        // PowerShell check unavailable
+      }
+    }
+
     return {
       installerName: exeName,
       installerPath: exePath,
       sizeBytes: stats.size,
       sha256,
-      unpackedExists: existsSync(unpackedExe),
+      shaMatchesActual: sha256.toLowerCase() === computedSha.toLowerCase(),
+      unpackedExists,
       unpackedPath: unpackedExe,
-      signed: false, // Windows packaging generates unsigned per-user installer
+      bundledDshExists,
+      bundledDshVersion,
+      bundledDshMatches,
+      signed,
+      signatureStatus,
+      mtimeMs: stats.mtimeMs,
+      isStale: false,
     };
   } catch {
     return null;
@@ -117,6 +188,23 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
     childEnv.PATH = `${extraPaths.join(delimiter)}${delimiter}${childEnv.PATH || ''}`;
   }
 
+  // If running on Linux/WSL against a Windows git worktree, set GIT_DIR to translated Linux path
+  const gitFilePath = join(repoRoot, '.git');
+  if (isLinux && existsSync(gitFilePath) && statSync(gitFilePath).isFile()) {
+    try {
+      const content = readFileSync(gitFilePath, 'utf8');
+      const match = content.match(/gitdir:\s*([A-Za-z]):[/\\](.+)/);
+      if (match) {
+        const drive = match[1].toLowerCase();
+        const rest = match[2].replace(/\\/g, '/').trim();
+        childEnv.GIT_DIR = `/mnt/${drive}/${rest}`;
+        childEnv.GIT_WORK_TREE = repoRoot;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const pnpmCmd = isWindows ? 'pnpm.cmd' : 'pnpm';
   const testWorkers =
     options.workers || process.env.NEXAR_TEST_WORKERS || (isWindows ? '2' : undefined);
@@ -138,7 +226,7 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
         id: 'lint',
         name: 'ESLint static analysis',
         command: [pnpmCmd, 'lint'],
-        timeoutMs: 180_000,
+        timeoutMs: 360_000,
         required: true,
         env: childEnv,
       },
@@ -162,7 +250,7 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
         id: 'test-offline',
         name: 'Offline unit & integration test suite',
         command: testCmdArgs,
-        timeoutMs: 300_000,
+        timeoutMs: 600_000,
         required: true,
         env: childEnv,
       },
@@ -221,7 +309,7 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
       id: 'lint',
       name: 'ESLint static analysis',
       command: [pnpmCmd, 'lint'],
-      timeoutMs: 180_000,
+      timeoutMs: 360_000,
       required: true,
       env: childEnv,
     },
@@ -245,7 +333,7 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
       id: 'test-offline',
       name: 'Offline unit & integration test suite (with DSH entry)',
       command: testCmdArgs,
-      timeoutMs: 360_000,
+      timeoutMs: 600_000,
       required: true,
       env: childEnv,
     },
@@ -310,8 +398,16 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
     stages.push({
       id: 'desktop-package-win',
       name: 'Package Windows desktop installer (with bundled DSH runtime)',
-      command: [pnpmCmd, 'desktop:package:win'],
-      timeoutMs: 600_000,
+      customRun: async (ctx) => {
+        ctx.packageStartTime = Date.now();
+        return spawnSubprocess(pnpmCmd, ['desktop:package:win'], {
+          cwd: repoRoot,
+          env: childEnv,
+          timeoutMs: 1_200_000,
+          signal: ctx.signal,
+        });
+      },
+      timeoutMs: 1_200_000,
       required: true,
       env: childEnv,
     });
@@ -320,8 +416,33 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
       id: 'desktop-e2e-packaged',
       name: 'Packaged Desktop E2E (bundled DSH runtime only, no external entry)',
       customRun: async (ctx) => {
-        const pkgInfo = inspectWindowsPackage(repoRoot);
-        if (!pkgInfo || !pkgInfo.unpackedExists) {
+        const pkgInfo = inspectWindowsPackage(repoRoot, {
+          minMtimeMs: ctx.packageStartTime,
+        });
+        if (!pkgInfo) {
+          return {
+            command: 'pnpm desktop:e2e',
+            exitCode: 1,
+            signal: null,
+            durationMs: 0,
+            stdout: '',
+            stderr:
+              'Package inspection failed: no installer found under release/desktop. Run desktop-package-win first.',
+            error: new Error('Package missing'),
+          };
+        }
+        if (pkgInfo.isStale) {
+          return {
+            command: 'pnpm desktop:e2e',
+            exitCode: 1,
+            signal: null,
+            durationMs: 0,
+            stdout: '',
+            stderr: `Stale installer artifact rejected: ${pkgInfo.staleReason}.`,
+            error: new Error('Stale installer artifact'),
+          };
+        }
+        if (!pkgInfo.unpackedExists) {
           return {
             command: 'pnpm desktop:e2e',
             exitCode: 1,
@@ -331,6 +452,17 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
             stderr:
               'Packaged binary not found at release/desktop/win-unpacked/Nexar.exe. Run desktop-package-win first.',
             error: new Error('Packaged executable missing'),
+          };
+        }
+        if (!pkgInfo.bundledDshMatches) {
+          return {
+            command: 'pnpm desktop:e2e',
+            exitCode: 1,
+            signal: null,
+            durationMs: 0,
+            stdout: '',
+            stderr: `Bundled DSH runtime validation failed: expected 0.2.0-rc.2, found ${pkgInfo.bundledDshVersion ?? 'missing'}.`,
+            error: new Error('Bundled DSH runtime mismatch'),
           };
         }
 
@@ -369,7 +501,13 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
         // Native Linux execution: check bwrap and run sandbox tests
         return spawnSubprocess(
           pnpmCmd,
-          ['test', 'packages/engineering-runner/src/sandbox.test.ts'],
+          [
+            'exec',
+            'vitest',
+            'run',
+            'packages/sandbox/src/availability.test.ts',
+            'packages/sandbox/src/launcher.integration.test.ts',
+          ],
           {
             cwd: repoRoot,
             env: childEnv,

@@ -1,0 +1,2 @@
+# Gitleaks ignore list for accepted synthetic test fixtures
+8ca639fabd9d7984b2a79cc82cf6488b5757c527:tests/local-ci.test.ts:generic-api-key:268
