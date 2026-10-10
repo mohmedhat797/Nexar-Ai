@@ -10,6 +10,8 @@ import {
   type ModelTurnPortRequest,
   type NexarErrorCode,
   type ResourceSnapshot,
+  type TelemetryEvent,
+  type TelemetrySink,
 } from '@nexar/contracts';
 import { ControlModelGateway, type ControlEvent } from './gateway.js';
 import { NOW, routingPolicy, snap } from './fixtures.js';
@@ -44,7 +46,7 @@ const fail = (code: NexarErrorCode): NexarError => new NexarError(code, 'boom');
 
 function setup(
   handlers: Record<string, (r: ModelTurnPortRequest) => Promise<PortResult> | PortResult>,
-  options: { retries?: number; candidates?: ResourceSnapshot[] } = {},
+  options: { retries?: number; candidates?: ResourceSnapshot[]; telemetry?: TelemetrySink } = {},
 ) {
   const events: ControlEvent[] = [];
   const calls: { resource: string; request: ModelTurnPortRequest }[] = [];
@@ -70,6 +72,7 @@ function setup(
     newId: () => `dec-${String(++n)}`,
     logger: silent,
     onEvent: (e) => events.push(e),
+    ...(options.telemetry === undefined ? {} : { telemetry: options.telemetry }),
     ...(options.retries === undefined ? {} : { retries: options.retries }),
   });
   const request = (
@@ -97,6 +100,96 @@ async function rejection(p: Promise<unknown>): Promise<NexarError> {
 }
 
 describe('ControlModelGateway', () => {
+  it('accounts each actual provider attempt against the selected resource, including restarts', async () => {
+    const records: TelemetryEvent[] = [];
+    const { gateway, request, calls } = setup(
+      {
+        a: () => {
+          throw new NexarError('PROVIDER_ERROR', SENTINEL, { retryable: true });
+        },
+        b: () => ({
+          ...ok(),
+          usage: { inputTokens: measured(3), outputTokens: measured(1), costUsd: measured(0.02) },
+        }),
+      },
+      {
+        telemetry: {
+          emit: (event) => {
+            records.push(event);
+          },
+        },
+      },
+    );
+    const first = gateway.begin(
+      'dsh',
+      { mode: 'pinned', resourceId: 'a', fallback: 'auto' },
+      lineage,
+    );
+    await expect(gateway.turn(request(first.controlDecisionId), signal())).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+    });
+    const next = gateway.restart(first.controlDecisionId);
+    await gateway.turn(request(next.controlDecisionId), signal());
+    await gateway.turn(request(next.controlDecisionId), signal());
+    const finished = records.filter((event) => event.type === 'execution.finished');
+    expect(finished).toHaveLength(calls.length);
+    expect(finished.map((event) => event.record.resourceId)).toEqual(['a', 'a', 'b', 'b']);
+    expect(new Set(finished.map((event) => event.record.taskId)).size).toBe(4);
+    expect(finished[0]?.record.usage.inputTokens.status).toBe('unavailable');
+    expect(finished[0]?.record.outcome).toBe('failed');
+    expect(finished[2]?.record).toMatchObject({
+      provider: 'acme',
+      model: 'b',
+      origin: 'control-plane',
+      usage: { costUsd: measured(0.02) },
+    });
+    expect(JSON.stringify(records)).not.toContain(SENTINEL);
+  });
+
+  it('does not retry a successful provider call when the accounting sink fails', async () => {
+    const emit = vi.fn(() => {
+      throw new Error(SENTINEL);
+    });
+    const { gateway, request, calls } = setup({ a: () => ok() }, { telemetry: { emit } });
+    const decision = gateway.begin('dsh', auto, lineage);
+    await expect(
+      gateway.turn(request(decision.controlDecisionId), signal()),
+    ).resolves.toMatchObject({ text: 'hi' });
+    expect(calls).toHaveLength(1);
+    expect(emit).toHaveBeenCalledTimes(1);
+  });
+
+  it('records cancellation with unknown usage and never accounts a preflight refusal', async () => {
+    const records: TelemetryEvent[] = [];
+    const { gateway, request } = setup(
+      {
+        a: () => {
+          throw fail('EXECUTION_CANCELLED');
+        },
+      },
+      {
+        telemetry: {
+          emit: (event) => {
+            records.push(event);
+          },
+        },
+      },
+    );
+    await expect(gateway.turn(request('missing'), signal())).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    expect(records).toHaveLength(0);
+    const decision = gateway.begin('dsh', auto, lineage);
+    await expect(gateway.turn(request(decision.controlDecisionId), signal())).rejects.toMatchObject(
+      { code: 'EXECUTION_CANCELLED' },
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      type: 'execution.finished',
+      record: { outcome: 'cancelled', usage: { costUsd: { status: 'unavailable' } } },
+    });
+  });
+
   it('previews the resource begin would pin, without side effects', () => {
     const { gateway, events } = setup({ a: () => ok(), b: () => ok() });
     const pinned: ControlResourcePolicy = { mode: 'pinned', resourceId: 'b', fallback: 'none' };

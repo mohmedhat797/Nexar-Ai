@@ -3,6 +3,9 @@ import {
   NexarError,
   isNexarError,
   toNexarError,
+  emptyUsage,
+  taskId,
+  unavailable,
   validateControlTurnRequest,
   type ControlDecision,
   type ControlEngine,
@@ -17,6 +20,7 @@ import {
   type ResourceSnapshot,
   type RoutingHistory,
   type RoutingPolicy,
+  type TelemetrySink,
 } from '@nexar/contracts';
 import type { StrategySettings } from '@nexar/resource-controller';
 import { selectControl } from './select-control.js';
@@ -49,6 +53,8 @@ export interface ControlModelGatewayOptions {
   readonly retries?: number;
   readonly logger: Logger;
   readonly onEvent?: (event: ControlEvent) => void;
+  /** Same durable sink used by the owning Nexar runtime. One record per provider attempt. */
+  readonly telemetry?: TelemetrySink;
 }
 
 interface ActiveDecision {
@@ -174,24 +180,24 @@ export class ControlModelGateway {
     const attempts = this.retries + 1;
     for (let attempt = 1; ; attempt++) {
       if (signal.aborted) throw new NexarError('EXECUTION_CANCELLED', 'Turn was cancelled');
+      const startedAt = this.options.clock();
+      const id = taskId(`control-${this.options.newId()}`);
+      let result: Omit<ControlTurnResult, 'resourceId'>;
       try {
-        const result = await port.turn({
+        result = await port.turn({
           descriptor: snapshot.descriptor,
           messages,
           ...(request.tools === undefined ? {} : { tools: request.tools }),
           ...(request.settings === undefined ? {} : { settings: request.settings }),
           signal,
         });
-        if (result.extras !== undefined && entry.issuedExtras.size < MAX_ISSUED_EXTRAS) {
-          entry.issuedExtras.add(extrasKey(result.extras));
-        }
-        return { ...result, resourceId: decision.resourceId };
       } catch (e) {
         const error = signal.aborted
           ? new NexarError('EXECUTION_CANCELLED', 'Turn was cancelled', { cause: e })
           : isNexarError(e)
             ? e
             : toNexarError(e, 'PROVIDER_ERROR');
+        await this.account(decision, snapshot, id, startedAt, undefined, error);
         if (error.code === 'EXECUTION_CANCELLED') throw error;
         // A provider that says the same body can never succeed (`retryable: false`) is not asked again.
         if (RETRYABLE.has(error.code) && error.retryable && attempt < attempts) {
@@ -209,6 +215,80 @@ export class ControlModelGateway {
           },
         });
       }
+      // Accounting failures must never repeat a completed provider call.
+      await this.account(decision, snapshot, id, startedAt, result);
+      if (result.extras !== undefined && entry.issuedExtras.size < MAX_ISSUED_EXTRAS) {
+        entry.issuedExtras.add(extrasKey(result.extras));
+      }
+      return { ...result, resourceId: decision.resourceId };
+    }
+  }
+
+  private async account(
+    decision: ControlDecision,
+    snapshot: ResourceSnapshot,
+    id: ReturnType<typeof taskId>,
+    startedAt: Date,
+    result?: Omit<ControlTurnResult, 'resourceId'>,
+    error?: NexarError,
+  ): Promise<void> {
+    if (this.options.telemetry === undefined) return;
+    const endedAt = this.options.clock();
+    const { descriptor } = snapshot;
+    try {
+      await this.options.telemetry.emit({
+        type: 'execution.finished',
+        at: endedAt.toISOString(),
+        record: {
+          schemaVersion: 1,
+          taskId: id,
+          taskKind: 'control-model-turn',
+          origin: 'control-plane',
+          resourceId: descriptor.id,
+          resourceKind: descriptor.kind.type,
+          adapter: descriptor.runtime.adapter,
+          ...(descriptor.kind.type === 'model'
+            ? { provider: descriptor.kind.provider, model: descriptor.kind.model }
+            : {}),
+          routing: {
+            policy: this.options.policy.name,
+            policyVersion: this.options.policy.version,
+            reasonCodes: decision.reasonCodes,
+          },
+          startedAt: startedAt.toISOString(),
+          endedAt: endedAt.toISOString(),
+          latencyMs: Math.max(0, endedAt.getTime() - startedAt.getTime()),
+          usage:
+            result === undefined
+              ? emptyUsage('provider attempt failed without reported usage')
+              : {
+                  ...result.usage,
+                  costUsd: result.usage.costUsd ?? unavailable('provider did not report cost'),
+                },
+          quotaImpact: unavailable('provider did not report quota impact'),
+          retries: 0,
+          outcome:
+            error?.code === 'EXECUTION_CANCELLED'
+              ? 'cancelled'
+              : error?.code === 'EXECUTION_TIMEOUT'
+                ? 'timed-out'
+                : error !== undefined || result?.finishReason === 'error'
+                  ? 'failed'
+                  : 'succeeded',
+          ...(error === undefined
+            ? {}
+            : {
+                error: {
+                  code: error.code,
+                  message: 'Control provider attempt failed',
+                  retryable: error.retryable,
+                },
+              }),
+          artifacts: [],
+        },
+      });
+    } catch {
+      this.options.logger.warn('control accounting unavailable', { code: 'TELEMETRY_SINK_FAILED' });
     }
   }
 

@@ -60,6 +60,8 @@ describe('PiModelTurnPort', () => {
     expect(result.finishReason).toBe('stop');
     expect(result.usage.inputTokens.status).toBe('measured');
     expect(result.usage.outputTokens.status).toBe('measured');
+    expect(result.usage.costUsd?.status).toBe('unavailable');
+    expect(result.usage.cacheReadTokens?.status).toBe('unavailable');
   });
 
   it('sends system messages as the system prompt and tools in the context', async () => {
@@ -257,6 +259,32 @@ describe('PiModelTurnPort', () => {
       expect(result.usage.inputTokens.status).toBe(input);
       expect(result.usage.outputTokens.status).toBe(output);
     }
+  });
+
+  it('preserves measured cache tokens and distinguishes catalog cost estimates', async () => {
+    const { descriptor, request, provider } = setup();
+    const message: PiAssistantMessageLike = {
+      content: [{ type: 'text', text: 'accounted' }],
+      stopReason: 'stop',
+      model: 'm',
+      provider,
+      usage: { input: 12, output: 5, cacheRead: 3, cacheWrite: 2, cost: { total: 0.0042 } },
+    };
+    const port = new PiModelTurnPort({
+      models: {
+        getModel: (p, id) => ({ provider: p, id }),
+        completeSimple: () => Promise.resolve(message),
+      },
+      env: { [KEY_ENV]: SECRET },
+      allowedProviders: [provider],
+    });
+    expect((await port.turn({ ...request([user('hi')]), descriptor })).usage).toEqual({
+      inputTokens: { status: 'measured', value: 12 },
+      outputTokens: { status: 'measured', value: 5 },
+      cacheReadTokens: { status: 'measured', value: 3 },
+      cacheWriteTokens: { status: 'measured', value: 2 },
+      costUsd: { status: 'estimated', value: 0.0042, basis: 'pi-ai catalog rates' },
+    });
   });
 
   it('maps length and error stop reasons', async () => {

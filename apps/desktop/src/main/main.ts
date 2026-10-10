@@ -315,6 +315,7 @@ async function start(): Promise<void> {
     newId: randomUUID,
     logger,
     // controlFailed of a grant reads these (the host is created right after).
+    telemetry: { emit: (event) => engine.composition().runtime.telemetry?.emit(event) },
     onEvent: (event) => bridgeHostRef.current?.noteControlEvent(event),
   });
   const bridgeHost = new BridgeHost({

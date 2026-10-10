@@ -60,6 +60,9 @@ export interface ControlTurnResult {
   readonly usage: {
     readonly inputTokens: Measured<number>;
     readonly outputTokens: Measured<number>;
+    readonly cacheReadTokens?: Measured<number>;
+    readonly cacheWriteTokens?: Measured<number>;
+    readonly costUsd?: Measured<number>;
   };
   readonly extras?: Readonly<Record<string, unknown>>;
   readonly resourceId: string;
