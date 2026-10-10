@@ -46,6 +46,7 @@ export interface PlatformInfo {
     arch: string;
     cpus: number;
     totalMemGb: string;
+    isWsl?: boolean;
   };
   git: GitInfo;
   node: NodeInfo;

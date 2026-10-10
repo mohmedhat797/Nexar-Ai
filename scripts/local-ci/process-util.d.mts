@@ -5,6 +5,7 @@ export interface SubprocessResult {
   durationMs: number;
   timedOut: boolean;
   aborted: boolean;
+  settled?: boolean;
   stdout: string;
   stderr: string;
   error: Error | null;

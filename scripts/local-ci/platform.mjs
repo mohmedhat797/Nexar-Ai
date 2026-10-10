@@ -1,7 +1,7 @@
 // Platform, toolchain, and Git environment inspection for Nexar Local CI.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,8 +14,26 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
  */
 export function getGitInfo(cwd = REPO_ROOT) {
   try {
+    const gitEnv = { ...process.env };
+    const gitFilePath = join(cwd, '.git');
+    if (process.platform === 'linux' && existsSync(gitFilePath) && statSync(gitFilePath).isFile()) {
+      try {
+        const content = readFileSync(gitFilePath, 'utf8');
+        const match = content.match(/gitdir:\s*([A-Za-z]):[/\\](.+)/);
+        if (match) {
+          const drive = match[1].toLowerCase();
+          const rest = match[2].replace(/\\/g, '/').trim();
+          gitEnv.GIT_DIR = `/mnt/${drive}/${rest}`;
+          gitEnv.GIT_WORK_TREE = cwd;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const commit = execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd,
+      env: gitEnv,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
@@ -24,6 +42,7 @@ export function getGitInfo(cwd = REPO_ROOT) {
     try {
       branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
         cwd,
+        env: gitEnv,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
       }).trim();
@@ -33,6 +52,7 @@ export function getGitInfo(cwd = REPO_ROOT) {
 
     const porcelain = execFileSync('git', ['status', '--porcelain'], {
       cwd,
+      env: gitEnv,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -43,12 +63,30 @@ export function getGitInfo(cwd = REPO_ROOT) {
     if (isDirty) {
       const diff = execFileSync('git', ['diff', 'HEAD'], {
         cwd,
+        env: gitEnv,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
       });
       const hasher = createHash('sha256');
       hasher.update(porcelain);
       hasher.update(diff);
+
+      // Hash content of untracked files to detect changes to unstaged new files
+      const lines = porcelain.split(/\r?\n/).filter(Boolean);
+      for (const line of lines) {
+        if (line.startsWith('?? ')) {
+          const untrackedFile = line.substring(3).trim();
+          const fullPath = join(cwd, untrackedFile);
+          try {
+            if (existsSync(fullPath) && statSync(fullPath).isFile()) {
+              hasher.update(readFileSync(fullPath));
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+
       dirtyFingerprint = hasher.digest('hex').substring(0, 16);
     }
 
@@ -350,6 +388,11 @@ export function getPlatformInfo(options = {}) {
   const gitleaks = getGitleaksInfo(options.customGitleaksBin);
   const dsh = getDshInfo();
 
+  const isWsl =
+    process.platform === 'linux' &&
+    (os.release().toLowerCase().includes('microsoft') ||
+      os.release().toLowerCase().includes('wsl'));
+
   return {
     os: {
       platform: process.platform,
@@ -357,6 +400,7 @@ export function getPlatformInfo(options = {}) {
       arch: os.arch(),
       cpus: os.cpus().length,
       totalMemGb: (os.totalmem() / (1024 * 1024 * 1024)).toFixed(2),
+      isWsl,
     },
     git,
     node,

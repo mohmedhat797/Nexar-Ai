@@ -5,10 +5,12 @@ import { spawn, spawnSync } from 'node:child_process';
  * Common patterns of credentials and secret material that must never leak into logs.
  */
 const REDACTION_PATTERNS = [
-  /(?:Bearer|token|key|secret|password|passwd|authorization)\s*[:=]\s*['"]?([a-zA-Z0-9_\-.~+/=]{8,})['"]?/gi,
-  /ghp_[a-zA-Z0-9]{36}/g,
+  /(?:Bearer\s+)([a-zA-Z0-9_.~+/=-]{8,})/gi,
+  /(?:token|key|secret|password|passwd|api_key|apikey|api-key|authorization)\s*[:=]\s*['"]?([a-zA-Z0-9_.~+/=-]{8,})['"]?/gi,
+  /gh[pous]_[a-zA-Z0-9]{36}/g,
   /github_pat_[a-zA-Z0-9_]{82}/g,
   /sk-[a-zA-Z0-9]{20,}/g,
+  /sk-proj-[a-zA-Z0-9_-]{20,}/g,
 ];
 
 export function redactSecrets(text) {
@@ -23,6 +25,21 @@ export function redactSecrets(text) {
     });
   }
   return clean;
+}
+
+/**
+ * Maximum characters retained per stdout/stderr stream to prevent memory exhaustion.
+ */
+const MAX_LOG_BUFFER_CHARS = 1_000_000;
+
+function appendBoundedBuffer(currentBuffer, chunkText) {
+  const combined = currentBuffer + chunkText;
+  if (combined.length <= MAX_LOG_BUFFER_CHARS) {
+    return combined;
+  }
+  const head = combined.substring(0, 200_000);
+  const tail = combined.substring(combined.length - 750_000);
+  return `${head}\n\n[...log buffer truncated for memory safety (${combined.length - 950_000} chars omitted)...]\n\n${tail}`;
 }
 
 /**
@@ -72,6 +89,7 @@ export async function spawnSubprocess(command, args = [], options = {}) {
   return new Promise((resolve) => {
     let resolved = false;
     let timer = null;
+    let onAbortListener = null;
 
     let execCmd = command;
     let execArgs = args;
@@ -101,6 +119,10 @@ export async function spawnSubprocess(command, args = [], options = {}) {
         clearTimeout(timer);
         timer = null;
       }
+      if (signal && onAbortListener) {
+        signal.removeEventListener('abort', onAbortListener);
+        onAbortListener = null;
+      }
     };
 
     const finish = (result) => {
@@ -115,68 +137,87 @@ export async function spawnSubprocess(command, args = [], options = {}) {
         durationMs,
         timedOut,
         aborted,
+        settled: result.settled ?? true,
         stdout: redactSecrets(stdoutBuffer),
         stderr: redactSecrets(stderrBuffer),
         error: result.error ?? null,
       });
     };
 
+    let terminating = false;
+    let terminationExitCode = 0;
+    let terminationSig = null;
+    let terminationError = null;
+
+    const terminateWithSettlement = (defaultExitCode, defaultSig, errorMsg) => {
+      terminating = true;
+      terminationExitCode = defaultExitCode;
+      terminationSig = defaultSig;
+      terminationError = new Error(errorMsg);
+
+      killProcessTree(child.pid);
+
+      const settlementTimer = setTimeout(() => {
+        if (!resolved) {
+          killProcessTree(child.pid);
+          finish({
+            exitCode: defaultExitCode,
+            signal: defaultSig,
+            error: terminationError,
+            settled: false,
+          });
+        }
+      }, 3000);
+      if (settlementTimer.unref) settlementTimer.unref();
+    };
+
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         timedOut = true;
-        killProcessTree(child.pid);
-        finish({
-          exitCode: 124,
-          signal: 'SIGKILL',
-          error: new Error(`Subprocess timed out after ${timeoutMs}ms`),
-        });
+        terminateWithSettlement(124, 'SIGKILL', `Subprocess timed out after ${timeoutMs}ms`);
       }, timeoutMs);
     }
 
     if (signal) {
       if (signal.aborted) {
         aborted = true;
-        killProcessTree(child.pid);
-        finish({
-          exitCode: 130,
-          signal: 'SIGINT',
-          error: new Error('Subprocess was cancelled by signal'),
-        });
+        terminateWithSettlement(130, 'SIGINT', 'Subprocess was cancelled by signal');
         return;
       }
-      signal.addEventListener(
-        'abort',
-        () => {
-          aborted = true;
-          killProcessTree(child.pid);
-          finish({
-            exitCode: 130,
-            signal: 'SIGINT',
-            error: new Error('Subprocess was cancelled by signal'),
-          });
-        },
-        { once: true },
-      );
+      onAbortListener = () => {
+        aborted = true;
+        terminateWithSettlement(130, 'SIGINT', 'Subprocess was cancelled by signal');
+      };
+      signal.addEventListener('abort', onAbortListener, { once: true });
     }
 
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString('utf8');
-      stdoutBuffer += text;
+      stdoutBuffer = appendBoundedBuffer(stdoutBuffer, text);
       if (onStdout) onStdout(text);
     });
 
     child.stderr.on('data', (chunk) => {
       const text = chunk.toString('utf8');
-      stderrBuffer += text;
+      stderrBuffer = appendBoundedBuffer(stderrBuffer, text);
       if (onStderr) onStderr(text);
     });
 
     child.on('error', (err) => {
-      finish({ exitCode: 1, signal: null, error: err });
+      finish({ exitCode: 1, signal: null, error: err, settled: true });
     });
 
     child.on('close', (code, sig) => {
-      finish({ exitCode: code, signal: sig, error: null });
+      if (terminating) {
+        finish({
+          exitCode: terminationExitCode,
+          signal: sig ?? terminationSig,
+          error: terminationError,
+          settled: true,
+        });
+      } else {
+        finish({ exitCode: code, signal: sig, error: null, settled: true });
+      }
     });
   });
 }
