@@ -1,4 +1,4 @@
-import type { PlatformInfo } from './platform.mjs';
+import type { GitInfo, PlatformInfo } from './platform.mjs';
 import type { PreflightResult } from './preflight.mjs';
 import type { StageRecord, VitestStats } from './stages.mjs';
 
@@ -11,6 +11,8 @@ export interface RunData {
   startTime: number;
   endTime: number;
   durationMs: number;
+  sourceEnd?: GitInfo;
+  interrupted?: boolean;
 }
 
 export interface ReportOutputs {
@@ -31,6 +33,9 @@ export interface StageTestMetric {
   testsSkipped: number;
   testsFailed: number;
   testsTotal: number;
+  testsPending?: number;
+  testsTodo?: number;
+  testsUnclassified?: number;
 }
 
 export interface CrossPlatformEvidence {
@@ -58,4 +63,5 @@ export function aggregateCrossPlatformEvidence(
   linuxReport: { finalStatus: string; metadata?: any },
 ): CrossPlatformEvidence;
 export function generateReports(runData: RunData): ReportOutputs;
+export function sourceIdentityMatches(before: GitInfo, after: GitInfo): boolean;
 export function showLatestReport(repoRoot: string): void;

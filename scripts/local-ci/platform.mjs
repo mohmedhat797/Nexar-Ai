@@ -5,6 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalizeWindowsEnv } from './process-util.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -50,18 +51,22 @@ export function getGitInfo(cwd = REPO_ROOT) {
       // Detached head or tag
     }
 
-    const porcelain = execFileSync('git', ['status', '--porcelain'], {
-      cwd,
-      env: gitEnv,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const porcelain = execFileSync(
+      'git',
+      ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
+      {
+        cwd,
+        env: gitEnv,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    );
 
     const isDirty = porcelain.trim().length > 0;
     let dirtyFingerprint = null;
 
     if (isDirty) {
-      const diff = execFileSync('git', ['diff', 'HEAD'], {
+      const diff = execFileSync('git', ['diff', '--binary', 'HEAD'], {
         cwd,
         env: gitEnv,
         encoding: 'utf8',
@@ -71,23 +76,21 @@ export function getGitInfo(cwd = REPO_ROOT) {
       hasher.update(porcelain);
       hasher.update(diff);
 
-      // Hash content of untracked files to detect changes to unstaged new files
-      const lines = porcelain.split(/\r?\n/).filter(Boolean);
-      for (const line of lines) {
-        if (line.startsWith('?? ')) {
-          const untrackedFile = line.substring(3).trim();
-          const fullPath = join(cwd, untrackedFile);
-          try {
-            if (existsSync(fullPath) && statSync(fullPath).isFile()) {
-              hasher.update(readFileSync(fullPath));
-            }
-          } catch {
-            // ignore
-          }
-        }
+      // NUL-delimited names preserve spaces, non-ASCII names and nested untracked files.
+      // A failed read invalidates the identity rather than silently certifying partial input.
+      const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+        cwd,
+        env: gitEnv,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      for (const name of untracked.split('\0').filter(Boolean).sort()) {
+        const bytes = readFileSync(join(cwd, name));
+        hasher.update(`${name}\0${bytes.length}\0`);
+        hasher.update(bytes);
       }
 
-      dirtyFingerprint = hasher.digest('hex').substring(0, 16);
+      dirtyFingerprint = hasher.digest('hex');
     }
 
     return {
@@ -112,6 +115,13 @@ export function getGitInfo(cwd = REPO_ROOT) {
 /**
  * Resolves target Node.js version and finds verified Node installation.
  */
+export function isSupportedNode(version, pinnedMajor = '22') {
+  const parts = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version || '');
+  return Boolean(
+    parts && parts[1] === pinnedMajor && (pinnedMajor !== '22' || Number(parts[2]) >= 19),
+  );
+}
+
 export function getNodeInfo(customNodeBin = null) {
   let pinnedMajor = '22';
   const nvmrcPath = join(REPO_ROOT, '.nvmrc');
@@ -122,8 +132,7 @@ export function getNodeInfo(customNodeBin = null) {
 
   const currentVersion = process.version;
   const currentExec = process.execPath;
-  const currentMatches =
-    currentVersion.startsWith(`v${pinnedMajor}.`) || currentVersion === `v${pinnedMajor}`;
+  const currentMatches = isSupportedNode(currentVersion, pinnedMajor);
 
   if (customNodeBin && existsSync(customNodeBin)) {
     const probe = spawnSync(customNodeBin, ['-v'], {
@@ -138,7 +147,7 @@ export function getNodeInfo(customNodeBin = null) {
         pinnedMajor,
         activeExec: resolve(customNodeBin),
         activeVersion: ver,
-        isMatched: ver.startsWith(`v${pinnedMajor}.`) || ver === `v${pinnedMajor}`,
+        isMatched: isSupportedNode(ver, pinnedMajor),
         source: 'custom',
       };
     }
@@ -178,7 +187,7 @@ export function getNodeInfo(customNodeBin = null) {
       });
       if (probe.status === 0) {
         const ver = probe.stdout.trim();
-        if (ver.startsWith(`v${pinnedMajor}.`) || ver === `v${pinnedMajor}`) {
+        if (isSupportedNode(ver, pinnedMajor)) {
           return {
             currentVersion,
             currentExec,
@@ -207,7 +216,7 @@ export function getNodeInfo(customNodeBin = null) {
 /**
  * Resolves pnpm package manager info.
  */
-export function getPnpmInfo() {
+export function getPnpmInfo(nodeExec = process.execPath) {
   let expectedVersion = '10.33.0';
   const pkgJsonPath = join(REPO_ROOT, 'package.json');
   if (existsSync(pkgJsonPath)) {
@@ -222,16 +231,22 @@ export function getPnpmInfo() {
   }
 
   let installedVersion = null;
+  const env = {
+    ...process.env,
+    PATH: `${dirname(nodeExec)}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH || ''}`,
+  };
   const probe =
     process.platform === 'win32'
       ? spawnSync('cmd.exe', ['/d', '/s', '/c', 'pnpm', '-v'], {
           encoding: 'utf8',
           shell: false,
+          env: normalizeWindowsEnv(env),
           stdio: ['ignore', 'pipe', 'ignore'],
         })
       : spawnSync('pnpm', ['-v'], {
           encoding: 'utf8',
           shell: false,
+          env,
           stdio: ['ignore', 'pipe', 'ignore'],
         });
 

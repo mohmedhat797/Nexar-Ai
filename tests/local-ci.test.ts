@@ -105,7 +105,7 @@ describe('Nexar Local CI Orchestrator', () => {
     expect(strictRes.checks.find((c) => c.name === 'node-version')?.status).toBe('FAIL');
 
     const laxRes = await runPreflight(fakePlatform as unknown as PlatformInfo, {
-      mode: 'full',
+      mode: 'quick',
       allowNodeMismatch: true,
     });
     expect(laxRes.ok).toBe(true);
@@ -181,7 +181,12 @@ describe('Nexar Local CI Orchestrator', () => {
         profile: 'auto',
         platformInfo: {
           repoRoot: tempDir,
-          git: { commit: '17b51a6b', branch: 'feat/test', isDirty: false, dirtyFingerprint: null },
+          git: {
+            commit: 'a'.repeat(40),
+            branch: 'feat/test',
+            isDirty: false,
+            dirtyFingerprint: null,
+          },
           os: { platform: 'win32', release: '10.0', arch: 'x64' },
           node: {
             activeVersion: 'v22.23.3',
@@ -256,6 +261,12 @@ describe('Nexar Local CI Orchestrator', () => {
         startTime: Date.now() - 5000,
         endTime: Date.now(),
         durationMs: 5000,
+        sourceEnd: {
+          commit: 'a'.repeat(40),
+          branch: 'feat/test',
+          isDirty: false,
+          dirtyFingerprint: null,
+        },
       };
 
       const reports = generateReports(mockRunData as unknown as RunData);
@@ -270,7 +281,7 @@ describe('Nexar Local CI Orchestrator', () => {
         metadata: { git: { commit: string } };
       };
       expect(json.finalStatus).toBe('LOCAL_CI_QUICK_PASS');
-      expect(json.metadata.git.commit).toBe('17b51a6b');
+      expect(json.metadata.git.commit).toBe('a'.repeat(40));
 
       const md = readFileSync(reports.mdPath, 'utf8');
       expect(md).toContain('Nexar Local CI Verification Report');
@@ -286,7 +297,7 @@ describe('Nexar Local CI Orchestrator', () => {
     expect(gitInfo.commit).toMatch(/^[a-f0-9]{40}$/);
     expect(gitInfo.branch).toBeDefined();
     if (gitInfo.isDirty) {
-      expect(gitInfo.dirtyFingerprint).toMatch(/^[a-f0-9]{16}$/);
+      expect(gitInfo.dirtyFingerprint).toMatch(/^[a-f0-9]{64}$/);
       expect(gitInfo.summary).toContain('dirty:');
     }
   });
@@ -652,6 +663,7 @@ describe('Nexar Local CI Orchestrator', () => {
     const winReport = {
       finalStatus: 'NEXAR_WINDOWS_FULL_PASS',
       metadata: {
+        os: { platform: 'win32', isWsl: false },
         git: {
           commit: 'abcd1234abcd1234abcd1234abcd1234abcd1234',
           isDirty: false,
@@ -663,6 +675,7 @@ describe('Nexar Local CI Orchestrator', () => {
     const linuxReport = {
       finalStatus: 'NEXAR_LINUX_FULL_PASS',
       metadata: {
+        os: { platform: 'linux', isWsl: false },
         git: {
           commit: 'abcd1234abcd1234abcd1234abcd1234abcd1234',
           isDirty: false,

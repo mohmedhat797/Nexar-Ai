@@ -2,7 +2,7 @@
 // Nexar Local CI Orchestrator — Cross-platform validation runner.
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getPlatformInfo } from './platform.mjs';
+import { getGitInfo, getPlatformInfo } from './platform.mjs';
 import { runPreflight } from './preflight.mjs';
 import { executeStage, getStages } from './stages.mjs';
 import { generateReports, showLatestReport } from './report.mjs';
@@ -59,7 +59,7 @@ Usage:
 Options:
   --mode=quick|full|report   CI execution mode (default: quick)
   --profile=auto|windows|linux Target profile (default: auto)
-  --allow-node-mismatch      Permit non-pinned Node.js versions (warnings only)
+  --allow-node-mismatch      Permit exploratory quick runs; cannot establish acceptance
   --node-bin=<path>          Explicit path to verified Node.js binary
   --gitleaks-bin=<path>      Explicit path to verified Gitleaks executable
   --dsh-dir=<path>           Target directory for pinned DSH runtime
@@ -227,6 +227,8 @@ async function main() {
     startTime,
     endTime: Date.now(),
     durationMs,
+    sourceEnd: getGitInfo(REPO_ROOT),
+    interrupted: abortController.signal.aborted,
   });
 
   console.log(`Final Status:   ${reportOutputs.finalStatus}`);

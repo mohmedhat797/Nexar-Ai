@@ -81,6 +81,20 @@ export async function spawnSubprocess(command, args = [], options = {}) {
   } = options;
 
   const startTime = Date.now();
+  if (signal?.aborted) {
+    return {
+      command: redactSecrets(`${command} ${args.join(' ')}`.trim()),
+      exitCode: 130,
+      signal: 'SIGINT',
+      durationMs: 0,
+      timedOut: false,
+      aborted: true,
+      settled: true,
+      stdout: '',
+      stderr: '',
+      error: new Error('Subprocess was cancelled before spawn'),
+    };
+  }
   let timedOut = false;
   let aborted = false;
   let stdoutBuffer = '';
@@ -108,7 +122,9 @@ export async function spawnSubprocess(command, args = [], options = {}) {
 
     const child = spawn(execCmd, execArgs, {
       cwd,
-      env,
+      // Windows treats environment names case-insensitively, but Node chooses only
+      // one duplicate key. Preserve the explicitly supplied PATH over inherited Path.
+      env: process.platform === 'win32' ? normalizeWindowsEnv(env) : env,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
       windowsHide,
@@ -131,8 +147,8 @@ export async function spawnSubprocess(command, args = [], options = {}) {
       cleanup();
       const durationMs = Date.now() - startTime;
       resolve({
-        command: `${command} ${args.join(' ')}`.trim(),
-        exitCode: result.exitCode ?? (timedOut || aborted ? 1 : 0),
+        command: redactSecrets(`${command} ${args.join(' ')}`.trim()),
+        exitCode: result.exitCode ?? 1,
         signal: result.signal ?? null,
         durationMs,
         timedOut,
@@ -182,7 +198,6 @@ export async function spawnSubprocess(command, args = [], options = {}) {
       if (signal.aborted) {
         aborted = true;
         terminateWithSettlement(130, 'SIGINT', 'Subprocess was cancelled by signal');
-        return;
       }
       onAbortListener = () => {
         aborted = true;
@@ -220,4 +235,15 @@ export async function spawnSubprocess(command, args = [], options = {}) {
       }
     });
   });
+}
+
+export function normalizeWindowsEnv(env) {
+  const result = { ...env };
+  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path');
+  const pathValue = env.PATH ?? (pathKey ? env[pathKey] : undefined);
+  for (const key of Object.keys(result)) {
+    if (key.toLowerCase() === 'path') delete result[key];
+  }
+  if (pathValue !== undefined) result.PATH = pathValue;
+  return result;
 }

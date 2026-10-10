@@ -21,7 +21,7 @@ export async function runPreflight(platformInfo, options = {}) {
       status: 'PASS',
       message: `Node.js version matches pinned major: ${nodeInfo.activeVersion} (binary: ${nodeInfo.activeExec})`,
     });
-  } else if (allowNodeMismatch) {
+  } else if (allowNodeMismatch && mode !== 'full') {
     checks.push({
       name: 'node-version',
       status: 'WARN',

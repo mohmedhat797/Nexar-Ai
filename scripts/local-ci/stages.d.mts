@@ -9,7 +9,12 @@ export interface VitestStats {
   testsFailed: number;
   testsSkipped: number;
   testsTotal: number;
+  testsPending?: number;
+  testsTodo?: number;
+  testsUnclassified?: number;
 }
+
+export function parseVitestJsonStats(report: any): VitestStats;
 
 export interface WindowsPackageArtifacts {
   installerName: string;
@@ -57,6 +62,7 @@ export interface StageRecord {
   required: boolean;
   failureCategory: string | null;
   logExcerpt: string;
+  logPath?: string;
   vitestStats: VitestStats | null;
 }
 

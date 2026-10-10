@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
-import { spawnSubprocess } from './process-util.mjs';
+import { redactSecrets, spawnSubprocess } from './process-util.mjs';
 
 /**
  * Extracts Vitest test statistics from command stdout/stderr.
@@ -58,6 +58,43 @@ export function parseVitestStats(rawStdout = '') {
   return stats;
 }
 
+/** Count actual assertion statuses: Vitest's summary omits nested pending tests. */
+export function parseVitestJsonStats(report) {
+  const assertions = report.testResults.flatMap((file) => file.assertionResults);
+  const count = (status) => assertions.filter((test) => test.status === status).length;
+  const stats = {
+    testFilesPassed: report.testResults.filter(
+      (file) =>
+        file.assertionResults.some((test) => test.status === 'passed') &&
+        !file.assertionResults.some((test) => test.status === 'failed'),
+    ).length,
+    testFilesFailed: report.testResults.filter((file) =>
+      file.assertionResults.some((test) => test.status === 'failed'),
+    ).length,
+    testFilesTotal: report.testResults.length,
+    testsPassed: count('passed'),
+    testsFailed: count('failed'),
+    testsSkipped: count('skipped'),
+    testsPending: count('pending'),
+    testsTodo: count('todo'),
+    testsTotal: report.numTotalTests,
+  };
+  stats.testsUnclassified =
+    stats.testsTotal -
+    stats.testsPassed -
+    stats.testsFailed -
+    stats.testsSkipped -
+    stats.testsPending -
+    stats.testsTodo;
+  if (
+    !Number.isSafeInteger(stats.testsTotal) ||
+    stats.testsTotal !== assertions.length ||
+    stats.testsUnclassified !== 0
+  )
+    throw new Error('Vitest assertion statistics do not reconcile');
+  return stats;
+}
+
 /**
  * Inspects Windows packaging artifacts.
  */
@@ -99,6 +136,8 @@ export function inspectWindowsPackage(repoRoot, options = {}) {
 
     const unpackedExe = join(releaseDir, 'win-unpacked', 'Nexar.exe');
     const unpackedExists = existsSync(unpackedExe);
+    const unpackedIsStale =
+      unpackedExists && minMtimeMs && statSync(unpackedExe).mtimeMs < minMtimeMs;
 
     // Inspect bundled DSH runtime in unpacked directory
     const bundledDshManifestPath = join(
@@ -160,7 +199,8 @@ export function inspectWindowsPackage(repoRoot, options = {}) {
       signed,
       signatureStatus,
       mtimeMs: stats.mtimeMs,
-      isStale: false,
+      isStale: Boolean(unpackedIsStale),
+      staleReason: unpackedIsStale ? 'Unpacked executable predates packaging stage' : undefined,
     };
   } catch {
     return null;
@@ -177,6 +217,7 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
 
   // Base child environment: prepend active Node and Gitleaks directories to PATH
   const childEnv = { ...process.env };
+  delete childEnv.NEXAR_LIVE_TESTS;
   const extraPaths = [];
   if (platformInfo.node.activeExec) {
     extraPaths.push(dirname(platformInfo.node.activeExec));
@@ -185,7 +226,7 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
     extraPaths.push(dirname(platformInfo.gitleaks.execPath));
   }
   if (extraPaths.length > 0) {
-    childEnv.PATH = `${extraPaths.join(delimiter)}${delimiter}${childEnv.PATH || ''}`;
+    childEnv.PATH = `${extraPaths.join(delimiter)}${delimiter}${process.env.PATH || ''}`;
   }
 
   // If running on Linux/WSL against a Windows git worktree, set GIT_DIR to translated Linux path
@@ -211,6 +252,11 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
   const testCmdArgs = testWorkers
     ? [pnpmCmd, 'test', `--maxWorkers=${testWorkers}`]
     : [pnpmCmd, 'test'];
+  testCmdArgs.push(
+    '--reporter=default',
+    '--reporter=json',
+    '--outputFile=.nexar/ci/test-offline.json',
+  );
 
   if (mode === 'quick') {
     return [
@@ -431,14 +477,14 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
             error: new Error('Package missing'),
           };
         }
-        if (pkgInfo.isStale) {
+        if (pkgInfo.isStale || !pkgInfo.shaMatchesActual) {
           return {
             command: 'pnpm desktop:e2e',
             exitCode: 1,
             signal: null,
             durationMs: 0,
             stdout: '',
-            stderr: `Stale installer artifact rejected: ${pkgInfo.staleReason}.`,
+            stderr: `Installer artifact rejected: ${pkgInfo.staleReason || 'SHA256 mismatch'}.`,
             error: new Error('Stale installer artifact'),
           };
         }
@@ -496,10 +542,10 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
   stages.push({
     id: 'linux-sandbox',
     name: 'Linux bubblewrap Engineering sandbox validation',
-    customRun: async () => {
+    customRun: async (ctx) => {
       if (isLinux) {
         // Native Linux execution: check bwrap and run sandbox tests
-        return spawnSubprocess(
+        const result = await spawnSubprocess(
           pnpmCmd,
           [
             'exec',
@@ -512,8 +558,23 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
             cwd: repoRoot,
             env: childEnv,
             timeoutMs: 180_000,
+            signal: ctx.signal,
           },
         );
+        const stats = parseVitestStats(result.stdout);
+        if (
+          result.exitCode === 0 &&
+          (stats.testsSkipped > 0 ||
+            stats.testsPassed === 0 ||
+            stats.testsTotal !== stats.testsPassed)
+        ) {
+          return {
+            ...result,
+            exitCode: 1,
+            stderr: `${result.stderr}\nSandbox acceptance requires executed tests with no skips or unclassified outcomes.`,
+          };
+        }
+        return result;
       }
       // On Windows host: report limitation honestly as BLOCKED
       return {
@@ -529,7 +590,7 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
       };
     },
     timeoutMs: 180_000,
-    required: false, // Blocked on Windows, required on Linux
+    required: isLinux, // Blocked on Windows, required on Linux
   });
 
   // Gitleaks security scan
@@ -586,20 +647,22 @@ export async function executeStage(stage, context) {
       });
     }
 
-    stageRecord.command = result.command || (stage.command ? stage.command.join(' ') : stage.name);
+    stageRecord.command = redactSecrets(
+      result.command || (stage.command ? stage.command.join(' ') : stage.name),
+    );
     stageRecord.exitCode = result.exitCode;
     stageRecord.durationMs = result.durationMs || Date.now() - startTime;
 
-    if (result.statusOverride) {
-      stageRecord.status = result.statusOverride;
-      stageRecord.failureCategory = result.failureCategory || 'ENVIRONMENT_UNSUPPORTED';
-    } else if (result.timedOut) {
+    if (result.timedOut) {
       stageRecord.status = 'FAIL';
       stageRecord.failureCategory = 'TIMEOUT';
     } else if (result.aborted) {
       stageRecord.status = 'FAIL';
       stageRecord.failureCategory = 'CANCELLED';
-    } else if (result.exitCode === 0) {
+    } else if (result.statusOverride === 'BLOCKED' && result.exitCode === 0) {
+      stageRecord.status = 'BLOCKED';
+      stageRecord.failureCategory = result.failureCategory || 'ENVIRONMENT_UNSUPPORTED';
+    } else if (result.exitCode === 0 && !result.signal && !result.error) {
       stageRecord.status = 'PASS';
     } else {
       stageRecord.status = 'FAIL';
@@ -607,7 +670,13 @@ export async function executeStage(stage, context) {
     }
 
     // Capture log excerpt
-    const combinedOutput = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
+    const combinedOutput = redactSecrets(
+      `${result.stdout || ''}\n${result.stderr || ''}\n${result.error?.message || ''}`,
+    ).trim();
+    const logDir = join(context.repoRoot, '.nexar', 'ci', 'logs');
+    mkdirSync(logDir, { recursive: true });
+    stageRecord.logPath = join(logDir, `${startTime}-${stage.id.replace(/[^a-z0-9-]/gi, '_')}.log`);
+    writeFileSync(stageRecord.logPath, combinedOutput, 'utf8');
     const lines = combinedOutput.split(/\r?\n/).filter(Boolean);
     stageRecord.logExcerpt = lines.slice(-25).join('\n');
 
@@ -619,13 +688,19 @@ export async function executeStage(stage, context) {
       stageRecord.vitestStats = parseVitestStats(result.stdout);
     }
 
+    if (stage.id === 'test-offline' && stageRecord.status === 'PASS') {
+      const reportPath = join(context.repoRoot, '.nexar', 'ci', 'test-offline.json');
+      if (statSync(reportPath).mtimeMs < startTime) throw new Error('Vitest JSON report is stale');
+      stageRecord.vitestStats = parseVitestJsonStats(JSON.parse(readFileSync(reportPath, 'utf8')));
+    }
+
     return stageRecord;
   } catch (err) {
     stageRecord.durationMs = Date.now() - startTime;
     stageRecord.exitCode = 1;
     stageRecord.status = 'FAIL';
     stageRecord.failureCategory = 'EXECUTION_EXCEPTION';
-    stageRecord.logExcerpt = err.message;
+    stageRecord.logExcerpt = redactSecrets(err.message);
     return stageRecord;
   }
 }

@@ -1,7 +1,7 @@
 // Structured report generation (JSON + Markdown) and terminal presentation for Nexar Local CI.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getGitInfo } from './platform.mjs';
+import { getGitInfo, isSupportedNode } from './platform.mjs';
 import { inspectWindowsPackage } from './stages.mjs';
 
 export const EXPECTED_STAGES = {
@@ -120,7 +120,11 @@ export function aggregateCrossPlatformEvidence(windowsReport, linuxReport) {
   const winCommit = windowsReport.metadata?.git?.commit;
   const linCommit = linuxReport.metadata?.git?.commit;
 
-  if (!winCommit || !linCommit || winCommit !== linCommit) {
+  if (
+    !/^[a-f0-9]{40}$/.test(winCommit || '') ||
+    !/^[a-f0-9]{40}$/.test(linCommit || '') ||
+    winCommit !== linCommit
+  ) {
     reasons.push(
       `Commit mismatch: Windows evaluated ${winCommit ?? 'unknown'}, Linux evaluated ${linCommit ?? 'unknown'}`,
     );
@@ -143,11 +147,19 @@ export function aggregateCrossPlatformEvidence(windowsReport, linuxReport) {
     );
   }
 
-  const validLinuxVerdicts = ['NEXAR_LINUX_FULL_PASS', 'NEXAR_LINUX_WSL2_PASS'];
+  if (windowsReport.metadata?.os?.platform !== 'win32')
+    reasons.push('Windows OS identity is missing or invalid');
+  const linuxOs = linuxReport.metadata?.os;
+  if (
+    linuxOs?.platform !== 'linux' ||
+    linuxOs.isWsl !== false ||
+    /microsoft|wsl/i.test(linuxOs.release || '')
+  ) {
+    reasons.push('Native Ubuntu evidence is required; WSL validation is separate');
+  }
+  const validLinuxVerdicts = ['NEXAR_LINUX_FULL_PASS'];
   if (!validLinuxVerdicts.includes(linuxReport.finalStatus)) {
-    reasons.push(
-      `Linux verdict is ${linuxReport.finalStatus}, expected NEXAR_LINUX_FULL_PASS or NEXAR_LINUX_WSL2_PASS`,
-    );
+    reasons.push(`Linux verdict is ${linuxReport.finalStatus}, expected NEXAR_LINUX_FULL_PASS`);
   }
 
   if (
@@ -184,7 +196,7 @@ export function aggregateCrossPlatformEvidence(windowsReport, linuxReport) {
 }
 
 /**
- * Extracts distinct test metrics per stage without double counting.
+ * Extracts per-stage executed test attempts. Identities may overlap across stages.
  */
 export function extractStageTestMetrics(stageResults) {
   const metrics = [];
@@ -199,6 +211,9 @@ export function extractStageTestMetrics(stageResults) {
         testsSkipped: s.vitestStats.testsSkipped,
         testsFailed: s.vitestStats.testsFailed,
         testsTotal: s.vitestStats.testsTotal,
+        testsPending: s.vitestStats.testsPending || 0,
+        testsTodo: s.vitestStats.testsTodo || 0,
+        testsUnclassified: s.vitestStats.testsUnclassified || 0,
       });
     }
   }
@@ -228,6 +243,10 @@ export function aggregateTestCounts(stageResults) {
       totals.testsFailed += s.vitestStats.testsFailed || 0;
       totals.testsSkipped += s.vitestStats.testsSkipped || 0;
       totals.testsTotal += s.vitestStats.testsTotal || 0;
+      totals.testsPending = (totals.testsPending || 0) + (s.vitestStats.testsPending || 0);
+      totals.testsTodo = (totals.testsTodo || 0) + (s.vitestStats.testsTodo || 0);
+      totals.testsUnclassified =
+        (totals.testsUnclassified || 0) + (s.vitestStats.testsUnclassified || 0);
     }
   }
 
@@ -237,11 +256,33 @@ export function aggregateTestCounts(stageResults) {
 /**
  * Generates both JSON and Markdown validation reports.
  */
+export function sourceIdentityMatches(before, after) {
+  return Boolean(
+    before &&
+    after &&
+    /^[a-f0-9]{40}$/.test(before.commit) &&
+    before.commit === after.commit &&
+    before.isDirty === after.isDirty &&
+    (!before.isDirty ||
+      (/^[a-f0-9]{64}$/.test(before.dirtyFingerprint || '') &&
+        before.dirtyFingerprint === after.dirtyFingerprint)) &&
+    !before.error &&
+    !after.error,
+  );
+}
+
 export function generateReports(runData) {
   const { mode, profile, platformInfo, preflightResult, stageResults, startTime, durationMs } =
     runData;
 
-  const finalStatus = computeFinalStatus(mode, stageResults, {
+  const sourceEnd = runData.sourceEnd || getGitInfo(platformInfo.repoRoot);
+  const sourceStable = sourceIdentityMatches(platformInfo.git, sourceEnd);
+  const acceptanceEligible =
+    preflightResult.ok &&
+    !runData.interrupted &&
+    sourceStable &&
+    isSupportedNode(platformInfo.node.activeVersion, platformInfo.node.pinnedMajor);
+  const finalStatus = computeFinalStatus(mode, acceptanceEligible ? stageResults : [], {
     platform: platformInfo.os.platform,
     isWsl: platformInfo.os.isWsl,
   });
@@ -259,6 +300,8 @@ export function generateReports(runData) {
     metadata: {
       repository: 'mohmedhat797/Nexar-Ai',
       git: platformInfo.git,
+      sourceEnd,
+      sourceStable,
       os: platformInfo.os,
       node: {
         version: platformInfo.node.activeVersion,
@@ -389,10 +432,11 @@ function renderMarkdownReport(data) {
 
   if (data.stageTestMetrics && data.stageTestMetrics.length > 0) {
     md += `## 4. Test Suite Summary by Stage\n\n`;
-    md += `| Stage | Files Passed / Total | Tests Passed | Skipped | Failed | Total |\n`;
-    md += `| --- | --- | --- | --- | --- | --- |\n`;
+    md += `Executed attempts overlap across stages; this is not a unique-test total.\n\n`;
+    md += `| Stage | Files Passed / Total | Passed | Skipped | Pending | Todo | Unclassified | Failed | Total |\n`;
+    md += `| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n`;
     for (const t of data.stageTestMetrics) {
-      md += `| **${t.stageName}** | ${t.testFilesPassed}/${t.testFilesTotal} | ${t.testsPassed} | ${t.testsSkipped} | ${t.testsFailed} | ${t.testsTotal} |\n`;
+      md += `| **${t.stageName}** | ${t.testFilesPassed}/${t.testFilesTotal} | ${t.testsPassed} | ${t.testsSkipped} | ${t.testsPending} | ${t.testsTodo} | ${t.testsUnclassified} | ${t.testsFailed} | ${t.testsTotal} |\n`;
     }
     md += `\n`;
   } else if (data.testTotals.testsTotal > 0) {
@@ -419,11 +463,11 @@ function renderMarkdownReport(data) {
   md += `| Offline Test Suite | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
   md += `| Production Build | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
   md += `| CLI Smoke | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
-  md += `| Desktop E2E (Windows) | Hosted Windows runner | Local Windows host | Verified on Windows host |\n`;
-  md += `| Desktop Packaging (Windows) | Hosted Windows runner | Local Windows host | Verified on Windows host |\n`;
-  md += `| Packaged Desktop E2E | Hosted Windows runner | Local Windows host | Verified on Windows host |\n`;
+  md += `| Desktop E2E (Windows) | Hosted Windows runner | Local Windows host | See actual desktop-e2e-source stage status |\n`;
+  md += `| Desktop Packaging (Windows) | Hosted Windows runner | Local Windows host | See actual desktop-package-win stage status |\n`;
+  md += `| Packaged Desktop E2E | Hosted Windows runner | Local Windows host | See actual desktop-e2e-packaged stage status |\n`;
   md += `| Gitleaks Full Scan | Hosted Ubuntu runner | Local Gitleaks 8.28.0 | Equivalent command coverage |\n`;
-  md += `| Linux bwrap Sandbox | Hosted Ubuntu runner | Linux host / BLOCKED on Windows | Verified on Linux host / Blocked on Windows |\n\n`;
+  md += `| Linux bwrap Sandbox | Hosted Ubuntu runner | Linux host / BLOCKED on Windows | Requires actual linux-sandbox stage PASS; WSL is separate |\n\n`;
 
   md += `---\n*Generated automatically by Nexar Local CI Orchestrator*\n`;
   return md;
@@ -452,7 +496,8 @@ export function showLatestReport(repoRoot) {
   console.log(`Report Commit:      ${report.metadata.git.commit}`);
   console.log(`Current Git HEAD:   ${currentGit.commit}`);
 
-  if (report.metadata.git.commit !== currentGit.commit) {
+  const sourceMatches = sourceIdentityMatches(report.metadata.git, currentGit);
+  if (!sourceMatches) {
     console.log('\n⚠️  WARNING: Report was generated for a DIFFERENT commit than current HEAD!');
     console.log('A report from another commit cannot establish acceptance for the current tree.\n');
   }
@@ -486,10 +531,12 @@ export function showLatestReport(repoRoot) {
   }
   console.log('\nFull Markdown report: .nexar/ci/reports/latest.md\n');
 
-  const exitCode = report.finalStatus.includes('PASS')
-    ? 0
-    : report.finalStatus.includes('BLOCKED')
-      ? 2
-      : 1;
+  const exitCode = !sourceMatches
+    ? 1
+    : report.finalStatus.includes('PASS')
+      ? 0
+      : report.finalStatus.includes('BLOCKED')
+        ? 2
+        : 1;
   process.exit(exitCode);
 }

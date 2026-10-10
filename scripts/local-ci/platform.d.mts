@@ -57,6 +57,7 @@ export interface PlatformInfo {
 }
 
 export function getGitInfo(cwd?: string): GitInfo;
+export function isSupportedNode(version: string, pinnedMajor?: string): boolean;
 export function getNodeInfo(customNodeBin?: string | null): NodeInfo;
 export function getPnpmInfo(nodeExec?: string): PnpmInfo;
 export function getGitleaksInfo(customGitleaksBin?: string | null): GitleaksInfo;

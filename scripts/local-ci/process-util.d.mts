@@ -14,6 +14,7 @@ export interface SubprocessResult {
 }
 
 export function redactSecrets(text: string): string;
+export function normalizeWindowsEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 export function killProcessTree(pid: number | null): void;
 export function spawnSubprocess(
   command: string,
