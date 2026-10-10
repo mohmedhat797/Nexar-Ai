@@ -296,7 +296,7 @@ export class FileSessionStore {
   get(id: string): Promise<OperatingSession | undefined> {
     return sanitize(async () => {
       assertSessionId(id);
-      return this.readSession(id);
+      return this.serialized(id, () => this.readSession(id));
     });
   }
 
@@ -322,7 +322,7 @@ export class FileSessionStore {
       const unavailable: UnavailableSession[] = [];
       for (const id of await this.sessionIds()) {
         try {
-          const session = await this.readSession(id);
+          const session = await this.serialized(id, () => this.readSession(id));
           if (session === undefined) continue;
           const last = session.turns[session.turns.length - 1];
           available.push({
