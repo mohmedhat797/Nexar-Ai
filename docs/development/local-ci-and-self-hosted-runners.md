@@ -104,14 +104,15 @@ Designed for rapid inner-loop developer feedback during code editing.
 pnpm ci:local:quick
 ```
 
-Runs:
+Environment preflight checks Node, pnpm and the DSH pin before these five executed stages:
 
-1. Environment preflight
-2. Prettier format check
-3. ESLint static analysis
-4. Upstream boundaries & secret guard (`scripts/check-boundaries.mjs`)
-5. TypeScript typecheck
-6. Offline test suite
+1. Prettier format check
+2. ESLint static analysis
+3. Package boundaries and secret guard (`scripts/check-boundaries.mjs`)
+4. TypeScript typecheck
+5. Offline test suite
+
+Preflight is reported separately from the stage manifest; frozen dependency installation is a Full stage.
 
 Result: `LOCAL_CI_QUICK_PASS` or `LOCAL_CI_QUICK_FAIL`.
 
@@ -123,7 +124,7 @@ Required for pull requests and release candidate acceptance.
 pnpm ci:local:full
 ```
 
-Runs all 16 mandatory gates across static quality, offline tests, production build, CLI smoke, source desktop E2E, Windows desktop packaging, fresh packaged desktop E2E, Linux sandbox checks, and full-history Gitleaks scan.
+Runs a 16-entry stage manifest across static quality, offline tests, production build, CLI smoke, source desktop E2E, Windows packaging, fresh packaged E2E, Linux sandbox checks, and Gitleaks. Required stages depend on platform: Windows Full PASS means all 15 Windows stages passed and the Linux-only stage is BLOCKED/optional, not 16 successful executions. Linux sandbox is mandatory on Linux. Interrupted/preflight-failed runs, missing required stages, stale artifacts or unsupported Node cannot establish acceptance.
 
 Result: `NEXAR_WINDOWS_FULL_PASS` (Windows), `NEXAR_LINUX_FULL_PASS` (Native Linux), `NEXAR_LINUX_WSL2_PASS` (WSL2), or `NEXAR_WINDOWS_FULL_FAIL` / `NEXAR_WINDOWS_FULL_BLOCKED`. Cross-platform aggregation evaluates both into `NEXAR_CROSS_PLATFORM_ACCEPTANCE_PASS` or `NEXAR_CROSS_PLATFORM_ACCEPTANCE_INCOMPLETE`.
 
@@ -135,7 +136,7 @@ Displays the latest recorded validation report:
 pnpm ci:local:report
 ```
 
-Inspects `.nexar/ci/reports/latest.json`, validates whether the report matches the active Git commit and working tree, and prints the summary breakdown.
+Inspects `.nexar/ci/reports/latest.json`, validates the exact 40-character source commit and full dirty-content fingerprint, and prints the breakdown. Full reports bind start/end source identity and require stability. Raw assertion JSON classifies skipped, pending and todo separately; totals must reconcile. Cross-platform PASS requires matching source and native Linux metadata; a WSL2 report cannot substitute for native Ubuntu.
 
 ---
 
@@ -148,7 +149,7 @@ All validation reports are saved locally under `.nexar/ci/reports/`:
 - `latest.json` & `latest.md`: Symlinks/copies of the most recent validation run.
 
 > [!NOTE]
-> `.nexar/` is excluded in `.gitignore` and enforced by `scripts/check-boundaries.mjs`. Temporary logs, traces, and test reports are never committed to Git.
+> `.nexar/` is excluded in `.gitignore` and enforced by `scripts/check-boundaries.mjs`. Raw temporary logs and traces remain ignored. A sanitized acceptance evidence record may be deliberately committed under docs/development/evidence; it contains source identities, counts and artifact hashes without credentials or personal executable paths.
 
 ---
 

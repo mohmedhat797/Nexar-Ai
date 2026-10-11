@@ -39,16 +39,16 @@ at `677eefd` (v0.6, accepted implementation `9e71014`).
 
 Configuration surface Nexar depends on (documented rows / variables only):
 
-| Row / variable                                                                                                                                   | Use                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `--profile acp`, `--patch <file>`                                                                                                                | Entry point and Nexar overlay                                           |
-| `DSH_HOME`                                                                                                                                       | Per-turn isolated state                                                 |
-| `DSH_PERMISSION_MODE=workspace-write`                                                                                                            | DSH's own file boundary rooted at process `cwd` (defense in depth only) |
-| `DSH_TELEMETRY_DISABLED=1`, rows `otel`, `session-telemetry-otel`, `session-log-deepseek` disabled                                               | No upstream telemetry/session upload                                    |
-| `llm-pi-ai.providers.nexar` (`openai-completions`, `baseURL http://127.0.0.1:<port>/v1`, `apiKeyEnv NEXAR_CONTROL_TOKEN`, model `nexar-control`) | The only model route                                                    |
-| `acp.config.{provider: nexar, model: nexar-control}`                                                                                             | Default session route                                                   |
-| `system-prompt.config.{personaPrefix, personaSuffix}`                                                                                            | Profile persona; required project context                               |
-| Cowork disables: `tool-bash`, `tool-pwsh`, `tool-jobs`, `tool-web`, `web-search-deepseek`, `tool-plugin-manager`                                 | Tool surface                                                            |
+| Row / variable                                                                                                                                                                                                                 | Use                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `--profile acp`, `--patch <file>`                                                                                                                                                                                              | Entry point and Nexar overlay                                                                           |
+| `DSH_HOME`                                                                                                                                                                                                                     | Per-turn isolated state                                                                                 |
+| `DSH_PERMISSION_MODE` (`read-only` for Cowork, `workspace-write` inside the Coding sandbox)                                                                                                                                    | Cowork mutations request Nexar permission per call; Coding standing writes require OS sandbox isolation |
+| `DSH_TELEMETRY_DISABLED=1`, rows `otel`, `session-telemetry-otel`, `session-log-deepseek` disabled                                                                                                                             | No upstream telemetry/session upload                                                                    |
+| `llm-pi-ai.providers.nexar` (`openai-completions`, `baseURL http://127.0.0.1:<port>/v1`, `apiKeyEnv NEXAR_CONTROL_TOKEN`, model `nexar-control`)                                                                               | The only model route                                                                                    |
+| `acp.config.{provider: nexar, model: nexar-control}`                                                                                                                                                                           | Default session route                                                                                   |
+| `system-prompt.config.{personaPrefix, personaSuffix}`                                                                                                                                                                          | Profile persona; required project context                                                               |
+| Cowork disables: `tool-bash`, `tool-pwsh`, `tool-jobs`, `tool-web`, `web-search-deepseek`, `tool-plugin-manager`, `tool-subagent`, `tool-subagent-control`, `tool-subagent-fork`, `tool-subagent-list-agents`, `tool-workflow` | Tool surface                                                                                            |
 
 ## 3. Target component view
 
@@ -88,12 +88,12 @@ interface DshProfile {
   readonly id: DshProfileId;
   readonly persona: string;                 // personaPrefix, fixed text
   readonly disabledRows: readonly string[]; // overlay rows disabled for this profile
-  readonly placement: 'host-local' | 'plane-sandbox';
-  readonly workspace: 'scratch' | 'private-clone';
   readonly shell: boolean;                  // tool-bash/pwsh/jobs enabled
 }
-renderProfileOverlay({ profile, nexarRoute, requiredContext? }): string  // YAML, validated, quoted
+renderProfileOverlay({ profile, route, requiredContext? }): string  // YAML, validated, quoted
 ```
+
+Placement and workspace boundaries are selected by Nexar's services/launchers, not by fields in DshProfile. The route is either the Nexar gateway or the explicitly selected native DSH resource.
 
 `requiredContext` is the rendered project-memory block placed in `personaSuffix` (template braces
 neutralized, bounded). The overlay always contains the privacy rows, the single `nexar` route and
@@ -103,6 +103,8 @@ Host-local session runner (`integrations/deepseek-harness/src/acp/local.ts`) reu
 (session lifecycle, update stream, cancel, permission broker) with a host launcher that refuses
 `read-write` workspaces outside a Nexar-created scratch directory and never uses the sandbox
 launcher's write path (Cowork never edits a project).
+
+Cowork starts with DSH read-only standing permissions. The pinned write/edit tools must request workspace-write for a single file_path; the Nexar broker applies the selected draft/ask/read-only policy and fails closed on unrecognized payloads. Physical checks deny missing/invalid roots, lookup errors, links/junctions and hard links, and repeat after approval and policy recording. This remains a pre-operation check with a post-grant filesystem race. Host-local DSH has the user's OS read rights; HOME, scratch cwd and tool restrictions are not an OS read sandbox. See [the FCR-01 security decision](FCR01_Security_Findings.md).
 
 ## 5. Cowork turn flow
 
@@ -151,6 +153,8 @@ decision | requirement | review-obligation | pending-work, text, createdAt, sour
 owner-confirmed, sessionId?, turnId?}`. Only owner actions add, confirm or remove entries.
 - Session identity: Nexar `ses_`/`turn_` ids canonical; DSH session id recorded only on the turn's
   task record as an opaque, non-authoritative string (never resumed).
+
+Writer lease acquisition is serialized by an exclusive .lease.claim before creating or replacing .lease. Unreadable leases and abandoned claims refuse writer authority; known dead-process leases can recover. A crash during acquisition may require operator repair after stopping/verifying all writers and preserving state. This availability limit is documented in [FCR-01](FCR01_Independent_Engineering_Review.md).
 
 ## 8. Resource intelligence
 

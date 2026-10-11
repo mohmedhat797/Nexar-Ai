@@ -91,8 +91,7 @@ from the OpenWorker package), `main.ts` wiring, `shared/api.ts` `CoworkStatusDto
 - `DshCoworkService` implements the existing Cowork port (`run`, `available`, `reason`,
   `fallbackReason`, `status`, `refresh`, `warm`, `dispose`, `effectiveControlResourceId`) so
   `operating.ts` and the renderer change minimally.
-- Permission policy (`integrations/deepseek-harness/src/cowork-policy.ts`): allow `write`/`edit`
-  tools only when every target path resolves inside the turn scratch; `ask-before-write` routes the
+- Cowork ACP always starts read-only; pinned write/edit tools request workspace-write per call. Permission policy (`integrations/deepseek-harness/src/cowork-policy.ts`) recognizes a single file_path and fails closed on unknown mutation schemas. Allow `write`/`edit` only when its target is lexically and physically contained in a valid scratch root; lookup errors, links/junctions and hard links deny, with checks repeated after approval/policy persistence; `ask-before-write` routes the
   allow through an owner approval (existing `askOwner` pattern); `read-only` denies writes;
   bridge tools allowed; all else denied; every decision recorded.
 - Prompt: `context@2` text, the delegation instruction when delegation is active.
@@ -107,13 +106,12 @@ from the OpenWorker package), `main.ts` wiring, `shared/api.ts` `CoworkStatusDto
 **Files:** `integrations/deepseek-harness/src/acp/launch.ts`, `acp/gateway.ts`,
 `packages/host/src/lane-engine.ts` (overlay call), tests.
 
-- `prepareAcpLaunch` renders `renderProfileOverlay({ profile: coding, nexarRoute, requiredContext })`
+- `prepareAcpLaunch` renders `renderProfileOverlay({ profile: coding, route, requiredContext })`
   in gateway mode (and the privacy rows in native-key mode). Sandbox, harvest, gates, review,
   approval and `commitPatch` unchanged.
 - **Acceptance:** existing `lane-engine.dsh.integration.test.ts` and engineering suites stay green;
   new test asserts the coding overlay (persona, privacy rows, shell enabled, single route); on Linux
-  CI the real-sandbox fixture repo test modifies a file and runs the gate, with no push (existing
-  invariants).
+  the engine protocol fixture uses fake DSH and a controlled launcher. FCR-01 separately runs actual pinned DSH inside production bubblewrap with a deterministic model socket: workspace write succeeds, a synthetic outside-host write returns ENOENT, and required context reaches every request. See [the reproducible fixture](../../development/evidence/fcr01-real-coding-fixture.md). These are different layers of evidence.
 
 ## UDSH-05 — Unified context and project memory
 
