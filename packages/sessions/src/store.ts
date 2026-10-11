@@ -39,6 +39,7 @@ import type {
 
 const SESSION_FILE = /^(ses_[0-9a-f]{32})\.json$/;
 const LEASE_NAME = '.lease';
+const LEASE_CLAIM_NAME = '.lease.claim';
 const MAX_LEASE_BYTES = 1024;
 const SHARING_WAIT_MS = 1_000;
 
@@ -189,25 +190,42 @@ export class FileSessionStore {
   // ---------------------------------------------------------------- lease
 
   /**
-   * Becomes the single writer. Replaces a stale lease (dead pid or unreadable file), then marks every
+   * Becomes the single writer. Replaces a verified stale lease (dead pid), then marks every
    * `running` turn `interrupted`; nothing is replayed. Corrupt session files are skipped, never rewritten.
+   * An unreadable lease or abandoned acquisition claim requires owner-controlled recovery.
    */
   acquireLease(): Promise<{ readonly interruptedTurns: number }> {
     return sanitize(async () => {
       if (this.leaseHeld) return { interruptedTurns: 0 };
       await this.ensureDir();
-      const body = JSON.stringify({ instanceId: this.instanceId, pid: this.pid });
-      if (!(await this.createLease(body))) {
-        const existing = await this.readLease();
-        if (
-          existing !== undefined &&
-          existing.instanceId !== this.instanceId &&
-          this.isProcessAlive(existing.pid)
-        ) {
-          throw conflict('lease-held');
+      // Exclusive creation alone is insufficient: its contents are initially empty, and two
+      // contenders can both replace a dead lease. Never steal an acquisition claim: its owner
+      // may be paused before writing any identifying contents.
+      const claimPath = join(this.dir, LEASE_CLAIM_NAME);
+      const claim = await retrySharing(() => open(claimPath, 'wx', 0o600)).catch(
+        (error: unknown) => {
+          if (errnoOf(error) === 'EEXIST') throw conflict('lease-acquisition-held');
+          throw error;
+        },
+      );
+      try {
+        const body = JSON.stringify({ instanceId: this.instanceId, pid: this.pid });
+        if (!(await this.createLease(body))) {
+          const existing = await this.readLease();
+          if (existing === undefined) throw conflict('lease-unverifiable');
+          if (existing.instanceId !== this.instanceId && this.isProcessAlive(existing.pid)) {
+            throw conflict('lease-held');
+          }
+          await this.replaceLease(body);
+          if ((await this.readLease())?.instanceId !== this.instanceId)
+            throw conflict('lease-held');
         }
-        await this.replaceLease(body);
-        if ((await this.readLease())?.instanceId !== this.instanceId) throw conflict('lease-held');
+      } finally {
+        try {
+          await claim.close();
+        } finally {
+          await retrySharing(() => unlink(claimPath));
+        }
       }
       this.leaseHeld = true;
       try {
