@@ -13,14 +13,26 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
 import type { NexarApi } from '../src/shared/api.js';
 import { CHANNELS } from '../src/shared/channels.js';
 import { seedE2EConfig } from './harness.js';
+import {
+  printRunSummaries,
+  startTrace,
+  stopTrace,
+  timedTurn,
+  writeFailureBundle,
+  type TurnTiming,
+} from './providers-diagnostics.js';
 import { closeAndWait, startupTimings } from './startup-diagnostics.js';
 
 const MAIN = fileURLToPath(new URL('../dist/main/main.js', import.meta.url));
 const EXECUTABLE = process.env['NEXAR_DESKTOP_EXECUTABLE'];
+// Failure evidence is traced per launch; NEXAR_E2E_TRACE=0 turns tracing off to measure without it.
+const TRACING = process.env['NEXAR_E2E_TRACE'] !== '0';
+const DIAGNOSTICS_ROOT = fileURLToPath(new URL('../.nexar/e2e-diagnostics/', import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const SENTINEL = 'sk-nexar-provider-e2e-secret-must-never-cross-renderer-Q7x9';
 const POLL = { timeout: 60_000, interval: 200 };
 const OWNER_STATE = join(
@@ -40,6 +52,16 @@ let trace: string;
 let ownerBefore: string;
 const apps: ElectronApplication[] = [];
 const output: string[] = [];
+// The same output with each entry's wall-clock arrival time, for the failure bundle only.
+const outputTimes: number[] = [];
+const record = (text: string): void => {
+  output.push(text);
+  outputTimes.push(Date.now());
+};
+// Failure evidence: the newest launch, per-turn timings and renderer console counts (never text).
+let latest: { app: ElectronApplication; page: Page | undefined } | undefined;
+const turnTimings: TurnTiming[] = [];
+const consoleCounts: Record<string, number> = { error: 0, warning: 0, pageerror: 0 };
 
 /** Hash state without printing or retaining its contents; links are never followed. */
 async function digestTree(path: string): Promise<string> {
@@ -114,10 +136,12 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     timeout: 120_000,
   });
   apps.push(app);
+  latest = { app, page: undefined };
+  if (TRACING) await startTrace(app);
   const child = app.process();
   let diagnosticOutput = '';
   const capture = (chunk: Buffer): void => {
-    output.push(chunk.toString());
+    record(chunk.toString());
     diagnosticOutput = (diagnosticOutput + chunk.toString()).slice(-16_384);
   };
   child.stdout?.on('data', capture);
@@ -146,8 +170,17 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
       startup: startupTimings(diagnosticOutput),
     })}\n`,
   );
-  page.on('console', (message) => output.push(message.text()));
-  page.on('pageerror', (error) => output.push(error.message));
+  latest = { app, page };
+  page.on('console', (message) => {
+    record(message.text());
+    if (message.type() === 'error' || message.type() === 'warning') {
+      consoleCounts[message.type()] = (consoleCounts[message.type()] ?? 0) + 1;
+    }
+  });
+  page.on('pageerror', (error) => {
+    record(error.message);
+    consoleCounts['pageerror'] = (consoleCounts['pageerror'] ?? 0) + 1;
+  });
   await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 120_000 });
   expect(await app.evaluate(({ app: running }) => running.getPath('userData'))).toBe(userData);
   // Chromium runtime data lives beside the guarded state tree and is scanned for leaks as well.
@@ -164,6 +197,8 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
 
 async function close(app: ElectronApplication): Promise<void> {
   const child = app.process();
+  // A launch that ends cleanly keeps no trace; a failed test has already saved its own.
+  await stopTrace(app);
   try {
     if (child.exitCode === null && child.signalCode === null) {
       await app.evaluate(async ({ clipboard }, sentinel) => {
@@ -206,11 +241,41 @@ beforeAll(async () => {
   await mkdir(projectDir);
   await seedE2EConfig(userData);
   // Record real IPC through a public API wrapper in a temporary launcher, never production code.
+  // Two further logs sit beside the trace (so the secret scan covers them too): `ipc-timing.jsonl`
+  // (one line per handled call: channel and timings, never args or values) and `egress.jsonl`
+  // (the host of every main-process fetch, never a path, header or body; nothing is blocked).
   await writeFile(
     launcher,
     `
 import { ipcMain } from 'electron';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+const appendLine = (file, record) => {
+  try {
+    appendFileSync(file, JSON.stringify(record) + '\\n', { mode: 0o600 });
+  } catch {
+    // Diagnostics must never change what the scenario observes.
+  }
+};
+const nativeFetch = globalThis.fetch;
+globalThis.fetch = (...args) => {
+  const startedAtMs = Date.now();
+  const began = performance.now();
+  let host = 'unknown';
+  try {
+    const input = args[0];
+    const url = new URL(typeof input === 'string' ? input : (input?.href ?? input?.url));
+    host = url.hostname || url.protocol;
+  } catch {
+    // An unparsable address is recorded as "unknown".
+  }
+  const pending = nativeFetch(...args);
+  const finish = (outcome) => appendLine(${JSON.stringify(join(userData, 'egress.jsonl'))}, { host, startedAtMs, durationMs: Math.round(performance.now() - began), ...outcome });
+  pending.then(
+    () => finish({ ok: true }),
+    (error) => finish({ ok: false, errorName: error?.name ?? 'Error', errorCode: typeof error?.cause?.code === 'string' ? error.cause.code : undefined }),
+  );
+  return pending;
+};
 const handlers = new Map();
 const checked = new Set();
 const endpointState = ${JSON.stringify(join(base, 'endpoint-fixture.json'))};
@@ -225,7 +290,7 @@ globalThis.nexarTestSubscriptionFinish = false;
 globalThis.nexarTestHandlers = handlers;
 const register = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) => {
-  const recording = async (event, ...args) => {
+  const handled = async (event, ...args) => {
     let value;
     if ([${JSON.stringify(CHANNELS.endpointsList)}, ${JSON.stringify(CHANNELS.endpointsSave)}, ${JSON.stringify(CHANNELS.endpointsRemove)}, ${JSON.stringify(CHANNELS.endpointsRefresh)}].includes(channel)) {
       // Static UI fixture only: no model request or server connection is made.
@@ -274,6 +339,23 @@ ipcMain.handle = (channel, handler) => {
     appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ channel, args, value }) + '\\n', { mode: 0o600 });
     return value;
   };
+  const recording = async (event, ...args) => {
+    const startedAtMs = Date.now();
+    const began = performance.now();
+    let ok = false;
+    let errorCode = null;
+    try {
+      const value = await handled(event, ...args);
+      ok = value?.ok === true;
+      if (!ok && typeof value?.error?.code === 'string') errorCode = value.error.code;
+      return value;
+    } catch (error) {
+      errorCode = typeof error?.code === 'string' ? error.code : (error?.name ?? 'Error');
+      throw error;
+    } finally {
+      appendLine(${JSON.stringify(join(userData, 'ipc-timing.jsonl'))}, { channel, startedAtMs, durationMs: Math.round(performance.now() - began), ok, errorCode });
+    }
+  };
   handlers.set(channel, recording);
   register(channel, recording);
 };
@@ -292,6 +374,8 @@ afterAll(async () => {
       failures.push(error);
     }
   }
+  // The fixture is deleted below: print what this run's egress, IPC and stored turns recorded.
+  if (userData !== undefined) await printRunSummaries(userData, !EXECUTABLE, SENTINEL);
   try {
     expect(await digestTree(OWNER_STATE)).toBe(ownerBefore);
   } finally {
@@ -302,14 +386,33 @@ afterAll(async () => {
 
 describe('Desktop Providers', () => {
   it('stores a clipboard key privately, preserves the conversation and removes the key', async () => {
+    // Registered before any step so a failure anywhere (even a launch) leaves evidence; the bundle
+    // is written before afterAll deletes the fixture. It never changes the test's outcome.
+    onTestFailed(async () => {
+      await writeFailureBundle({
+        app: latest?.app,
+        page: latest?.page,
+        userData,
+        base,
+        output,
+        outputTimes,
+        secret: SENTINEL,
+        turnTimings,
+        consoleCounts,
+        bundlesRoot: DIAGNOSTICS_ROOT,
+        repoRoot: REPO_ROOT,
+      });
+    }, 110_000);
     let { app, page } = await launch();
     await app.evaluate(({ dialog }, dir) => {
       dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [dir] });
     }, projectDir);
     await page.getByRole('button', { name: 'Open folder as project…' }).first().click();
     await page.getByLabel('Message').fill('Outline a quiet milestone');
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect.poll(() => page.getByTestId('result-text').count(), POLL).toBe(1);
+    await timedTurn(1, turnTimings, async () => {
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect.poll(() => page.getByTestId('result-text').count(), POLL).toBe(1);
+    });
     const originalConversation = await page.getByTestId('conversation-item').first().innerText();
     await providers(page);
     if (!EXECUTABLE) {
@@ -616,8 +719,10 @@ describe('Desktop Providers', () => {
     await page.getByTestId('conversation-item').filter({ hasText: originalConversation }).click();
     await expect.poll(() => page.getByTestId('result-text').count(), POLL).toBe(1);
     await page.getByLabel('Message').fill('Outline the next quiet milestone');
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect.poll(() => page.getByTestId('result-text').count(), POLL).toBe(2);
+    await timedTurn(2, turnTimings, async () => {
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect.poll(() => page.getByTestId('result-text').count(), POLL).toBe(2);
+    });
     expect(await page.getByTestId('conversation-item').count()).toBe(1);
 
     if (!EXECUTABLE) {
