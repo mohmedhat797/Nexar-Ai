@@ -1,5 +1,14 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -761,14 +770,14 @@ describe('a turn', () => {
 
   describe('isPhysicalScratchEscape', () => {
     it('rejects an unresolved or deleted scratch root', async () => {
-      const root = await mkdtemp(join(tmpdir(), 'nexar-scratch-test-'));
+      const root = await realpath(await mkdtemp(join(tmpdir(), 'nexar-scratch-test-')));
       await rm(root, { recursive: true, force: true });
       expect(await isPhysicalScratchEscape(root, 'draft.md')).toBe(true);
       expect(await isPhysicalScratchEscape(join(root, 'never-created'), 'draft.md')).toBe(true);
     });
 
     it('allows normal regular files and relative subdirectories inside scratch', async () => {
-      const root = await mkdtemp(join(tmpdir(), 'nexar-scratch-test-'));
+      const root = await realpath(await mkdtemp(join(tmpdir(), 'nexar-scratch-test-')));
       try {
         expect(await isPhysicalScratchEscape(root, 'draft.md')).toBe(false);
         expect(await isPhysicalScratchEscape(root, 'sub/nested/file.txt')).toBe(false);
@@ -780,7 +789,7 @@ describe('a turn', () => {
     });
 
     it('rejects lexical parent escapes and absolute paths outside scratch', async () => {
-      const root = await mkdtemp(join(tmpdir(), 'nexar-scratch-test-'));
+      const root = await realpath(await mkdtemp(join(tmpdir(), 'nexar-scratch-test-')));
       try {
         expect(await isPhysicalScratchEscape(root, '../outside.md')).toBe(true);
         expect(await isPhysicalScratchEscape(root, 'sub/../../outside.md')).toBe(true);
@@ -790,8 +799,8 @@ describe('a turn', () => {
     });
 
     it('detects directory junctions or symlinks escaping scratch root', async () => {
-      const root = await mkdtemp(join(tmpdir(), 'nexar-scratch-test-'));
-      const outside = await mkdtemp(join(tmpdir(), 'nexar-outside-target-'));
+      const root = await realpath(await mkdtemp(join(tmpdir(), 'nexar-scratch-test-')));
+      const outside = await realpath(await mkdtemp(join(tmpdir(), 'nexar-outside-target-')));
       try {
         const junctionTarget = join(root, 'escape-link');
         await symlink(outside, junctionTarget, 'junction');

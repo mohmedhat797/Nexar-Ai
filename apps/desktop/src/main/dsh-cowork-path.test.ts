@@ -13,7 +13,8 @@ vi.mock('node:fs/promises', async (original) => {
 let base: string;
 let root: string;
 beforeEach(async () => {
-  base = await mkdtemp(join(tmpdir(), 'nexar-containment-'));
+  // Match newScratch: Windows TEMP may contain a short-name alias.
+  base = await realpath(await mkdtemp(join(tmpdir(), 'nexar-containment-')));
   root = join(base, 'scratch');
   await mkdir(root);
 });
