@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
 import { createServer, type Server as NetServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -10,6 +10,7 @@ import { build } from 'esbuild';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { BridgeHost } from '@nexar/engine-gateway';
 import { createFakeControl, okTurn, silentLogger } from '@nexar/engine-gateway/testing';
+import { parseGatewayExit } from './exit-diagnostic.js';
 
 const SENTINEL = 'SENTINEL-prompt-and-args';
 const TOKEN = 'tok-0123456789abcdef';
@@ -23,13 +24,26 @@ interface ChildExit {
 }
 const childExits = new WeakMap<ChildProcess, Promise<ChildExit>>();
 const liveChildren = new Set<ChildProcess>();
+/** The last bytes of each child's stderr, kept so an early exit can say which exit it was. */
+const MAX_STDERR_TAIL_BYTES = 4096;
+const stderrTails = new WeakMap<ChildProcess, () => string>();
 
-function spawnGateway(script: string): ChildProcess {
-  const proc = spawn(process.execPath, [script], {
-    stdio: ['pipe', 'pipe', 'ignore'],
+function spawnGateway(script: string, execArgv: readonly string[] = []): ChildProcess {
+  const proc = spawn(process.execPath, [...execArgv, script], {
+    stdio: ['pipe', 'pipe', 'pipe'],
     env: { ELECTRON_RUN_AS_NODE: '1' },
   });
   liveChildren.add(proc);
+  let tail = Buffer.alloc(0);
+  proc.stderr?.on('data', (chunk: Buffer) => {
+    const joined = Buffer.concat([tail, chunk]);
+    tail =
+      joined.length > MAX_STDERR_TAIL_BYTES
+        ? Buffer.from(joined.subarray(joined.length - MAX_STDERR_TAIL_BYTES))
+        : joined;
+  });
+  proc.stderr?.on('error', () => undefined);
+  stderrTails.set(proc, () => tail.toString('utf8'));
   childExits.set(
     proc,
     new Promise((resolve) => {
@@ -49,10 +63,28 @@ function childClosed(proc: ChildProcess): Promise<ChildExit> {
   return closed;
 }
 
-function earlyExit(proc: ChildProcess, code: number | null, signal: NodeJS.Signals | null): Error {
+/** The child's stderr tail (at most 4096 bytes); complete once the child has closed. */
+const stderrOf = (proc: ChildProcess): string => stderrTails.get(proc)?.() ?? '';
+
+async function earlyExit(
+  proc: ChildProcess,
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): Promise<Error> {
+  // 'exit' can come before the last stderr bytes are read: wait for stdio to close, bounded.
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    childClosed(proc),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, 250);
+    }),
+  ]);
+  clearTimeout(timer);
   const status = code === null ? 'null' : `0x${(code >>> 0).toString(16)}`;
+  const diagnostic = parseGatewayExit(stderrOf(proc));
+  const reported = diagnostic === undefined ? 'none' : `${diagnostic.phase}/${diagnostic.code}`;
   return new Error(
-    `gateway child exited before ready (pid=${proc.pid}, code=${status}, signal=${signal ?? 'null'})`,
+    `gateway child exited before ready (pid=${proc.pid}, code=${status}, signal=${signal ?? 'null'}, diagnostic=${reported})`,
   );
 }
 
@@ -253,7 +285,7 @@ describe('control gateway translator', () => {
       proc.once('error', () =>
         reject(new Error(`gateway child failed to spawn (pid=${proc.pid})`)),
       );
-      proc.once('exit', (code, signal) => reject(earlyExit(proc, code, signal)));
+      proc.once('exit', (code, signal) => void earlyExit(proc, code, signal).then(reject));
     });
     return { child: proc, port: (JSON.parse(line) as { port: number }).port };
   }
@@ -575,6 +607,84 @@ describe('control gateway translator', () => {
     expect(await childClosed(proc)).toEqual({ code: 2, signal: null });
   });
 
+  describe('exit diagnostics', () => {
+    /** Runs a fresh child to its own exit; `preload` (CommonJS source) is required before the entry. */
+    async function runToExit(
+      stdin: string,
+      preload?: string,
+    ): Promise<{ exit: ChildExit; stderr: string }> {
+      const execArgv: string[] = [];
+      if (preload !== undefined) {
+        const file = join(dir, `preload-${randomUUID()}.cjs`);
+        await writeFile(file, preload);
+        execArgv.push('--require', file);
+      }
+      const proc = spawnGateway(script, execArgv);
+      proc.stdin?.write(stdin);
+      const exit = await childClosed(proc);
+      return { exit, stderr: stderrOf(proc) };
+    }
+
+    const line = (phase: string, code: string): string =>
+      `${JSON.stringify({ nexarGatewayExit: { phase, code } })}\n`;
+    const configLine = `${JSON.stringify({ endpoint: 'ignored' })}\n`;
+
+    it('writes exactly one config line, with no message or path, on a bad config', async () => {
+      const cases: [string, string][] = [
+        ['{"endpoint":42,"note":"C:\\\\secret\\\\path"}\n', 'unknown'],
+        ['not json C:\\secret\\path\n', 'SyntaxError'],
+        ['x'.repeat(5000), 'unknown'],
+      ];
+      for (const [stdin, code] of cases) {
+        const run = await runToExit(stdin);
+        expect(run.exit).toEqual({ code: 2, signal: null });
+        expect(run.stderr).toBe(line('config', code));
+      }
+    });
+
+    // There is no reliable way to make a loopback bind fail on demand, so a preload replaces
+    // net.Server#listen with one that emits the error a real failure would; the bundle is unchanged.
+    it('exits 1 with the listen phase when the server errors', async () => {
+      const run = await runToExit(
+        configLine,
+        `require('node:net').Server.prototype.listen = function () {
+           const error = Object.assign(new Error('listen EADDRINUSE /secret/path'), { code: 'EADDRINUSE' });
+           process.nextTick(() => this.emit('error', error));
+           return this;
+         };`,
+      );
+      expect(run.exit).toEqual({ code: 1, signal: null });
+      expect(run.stderr).toBe(line('listen', 'EADDRINUSE'));
+    });
+
+    it('exits 1 with the stdin phase when stdin errors', async () => {
+      const run = await runToExit(
+        '',
+        `setImmediate(() => process.stdin.emit('error', Object.assign(new Error('read EIO /secret/path'), { code: 'EIO' })));`,
+      );
+      expect(run.exit).toEqual({ code: 1, signal: null });
+      expect(run.stderr).toBe(line('stdin', 'EIO'));
+    });
+
+    it('exits 1 with the uncaught phase on an uncaught exception or rejection, without a stack', async () => {
+      const thrown = await runToExit(
+        configLine,
+        `require('node:net').Server.prototype.listen = function () {
+           throw Object.assign(new Error('boom /secret/path'), { code: 'ERR_TEST_BOOM' });
+         };`,
+      );
+      expect(thrown.exit).toEqual({ code: 1, signal: null });
+      expect(thrown.stderr).toBe(line('uncaught', 'ERR_TEST_BOOM'));
+
+      const rejected = await runToExit(
+        '',
+        `setImmediate(() => void Promise.reject(new TypeError('nope /secret/path')));`,
+      );
+      expect(rejected.exit).toEqual({ code: 1, signal: null });
+      expect(rejected.stderr).toBe(line('uncaught', 'TypeError'));
+    });
+  });
+
   it('binds loopback only', async () => {
     const probe = await launch(endpoint.path);
     try {
@@ -640,7 +750,7 @@ describe('control gateway end to end (child -> endpoint -> gateway -> fake port)
       proc.once('error', () =>
         reject(new Error(`gateway child failed to spawn (pid=${proc.pid})`)),
       );
-      proc.once('exit', (code, signal) => reject(earlyExit(proc, code, signal)));
+      proc.once('exit', (code, signal) => void earlyExit(proc, code, signal).then(reject));
     });
     child = proc;
     port = (JSON.parse(line) as { port: number }).port;
