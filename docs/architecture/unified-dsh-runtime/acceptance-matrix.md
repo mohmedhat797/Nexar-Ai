@@ -2,21 +2,51 @@
 
 This table maps requirements to tests; it does not certify that every gate has run on every platform. Current exact-source verdicts and remaining blockers are in [FCR01_Final_Verification.md](../../development/FCR01_Final_Verification.md) and [FCR02_Reliability_Diagnostics.md](../../development/FCR02_Reliability_Diagnostics.md). ADR-030 is Proposed and PR #41 Draft.
 
-## Release gates — owner decision OD-SEC-01 (Windows-first acceptance, 2026-10-13)
+## Release gates and owner decisions (OD-SEC-01 to OD-SEC-07, 2026-10-13)
 
-Nexar is accepted as a **Windows Desktop** product for the current milestone.
+Nexar is accepted as a **Windows Desktop** product for the current milestone. The full Owner
+Decision Register is in the
+[NXR-SEC-01 owner handover](../../development/NXR_SEC01_Final_Owner_Handover.md#owner-decision-register).
 
-| Gate                                                                              | Status for this milestone                                                                    |
-| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Windows Full Local CI, source E2E, packaged E2E, installer verification, Gitleaks | **Mandatory**                                                                                |
-| Real pinned DSH tests, Permission Broker, NRC, Project Memory, session integrity  | **Mandatory**                                                                                |
-| Cowork OS isolation (A17, [NXR-SEC-01](NXR_SEC01_Security_Test_Report.md))        | **Mandatory** (OD-SEC-02); not yet met                                                       |
-| WSL2 Coding sandbox (bubblewrap, socat relays, Coding ACP)                        | **Mandatory**: Windows Coding depends on it                                                  |
-| Native Ubuntu Full CI, native Linux Desktop E2E/Xvfb, native Linux Gitleaks       | **Deferred**: results are not claimed; the status is `CROSS_PLATFORM_ACCEPTANCE_NOT_CLAIMED` |
+**Primary evaluation baseline (OD-SEC-01):** Windows 11 Pro **25H2** x64 (build **26200**), fully
+updated. Windows 11 26H2 may be evaluated as an additional compatibility target. The existing
+Windows CI evidence (FCR-02, `e2a82ae`) was produced on Windows 11 Pro build 26300. It has **not**
+yet been repeated on the 26200 baseline.
+
+| Gate                                                                                  | Status for this milestone                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows Full Local CI, source E2E, packaged E2E, installer verification, Gitleaks     | **Mandatory**                                                                                                                                                                                                                                |
+| Real pinned DSH tests, Permission Broker, NRC, Project Memory, session integrity      | **Mandatory**                                                                                                                                                                                                                                |
+| Cowork OS read/write isolation (A17, [NXR-SEC-01](NXR_SEC01_Security_Test_Report.md)) | **Mandatory, unresolved** (OD-SEC-02, OD-SEC-04). Windows AppContainer is the preferred direction; LPAC remains an evaluation candidate. **Neither has passed feasibility.** A trusted-content release policy is not an accepted substitute. |
+| WSL2 Coding sandbox (bubblewrap, socat relays, Coding ACP)                            | **Mandatory**: an existing dependency of Windows Coding                                                                                                                                                                                      |
+| Native Ubuntu Full CI, native Linux Desktop E2E/Xvfb, native Linux Gitleaks           | **DEFERRED BY OWNER DECISION** (OD-SEC-01), not PASS. Results are not claimed, and cross-platform acceptance is not claimed.                                                                                                                 |
 
 Deferral is not certification: no Linux release is implied. **Reinstatement trigger:** native
 Ubuntu gates become mandatory again before any Linux (or other non-Windows) desktop or CLI release,
 or if Coding moves off WSL2.
+
+**Gates on later phases (OD-SEC-05, OD-SEC-07):** production isolation integration needs four
+things in order:
+
+1. a passing feasibility test, run by the owner-authorized engineer in a disposable Windows 11
+   Pro 25H2 VM (OD-SEC-03);
+2. independent Opus review of that evidence;
+3. documented architecture and residual risks;
+4. explicit owner approval.
+
+ADR-030 acceptance and the PR #41 merge each need explicit owner approval. Integration
+preparation is not push authorization.
+
+**Tracked items (OD-SEC-06):**
+
+- The gateway child exit and the Providers second-turn timeout remain **unresolved, instrumented**
+  reliability observations.
+- The upstream DSH dependency advisories (MCP SDK OAuth, fflate) remain **tracked technical debt**
+  for the reviewed managed configuration. The dependency tree is not claimed vulnerability-free.
+
+**Current status:** `WINDOWS_NATIVE_ISOLATION_UNVERIFIED` · `COWORK_OS_ISOLATION_INCOMPLETE` ·
+`NATIVE_UBUNTU_FULL_CI_DEFERRED` · `NXR_SEC01_BLOCKED_BY_EXTERNAL_FEASIBILITY_EVIDENCE` ·
+`ADR030_PROPOSED` · `PR41_DRAFT_NOT_MERGED` · `NXR070_NOT_AUTHORIZED`.
 
 Every requirement maps to at least one automated test. "Real DSH" = the pinned `dsh` runtime
 installed by `scripts/install-dsh-runtime.mjs` (CI sets `NEXAR_DSH_ENTRY`), no credentials, model
