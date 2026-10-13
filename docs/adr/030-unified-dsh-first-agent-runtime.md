@@ -130,3 +130,15 @@ Proposed until the owner explicitly accepts it.
 - **DSH Cordis plugin inside the runtime:** lockstep-versioned internals; rejected (ADR-008).
 - **Long-lived shared DSH process for all Cowork turns:** the sandbox root is the process `cwd` and
   credentials/overlays are per launch; per-turn processes give per-turn isolation. Rejected for v1.
+
+## Proposed amendment — NXR-SEC-01 (pending owner approval; not in effect)
+
+Decision 4's host-local Cowork placement leaves Cowork with the owner's full OS identity
+(FCR-01-09). NXR-SEC-01 proposes replacing it with a per-turn Windows AppContainer: no network
+capability, grants only on Nexar-owned folders, a one-process job, host-brokered pipes to the
+Control Model Gateway and a host-side bridge relay, and fail-closed with no host-local fallback.
+The amendment text, the alternatives and the unmet feasibility gate are in
+[NXR_SEC01_Architecture_Design.md](../architecture/unified-dsh-runtime/NXR_SEC01_Architecture_Design.md)
+§6 and §9. Until the owner approves it after a passing gate, Decision 4 stands as written above.
+Owner decision OD-SEC-01 (Windows-first acceptance; native Ubuntu gates deferred, not claimed) is
+recorded in the [acceptance matrix](../architecture/unified-dsh-runtime/acceptance-matrix.md).

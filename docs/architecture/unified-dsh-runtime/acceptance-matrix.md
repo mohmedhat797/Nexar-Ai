@@ -1,6 +1,22 @@
 # Unified DSH runtime — acceptance matrix
 
-This table maps requirements to tests; it does not certify that every gate has run on every platform. Current exact-source verdicts and remaining blockers are in [FCR01_Final_Verification.md](../../development/FCR01_Final_Verification.md). Native Ubuntu Full CI and the Cowork OS release-policy decision remain unresolved; ADR-030 is Proposed and PR #41 Draft.
+This table maps requirements to tests; it does not certify that every gate has run on every platform. Current exact-source verdicts and remaining blockers are in [FCR01_Final_Verification.md](../../development/FCR01_Final_Verification.md) and [FCR02_Reliability_Diagnostics.md](../../development/FCR02_Reliability_Diagnostics.md). ADR-030 is Proposed and PR #41 Draft.
+
+## Release gates — owner decision OD-SEC-01 (Windows-first acceptance, 2026-10-13)
+
+Nexar is accepted as a **Windows Desktop** product for the current milestone.
+
+| Gate                                                                              | Status for this milestone                                                                    |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Windows Full Local CI, source E2E, packaged E2E, installer verification, Gitleaks | **Mandatory**                                                                                |
+| Real pinned DSH tests, Permission Broker, NRC, Project Memory, session integrity  | **Mandatory**                                                                                |
+| Cowork OS isolation (A17, [NXR-SEC-01](NXR_SEC01_Security_Test_Report.md))        | **Mandatory** (OD-SEC-02); not yet met                                                       |
+| WSL2 Coding sandbox (bubblewrap, socat relays, Coding ACP)                        | **Mandatory**: Windows Coding depends on it                                                  |
+| Native Ubuntu Full CI, native Linux Desktop E2E/Xvfb, native Linux Gitleaks       | **Deferred**: results are not claimed; the status is `CROSS_PLATFORM_ACCEPTANCE_NOT_CLAIMED` |
+
+Deferral is not certification: no Linux release is implied. **Reinstatement trigger:** native
+Ubuntu gates become mandatory again before any Linux (or other non-Windows) desktop or CLI release,
+or if Coding moves off WSL2.
 
 Every requirement maps to at least one automated test. "Real DSH" = the pinned `dsh` runtime
 installed by `scripts/install-dsh-runtime.mjs` (CI sets `NEXAR_DSH_ENTRY`), no credentials, model
@@ -19,11 +35,12 @@ traffic only to a deterministic fake Chat Completions endpoint owned by the test
 | A9  | No active OpenWorker dependency                                 | static test: no import of / reference to OpenWorker runtime in `apps`, `packages`, `integrations` (legacy schema literals allowlisted); `pnpm check:boundaries`                                                                         | 06     |
 | A10 | Electron integration operational                                | `pnpm desktop:e2e` source run                                                                                                                                                                                                           | 03, 07 |
 | A11 | Windows source + packaged E2E                                   | CI `windows-latest` desktop E2E; packaged E2E (`package:win` + launch)                                                                                                                                                                  | 07     |
-| A12 | Linux engineering + sandbox tests                               | CI `ubuntu-latest` `pnpm check` incl. sandbox/engineering suites                                                                                                                                                                        | 04     |
+| A12 | Linux engineering + sandbox tests                               | WSL2 (mandatory for Windows Coding): full offline suite incl. real bubblewrap, socat relays, sandboxed ACP and the real Coding fixture. Native Ubuntu `pnpm check`: **deferred** (OD-SEC-01)                                            | 04     |
 | A13 | No duplicate execution accounting                               | `engine-gateway/gateway.test.ts`: once per provider attempt incl. retry/restart; `tests/integration/control-accounting.test.ts`: shared sink → JSONL → quota; ACP gateway cost unavailable                                              | 02, 08 |
 | A14 | Existing data safe                                              | sessions fixtures with legacy `openworker` values load; settings with legacy keys load                                                                                                                                                  | 05, 06 |
 | A15 | Security regressions green                                      | B1–B9 regression suites (`capabilities`, `bridge`, `delegation-limit`, `gateway`, `sessions`, `approvals`, `sandbox`) plus ACP isolation/model-route guards; Linux sandbox execution requires Ubuntu CI                                 | all    |
 | A16 | Direct session fallback remains bounded model execution         | `apps/desktop/src/main/operating.test.ts`: real NRC exclusions, forbidden preferences, model-label spoofing, no bounded candidates and single execution record                                                                          | 08     |
+| A17 | Cowork OS isolation (Windows)                                   | [NXR-SEC-01 test matrix](NXR_SEC01_Security_Test_Report.md): OS-level denial of outside reads/writes, junction escape, network and process creation on real DSH; fail-closed launcher. **Not yet implemented or executed**              | SEC-01 |
 
 ## Invariant → test map
 
