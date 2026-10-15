@@ -2,6 +2,13 @@
 
 Date: 2026-10-16. ADR-030 remains **Proposed**. No AppContainer work or NXR-070 implementation.
 
+Implementation commit `3b3e26a3ab641f5273ad43ddce6de0ca4065f847` matches the frozen tested tree.
+Windows Full CI passed all 16 required gates, including actual WSL execution and 25/25 source plus
+25/25 packaged Desktop tests. See [acceptance identities and scope](../../development/NXR_SEC02_Windows_WSL_Acceptance.md).
+The owner's NXR-SEC-02 assignment authorizes interim WSL2 implementation/validation; permanent
+support policy, production integration and ADR acceptance still require the owner. Existing
+installed Windows/WSL applications were preserved rather than replaced by this local work.
+
 ## Execution and trust boundaries
 
 Desktop main selects `WslCoworkBackend` for production Cowork. It invokes the absolute Windows
