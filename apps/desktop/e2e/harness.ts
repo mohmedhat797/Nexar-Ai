@@ -124,12 +124,14 @@ export async function createHarness(): Promise<Harness> {
         name === 'NEXAR_DESKTOP_TEST_PLANE' ||
         name === 'NEXAR_DESKTOP_TEST_DSH_ENTRY' ||
         name === 'NEXAR_DESKTOP_TEST_DSH_RUNTIME' ||
+        name === 'NEXAR_DESKTOP_TEST_WSL_COWORK' ||
         name === 'NEXAR_DSH_ENTRY'
       ) {
         delete env[name];
       }
     }
     env['NEXAR_DESKTOP_USER_DATA'] = userData;
+    env['NEXAR_DESKTOP_TEST_LOCAL_COWORK'] = '1';
     env['NEXAR_DESKTOP_STARTUP_TRACE'] = '1';
     Object.assign(env, extraEnv);
     if (EXECUTABLE) {

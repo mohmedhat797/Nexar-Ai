@@ -426,6 +426,7 @@ describe('Nexar Local CI Orchestrator', () => {
       'cli-smoke-resources',
       'cli-smoke-run',
       'dsh-context-real',
+      'cowork-isolation-wsl',
       'desktop-e2e-source',
       'desktop-package-win',
       'desktop-e2e-packaged',
@@ -475,6 +476,13 @@ describe('Nexar Local CI Orchestrator', () => {
     expect(computeFinalStatus('full', winFullWithBlockedSandbox, { platform: 'win32' })).toBe(
       'NEXAR_WINDOWS_FULL_PASS',
     );
+    expect(
+      computeFinalStatus(
+        'full',
+        winFullStages.filter((stage) => stage.id !== 'cowork-isolation-wsl'),
+        { platform: 'win32' },
+      ),
+    ).toBe('NEXAR_WINDOWS_FULL_FAIL');
 
     // Linux Full pass
     const linuxFullStages = [

@@ -53,12 +53,15 @@ plus the 0.2.x re-check recorded in the architecture document):
    the one Nexar's ACP code was tested against. `0.2.1-alpha.2` is rejected (alpha channel, newer
    is not more stable). The runtime refuses to start on a version mismatch. Upgrades are deliberate,
    re-verified changes to the pin.
-4. **Two placements, one contract.** Cowork runs a host-local DSH ACP child of Desktop main
-   (Windows-native) — one process per engine turn, `cwd` = a private scratch directory,
-   `DSH_PERMISSION_MODE=workspace-write` rooted there, isolated `DSH_HOME`, minimal explicit
-   environment. Coding keeps its placement: DSH inside the WSL2 bwrap sandbox through
-   `PlaneLaneEngine`/`EngineeringRunner`, unchanged security envelope. Both use the same
-   `DshProfile` contract, overlay renderer, ACP client and permission broker.
+4. **Two profiles, one contract; WSL2 isolation required for production Cowork.** The owner-authorized
+   NXR-SEC-02 implementation replaces host-local Cowork with a per-turn Linux DSH ACP process inside
+   the existing WSL2/bubblewrap sandbox. Desktop uses a trusted stdio helper, private scratch and
+   runtime home, staged read-only inputs, and fixed gateway/bridge relays. Cowork starts read-only;
+   Nexar answers each write permission. An unavailable sandbox blocks the turn without direct or
+   host-local fallback. Coding retains `PlaneLaneEngine`/`EngineeringRunner` and its existing
+   security envelope. Both use the same `DshProfile`, overlay renderer, ACP client and broker.
+   This placement revision remains Proposed; see [implementation](../architecture/unified-dsh-runtime/NXR_SEC02_Architecture_Implementation.md)
+   and [security evidence](../architecture/unified-dsh-runtime/NXR_SEC02_Security_Assessment.md).
 5. **NRC stays the model authority.** A DSH profile's overlay declares exactly one model route,
    `nexar` (pi-ai `openai-completions` → the Control Model Gateway, ADR-027 §7A), and selects it as
    the ACP default. Cowork never gives a provider key to DSH; the old OpenWorker direct-key path is
@@ -84,9 +87,11 @@ plus the 0.2.x re-check recorded in the architecture document):
 8. **OpenWorker is removed** from every execution path after DSH Cowork passes parity. The generic
    Work Bridge v2 (inbound MCP `nexar.submit_work`) moves to `@nexar/work-bridge`. Legacy records
    that name `openworker` stay readable; no code path starts it.
-9. **Packaging.** Desktop ships the pinned DSH runtime (installed from the npm registry at build time
-   with lockfile integrity) and runs it with Electron's Node (`ELECTRON_RUN_AS_NODE=1`); an owner
-   override path is allowed and version-checked. No elevation, no PATH dependency.
+9. **Packaging.** Desktop continues shipping the pinned Windows DSH bundle for compatibility and
+   hermetic regression tests. Production Cowork requires the updated Nexar CLI helper and pinned
+   Linux DSH in the owner-configured hardened WSL distro. The installer does not enable WSL,
+   install Linux dependencies, or elevate. A Windows bundle alone no longer makes Cowork ready.
+   See [setup](../integration/wsl2-engineering-plane.md#isolated-cowork-nxr-sec-02).
 
 ## Security invariants preserved
 

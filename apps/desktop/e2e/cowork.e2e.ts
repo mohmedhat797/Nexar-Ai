@@ -108,7 +108,7 @@ describe('Nexar Desktop Cowork lane (DeepSeek Harness)', () => {
       await page.getByRole('tab', { name: 'Cowork' }).click();
       await hasText(
         page.getByTestId('cowork-note'),
-        'Nexar runs its own private DeepSeek Harness runtime, bundled with the app.',
+        'Isolated Cowork requires the configured WSL2 sandbox and its pinned DeepSeek Harness runtime.',
       );
       await page.getByTestId('cowork-settings-refresh').click();
       await hasText(page.getByTestId('cowork-state'), 'ready');

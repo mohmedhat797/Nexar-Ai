@@ -10,7 +10,6 @@ import { FileSessionStore } from '@nexar/sessions';
 import {
   checkProviderCredential,
   createControlModelTurnPorts,
-  createEngineExecutor,
   createNativeSubscriptions,
   createNativeModelInventories,
   engineAllocator,
@@ -20,6 +19,9 @@ import { createBridge } from './bridge.js';
 import { CodePlane } from './code-plane.js';
 import { ControlGatewayChild } from './control-gateway-child.js';
 import { DshCoworkService, type CoworkLane } from './dsh-cowork.js';
+import { WslCoworkBackend } from './wsl-cowork.js';
+import { loadCoworkInputs } from './cowork-inputs.js';
+import { boundedCoworkExecutor } from './cowork-executor.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost, type EngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
@@ -288,6 +290,10 @@ async function start(): Promise<void> {
     underTestOverride &&
     app.isPackaged &&
     process.env['NEXAR_DESKTOP_TEST_DSH_RUNTIME'] === 'packaged';
+  const localCoworkFixture =
+    underTestOverride &&
+    process.env['NEXAR_DESKTOP_TEST_LOCAL_COWORK'] === '1' &&
+    process.env['NEXAR_DESKTOP_TEST_WSL_COWORK'] !== '1';
   // The Intelligence Bridge endpoint (ADR-027 §9a): a per-launch local pipe/socket, never a port.
   // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
   // exists unless delegation is used. Stopped at quit.
@@ -321,7 +327,7 @@ async function start(): Promise<void> {
   const bridgeHost = new BridgeHost({
     gateway: controlGateway,
     allocator: engineAllocator(engine),
-    executor: createEngineExecutor(engine),
+    executor: boundedCoworkExecutor(engine),
     clock: () => new Date(),
     newId: randomUUID,
     logger,
@@ -337,6 +343,13 @@ async function start(): Promise<void> {
     logger,
   });
   const cowork = new DshCoworkService({
+    // The host-local path is available only to explicit offline fixture runs.
+    ...(!localCoworkFixture
+      ? {
+          backend: new WslCoworkBackend(settings),
+          approvedInputs: (request) => loadCoworkInputs(engine, sessions, request),
+        }
+      : {}),
     bridgeHost,
     controlGateway,
     controlChild: controlGatewayChild,
@@ -344,7 +357,7 @@ async function start(): Promise<void> {
     engine,
     logger,
     stateDir: join(runtimePath, 'dsh-cowork'),
-    disabled: underTestOverride && dshTestEntry === undefined && !dshPackagedUnderTest,
+    disabled: localCoworkFixture && dshTestEntry === undefined && !dshPackagedUnderTest,
     testEntry: dshTestEntry,
     ...(app.isPackaged
       ? { resourcesPath: process.resourcesPath }

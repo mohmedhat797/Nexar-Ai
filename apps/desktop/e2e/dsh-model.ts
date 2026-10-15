@@ -28,6 +28,8 @@ export type ControlScript =
       readonly file: string;
       readonly content: string;
       readonly final: string;
+      /** SEC02: read an explicitly staged input before drafting, retaining its contents. */
+      readonly input?: string;
     }
   /** Delegates four units through the bridge (extract, synthesize, draft, review), then writes the draft. */
   | { readonly kind: 'sow' }
@@ -138,13 +140,19 @@ function nextAction(
   const lastName = last?.role === 'tool' ? callNames.get(last.tool_call_id ?? '') : undefined;
 
   if (script.kind === 'write') {
-    return last?.role === 'tool'
+    if (script.input !== undefined && lastName !== 'read' && lastName !== 'write')
+      return { call: named('read'), args: { file_path: script.input } };
+    return last?.role === 'tool' && (script.input === undefined || lastName === 'write')
       ? { text: script.final }
       : {
           call: named('write'),
           args: {
             file_path: script.file,
-            content: script.content,
+            content:
+              script.content +
+              (script.input === undefined
+                ? ''
+                : `\n\n${typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content)}`),
             sandbox_permissions: 'workspace-write',
             justification: 'Write the requested draft in scratch.',
           },

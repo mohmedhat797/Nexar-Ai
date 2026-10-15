@@ -2,7 +2,7 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import { chmod, mkdir, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { NexarError } from '@nexar/contracts';
-import type { Logger } from '@nexar/contracts';
+import type { Logger, PreparedLaunch } from '@nexar/contracts';
 import { mapFailure } from '../failure.js';
 import { RunGuard } from '../guard.js';
 import type { JsonRpcNotification, JsonRpcReply } from '../json-rpc-client.js';
@@ -17,6 +17,7 @@ import { PermissionBroker } from './permissions.js';
 import type { PermissionDecisionInput } from './permissions.js';
 import { cancelSession, classifyRpcError } from './run.js';
 import { ToolCallCache } from './tool-calls.js';
+import { spawnPrepared } from './launch.js';
 
 export type { PermissionDecisionInput } from './permissions.js';
 
@@ -109,6 +110,7 @@ async function converse(
   home: string,
   overlayPath: string,
   emit: (event: LocalAcpEvent) => void,
+  prepared?: PreparedLaunch,
 ): Promise<LocalAcpResult> {
   const { launch, logger, control } = options;
   const initializeTimeoutMs = options.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS;
@@ -128,16 +130,19 @@ async function converse(
       bridge: mcpServers.length > 0,
     });
     const spawnFn = options.spawn ?? nodeSpawn;
-    proc = new RuntimeProcess(
-      spawnFn(launch.command, [...launch.args, '--profile', 'acp', '--patch', overlayPath], {
-        cwd: scratchDir,
-        env: childEnv(options, home),
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-        // Own process group so stop() can terminate the runtime's whole subprocess tree (POSIX).
-        detached: process.platform !== 'win32',
-      }),
-    );
+    proc =
+      prepared === undefined
+        ? new RuntimeProcess(
+            spawnFn(launch.command, [...launch.args, '--profile', 'acp', '--patch', overlayPath], {
+              cwd: scratchDir,
+              env: childEnv(options, home),
+              stdio: ['pipe', 'pipe', 'pipe'],
+              windowsHide: true,
+              // Own process group so stop() can terminate the runtime's whole subprocess tree (POSIX).
+              detached: process.platform !== 'win32',
+            }),
+          )
+        : spawnPrepared(prepared);
     const client = proc.client;
     const toolCalls = new ToolCallCache();
     const text: string[] = [];
@@ -276,6 +281,29 @@ async function converse(
     guard.dispose();
     if (proc !== undefined) await proc.stop();
   }
+}
+
+/** Shared ACP conversation; an isolated caller must supply a verified prepared sandbox. */
+export async function runPreparedCoworkSession(
+  options: LocalAcpSessionOptions,
+  prepared: PreparedLaunch,
+): Promise<LocalAcpResult> {
+  if (
+    prepared.isolation !== 'sandbox' ||
+    options.profile.id !== 'cowork' ||
+    options.permissionMode !== 'read-only' ||
+    prepared.services?.gatewayBaseUrl === undefined
+  ) {
+    throw new NexarError('POLICY_REJECTED', 'Cowork requires an isolated read-only ACP launch');
+  }
+  return converse(
+    { ...options, control: { ...options.control, baseURL: prepared.services.gatewayBaseUrl } },
+    prepared.workspacePath,
+    options.dshHome,
+    '',
+    options.onEvent ?? (() => undefined),
+    prepared,
+  );
 }
 
 /** The child's complete environment: allowlisted parent variables plus what the session needs. */

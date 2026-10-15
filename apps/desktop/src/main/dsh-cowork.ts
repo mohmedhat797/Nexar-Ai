@@ -34,6 +34,7 @@ import {
   type DshRuntimeStatus,
   type LocalAcpEvent,
   type PermissionDecisionInput,
+  type CoworkFile,
 } from '@nexar/integration-deepseek-harness';
 import type { CoworkDelegation, CoworkRequest, CoworkResult } from '@nexar/operating';
 import type { CoworkStatusDto } from '../shared/api.js';
@@ -44,6 +45,7 @@ import { importDrafts } from './cowork-drafts.js';
 import { dshLaunchForEntry, resolveDshEntry } from './dsh-runtime-path.js';
 import type { EngineHost } from './engine-host.js';
 import type { SettingsStore } from './settings-store.js';
+import type { CoworkExecutionBackend } from './wsl-cowork.js';
 
 /*
  * The Desktop side of the Cowork lane on DeepSeek Harness (ADR-030): one host-local `dsh --profile
@@ -193,6 +195,9 @@ export interface DshCoworkServiceOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly timings?: Partial<DshCoworkTimings>;
   readonly now?: () => number;
+  /** Production placement. Local execution remains an explicit hermetic-test seam only. */
+  readonly backend?: CoworkExecutionBackend;
+  readonly approvedInputs?: (request: CoworkRequest) => Promise<readonly CoworkFile[]>;
 }
 
 /** The turn's one bridge grant: control decision, owner policy, restart hooks. */
@@ -285,6 +290,9 @@ export class DshCoworkService implements CoworkLane {
   /** Synchronous (lane router): a stale cache starts a background re-probe. */
   available(): boolean {
     if (this.disposed) return false;
+    // A production Cowork request must enter this lane even when its runtime is unavailable.
+    // run() checks readiness and records a failure; the router must not invoke a host resource.
+    if (this.options.backend !== undefined) return true;
     const cached = this.cached;
     if (cached === undefined) {
       void this.refresh();
@@ -348,6 +356,8 @@ export class DshCoworkService implements CoworkLane {
   }
 
   private async resolveLaunch(): Promise<DshLaunch | undefined> {
+    if (this.options.backend !== undefined)
+      return { command: 'isolated-cowork', args: [], env: {} };
     if (this.options.launch !== undefined) return this.options.launch;
     const config = await this.options.settings.getCowork();
     if (!config.valid) return undefined;
@@ -367,7 +377,18 @@ export class DshCoworkService implements CoworkLane {
       'unsupported-version': COWORK_REASONS['unsupported-version'],
       'startup-failed': COWORK_REASONS['startup-failed'],
     } as const;
-    return { state, reason: reasons[state], ...(version === undefined ? {} : { version }) };
+    const reason =
+      this.options.backend === undefined
+        ? reasons[state]
+        : state === 'ready'
+          ? 'Isolated Cowork is ready (WSL2 sandbox)'
+          : 'Isolated Cowork is unavailable: check WSL, sandbox prerequisites, and the Cowork helper';
+    return {
+      state,
+      reason,
+      ...(version === undefined ? {} : { version }),
+      ...(this.options.backend === undefined ? {} : { placement: 'WSL2_BUBBLEWRAP' as const }),
+    };
   }
 
   private async probe(): Promise<Probed> {
@@ -383,11 +404,14 @@ export class DshCoworkService implements CoworkLane {
     }
     const launch = await this.resolveLaunch();
     if (launch === undefined) return missing;
-    const probed = await probeDshRuntime(launch, {
-      parentEnv: this.options.env ?? process.env,
-      timeoutMs: this.timings.probeTimeoutMs,
-      ...(this.options.spawn === undefined ? {} : { spawn: this.options.spawn }),
-    });
+    const probed =
+      this.options.backend === undefined
+        ? await probeDshRuntime(launch, {
+            parentEnv: this.options.env ?? process.env,
+            timeoutMs: this.timings.probeTimeoutMs,
+            ...(this.options.spawn === undefined ? {} : { spawn: this.options.spawn }),
+          })
+        : await this.options.backend.probe();
     if (this.disposed) return missing;
     if (probed.state !== 'ready') return { status: this.fixed(probed.state, probed.version) };
     // Ready also needs a control resource the owner's policy can pin (a preview, never a paid call).
@@ -503,7 +527,7 @@ export class DshCoworkService implements CoworkLane {
         created.push(home);
         request.onProgress('status', 'Running Cowork');
         try {
-          const result = await runLocalAcpSession({
+          const sessionOptions = {
             launch,
             profile: COWORK_PROFILE,
             scratchBase: await realpath(scratchBase),
@@ -525,7 +549,15 @@ export class DshCoworkService implements CoworkLane {
             initializeTimeoutMs: this.timings.startupTimeoutMs,
             logger: this.options.logger,
             ...(this.options.spawn === undefined ? {} : { spawn: this.options.spawn }),
-          });
+          } satisfies Parameters<typeof runLocalAcpSession>[0];
+          const result =
+            this.options.backend === undefined
+              ? await runLocalAcpSession(sessionOptions)
+              : await this.options.backend.run(sessionOptions, {
+                  endpoint: await this.options.bridgeHost.ensureStarted(),
+                  standalone: unitLimit.maximum === 1,
+                  inputs: (await this.options.approvedInputs?.(request)) ?? [],
+                });
           text = result.text;
           break;
         } catch (error) {

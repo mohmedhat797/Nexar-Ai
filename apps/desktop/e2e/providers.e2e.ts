@@ -116,6 +116,7 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     ),
   );
   env['NEXAR_DESKTOP_USER_DATA'] = userData;
+  env['NEXAR_DESKTOP_TEST_LOCAL_COWORK'] = '1';
   env['NEXAR_DESKTOP_STARTUP_TRACE'] = '1';
   if (EXECUTABLE) {
     delete env['NEXAR_WORKFLOWS_DIR'];

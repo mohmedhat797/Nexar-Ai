@@ -1,5 +1,16 @@
 # Unified DSH runtime — acceptance matrix
 
+## NXR-SEC-02 current placement gates (2026-10-16)
+
+Production Cowork now requires the WSL2 helper and bubblewrap. Historical host-local PASS results
+below establish the prior engineering baseline, not isolation acceptance for this implementation.
+The additional mandatory Windows `cowork-isolation-wsl` stage must execute real DSH transport,
+cancellation, concurrent turns, canonical memory and compaction tests without skips, followed by
+real Linux kernel-boundary and Coding sandbox tests. Source and packaged E2E must include
+`cowork-isolated.e2e.ts` with a matching helper. See the exact-source
+[Windows/WSL acceptance](../../development/NXR_SEC02_Windows_WSL_Acceptance.md) and
+[security matrix](NXR_SEC02_Security_Assessment.md). ADR-030 remains Proposed.
+
 This table maps requirements to tests; it does not certify that every gate has run on every platform. Current exact-source verdicts and remaining blockers are in [FCR01_Final_Verification.md](../../development/FCR01_Final_Verification.md) and [FCR02_Reliability_Diagnostics.md](../../development/FCR02_Reliability_Diagnostics.md). ADR-030 is Proposed and PR #41 Draft.
 
 ## Release gates and owner decisions (OD-SEC-01 to OD-SEC-07, 2026-10-13)

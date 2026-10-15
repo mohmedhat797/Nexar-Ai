@@ -243,6 +243,7 @@ export interface CoworkStatusDto {
   readonly state: (typeof COWORK_STATES)[number];
   readonly reason: string;
   readonly version?: string;
+  readonly placement?: 'WSL2_BUBBLEWRAP';
 }
 
 export interface WorkflowDto {

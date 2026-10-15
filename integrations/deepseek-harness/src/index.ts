@@ -43,6 +43,11 @@ export type {
   ProbeOptions,
 } from './runtime/resolve.js';
 export { runLocalAcpSession } from './acp/local.js';
+export { runSandboxedCoworkSession } from './acp/sandboxed.js';
+export type { SandboxedCoworkOptions } from './acp/sandboxed.js';
+export { parseCoworkFiles, readCoworkFile, stageCoworkFiles } from './cowork-files.js';
+export type { CoworkFile } from './cowork-files.js';
+export { coworkScratchEscape } from './cowork-containment.js';
 export type {
   LocalAcpEvent,
   LocalAcpResult,

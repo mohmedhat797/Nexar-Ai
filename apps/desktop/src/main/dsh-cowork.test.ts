@@ -92,6 +92,7 @@ interface Setup {
   readonly noLaunch?: boolean;
   readonly timings?: DshCoworkServiceOptions['timings'];
   readonly env?: NodeJS.ProcessEnv;
+  readonly backend?: DshCoworkServiceOptions['backend'];
 }
 
 function setup(options: Setup = {}) {
@@ -114,6 +115,7 @@ function setup(options: Setup = {}) {
     engine: h.engine,
     logger: capture,
     stateDir,
+    ...(options.backend === undefined ? {} : { backend: options.backend }),
     bridgeHost: kit.host,
     controlGateway: kit.gateway,
     controlChild: kit.child,
@@ -172,6 +174,21 @@ async function ready(options: Setup = {}) {
 }
 
 describe('status', () => {
+  it('keeps an unavailable isolated lane routed to a blocking failure without host execution', async () => {
+    const { cowork, spawned, created } = setup({
+      backend: {
+        probe: () => Promise.resolve({ state: 'startup-failed', reason: 'synthetic unavailable' }),
+        run: () => Promise.reject(new Error('must not run')),
+      },
+    });
+    expect((await cowork.refresh()).state).toBe('startup-failed');
+    expect(cowork.available()).toBe(true);
+    await expect(
+      cowork.run(coworkRequest(projectId).request, new AbortController().signal),
+    ).rejects.toBeDefined();
+    expect(spawned.calls).toHaveLength(0);
+    expect(created).toHaveLength(0);
+  });
   it('is ready with the pinned version when the runtime probes and a control resource exists', async () => {
     const { cowork } = setup();
     expect(cowork.available()).toBe(false);

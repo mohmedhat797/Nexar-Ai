@@ -1,5 +1,23 @@
 # Unified DSH runtime — security threat model
 
+## NXR-SEC-02 placement revision (2026-10-16)
+
+Production Desktop Cowork now requires WSL2/bubblewrap through `WslCoworkBackend`; a missing helper
+blocks the Cowork turn. The host-local account exposure described below is the historical FCR-01
+baseline, retained as evidence of why this change is necessary. Host-local execution remains only
+an explicit offline test seam. Current controls, raw evidence, remaining gaps and the distinction
+between namespace absence and application denial are in
+[NXR_SEC02_Security_Assessment.md](NXR_SEC02_Security_Assessment.md).
+
+The trusted computing base includes Desktop main, the WSL helper, SandboxLauncher, the Linux kernel
+and managed Node/DSH installation. DSH receives private `/work`, a fresh runtime home, copied
+read-only `/inputs/cowork`, minimum system/toolchain mounts, and its own gateway/bridge sockets.
+Its network namespace has no general egress. Host-side forwarding fixes the gateway destination
+and turn token, rejects document references, and excludes native/agent executors from Cowork units.
+Nexar sessions and memory stores are not mounted. No AppContainer feasibility claim is made.
+
+## Historical baseline below
+
 Scope: the Cowork DSH profile (host-local) and the Coding DSH profile (plane sandbox) under
 [ADR-030](../../adr/030-unified-dsh-first-agent-runtime.md). Assets: owner credentials, project
 files, other projects, approvals/grants, session records, project memory, provider allowance.

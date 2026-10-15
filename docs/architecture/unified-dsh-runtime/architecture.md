@@ -1,5 +1,10 @@
 # Unified DSH runtime — target architecture
 
+> NXR-SEC-02 (2026-10-16) changes production Cowork placement to the existing hardened
+> WSL2/bubblewrap infrastructure. The original host-local placement below is historical.
+> See [current implementation](NXR_SEC02_Architecture_Implementation.md),
+> [security evidence](NXR_SEC02_Security_Assessment.md) and ADR-030's revised Proposed decision.
+
 Status: Proposed with [ADR-030](../../adr/030-unified-dsh-first-agent-runtime.md). Baseline: `main`
 at `677eefd` (v0.6, accepted implementation `9e71014`).
 

@@ -3,7 +3,7 @@ import type { CoworkStatusDto } from '../../shared/api.js';
 import type { CoworkStatus } from '../useCoworkStatus.js';
 
 export const COWORK_EXECUTABLE_NOTE =
-  'Nexar runs its own private DeepSeek Harness runtime, bundled with the app.';
+  'Isolated Cowork requires the configured WSL2 sandbox and its pinned DeepSeek Harness runtime.';
 const PROVIDER_HINT =
   'Add a model resource that can run tool turns in Settings → Providers so Nexar can control DeepSeek Harness.';
 
@@ -31,10 +31,17 @@ export function CoworkBanner({ cowork }: { cowork: CoworkStatus }): ReactElement
   }
   if (status.state === 'ready') {
     return (
-      <div className="code-banner code-banner-ready" data-testid="cowork-banner" data-state="ready">
+      <div
+        className="code-banner code-banner-ready"
+        data-testid="cowork-banner"
+        data-state="ready"
+        data-placement={status.placement}
+      >
         <span className="chip chip-ok">Ready</span>
         <span className="code-banner-text" data-testid="cowork-banner-reason">
-          DeepSeek Harness ready
+          {status.placement === 'WSL2_BUBBLEWRAP'
+            ? 'Isolated Cowork ready (WSL2)'
+            : 'DeepSeek Harness ready'}
         </span>
         {status.version !== undefined && (
           <span className="small muted" data-testid="cowork-banner-version">

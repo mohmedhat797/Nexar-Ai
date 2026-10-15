@@ -433,6 +433,14 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
   // Windows Desktop stages
   if (isWindows) {
     stages.push({
+      id: 'cowork-isolation-wsl',
+      name: 'Real isolated Cowork transport, cancellation, sessions and protected context',
+      command: [platformInfo.node.activeExec || 'node', 'scripts/verify-cowork-wsl.mjs'],
+      timeoutMs: 600_000,
+      required: true,
+      env: childEnv,
+    });
+    stages.push({
       id: 'desktop-e2e-source',
       name: 'Desktop E2E (source build with NEXAR_DSH_ENTRY)',
       command: [pnpmCmd, 'desktop:e2e'],

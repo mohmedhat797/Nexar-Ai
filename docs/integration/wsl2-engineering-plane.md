@@ -6,6 +6,35 @@ Steps marked **Acceptance** must pass before you trust the plane with write-capa
 
 Nexar never edits Windows-wide settings. You run every step below yourself.
 
+## Isolated Cowork (NXR-SEC-02)
+
+Production Cowork now requires this existing hardened distro as well as Coding. It uses the Cowork
+DSH profile, not the engineering workflow. There is no unrestricted Windows Cowork fallback.
+Install/build the matching Nexar CLI in an owner-controlled Linux checkout; its executable must
+support `nexar cowork serve --stdio` and include the bundled `dist/bridge-relay.cjs` beside the CLI.
+Keep Node 22 and the pinned DSH `0.2.0-rc.2` under managed `/opt` paths. The helper defaults to
+`/opt/dsh/lib/node_modules/@deepseek-ai/dsh/lib/bin.js`. It must run as the non-root distro user.
+
+Desktop reuses the owner-edited `codePlane.distro` and `codePlane.command` in `desktop-settings.json`.
+Point `command` at the updated Linux CLI executable. The same command must retain its existing
+`plane`/Coding commands. An older CLI without `cowork serve` makes Cowork unavailable; the Windows
+installer does not upgrade Linux automatically. No Windows DSH override can remove this requirement.
+Refresh the Cowork banner after setup. Missing helper, pin, bubblewrap, socat or hardened config
+must leave Cowork unavailable; do not weaken distro security to make a check pass.
+
+Approved project inputs are the explicit `documentSets.cowork` entries in `nexar.config.json`, for
+example `"documentSets": { "cowork": ["D:/approved-project/brief.md"] }` on that project's record.
+Choose files deliberately: their content is copied to `/inputs/cowork` and may reach the selected
+model. The project itself, Windows drives, credentials and memory stores are not mounted.
+The same session's most recent successful draft artifacts are staged for revisions. Only bounded
+flat files are transferred (32 files, 2 MiB each, 4 MiB total); draft outputs support Markdown, text,
+JSON and CSV. Read-only/ask-before-write policy remains enforced by Nexar.
+
+Run the additional Windows acceptance gate with matching `NEXAR_SEC02_WSL_COMMAND` and
+`NEXAR_SEC02_WSL_REPO`; see
+[NXR-SEC-02 acceptance](../development/NXR_SEC02_Windows_WSL_Acceptance.md).
+Do not treat an old host-local E2E PASS or the bundled Windows runtime as isolated Cowork acceptance.
+
 ## 1. Prerequisites
 
 - Windows 11 (the `[boot]` section of `wsl.conf` needs Windows 11 or Server 2022) with WSL2:

@@ -18,6 +18,7 @@ export const EXPECTED_STAGES = {
     'cli-smoke-resources',
     'cli-smoke-run',
     'dsh-context-real',
+    'cowork-isolation-wsl',
     'desktop-e2e-source',
     'desktop-package-win',
     'desktop-e2e-packaged',
