@@ -6,21 +6,52 @@ Steps marked **Acceptance** must pass before you trust the plane with write-capa
 
 Nexar never edits Windows-wide settings. You run every step below yourself.
 
-## Isolated Cowork (NXR-SEC-02)
+## Isolated Cowork (NXR-SEC-02 / NXR-SEC-02B)
 
 Production Cowork now requires this existing hardened distro as well as Coding. It uses the Cowork
 DSH profile, not the engineering workflow. There is no unrestricted Windows Cowork fallback.
-Install/build the matching Nexar CLI in an owner-controlled Linux checkout; its executable must
-support `nexar cowork serve --stdio` and include the bundled `dist/bridge-relay.cjs` beside the CLI.
+Install/build the matching Nexar CLI in an owner-controlled Linux checkout (`/home/nexar/src/Nexar-Ai`);
+its executable `/usr/local/bin/nexar` must support `nexar cowork serve --stdio` and include the bundled
+`dist/bridge-relay.cjs` beside the CLI.
 Keep Node 22 and the pinned DSH `0.2.0-rc.2` under managed `/opt` paths. The helper defaults to
 `/opt/dsh/lib/node_modules/@deepseek-ai/dsh/lib/bin.js`. It must run as the non-root distro user.
 
+### Automated Helper Provisioning (NXR-SEC-02B)
+
+Run the automated provisioning script to deploy and build the helper inside `nexar-plane`:
+
+```powershell
+pnpm cowork:wsl:provision
+```
+
+This synchronizes the clean repository checkout to `/home/nexar/src/Nexar-Ai`, builds the CLI and
+bridge relay, updates `/usr/local/bin/nexar`, and executes the `cowork/hello` protocol handshake.
+With the helper provisioned at `/usr/local/bin/nexar`, neither tests nor production Desktop require
+the `NEXAR_SEC02_WSL_COMMAND` or `NEXAR_SEC02_WSL_REPO` environment variable overrides.
+
+### Protocol and Security Controls (NXR-SEC-02B)
+
+1. **Protocol Handshake (`cowork/hello`):** The Desktop backend exchanges a mandatory initial
+   handshake frame with the helper. The helper must return `protocol: "nexar-cowork@1"`,
+   `protocolVersion: 1`, `helperVersion: "0.1.0-sec02.1"`, and capabilities
+   `['stdio-rpc', 'gateway-socket', 'bridge-socket', 'flat-scratch']`. Outdated or incompatible
+   helpers are rejected immediately.
+2. **Per-Channel In-Flight Callback Limits:** Concurrency across the stdio RPC link is strictly
+   partitioned into dedicated channels:
+   - `cowork/gateway`: maximum 4 concurrent model completion calls.
+   - `cowork/bridge`: maximum 4 concurrent delegation calls.
+   - `cowork/permission`: maximum 1 serialized user approval request.
+     Total simultaneous in-flight callbacks cannot exceed 9. Exceeding any limit returns JSON-RPC
+     error `-32000` (`POLICY_REJECTED`).
+3. **Flat Scratch Enforcement:** Outputs written to `/work` must be flat, top-level regular files.
+   Nested subdirectories in `/work` are rejected fail-closed with `POLICY_REJECTED`.
+
 Desktop reuses the owner-edited `codePlane.distro` and `codePlane.command` in `desktop-settings.json`.
-Point `command` at the updated Linux CLI executable. The same command must retain its existing
-`plane`/Coding commands. An older CLI without `cowork serve` makes Cowork unavailable; the Windows
-installer does not upgrade Linux automatically. No Windows DSH override can remove this requirement.
-Refresh the Cowork banner after setup. Missing helper, pin, bubblewrap, socat or hardened config
-must leave Cowork unavailable; do not weaken distro security to make a check pass.
+Point `command` at the updated Linux CLI executable (defaults to `/usr/local/bin/nexar`). The same
+command retains its existing `plane`/Coding commands. An older CLI without `cowork serve` makes Cowork
+unavailable; the Windows installer does not upgrade Linux automatically. No Windows DSH override can
+remove this requirement. Refresh the Cowork banner after setup. Missing helper, pin, bubblewrap,
+socat or hardened config must leave Cowork unavailable; do not weaken distro security to make a check pass.
 
 Approved project inputs are the explicit `documentSets.cowork` entries in `nexar.config.json`, for
 example `"documentSets": { "cowork": ["D:/approved-project/brief.md"] }` on that project's record.
@@ -30,8 +61,8 @@ The same session's most recent successful draft artifacts are staged for revisio
 flat files are transferred (32 files, 2 MiB each, 4 MiB total); draft outputs support Markdown, text,
 JSON and CSV. Read-only/ask-before-write policy remains enforced by Nexar.
 
-Run the additional Windows acceptance gate with matching `NEXAR_SEC02_WSL_COMMAND` and
-`NEXAR_SEC02_WSL_REPO`; see
+Windows acceptance runs via `pnpm ci:local:full` or `node scripts/verify-cowork-wsl.mjs` against the
+default `/usr/local/bin/nexar` executable; see
 [NXR-SEC-02 acceptance](../development/NXR_SEC02_Windows_WSL_Acceptance.md).
 Do not treat an old host-local E2E PASS or the bundled Windows runtime as isolated Cowork acceptance.
 

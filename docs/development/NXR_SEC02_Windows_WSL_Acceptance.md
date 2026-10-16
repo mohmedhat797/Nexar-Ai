@@ -1,58 +1,59 @@
 # NXR-SEC-02 — Windows and WSL acceptance
 
 Date: 2026-10-16. Windows Full CI passed all 16 required stages on build 26300. Source and packaged
-Desktop E2E each passed 25/25. Selected build 26200 and owner acceptance remain unverified.
+Desktop E2E each passed 25/25. Selected build 26200 (SEC02-F06 Path B) and owner acceptance remain unverified.
 
 ## Source and environment
 
 - Starting consolidated baseline: `fcr02/opus-integration`, `8e35e46c192e11022185e6d12117b610f107351e`.
 - Implementation: `feat/nxr-sec02-isolated-cowork`, dedicated worktree `.nexar/sec02`.
-- Tested implementation commit: `3b3e26a3ab641f5273ad43ddce6de0ca4065f847`; exact Git tree
-  `bf749cfcb88ed5adb2be80f3c0b9e6c2ed1ebafb`. CI ran before this commit at base `8e35e46` plus
-  dirty fingerprint `7f0df05ccb9c8ac8f5fb9363121983539a73dadee66c869d4f2538f790582d2e`,
-  identical at start/end. The post-validation commit has the captured staged tree; no implementation
-  changed afterward. The final handover commit changes documentation/evidence only.
-- Previous tested implementation `e2a82aeba3236b9e099100535c4ba1f9f87b3dda` is historical.
+- Tested implementation commit: `dc27f551fdab7c80337982598ba07c7c0faca8e5`; exact Git tree
+  `249bfcc10c4d32aa6b7abddcbfca1a2f71ebcd24`. CI ran directly on this clean commit (`isDirty: false`,
+  `sourceStable: true`).
+- Previous tested implementation `3b3e26a3ab641f5273ad43ddce6de0ca4065f847` is parent commit.
 - Actual Windows: x64 build 26300; Node 22.23.3, pnpm 10.33.0, Electron 44.5.1.
 - WSL: `nexar-plane`, non-root `nexar` UID 1000, Node 22.23.3, bubblewrap 0.9.0,
   kernel 6.18.33.2-microsoft-standard-WSL2, socat.
 - Pinned Linux DSH: `/opt/dsh/lib/node_modules/@deepseek-ai/dsh/lib/bin.js`, `0.2.0-rc.2`.
+- Linux Cowork helper: `/usr/local/bin/nexar` provisioned from `/home/nexar/src/Nexar-Ai`,
+  protocol `nexar-cowork@1`, helper release `0.1.0-sec02.1`, capabilities
+  `['stdio-rpc', 'gateway-socket', 'bridge-socket', 'flat-scratch']`.
 - No Windows optional feature, persistent Windows identity/security policy, or WSL configuration changed.
   Tests reused the existing unprivileged ephemeral bubblewrap namespaces.
-  Existing installed Windows/WSL applications were not upgraded.
-- Final Linux validation checkout: `/var/tmp/nexar-sec02-20261015-2f415e0b/repo`, transferred using
-  a Git bundle and staged binary patch. Existing `/usr/local/bin/nexar` was preserved.
-- Its 457 selected production/dependency Git index entries match Windows, sorted-list SHA-256
-  `b02fb44c1b3ac2b9c751eccf1fbff9437d61cbc109909f6e2cd912e935b5974f`.
-  Test/E2E/support fixtures are excluded from this comparison.
+- Linux checkout `/home/nexar/src/Nexar-Ai` matches Windows across all 457 selected production/dependency
+  Git index entries, sorted-list SHA-256 `d4daa742211f9a55e740d1add365402db8c9329633016d4422f4dc8bc8388a25`.
 
 ## Current acceptance evidence
 
 | Run                                          | Result                                                                                  | Raw evidence                                             |
 | -------------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Windows Full CI                              | PASS, 16 required stages; 2,627.89 seconds                                              | `.nexar/ci/reports/report-2026-10-15T22-31-19-362Z.json` |
-| Offline outcomes                             | 4,335 passed, 167 skipped, four pending, zero failed/todo/unclassified; 4,506 collected | `.nexar/ci/test-offline.json`                            |
+| Windows Full CI                              | PASS, 16 required stages; 1,835.62 seconds                                              | `.nexar/ci/reports/report-2026-10-16T16-36-30-282Z.json` |
+| Offline outcomes                             | 4,338 passed, 167 skipped, four pending, zero failed/todo/unclassified; 4,509 collected | `.nexar/ci/test-offline.json`                            |
 | Real DSH context                             | 3/3 PASS                                                                                | Full CI stage log                                        |
-| Mandatory isolated Windows context/transport | 8/8 PASS, no skips                                                                      | `.nexar/ci/cowork-wsl.json`                              |
+| Mandatory isolated Windows context/transport | 8/8 PASS, no skips (tested with default `/usr/local/bin/nexar` helper)                  | `.nexar/ci/cowork-wsl.json`                              |
 | Real Linux boundary and Coding gate          | 15/15 PASS, no skips                                                                    | Linux `.nexar/ci/cowork-kernel.json`                     |
 | Additional actual Coding prompt              | PASS: workspace write, outside write prevented, owner context in all three requests     | Linux `.nexar/sec02-coding-regression.json`              |
 | Direct syscall/mount evidence                | PASS: hidden reads/writes ENOENT, input write EROFS, host TCP ECONNREFUSED              | Linux `.nexar/sec02-kernel-evidence.json`                |
-| Source Desktop E2E                           | 25/25 PASS                                                                              | `.nexar/ci/logs/1792104322018-desktop-e2e-source.log`    |
+| Source Desktop E2E                           | 25/25 PASS (9 files)                                                                    | Full CI source stage log                                 |
 | Fresh Windows packaging                      | PASS; bundled DSH pin and artifact freshness/hash verified                              | Full CI package metadata                                 |
-| Packaged Desktop E2E                         | 25/25 PASS                                                                              | Full CI packaged stage log                               |
-| Literal pre-commit pnpm check                | PASS: same 4,335 passed, 167 skipped, four pending; build PASS                          | `.nexar/sec02-pnpm-check.log`                            |
-| Secret scanning                              | CI history and staged changes PASS                                                      | Full CI log; `.nexar/sec02-staged-gitleaks.json`         |
+| Packaged Desktop E2E                         | 25/25 PASS (9 files, bundled DSH runtime only)                                          | Full CI packaged stage log                               |
+| Literal pre-commit pnpm check                | PASS: 4,338 passed, 167 skipped, four pending; build PASS                               | Full CI stage logs                                       |
+| Secret scanning                              | CI history and staged changes PASS                                                      | Full CI log; staged Gitleaks pass                        |
 
 The optional `linux-sandbox` stage is BLOCKED/non-required on Windows. Separate real WSL execution
 passed; neither result establishes native Ubuntu acceptance. Overlapping suites are reported
 separately and must not be added into a unique-test total.
 
-Installer: `release/desktop/Nexar-0.1.0-windows-x64-setup.exe`, **322,016,429 bytes**, unsigned.
-SHA-256 `a9ab53e7b4aa64d35939b131e538958c2aff48595ab4cacab176e0830b3d5b1e`, independently recomputed
-with Get-FileHash and matching its generated checksum. Build timestamp
-`2026-10-15T23:07:23.774Z` (2026-10-16 02:07:23 Africa/Cairo).
-Packaged tests used that stage's fresh `win-unpacked/Nexar.exe`. No NSIS installation or
-installed-copy smoke was performed; no signed/public release readiness is claimed.
+Installer: `release/desktop/Nexar-0.1.0-windows-x64-setup.exe`, **322,016,718 bytes**, unsigned.
+SHA-256 `ea354fc76779da0a02809c29ea020ea923e441e6664087bf96e26f6352581bc1`, matching generated checksum.
+Build timestamp `2026-10-16T17:01:06.666Z` (2026-10-16 20:01:06 Africa/Cairo).
+Packaged tests used that stage's fresh `win-unpacked/Nexar.exe`.
+Per Phase K instructions: NSIS `oneClick: true, perMachine: false` installer silently overwrites
+user-wide `%LOCALAPPDATA%\Programs\Nexar` and registry keys
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\ai.nexar.desktop` without permitting an
+isolated temporary install location. Because automated machine-wide installation would alter the
+user's host environment, installed-copy acceptance is explicitly not claimed; packaged E2E (25/25 PASS)
+serves as the verified packaged artifact acceptance.
 
 See [machine evidence](evidence/nxr-sec02-evidence.json) and
 [final owner handover](NXR_SEC02_Final_Owner_Handover.md).
@@ -78,15 +79,16 @@ artifact in the same canonical conversation and restores both turns after restar
 
 ## Reproduction and scope
 
-Install/build the matching source and CLI (including `dist/bridge-relay.cjs`) in an owner-controlled
-Linux checkout without exposing Windows drives. Configure Desktop's existing `codePlane.command`
-to that matching executable. Supply these variables to Full Local CI:
+Provision the matching source and CLI in `nexar-plane` via:
 
-```text
-NEXAR_SEC02_WSL_DISTRO=nexar-plane
-NEXAR_SEC02_WSL_COMMAND=/absolute/path/to/matching/nexar
-NEXAR_SEC02_WSL_REPO=/absolute/path/to/matching/source
+```powershell
+pnpm cowork:wsl:provision
 ```
+
+This deploys the matching checkout to `/home/nexar/src/Nexar-Ai` and `/usr/local/bin/nexar`.
+With the default helper deployed, `NEXAR_SEC02_WSL_COMMAND` and `NEXAR_SEC02_WSL_REPO` are no longer
+required (they remain available as optional override variables). Supply `NEXAR_SEC02_WSL_DISTRO=nexar-plane`
+if using a non-default distro name.
 
 Invoke `scripts/local-ci/runner.mjs --mode=full --workers=2` with pinned Node 22 and the existing
 Gitleaks binary option. The new required `cowork-isolation-wsl` stage rejects missing configuration

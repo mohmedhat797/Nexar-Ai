@@ -1,8 +1,8 @@
-# NXR-SEC-02 — isolated Cowork implementation
+# NXR-SEC-02 / NXR-SEC-02B — isolated Cowork implementation
 
 Date: 2026-10-16. ADR-030 remains **Proposed**. No AppContainer work or NXR-070 implementation.
 
-Implementation commit `3b3e26a3ab641f5273ad43ddce6de0ca4065f847` matches the frozen tested tree.
+Implementation commit `dc27f551fdab7c80337982598ba07c7c0faca8e5` matches the clean tested tree `249bfcc10c4d32aa6b7abddcbfca1a2f71ebcd24`.
 Windows Full CI passed all 16 required gates, including actual WSL execution and 25/25 source plus
 25/25 packaged Desktop tests. See [acceptance identities and scope](../../development/NXR_SEC02_Windows_WSL_Acceptance.md).
 The owner's NXR-SEC-02 assignment authorizes interim WSL2 implementation/validation; permanent
@@ -19,12 +19,23 @@ the old host-local offline fixture path; a user-data override alone does not cha
 Acceptance tests set `NEXAR_DESKTOP_TEST_WSL_COWORK=1` to exercise the production backend. Normal production
 has no host-local Cowork fallback. `DshCoworkService.available()` keeps production requests routed
 to the Cowork service; its readiness check blocks execution rather than selecting a direct resource.
+`DshCoworkService.probe()` explicitly preserves `placement: 'WSL2_BUBBLEWRAP'` across all probe
+outcomes, including `configuration-missing` and `unsupported-version` states (SEC02-F05).
 
 The Linux helper checks pinned DSH `0.2.0-rc.2`, hardened WSL configuration, bubblewrap and socat.
-Each helper accepts one run. It creates mode-0700 private scratch, input, home and services directories.
-`runSandboxedCoworkSession` reuses `SandboxLauncher`, `spawnPrepared`, the existing ACP conversation,
-Cowork profile, overlay renderer, permission translator and cancellation implementation.
-It rejects missing/downgraded isolation; it never substitutes a local launcher.
+Under NXR-SEC-02B:
+
+- A mandatory initial `cowork/hello` protocol handshake verifies helper version (`0.1.0-sec02.1`),
+  protocol version (`1`), and capabilities (`stdio-rpc`, `gateway-socket`, `bridge-socket`, `flat-scratch`).
+  Mismatched or missing helpers fail fail-closed before turn execution begins (SEC02-F02).
+- Stdio RPC callback concurrency is bounded per channel: `cowork/gateway: 4`, `cowork/bridge: 4`,
+  `cowork/permission: 1` (total 9). Exceeding limits returns `-32000 POLICY_REJECTED` (SEC02-F03).
+- Outputs written to `/work` are strictly constrained to flat, top-level files; nested scratch
+  directories are rejected fail-closed with `POLICY_REJECTED` (SEC02-F04).
+  Each helper accepts one run. It creates mode-0700 private scratch, input, home and services directories.
+  `runSandboxedCoworkSession` reuses `SandboxLauncher`, `spawnPrepared`, the existing ACP conversation,
+  Cowork profile, overlay renderer, permission translator and cancellation implementation.
+  It rejects missing/downgraded isolation; it never substitutes a local launcher.
 
 | Mount or resource                                          | Access and purpose                                                |
 | ---------------------------------------------------------- | ----------------------------------------------------------------- |

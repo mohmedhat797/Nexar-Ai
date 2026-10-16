@@ -1,4 +1,4 @@
-# NXR-SEC-02 — security assessment
+# NXR-SEC-02 / NXR-SEC-02B — security assessment
 
 Date: 2026-10-16. This implementation assessment is not independent owner acceptance.
 Execution evidence and source identities are recorded in
@@ -14,16 +14,21 @@ network namespace. The Windows acceptance driver creates its own synthetic Windo
 only its conventional `/mnt/<drive>/...` path to the probe, checks denial, then checks the host file
 is unchanged. No real owner credentials or personal documents are used.
 
-Final Full CI passed all 16 required gates on build 26300: 4,335 offline tests passed, 167 skipped,
-four pending; source and packaged E2E each passed 25/25. The mandatory isolated Windows suite passed
-8/8, and the real Linux boundary/Coding gate passed 15/15 without skips. These suites overlap.
-Implementation commit `3b3e26a3ab641f5273ad43ddce6de0ca4065f847` exactly matches the tested tree
-`bf749cfcb88ed5adb2be80f3c0b9e6c2ed1ebafb`; CI executed at its recorded pre-commit dirty identity.
+Under NXR-SEC-02B deployment hardening:
+
+- Findings SEC02-F01 through SEC02-F05 were fully resolved and verified in code.
+- Final Full CI passed all 16 required gates on build 26300: 4,338 offline tests passed, 167 skipped,
+  four pending; source and packaged E2E each passed 25/25. The mandatory isolated Windows suite passed
+  8/8, and the real Linux boundary/Coding gate passed 15/15 without skips.
+- Implementation commit `dc27f551fdab7c80337982598ba07c7c0faca8e5` exactly matches the clean tested tree
+  `249bfcc10c4d32aa6b7abddcbfca1a2f71ebcd24`; CI executed on the clean commit (`isDirty: false`).
+- Helper version handshake (`cowork/hello`), per-channel callback limits (`gateway: 4`, `bridge: 4`, `permission: 1`),
+  flat `/work` scratch writes, and probe placement reporting were deterministically verified by unit tests.
 
 A separate retained direct probe records nine hidden-path reads and four writes as `ENOENT`,
 read-only input writes as `EROFS`, and access to a live host TCP listener as `ECONNREFUSED`. Scratch
 reads/writes and approved input reads succeeded. Its effective virtual mounts and environment key
-names are in the retained Linux `.nexar/sec02-kernel-evidence.json` and
+names are in the retained Linux `/home/nexar/src/Nexar-Ai/.nexar/sec02-kernel-evidence.json` and
 [sanitized machine evidence](../../development/evidence/nxr-sec02-evidence.json).
 The capability token was absent from prepared process argv; provider credential variables were
 absent from the sandbox environment. No secret values are included in that report.

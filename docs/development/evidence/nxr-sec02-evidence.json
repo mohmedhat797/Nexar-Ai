@@ -2,17 +2,17 @@
   "worktree": "D:/Nexar-Ai-main/.nexar/sec02",
   "branch": "feat/nxr-sec02-isolated-cowork",
   "base": "8e35e46c192e11022185e6d12117b610f107351e",
-  "testedTree": "bf749cfcb88ed5adb2be80f3c0b9e6c2ed1ebafb",
-  "fingerprint": "7f0df05ccb9c8ac8f5fb9363121983539a73dadee66c869d4f2538f790582d2e",
-  "productionIndexHash": "b02fb44c1b3ac2b9c751eccf1fbff9437d61cbc109909f6e2cd912e935b5974f",
+  "testedTree": "249bfcc10c4d32aa6b7abddcbfca1a2f71ebcd24",
+  "fingerprint": null,
+  "productionIndexHash": "d4daa742211f9a55e740d1add365402db8c9329633016d4422f4dc8bc8388a25",
   "productionEntries": 457,
-  "linux": "/var/tmp/nexar-sec02-20261015-2f415e0b/repo",
-  "fullCiReport": ".nexar/ci/reports/report-2026-10-15T22-31-19-362Z.json",
-  "fullCiSeconds": 2627.89,
+  "linux": "/home/nexar/src/Nexar-Ai",
+  "fullCiReport": ".nexar/ci/reports/report-2026-10-16T16-36-30-282Z.json",
+  "fullCiSeconds": 1835.62,
   "requiredStages": 16,
   "tests": {
-    "total": 4506,
-    "passed": 4335,
+    "total": 4509,
+    "passed": 4338,
     "skipped": 167,
     "pending": 4,
     "failed": 0
@@ -23,9 +23,9 @@
   "linuxBoundaryAndCoding": 15,
   "installer": {
     "name": "Nexar-0.1.0-windows-x64-setup.exe",
-    "bytes": 322016429,
-    "sha256": "a9ab53e7b4aa64d35939b131e538958c2aff48595ab4cacab176e0830b3d5b1e",
-    "mtime": "2026-10-15T23:07:23.774Z",
+    "bytes": 322016718,
+    "sha256": "ea354fc76779da0a02809c29ea020ea923e441e6664087bf96e26f6352581bc1",
+    "mtime": "2026-10-16T17:01:06.666Z",
     "signed": false
   },
   "wsl": {
@@ -33,19 +33,23 @@
     "uid": 1000,
     "bubblewrap": "0.9.0",
     "node": "22.23.3",
-    "kernel": "6.18.33.2-microsoft-standard-WSL2"
+    "kernel": "6.18.33.2-microsoft-standard-WSL2",
+    "command": "/usr/local/bin/nexar",
+    "repo": "/home/nexar/src/Nexar-Ai",
+    "helperVersion": "0.1.0-sec02.1",
+    "protocol": "nexar-cowork@1"
   },
   "pr41": {
     "head": "7337aa00b667429834478c719532464b3a81b195",
     "draft": true,
     "base": "677eefd282fb240cb9583dead80ae100bdeab176"
   },
-  "formatVersion": "nxr-sec02-evidence@1",
+  "formatVersion": "nxr-sec02-evidence@2",
   "fullCiStatus": "NEXAR_WINDOWS_FULL_PASS",
   "sourceStable": true,
-  "testedCommitMapping": "3b3e26a3ab641f5273ad43ddce6de0ca4065f847 has exact tested tree bf749cfcb88ed5adb2be80f3c0b9e6c2ed1ebafb; CI ran at base + recorded dirty fingerprint before commit.",
-  "implementationCommit": "3b3e26a3ab641f5273ad43ddce6de0ca4065f847",
-  "preCommitPnpmCheck": "PASS, Node 22.23.3, 4335 passed, 167 skipped, four pending; build PASS; retained .nexar/sec02-pnpm-check.log",
+  "testedCommitMapping": "dc27f551fdab7c80337982598ba07c7c0faca8e5 has exact tested tree 249bfcc10c4d32aa6b7abddcbfca1a2f71ebcd24; CI ran on clean implementation commit.",
+  "implementationCommit": "dc27f551fdab7c80337982598ba07c7c0faca8e5",
+  "preCommitPnpmCheck": "PASS, Node 22.23.3, 4338 passed, 167 skipped, four pending; build PASS; retained in CI report",
   "kernelProbe": {
     "result": "PASS",
     "isolation": "sandbox",
@@ -83,7 +87,7 @@
       "PWD",
       "TMPDIR"
     ],
-    "rawReport": "/var/tmp/nexar-sec02-20261015-2f415e0b/repo/.nexar/sec02-kernel-evidence.json"
+    "rawReport": "/home/nexar/src/Nexar-Ai/.nexar/ci/cowork-kernel.json"
   },
   "codingPrompt": {
     "result": "PASS",
@@ -92,11 +96,11 @@
     "workspaceWrite": true,
     "outsideWritePrevented": true,
     "requiredContextInAllRequests": true,
-    "rawReport": "/var/tmp/nexar-sec02-20261015-2f415e0b/repo/.nexar/sec02-coding-regression.json"
+    "rawReport": "/home/nexar/src/Nexar-Ai/.nexar/sec02-coding-regression.json"
   },
   "scope": {
     "windowsBuild": "10.0.26300",
-    "selectedWindowsBuildUnverified": "Windows 11 Pro 25H2 x64 build 26200",
+    "selectedWindowsBuildUnverified": "Windows 11 Pro 25H2 x64 build 26200 (SEC02-F06 Path B owner decision required)",
     "nativeUbuntu": "Deferred; WSL is not native Ubuntu",
     "adr030": "Proposed",
     "nxr070": "Not started",
