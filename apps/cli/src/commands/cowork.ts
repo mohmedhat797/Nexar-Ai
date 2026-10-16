@@ -1,17 +1,21 @@
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createNetServer, type Socket } from 'node:net';
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { dirname, join, posix } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable, Writable } from 'node:stream';
 import { NexarError, isNexarError } from '@nexar/contracts';
 import {
+  COWORK_HELPER_CAPABILITIES,
+  COWORK_HELPER_PROTOCOL,
+  COWORK_HELPER_PROTOCOL_VERSION,
+  COWORK_HELPER_RELEASE,
   COWORK_PROFILE,
   DSH_PINNED_VERSION,
   JsonRpcStdioClient,
+  collectCoworkOutputs,
   dshLaunchFor,
   parseCoworkFiles,
-  readCoworkFile,
   stageCoworkFiles,
   runSandboxedCoworkSession,
   coworkScratchEscape,
@@ -22,7 +26,6 @@ import { relayScriptPath } from '../relay-path.js';
 import type { Command, CommandContext } from '../args.js';
 import { UsageError } from '../io.js';
 
-const PROTOCOL = 'nexar-cowork@1';
 const MAX_BYTES = 4 * 1024 * 1024;
 const record = (v: unknown): Record<string, unknown> => {
   if (typeof v !== 'object' || v === null || Array.isArray(v))
@@ -76,7 +79,14 @@ async function serve(ctx: CommandContext): Promise<number> {
   peer.setRequestHandler((request) => {
     if (request.method === 'cowork/hello')
       return Promise.resolve({
-        result: { protocol: PROTOCOL, version: manifest.version, isolation: 'WSL2_BUBBLEWRAP' },
+        result: {
+          protocol: COWORK_HELPER_PROTOCOL,
+          protocolVersion: COWORK_HELPER_PROTOCOL_VERSION,
+          helperVersion: COWORK_HELPER_RELEASE,
+          version: manifest.version,
+          isolation: 'WSL2_BUBBLEWRAP',
+          capabilities: [...COWORK_HELPER_CAPABILITIES],
+        },
       });
     if (request.method === 'cowork/cancel') {
       controller.abort();
@@ -249,6 +259,10 @@ async function serve(ctx: CommandContext): Promise<number> {
             if (target === undefined || target.includes('\\')) return 'reject';
             const rel = posix.relative('/work', posix.resolve('/work', target));
             if (rel === '' || rel.startsWith('..') || posix.isAbsolute(rel)) return 'reject';
+            if (rel.includes('/')) {
+              ctx.logger.warn('cowork nested scratch write rejected', { tool: input.tool });
+              return 'reject';
+            }
             local = join(scratch, rel);
             if (await coworkScratchEscape(scratch, local)) return 'reject';
           }
@@ -265,16 +279,7 @@ async function serve(ctx: CommandContext): Promise<number> {
           void peer.notify('cowork/event', event).catch(() => undefined);
         },
       });
-      const files = [];
-      for (const name of (await readdir(scratch)).sort()) {
-        if (!/\.(md|txt|json|csv)$/i.test(name)) continue;
-        try {
-          files.push(await readCoworkFile(scratch, name));
-        } catch {
-          /* Untrusted outputs are never followed. */
-        }
-      }
-      return { ...outcome, files: parseCoworkFiles(files) };
+      return { ...outcome, files: await collectCoworkOutputs(scratch, ctx.logger) };
     } finally {
       for (const socket of sockets) socket.destroy();
       await Promise.all(

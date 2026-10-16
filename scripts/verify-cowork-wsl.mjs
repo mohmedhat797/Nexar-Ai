@@ -38,14 +38,14 @@ if (process.platform === 'linux' && process.argv.includes('--linux')) {
   process.exit(0);
 }
 
+const linuxRepo = process.env.NEXAR_SEC02_WSL_REPO ?? '/home/nexar/src/Nexar-Ai';
 if (
   process.platform !== 'win32' ||
-  !process.env.NEXAR_SEC02_WSL_COMMAND ||
-  !/^\/[A-Za-z0-9._/-]+$/.test(process.env.NEXAR_SEC02_WSL_REPO ?? '') ||
+  !/^\/[A-Za-z0-9._/-]+$/.test(linuxRepo) ||
   !process.env.NEXAR_DSH_ENTRY
 ) {
   console.error(
-    'Isolated Cowork acceptance needs Windows, NEXAR_SEC02_WSL_COMMAND, NEXAR_SEC02_WSL_REPO and pinned NEXAR_DSH_ENTRY.',
+    'Isolated Cowork acceptance needs Windows, a valid WSL repo path and pinned NEXAR_DSH_ENTRY.',
   );
   process.exit(1);
 }
@@ -82,7 +82,6 @@ try {
   const windowsPath = file
     .replace(/^([A-Za-z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`)
     .replaceAll('\\', '/');
-  const linuxRepo = process.env.NEXAR_SEC02_WSL_REPO;
   const result = spawnSync(
     join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'wsl.exe'),
     [

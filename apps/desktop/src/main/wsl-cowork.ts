@@ -2,8 +2,13 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { join, posix, win32 } from 'node:path';
 import { z } from 'zod';
-import { NexarError, normalizeReviewOf } from '@nexar/contracts';
+import { NexarError, isNexarError, normalizeReviewOf } from '@nexar/contracts';
 import {
+  COWORK_HELPER_CAPABILITIES,
+  COWORK_HELPER_PROTOCOL,
+  COWORK_HELPER_PROTOCOL_VERSION,
+  COWORK_HELPER_RELEASE,
+  DSH_PINNED_VERSION,
   JsonRpcStdioClient,
   parseCoworkFiles,
   stageCoworkFiles,
@@ -161,11 +166,60 @@ export async function forwardCoworkBridge(
   });
 }
 
+const ALLOWED_HELLO_KEYS: ReadonlySet<string> = new Set([
+  'protocol',
+  'protocolVersion',
+  'helperVersion',
+  'version',
+  'isolation',
+  'capabilities',
+]);
+const SAFE_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$/;
+
+export function verifyCoworkHello(raw: unknown): void {
+  const answer = object(raw);
+  if (
+    Object.keys(answer).some((k) => !ALLOWED_HELLO_KEYS.has(k)) ||
+    typeof answer.protocol !== 'string' ||
+    typeof answer.version !== 'string' ||
+    answer.isolation !== 'WSL2_BUBBLEWRAP' ||
+    (answer.protocolVersion !== undefined &&
+      (typeof answer.protocolVersion !== 'number' || !Number.isInteger(answer.protocolVersion))) ||
+    (answer.helperVersion !== undefined && typeof answer.helperVersion !== 'string') ||
+    (answer.capabilities !== undefined &&
+      (!Array.isArray(answer.capabilities) ||
+        answer.capabilities.some((c) => typeof c !== 'string')))
+  ) {
+    throw fail();
+  }
+  const caps = answer.capabilities as readonly string[] | undefined;
+  if (
+    answer.protocol !== COWORK_HELPER_PROTOCOL ||
+    answer.protocolVersion !== COWORK_HELPER_PROTOCOL_VERSION ||
+    answer.helperVersion !== COWORK_HELPER_RELEASE ||
+    answer.version !== DSH_PINNED_VERSION ||
+    caps === undefined ||
+    COWORK_HELPER_CAPABILITIES.some((cap) => !caps.includes(cap))
+  ) {
+    throw new NexarError(
+      'INTEGRATION_UNAVAILABLE',
+      'Incompatible Cowork helper or runtime version',
+      {
+        details: {
+          state: 'unsupported-version',
+          ...(SAFE_VERSION.test(answer.version) ? { version: answer.version } : {}),
+        },
+      },
+    );
+  }
+}
+
 /** The trusted host bridge travels over WSL stdio; the sandbox gets only its own Unix sockets. */
 export class WslCoworkBackend implements CoworkExecutionBackend {
   constructor(
     private readonly settings: Pick<SettingsStore, 'getCodePlane'>,
     private readonly spawnImpl: typeof spawn = spawn,
+    private readonly helloTimeoutMs = 90_000,
   ) {}
 
   private async connect(
@@ -195,22 +249,16 @@ export class WslCoworkBackend implements CoworkExecutionBackend {
     const peer = new JsonRpcStdioClient({ input: child.stdout, output: child.stdin });
     child.once('error', () => peer.close());
     try {
-      const answer = object(
-        await peer.request('cowork/hello', undefined, {
-          timeoutMs: 90_000,
-          ...(signal === undefined ? {} : { signal }),
-        }),
-      );
-      if (
-        answer.protocol !== 'nexar-cowork@1' ||
-        answer.version !== '0.2.0-rc.2' ||
-        answer.isolation !== 'WSL2_BUBBLEWRAP'
-      )
-        throw fail();
+      const answer = await peer.request('cowork/hello', undefined, {
+        timeoutMs: this.helloTimeoutMs,
+        ...(signal === undefined ? {} : { signal }),
+      });
+      verifyCoworkHello(answer);
       return { child, peer };
-    } catch {
+    } catch (error) {
       peer.close();
       await terminateProcessTree(child).catch(() => undefined);
+      if (isNexarError(error) && error.code === 'INTEGRATION_UNAVAILABLE') throw error;
       throw fail();
     }
   }
@@ -220,8 +268,15 @@ export class WslCoworkBackend implements CoworkExecutionBackend {
       const { child, peer } = await this.connect();
       peer.close();
       await terminateProcessTree(child).catch(() => undefined);
-      return { state: 'ready', version: '0.2.0-rc.2' };
-    } catch {
+      return { state: 'ready', version: DSH_PINNED_VERSION };
+    } catch (error) {
+      if (isNexarError(error) && error.code === 'INTEGRATION_UNAVAILABLE') {
+        const version = (error.details as { version?: unknown } | undefined)?.version;
+        return {
+          state: 'unsupported-version',
+          ...(typeof version === 'string' ? { version } : {}),
+        };
+      }
       return { state: 'startup-failed' };
     }
   }
@@ -235,7 +290,21 @@ export class WslCoworkBackend implements CoworkExecutionBackend {
     },
   ): Promise<LocalAcpResult> {
     const { child, peer } = await this.connect(options.signal);
-    let callbacks = 0;
+    const activeCallbacks: Record<
+      'cowork/gateway' | 'cowork/bridge' | 'cowork/permission',
+      number
+    > = {
+      'cowork/gateway': 0,
+      'cowork/bridge': 0,
+      'cowork/permission': 0,
+    };
+    const callbackLimits: Readonly<
+      Record<'cowork/gateway' | 'cowork/bridge' | 'cowork/permission', number>
+    > = {
+      'cowork/gateway': 4,
+      'cowork/bridge': 4,
+      'cowork/permission': 1,
+    };
     let live = true;
     const abort = (): void => {
       void peer.request('cowork/cancel', undefined, { timeoutMs: 2000 }).catch(() => undefined);
@@ -244,19 +313,25 @@ export class WslCoworkBackend implements CoworkExecutionBackend {
     const signal = AbortSignal.any([options.signal, deadline]);
     signal.addEventListener('abort', abort, { once: true });
     peer.setRequestHandler((request) => {
-      if (!live || signal.aborted || callbacks >= 4) return undefined;
-      if (!['cowork/gateway', 'cowork/bridge', 'cowork/permission'].includes(request.method))
+      if (
+        request.method !== 'cowork/gateway' &&
+        request.method !== 'cowork/bridge' &&
+        request.method !== 'cowork/permission'
+      )
         return undefined;
-      callbacks++;
+      const method = request.method;
+      if (!live || signal.aborted || activeCallbacks[method] >= callbackLimits[method])
+        return Promise.resolve({ error: { code: -32000, message: 'POLICY_REJECTED' } });
+      activeCallbacks[method]++;
       const operation = async (): Promise<unknown> => {
-        if (request.method === 'cowork/gateway')
+        if (method === 'cowork/gateway')
           return forwardCoworkGateway(
             options.control.baseURL,
             options.control.token,
             request.params,
             signal,
           );
-        if (request.method === 'cowork/bridge')
+        if (method === 'cowork/bridge')
           return forwardCoworkBridge(
             scope.endpoint,
             options.control.token,
@@ -271,11 +346,16 @@ export class WslCoworkBackend implements CoworkExecutionBackend {
           return 'reject';
         const target = posix.resolve('/work', rawInput.file_path);
         const relative = posix.relative('/work', target);
-        if (relative === '' || relative.startsWith('..') || posix.isAbsolute(relative))
+        if (
+          relative === '' ||
+          relative.startsWith('..') ||
+          posix.isAbsolute(relative) ||
+          relative.includes('/')
+        )
           return 'reject';
         return options.decide({
           ...input,
-          rawInput: { ...rawInput, file_path: join(options.scratchDir, ...relative.split('/')) },
+          rawInput: { ...rawInput, file_path: join(options.scratchDir, relative) },
         });
       };
       return operation()
@@ -284,7 +364,7 @@ export class WslCoworkBackend implements CoworkExecutionBackend {
           () => ({ error: { code: -32000, message: 'POLICY_REJECTED' } }),
         )
         .finally(() => {
-          callbacks--;
+          activeCallbacks[method]--;
         });
     });
     peer.onNotification((n) => {

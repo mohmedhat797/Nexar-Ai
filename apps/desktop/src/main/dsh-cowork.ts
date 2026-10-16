@@ -382,7 +382,9 @@ export class DshCoworkService implements CoworkLane {
         ? reasons[state]
         : state === 'ready'
           ? 'Isolated Cowork is ready (WSL2 sandbox)'
-          : 'Isolated Cowork is unavailable: check WSL, sandbox prerequisites, and the Cowork helper';
+          : state === 'unsupported-version'
+            ? 'Isolated Cowork helper or runtime version is not compatible'
+            : 'Isolated Cowork is unavailable: check WSL, sandbox prerequisites, and the Cowork helper';
     return {
       state,
       reason,
@@ -393,13 +395,21 @@ export class DshCoworkService implements CoworkLane {
 
   private async probe(): Promise<Probed> {
     const missing: Probed = {
-      status: { state: 'dsh-missing', reason: COWORK_REASONS['dsh-missing'] },
+      status: {
+        state: 'dsh-missing',
+        reason: COWORK_REASONS['dsh-missing'],
+        ...(this.options.backend === undefined ? {} : { placement: 'WSL2_BUBBLEWRAP' as const }),
+      },
     };
     if (this.options.disabled === true || this.disposed) return missing;
     const config = await this.options.settings.getCowork();
     if (!config.valid) {
       return {
-        status: { state: 'configuration-missing', reason: COWORK_REASONS['settings-invalid'] },
+        status: {
+          state: 'configuration-missing',
+          reason: COWORK_REASONS['settings-invalid'],
+          ...(this.options.backend === undefined ? {} : { placement: 'WSL2_BUBBLEWRAP' as const }),
+        },
       };
     }
     const launch = await this.resolveLaunch();
@@ -421,6 +431,7 @@ export class DshCoworkService implements CoworkLane {
           state: 'configuration-missing',
           reason: COWORK_REASONS['control-unavailable'],
           ...(probed.version === undefined ? {} : { version: probed.version }),
+          ...(this.options.backend === undefined ? {} : { placement: 'WSL2_BUBBLEWRAP' as const }),
         },
       };
     }

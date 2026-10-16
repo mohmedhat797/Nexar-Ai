@@ -56,6 +56,7 @@ export function CoworkBanner({ cowork }: { cowork: CoworkStatus }): ReactElement
       className="code-banner code-banner-blocked"
       data-testid="cowork-banner"
       data-state={status.state}
+      data-placement={status.placement}
     >
       <div className="code-banner-row">
         <span className="chip chip-warn">Not ready</span>

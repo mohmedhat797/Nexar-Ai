@@ -93,7 +93,7 @@ describe.skipIf(ENTRY === undefined)('owner context through real DSH Cowork ACP'
                   valid: true,
                   value: {
                     distro: process.env['NEXAR_SEC02_WSL_DISTRO'] ?? 'nexar-plane',
-                    command: WSL_COMMAND ?? '/missing-sec02-helper',
+                    command: WSL_COMMAND ?? '/usr/local/bin/nexar',
                     projects: {},
                   },
                 }),

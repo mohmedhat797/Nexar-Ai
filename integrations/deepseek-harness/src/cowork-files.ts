@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, open, realpath, writeFile } from 'node:fs/promises';
+import { lstat, open, readdir, realpath, writeFile } from 'node:fs/promises';
 import { join, relative, isAbsolute, basename } from 'node:path';
 import { NexarError } from '@nexar/contracts';
 
@@ -11,6 +11,16 @@ export interface CoworkFile {
 }
 export const COWORK_FILE_LIMIT = 2 * 1024 * 1024;
 export const COWORK_TOTAL_LIMIT = 4 * 1024 * 1024;
+export const COWORK_HELPER_PROTOCOL = 'nexar-cowork@1';
+export const COWORK_HELPER_PROTOCOL_VERSION = 1;
+export const COWORK_HELPER_RELEASE = '0.1.0-sec02.1';
+export const COWORK_HELPER_CAPABILITIES = [
+  'stdio-rpc',
+  'gateway-socket',
+  'bridge-socket',
+  'flat-scratch',
+] as const;
+const IGNORED_SCRATCH_DIRS: ReadonlySet<string> = new Set(['tool-output', 'workers']);
 const NAME =
   /^(?!\.)(?!con(?:\.|$)|prn(?:\.|$)|aux(?:\.|$)|nul(?:\.|$)|com[0-9](?:\.|$)|lpt[0-9](?:\.|$))[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/i;
 const fail = (): never => {
@@ -121,4 +131,33 @@ export async function stageCoworkFiles(dir: string, files: unknown): Promise<voi
       mode: 0o600,
     });
   }
+}
+
+/**
+ * Extracts flat top-level draft outputs from `/work` (`scratch`). Nested user directories are
+ * rejected explicitly with a clear diagnostic rather than silently ignored (SEC02-F04).
+ */
+export async function collectCoworkOutputs(
+  scratch: string,
+  logger?: { warn(msg: string, fields?: Record<string, unknown>): void },
+): Promise<CoworkFile[]> {
+  const files: CoworkFile[] = [];
+  for (const name of (await readdir(scratch)).sort()) {
+    if (IGNORED_SCRATCH_DIRS.has(name)) continue;
+    const entryInfo = await lstat(join(scratch, name)).catch(() => undefined);
+    if (entryInfo?.isDirectory() === true && !entryInfo.isSymbolicLink()) {
+      logger?.warn('cowork nested scratch directory rejected', { entry: name });
+      throw new NexarError(
+        'POLICY_REJECTED',
+        'Cowork outputs must be flat top-level files in /work',
+      );
+    }
+    if (!/\.(md|txt|json|csv)$/i.test(name)) continue;
+    try {
+      files.push(await readCoworkFile(scratch, name));
+    } catch {
+      /* Untrusted outputs (links, hard links, oversized files) are never followed. */
+    }
+  }
+  return parseCoworkFiles(files);
 }

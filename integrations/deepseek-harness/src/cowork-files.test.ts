@@ -3,7 +3,12 @@ import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseCoworkFiles, readCoworkFile, stageCoworkFiles } from './cowork-files.js';
+import {
+  collectCoworkOutputs,
+  parseCoworkFiles,
+  readCoworkFile,
+  stageCoworkFiles,
+} from './cowork-files.js';
 
 const dirs: string[] = [];
 const file = (name = 'input.md', data = 'synthetic input') => ({
@@ -60,6 +65,32 @@ describe('Cowork content transfer', () => {
     await expect(readCoworkFile(dir, 'folder.md')).rejects.toMatchObject({
       code: 'POLICY_REJECTED',
     });
+  });
+  it('collects flat top-level outputs, ignores internal DSH folders, and rejects nested output directories with a diagnostic', async () => {
+    const dir = await fixture();
+    await writeFile(join(dir, 'draft.md'), '# Draft');
+    await mkdir(join(dir, 'tool-output'));
+    await mkdir(join(dir, 'workers'));
+    const collected = await collectCoworkOutputs(dir);
+    expect(collected).toHaveLength(1);
+    expect(collected[0]?.name).toBe('draft.md');
+
+    await mkdir(join(dir, 'sub'));
+    await writeFile(join(dir, 'sub', 'nested.md'), '# Nested');
+    const warnings: { msg: string; fields?: Record<string, unknown> }[] = [];
+    await expect(
+      collectCoworkOutputs(dir, {
+        warn: (msg, fields) => {
+          warnings.push({ msg, ...(fields === undefined ? {} : { fields }) });
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'POLICY_REJECTED',
+      message: 'Cowork outputs must be flat top-level files in /work',
+    });
+    expect(warnings).toEqual([
+      { msg: 'cowork nested scratch directory rejected', fields: { entry: 'sub' } },
+    ]);
   });
   it.skipIf(process.platform === 'win32')(
     'refuses an output symlink to a synthetic host file',

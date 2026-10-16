@@ -45,7 +45,16 @@ export type {
 export { runLocalAcpSession } from './acp/local.js';
 export { runSandboxedCoworkSession } from './acp/sandboxed.js';
 export type { SandboxedCoworkOptions } from './acp/sandboxed.js';
-export { parseCoworkFiles, readCoworkFile, stageCoworkFiles } from './cowork-files.js';
+export {
+  COWORK_HELPER_CAPABILITIES,
+  COWORK_HELPER_PROTOCOL,
+  COWORK_HELPER_PROTOCOL_VERSION,
+  COWORK_HELPER_RELEASE,
+  collectCoworkOutputs,
+  parseCoworkFiles,
+  readCoworkFile,
+  stageCoworkFiles,
+} from './cowork-files.js';
 export type { CoworkFile } from './cowork-files.js';
 export { coworkScratchEscape } from './cowork-containment.js';
 export type {

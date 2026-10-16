@@ -248,6 +248,33 @@ describe('status', () => {
     });
     expect(cowork.fallbackReason()).toBe('dsh-control-unavailable');
     expect(await cowork.effectiveControlResourceId()).toBeUndefined();
+
+    const isolatedNoControl = setup({
+      kit: { resources: [] },
+      backend: {
+        probe: () => Promise.resolve({ state: 'ready', version: '0.2.0-rc.2' }),
+        run: () => Promise.reject(new Error('must not run')),
+      },
+    });
+    expect(await isolatedNoControl.cowork.refresh()).toEqual({
+      state: 'configuration-missing',
+      reason: 'No control-compatible resource can run Cowork',
+      version: '0.2.0-rc.2',
+      placement: 'WSL2_BUBBLEWRAP',
+    });
+
+    const isolatedIncompatible = setup({
+      backend: {
+        probe: () => Promise.resolve({ state: 'unsupported-version', version: '0.2.0-rc.2' }),
+        run: () => Promise.reject(new Error('must not run')),
+      },
+    });
+    expect(await isolatedIncompatible.cowork.refresh()).toEqual({
+      state: 'unsupported-version',
+      reason: 'Isolated Cowork helper or runtime version is not compatible',
+      version: '0.2.0-rc.2',
+      placement: 'WSL2_BUBBLEWRAP',
+    });
   });
 
   it('fails closed on a damaged orchestration section', async () => {
