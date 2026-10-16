@@ -54,7 +54,7 @@ describe('startAudit', () => {
   it('writes exactly one line even if finish is called twice', async () => {
     const file = join(dir, 'logs', 'audit.jsonl');
     const handle = startAudit(new JsonlAuditLog(file), base);
-    handle.setClient('openworker');
+    handle.setClient('mcp-client');
     await handle.finish('completed');
     await handle.finish('failed', 'INTERNAL_ERROR');
     const lines = (await readFile(file, 'utf8')).trim().split('\n');
@@ -126,7 +126,7 @@ describe('startAudit', () => {
   it('emits only allowlisted keys, even if extra data is smuggled in', async () => {
     const log = new InMemoryAuditLog();
     const handle = startAudit(log, base);
-    handle.setClient('openworker');
+    handle.setClient('mcp-client');
     handle.setScope({ projectId: 'p', taskKind: 'k', workflowId: 'w', prompt: 'secret' } as never);
     handle.setTask({ taskId: 't', resourceId: 'r', artifactCount: 2, document: 'secret' } as never);
     handle.setPolicy('allowed');
@@ -142,7 +142,7 @@ describe('withAudit', () => {
   it('records completion on success and returns the value', async () => {
     const log = new InMemoryAuditLog();
     const value = await withAudit(log, base, (h) => {
-      h.setClient('openworker');
+      h.setClient('mcp-client');
       h.setPolicy('allowed');
       return Promise.resolve(42);
     });
@@ -182,7 +182,7 @@ describe('withAudit', () => {
     const log = new InMemoryAuditLog();
     await expect(
       withAudit(log, base, (h) => {
-        h.setClient('openworker');
+        h.setClient('mcp-client');
         return Promise.reject(new NexarError('POLICY_REJECTED', 'no'));
       }),
     ).rejects.toThrow();

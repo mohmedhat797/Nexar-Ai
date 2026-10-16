@@ -9,7 +9,8 @@
   "files": ["dist/**/*", "package.json"],
   "extraResources": [
     { "from": "workflows", "to": "workflows", "filter": ["**/*"] },
-    { "from": "engineering/plans", "to": "engineering/plans", "filter": ["**/*"] }
+    { "from": "engineering/plans", "to": "engineering/plans", "filter": ["**/*"] },
+    { "from": "dist", "to": ".", "filter": ["dsh-runtime/**/*"] }
   ],
   "asar": true,
   "asarUnpack": [

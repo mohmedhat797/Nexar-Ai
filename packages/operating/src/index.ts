@@ -7,9 +7,11 @@
  */
 export {
   CONTEXT_POLICY,
+  CONTEXT_POLICY_V1,
   MAX_CONTEXT_CHARS,
   MAX_CONTEXT_SIDE_CHARS,
   MAX_CONTEXT_TURNS,
+  MAX_REQUIRED_CONTEXT_CHARS,
 } from './context.js';
 export {
   buildContext,

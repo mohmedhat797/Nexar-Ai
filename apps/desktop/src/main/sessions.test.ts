@@ -375,7 +375,7 @@ describe('sessions: turns', () => {
         lane: {
           requestedLane: 'cowork',
           effectiveLane: 'direct',
-          fallbackReason: 'openworker-unavailable',
+          fallbackReason: 'dsh-unavailable',
         },
       });
 
@@ -411,7 +411,7 @@ describe('sessions: turns', () => {
         sessionId: session.id,
         turnId: turn?.id,
       });
-      // The prompt is the context@1 rendering: the request sits inside the untrusted wrapper.
+      // The prompt is the context@2 rendering: the request sits inside the untrusted wrapper.
       const firstPrompt = gated.tasks[0]?.input.prompt ?? '';
       expect(firstPrompt).toContain('<untrusted-input name="request">\nsay hello in a session\n');
       expect(firstPrompt).not.toContain('name="conversation"');
@@ -441,7 +441,7 @@ describe('sessions: turns', () => {
       const stored = await harness.deps.sessions!.get(session.id);
       expect(stored?.turns[0]?.context?.turnIds).toEqual([]);
       expect(stored?.turns[1]?.context?.turnIds).toEqual([stored?.turns[0]?.id]);
-      expect(stored?.turns[1]?.context?.policy).toBe('context@1');
+      expect(stored?.turns[1]?.context?.policy).toBe('context@2');
       const secondPrompt = gated.tasks[1]?.input.prompt ?? '';
       expect(secondPrompt).toContain('Owner: say hello in a session');
       expect(secondPrompt).toContain('name="conversation"');

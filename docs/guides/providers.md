@@ -50,7 +50,7 @@ the config. File writes serialize within the Desktop process; independent Deskto
 the same credential file are outside this guarantee.
 
 Subscriptions remain owned by their native vendor runtimes. Nexar does not extract their tokens for
-pi-ai, DeepSeek Harness or OpenWorker provider APIs.
+pi-ai or DeepSeek Harness provider APIs.
 
 **Local / Custom servers** supports owner-listed keyless Ollama and OpenAI-compatible servers.
 Choose the server type and public address, then Save server. Edit keeps its server id stable; Remove

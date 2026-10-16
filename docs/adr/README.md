@@ -39,3 +39,7 @@ Follow-up work.
 
 [ADR-028: Dynamic Provider Sessions and Model Inventory](028-dynamic-provider-sessions-and-model-inventory.md)
 is accepted (2026-10-06); implementation NXR-068 blocks v0.6 live acceptance.
+
+[ADR-030: Unified DSH-first agent runtime](030-unified-dsh-first-agent-runtime.md) is Proposed
+(2026-10-10); implementation runs on `feat/nexar-unified-dsh-runtime` as a Draft PR pending owner
+acceptance.

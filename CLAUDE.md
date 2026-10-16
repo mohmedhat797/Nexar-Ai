@@ -2,7 +2,7 @@
 
 Nexar is a **Personal AI Operating Layer**: local-first, model/provider/agent-agnostic. It
 understands a task → chooses an AI resource → orchestrates → executes safely → records telemetry.
-External projects (DeepSeek Harness, pi-ai, OpenWorker, Delegate Skills, native coding CLIs) are
+External projects (DeepSeek Harness, pi-ai, Delegate Skills, native coding CLIs) are
 **components behind adapters**; Nexar owns the domain.
 
 Read before architectural changes: [`docs/architecture/overview.md`](docs/architecture/overview.md),
@@ -11,25 +11,26 @@ Change an architectural decision only via a new/amended ADR.
 
 ## Component responsibilities
 
-| Concept                   | Package                        | Owns                                                                                                                    |
-| ------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Contracts                 | `packages/contracts`           | Domain types, `NexarError`, `Measured<T>`. Zero deps.                                                                   |
-| Resource Registry         | `packages/resource-registry`   | What resources exist + dynamic state + probes; discovery merge + cache. **No routing.**                                 |
-| Resource Controller (NRC) | `packages/resource-controller` | "Who executes?" — `deterministic@1` / `resource-intelligence@1`, quota, cost, explainable `RouteDecision`.              |
-| Telemetry                 | `packages/telemetry`           | Structured JSON logs (stderr, redacted), sinks, bounded readers (quota accounting, history).                            |
-| Core                      | `packages/core`                | Engine (task → route → execute → record), adapter registry, config.                                                     |
-| Projects                  | `packages/projects`            | Projects, `resolveContainedPath` (realpath policy), defaults, document sets.                                            |
-| Artifacts                 | `packages/artifacts`           | `LocalArtifactStore`: safe names, no overwrite, contained writes.                                                       |
-| Approvals                 | `packages/approvals`           | Fail-closed, fingerprint-bound, single-use approvals; outward-action gate.                                              |
-| Access                    | `packages/access`              | Client tokens, scopes, allowlisted JSONL request audit.                                                                 |
-| Workflows                 | `packages/workflows`           | Workflow catalog, template renderer, runner. Data in `workflows/`.                                                      |
-| Sandbox                   | `packages/sandbox`             | bwrap profile, `SandboxLauncher`, egress proxy; the only code that invokes bwrap.                                       |
-| Worktrees                 | `packages/worktrees`           | Private clone, sandboxed harvest, patch policy, verification clone, `commitPatch`.                                      |
-| Engineering               | `packages/engineering`         | Lane plans (`engineering/`), runner, gates, review verdict, task records.                                               |
-| Host                      | `packages/host`                | Shared composition for CLI and desktop: config loading; the only place adapters are instantiated.                       |
-| Adapters                  | `integrations/*`               | The **only** code that knows an upstream (incl. `mcp`, `openworker` bridge, `codex`, `antigravity`, `delegate-skills`). |
-| Desktop                   | `apps/desktop`                 | Electron app (ADR-021): main process hosts the engine; sandboxed renderer; one zod-validated bridge.                    |
-| CLI                       | `apps/cli`                     | Thin client: `doctor`, `resources`, `route`, `run`, plus the commands below.                                            |
+| Concept                   | Package                        | Owns                                                                                                        |
+| ------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Contracts                 | `packages/contracts`           | Domain types, `NexarError`, `Measured<T>`. Zero deps.                                                       |
+| Resource Registry         | `packages/resource-registry`   | What resources exist + dynamic state + probes; discovery merge + cache. **No routing.**                     |
+| Resource Controller (NRC) | `packages/resource-controller` | "Who executes?" — `deterministic@1` / `resource-intelligence@1`, quota, cost, explainable `RouteDecision`.  |
+| Telemetry                 | `packages/telemetry`           | Structured JSON logs (stderr, redacted), sinks, bounded readers (quota accounting, history).                |
+| Core                      | `packages/core`                | Engine (task → route → execute → record), adapter registry, config.                                         |
+| Projects                  | `packages/projects`            | Projects, `resolveContainedPath` (realpath policy), defaults, document sets.                                |
+| Artifacts                 | `packages/artifacts`           | `LocalArtifactStore`: safe names, no overwrite, contained writes.                                           |
+| Approvals                 | `packages/approvals`           | Fail-closed, fingerprint-bound, single-use approvals; outward-action gate.                                  |
+| Access                    | `packages/access`              | Client tokens, scopes, allowlisted JSONL request audit.                                                     |
+| Work Bridge               | `packages/work-bridge`         | Generic inbound MCP Work Bridge v2 (request schema, async jobs, idempotency); served by `integrations/mcp`. |
+| Workflows                 | `packages/workflows`           | Workflow catalog, template renderer, runner. Data in `workflows/`.                                          |
+| Sandbox                   | `packages/sandbox`             | bwrap profile, `SandboxLauncher`, egress proxy; the only code that invokes bwrap.                           |
+| Worktrees                 | `packages/worktrees`           | Private clone, sandboxed harvest, patch policy, verification clone, `commitPatch`.                          |
+| Engineering               | `packages/engineering`         | Lane plans (`engineering/`), runner, gates, review verdict, task records.                                   |
+| Host                      | `packages/host`                | Shared composition for CLI and desktop: config loading; the only place adapters are instantiated.           |
+| Adapters                  | `integrations/*`               | The **only** code that knows an upstream (incl. `mcp`, `codex`, `antigravity`, `delegate-skills`).          |
+| Desktop                   | `apps/desktop`                 | Electron app (ADR-021): main process hosts the engine; sandboxed renderer; one zod-validated bridge.        |
+| CLI                       | `apps/cli`                     | Thin client: `doctor`, `resources`, `route`, `run`, plus the commands below.                                |
 
 Three questions stay separate: **who executes** (NRC) · **how work is orchestrated** (DSH / native
 agent loop) · **how the provider is called** (pi-ai / runtime internals).

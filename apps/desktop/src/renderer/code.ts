@@ -24,9 +24,13 @@ export const COMMIT_NOTE =
 
 /** Fallback texts for a turn that ran with Nexar direct execution instead of the Code lane. */
 const FALLBACK_TEXT: Readonly<Record<string, string>> = {
-  'openworker-unavailable': 'OpenWorker unavailable. Using Nexar direct execution.',
+  'dsh-unavailable': 'DeepSeek Harness unavailable. Using Nexar direct execution.',
+  'dsh-control-unavailable':
+    'No control-compatible resource for DeepSeek Harness. Using Nexar direct execution.',
+  // legacy (ADR-030): read-only. Still readable on turns recorded before DeepSeek Harness ran Cowork.
+  'openworker-unavailable': 'OpenWorker unavailable (retired). Using Nexar direct execution.',
   'openworker-control-unavailable':
-    'No control-compatible resource can run Cowork. Using Nexar direct execution.',
+    'No control-compatible resource can run Cowork (retired). Using Nexar direct execution.',
   'code-report-unavailable':
     'Read-only repository review ran with Nexar direct execution: the engineering plane has no report-only plan.',
   'code-engineering-only':
@@ -39,7 +43,7 @@ export function fallbackText(lane: TurnLaneDto): string | null {
   if (known !== undefined) return known;
   if (lane.fallbackReason !== 'orchestrator-unavailable') return null;
   if (lane.requestedLane === 'cowork') {
-    return 'OpenWorker unavailable. Using Nexar direct execution.';
+    return 'DeepSeek Harness unavailable. Using Nexar direct execution.';
   }
   if (lane.requestedLane === 'code') {
     return 'Code lane (DeepSeek Harness) unavailable. Using Nexar direct execution.';
@@ -64,7 +68,8 @@ type LaneFacts = NonNullable<NonNullable<TurnDto['outcome']>['engineering']>['la
 /** `Executor: DeepSeek Harness (control: <resource>)` or `Executor: native (<reason>)`. */
 export function laneExecutorText(lane: NonNullable<LaneFacts>[number]): string | null {
   if (lane.executor === 'engine') {
-    const name = lane.engine === 'dsh' ? 'DeepSeek Harness' : 'OpenWorker';
+    // legacy (ADR-030): read-only; the retired engine id only appears on turns recorded by older builds.
+    const name = lane.engine === 'dsh' ? 'DeepSeek Harness' : 'OpenWorker (retired)';
     return `Executor: ${name}${lane.controlResourceId === undefined ? '' : ` (control: ${lane.controlResourceId})`}`;
   }
   if (lane.executor === 'native') {
@@ -97,7 +102,7 @@ export function isCodeTurn(turn: TurnDto): boolean {
   return turn.lane?.effectiveLane === 'code' && !isRefusedTurn(turn);
 }
 
-/** Whether a turn ran on the Cowork lane (orchestrated by OpenWorker). */
+/** Whether a turn ran on the Cowork lane (orchestrated by DeepSeek Harness). */
 export function isCoworkTurn(turn: TurnDto): boolean {
   if (turn.state === 'pending-confirmation' || turn.state === 'declined') return false;
   return turn.lane?.effectiveLane === 'cowork';

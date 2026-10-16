@@ -37,7 +37,7 @@ export interface TaskRequirements {
 
 /** Where a task came from, for attribution and tracing across clients. */
 export interface TaskOrigin {
-  readonly source: 'cli' | 'openworker' | 'control-plane' | 'mobile' | 'test' | (string & {});
+  readonly source: 'cli' | 'mcp' | 'control-plane' | 'mobile' | 'test' | (string & {});
   readonly project?: string;
   readonly correlationId?: string;
   readonly requestedBy?: string;

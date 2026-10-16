@@ -7,7 +7,7 @@ export interface QuitApp {
 /**
  * Holds the exit at the first `will-quit` (all windows are closed by then) until `cleanup` settles or
  * `boundMs` passes, then quits again; the second `will-quit` lets the app exit. Supervised children
- * (OpenWorker, a plane) are ended before Desktop exits instead of outliving it, and a failing or slow
+ * (DeepSeek Harness, a plane) are ended before Desktop exits instead of outliving it, and a failing or slow
  * cleanup never delays the exit by more than the bound.
  */
 export function holdQuitUntil(

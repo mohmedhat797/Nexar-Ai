@@ -30,19 +30,19 @@ function displayPath(project: Project, ref: ArtifactRef): string | undefined {
 
 /**
  * One `OperatingService` over the session store (ADR-024). Direct execution and the Code lane
- * (the WSL2 engineering plane, ADR-025) and the Cowork lane (supervised OpenWorker, ADR-026) can run. The session's own project is
+ * (the WSL2 engineering plane, ADR-025) and the Cowork lane (DeepSeek Harness, ADR-030) can run. The session's own project is
  * authoritative, direct tasks carry Nexar-set lineage and the NRC still routes them with every
  * hard filter.
  */
 export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingService | undefined {
   const store = deps.sessions;
   if (store === undefined) return undefined;
-  const { codePlane, cowork } = deps;
+  const { codePlane, cowork, projectMemory } = deps;
   // The direct pipeline only needs `deps`; it never emits task events for session turns.
   const ctx: CallContext = { deps, jobs, emit: () => undefined, operating: undefined };
 
   async function executeDirect(request: DirectRequest, signal: AbortSignal): Promise<DirectResult> {
-    const { nexar } = deps.engine.composition().runtime;
+    const { nexar, registry } = deps.engine.composition().runtime;
     const project = deps.engine.composition().runtime.projects.get(projectId(request.projectId));
     if (project === undefined) {
       throw new NexarError('VALIDATION_ERROR', 'The conversation project is no longer available');
@@ -60,9 +60,34 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
       request.turnId,
       { sessionId: request.sessionId, turnId: request.turnId },
     );
+    // Direct session turns are bounded model calls, including Cowork fallback (ADR-030).
+    // A model label alone is insufficient: native adapters can accept a mislabeled descriptor.
+    // Extend this allowlist only after reviewing an adapter's lack of tools and an agent loop.
+    const excluded = registry
+      .list()
+      .filter(
+        (resource) =>
+          resource.kind.type !== 'model' ||
+          !['pi', 'echo'].includes(String(resource.runtime.adapter)),
+      )
+      .map((resource) => resource.id);
+    if (task.requirements.preferredResourceIds?.some((id) => excluded.includes(id)) === true) {
+      throw new NexarError('POLICY_REJECTED', 'Direct turns require a bounded model resource', {
+        details: { reason: 'direct-resource-not-bounded' },
+      });
+    }
+    const boundedTask = {
+      ...task,
+      requirements: {
+        ...task.requirements,
+        excludedResourceIds: [
+          ...new Set([...(task.requirements.excludedResourceIds ?? []), ...excluded]),
+        ],
+      },
+    };
     await request.onTask(task.id);
 
-    const outcome = await nexar.run(task, {
+    const outcome = await nexar.run(boundedTask, {
       signal,
       onEvent: (event) => {
         const line = progressLine(event);
@@ -102,7 +127,7 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
     store,
     lanes: {
       // The Code lane is available for a project only when the engineering plane is ready and the
-      // project is mapped to a plane project; Cowork only when OpenWorker is ready with a usable
+      // project is mapped to a plane project; Cowork only when DeepSeek Harness is ready with a usable
       // resource. Nexar never reports a lane as available when it cannot run it.
       available: (lane, projectId) =>
         lane === 'code'
@@ -110,7 +135,7 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
           : (cowork?.available() ?? false),
       reason: (lane, projectId) =>
         lane === 'code' ? codePlane?.reason(projectId) : cowork?.reason(),
-      // OpenWorker itself is fine but no control resource can run it: recorded precisely.
+      // DeepSeek Harness itself is fine but no control resource can run it: recorded precisely.
       fallbackReason: () => cowork?.fallbackReason(),
       // A read-only review turn runs on the plane only when it advertises the report-only plan
       // (false while unknown); otherwise it runs direct, recorded as such.
@@ -120,6 +145,9 @@ export function createOperating(deps: BridgeDeps, jobs: JobRegistry): OperatingS
       supportsPlan: () => codePlane?.supportsPlan() ?? false,
     },
     behavior: (mode) => behaviorProfile(deps.settings, mode),
+    ...(projectMemory === undefined
+      ? {}
+      : { projectMemory: (id: string) => projectMemory.list(id) }),
     executeDirect,
     ...(codePlane === undefined
       ? {}

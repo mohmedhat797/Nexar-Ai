@@ -122,11 +122,6 @@ async function externalSection(probe: Probe): Promise<Section> {
   const codex = presence(probe, 'codex');
   const agy = presence(probe, 'agy');
   const dsh = probe('dsh');
-  const openworker = probe('openworker-server').then((result): Check => ({
-    status: 'info',
-    name: 'openworker-server',
-    detail: `not integrated in v0.1 (${result.found ? `found: ${result.output}` : 'not found'})`,
-  }));
   const dshResult = await dsh;
   const checks: Check[] = [
     await claude,
@@ -141,7 +136,6 @@ async function externalSection(probe: Probe): Promise<Section> {
           },
     await codex,
     await agy,
-    await openworker,
   ];
   return { id: 'external', title: 'External runtimes (informational)', checks };
 }

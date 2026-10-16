@@ -24,6 +24,7 @@ import {
   MAX_DIFF_BYTES,
   MAX_DIFF_FILES,
   MAX_FRAME_BYTES,
+  MAX_REQUIRED_CONTEXT_CHARS,
   PLANE_PROTOCOL,
   createPlaneFrameDecoder,
   encodeFrame,
@@ -359,6 +360,25 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
       expect(input.returned).toBe(true);
     });
 
+    it('signals required-context only to a Desktop that asked for it', async () => {
+      start();
+      input.frame({ ...initialize, features: ['resources', 'required-context'] });
+      await waitFor(() => out.includes('"type":"ready"'), 'ready');
+      expect(framesOf('ready')[0]?.readiness.features).toEqual(['required-context']);
+      expect(framesOf('ready')[0]?.readiness).toHaveProperty('resources');
+      input.frame({ type: 'shutdown' });
+      expect(await exitCode).toBe(0);
+    });
+
+    it('keeps readiness unchanged for a Desktop that asked for resources only', async () => {
+      start();
+      input.frame({ ...initialize, features: ['resources'] });
+      await waitFor(() => out.includes('"type":"ready"'), 'ready');
+      expect(framesOf('ready')[0]?.readiness).not.toHaveProperty('features');
+      input.frame({ type: 'shutdown' });
+      expect(await exitCode).toBe(0);
+    });
+
     it('rejects another protocol with an error frame, never ready, and exits 1', async () => {
       start();
       input.frame({ type: 'initialize', protocol: 'nexar-plane/9' });
@@ -575,7 +595,7 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
           },
           auth: 'authenticated',
           availability: 'available',
-          control: { openworker: false, dsh: false },
+          control: { dsh: false },
         },
         {
           id: 'codex',
@@ -588,7 +608,7 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
           },
           auth: 'unauthenticated',
           availability: 'unavailable',
-          control: { openworker: false, dsh: false },
+          control: { dsh: false },
         },
         {
           id: 'pi-deepseek',
@@ -601,7 +621,7 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
           },
           auth: 'unknown',
           availability: 'unknown',
-          control: { openworker: true, dsh: true },
+          control: { dsh: true },
         },
       ]);
     });
@@ -821,6 +841,35 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
       ]);
       input.frame({ type: 'cancel', runId: RUN });
       await waitFor(() => framesOf('completed').length === 1, 'completed');
+    });
+
+    it('passes requiredContext to the runner and never echoes it on stdout or stderr', async () => {
+      start();
+      await handshake();
+      const requiredContext = 'Project memory: REQUIRED-CONTEXT-MARKER-99';
+      input.frame(runFrame({ requiredContext }));
+      await waitFor(() => framesOf('approval-required').length === 1, 'approval-required');
+      expect(inputs[0]).toMatchObject({ projectId: 'demo', requiredContext });
+      input.frame({ type: 'cancel', runId: RUN });
+      await waitFor(() => framesOf('completed').length === 1, 'completed');
+      expect(out).not.toContain('REQUIRED-CONTEXT-MARKER-99');
+      expect(err).not.toContain('REQUIRED-CONTEXT-MARKER-99');
+    });
+
+    it('rejects an oversized or empty requiredContext before touching the runner', async () => {
+      start();
+      await handshake();
+      for (const value of ['', 'x'.repeat(MAX_REQUIRED_CONTEXT_CHARS + 1)]) {
+        input.push(`${JSON.stringify({ ...runFrame(), requiredContext: value })}\n`);
+      }
+      await waitFor(() => framesOf('error').length === 2, 'errors');
+      expect(framesOf('error').map((f) => f.code)).toEqual([
+        'VALIDATION_ERROR',
+        'VALIDATION_ERROR',
+      ]);
+      expect(runnerCalls).toBe(0);
+      input.frame({ type: 'shutdown' });
+      expect(await exitCode).toBe(0);
     });
 
     it('rejects a multi-line title before touching the runner', async () => {

@@ -67,6 +67,11 @@ export interface ExecutionContext {
   readonly workspace?: EngineeringWorkspace;
   /** Present only for a lane with an engine gateway session; adapters that do not know it ignore it. */
   readonly gateway?: ExecutionGateway;
+  /**
+   * Owner-confirmed project memory for an engineering lane (workspace only). A runtime that renders a
+   * system prompt may include it verbatim; it is never logged, recorded or put on telemetry.
+   */
+  readonly requiredContext?: string;
 }
 
 /** What an adapter returns, including what was actually resolved at runtime. */

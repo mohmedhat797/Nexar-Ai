@@ -23,6 +23,10 @@
 //                              feature and a review lane on different resources with executor facts:
 //                              `engine` has the feature lane driven by DSH on a control resource,
 //                              `native` has it fall back with `control-unavailable`
+//   NEXAR_FAKE_PLANE_CONTEXT   `1` is a plane that accepts `run.requiredContext` and signals
+//                              `readiness.features: ['required-context']` to a Desktop that asked for it;
+//                              `strict` is a plane built before the feature, whose strict schemas refuse an
+//                              `initialize` listing it (error + exit) and a `run` carrying the field
 //   NEXAR_FAKE_PLANE_DIFF    `big` makes the diff large and truncated
 //   NEXAR_FAKE_PLANE_LOG       when set, a JSON-lines log of the frames received and of the
 //                              environment variable NAMES this process started with
@@ -34,6 +38,7 @@ const projects = (process.env.NEXAR_FAKE_PLANE_PROJECTS ?? 'plane-proj').split('
 const logPath = process.env.NEXAR_FAKE_PLANE_LOG;
 const reportPlan = process.env.NEXAR_FAKE_PLANE_NO_REPORT !== '1';
 const planPlan = process.env.NEXAR_FAKE_PLANE_NO_PLAN !== '1';
+const contextMode = process.env.NEXAR_FAKE_PLANE_CONTEXT;
 
 const TASK_ID = 'task_fake_1';
 const APPROVAL_ID = `apr_${'f'.repeat(32)}`;
@@ -52,7 +57,7 @@ const FAKE_RESOURCES = [
     },
     auth: 'authenticated',
     availability: 'available',
-    control: { openworker: false, dsh: false },
+    control: { dsh: false },
   },
   {
     id: 'pi:deepseek-chat',
@@ -65,7 +70,7 @@ const FAKE_RESOURCES = [
     },
     auth: 'unknown',
     availability: 'unknown',
-    control: { openworker: true, dsh: true },
+    control: { dsh: true },
   },
 ];
 
@@ -189,6 +194,14 @@ function acceptanceLanes() {
 }
 
 function handleRun(frame) {
+  if (contextMode === 'strict' && frame.requiredContext !== undefined) {
+    send({
+      type: 'error',
+      code: 'VALIDATION_ERROR',
+      message: 'A frame did not match the protocol',
+    });
+    return;
+  }
   if (activeRun !== undefined) {
     send({
       type: 'error',
@@ -324,6 +337,18 @@ function handle(frame) {
         send({ type: 'error', code: 'CONFIGURATION_ERROR', message: 'not configured' });
         process.exit(1);
       }
+      if (
+        contextMode === 'strict' &&
+        Array.isArray(frame.features) &&
+        frame.features.some((feature) => feature !== 'resources')
+      ) {
+        send({
+          type: 'error',
+          code: 'VALIDATION_ERROR',
+          message: 'A frame did not match the protocol',
+        });
+        process.exit(1);
+      }
       if (scenario === 'malformed') {
         process.stdout.write('this is not json\n');
         return;
@@ -337,8 +362,8 @@ function handle(frame) {
         protocol: scenario === 'bad-ready' ? 'nexar-plane/2' : 'nexar-plane/1',
         planeVersion: '0.0.0-fake',
         // Like the real plane: `resources` only for a Desktop that asked for the feature.
-        readiness:
-          process.env.NEXAR_FAKE_PLANE_RESOURCES === '1' &&
+        readiness: {
+          ...(process.env.NEXAR_FAKE_PLANE_RESOURCES === '1' &&
           Array.isArray(frame.features) &&
           frame.features.includes('resources')
             ? {
@@ -352,7 +377,14 @@ function handle(frame) {
                     }
                   : {}),
               }
-            : readiness(),
+            : readiness()),
+          // ...and `features` only for a Desktop that asked for `required-context`.
+          ...(contextMode === '1' &&
+          Array.isArray(frame.features) &&
+          frame.features.includes('required-context')
+            ? { features: ['required-context'] }
+            : {}),
+        },
       });
       return;
     }

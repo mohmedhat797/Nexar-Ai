@@ -16,6 +16,7 @@ import {
 } from './fixtures.testkit.js';
 import {
   commitSubject,
+  MAX_REQUIRED_CONTEXT_CHARS,
   listEngineeringRecords,
   readEngineeringRecord,
   type EngineeringProgress,
@@ -43,6 +44,8 @@ const record = async (x: Harness): Promise<EngineeringRecord> => {
 };
 const branches = (x: Harness): string => git(x.repo, 'branch', '--list', 'nexar/*');
 const never = { ownerApproval: 'never' };
+const CONTEXT_MARKER = 'REQUIRED-CONTEXT-MARKER-31';
+const CONTEXT = `Project memory (owner-confirmed; binding for this turn):\n- [decision] ${CONTEXT_MARKER}`;
 
 describe('commitSubject', () => {
   it('uses the first line, strips control characters and caps at 72 characters', () => {
@@ -284,6 +287,31 @@ describe.skipIf(process.platform === 'win32')('EngineeringRunner: accepted work'
     expect(git(x.repo, 'log', '-1', '--format=%s', `nexar/${TASK}`).trim()).toBe(
       'nexar: Fix the slug',
     );
+  });
+
+  it('hands the required context to every lane, and to nothing the owner sees', async () => {
+    const x = await harness();
+    const progress: EngineeringProgress[] = [];
+    const approved = x.decideNext('approve');
+    const outcome = await x.run(
+      { requiredContext: CONTEXT },
+      { onProgress: (e) => progress.push(e) },
+    );
+    await approved;
+    expect(outcome.status).toBe('committed');
+    expect(x.adapter.calls.map((c) => c.lane)).toEqual(['feature', 'review']);
+    for (const call of x.adapter.calls) expect(call.requiredContext).toBe(CONTEXT);
+    // Neither the prompt of a lane nor the commit carries it: it is a separate, trusted channel.
+    for (const call of x.adapter.calls) {
+      expect(call.prompt).not.toContain(CONTEXT_MARKER);
+      expect(call.systemPrompt).not.toContain(CONTEXT_MARKER);
+    }
+    expect(git(x.repo, 'log', '-1', '--format=%B', `nexar/${TASK}`)).not.toContain(CONTEXT_MARKER);
+    expect(JSON.stringify([await record(x), x.events, progress, outcome])).not.toContain(
+      CONTEXT_MARKER,
+    );
+    const [stored] = await x.store.list({ status: 'consumed' });
+    expect(JSON.stringify(stored)).not.toContain(CONTEXT_MARKER);
   });
 });
 
@@ -603,6 +631,16 @@ describe('EngineeringRunner: preconditions and lifecycle', () => {
     for (const title of ['', '   ', 'a\0b', 'x'.repeat(201), 42 as unknown as string]) {
       await expect(x.run({ title })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     }
+    for (const requiredContext of [
+      '',
+      '   ',
+      'a\0b',
+      'x'.repeat(MAX_REQUIRED_CONTEXT_CHARS + 1),
+      42 as unknown as string,
+    ]) {
+      await expect(x.run({ requiredContext })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
+    expect(x.adapter.calls).toHaveLength(0);
     await expect(x.run({ projectId: 'ghost' })).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
     await expect(x.run({ planId: 'nope' })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     await expect(x.run({ baseBranch: 'no-such-branch' })).resolves.toMatchObject({
@@ -610,6 +648,21 @@ describe('EngineeringRunner: preconditions and lifecycle', () => {
       reason: 'error.INTERNAL_ERROR',
     });
     expect(existsSync(join(x.worktreesDir, 'demo', TASK))).toBe(false);
+  });
+
+  it('passes the required context to the lane without recording it anywhere', async () => {
+    const x = await harness({ engineering: { ...never, maxReworkRounds: 0 } });
+    x.adapter.queue('feature', () => 'did nothing');
+    const progress: EngineeringProgress[] = [];
+    const outcome = await x.run(
+      { requiredContext: CONTEXT },
+      { onProgress: (e) => progress.push(e) },
+    );
+    expect(x.adapter.calls[0]).toMatchObject({ lane: 'feature', requiredContext: CONTEXT });
+    expect(JSON.stringify([await record(x), x.events, progress, outcome])).not.toContain(
+      CONTEXT_MARKER,
+    );
+    expect(JSON.stringify(silentLogger.warnings)).not.toContain(CONTEXT_MARKER);
   });
 
   it('rejects a project without engineering settings', async () => {

@@ -12,7 +12,7 @@ function select(
   extra: Partial<SelectControlInput> = {},
 ) {
   return selectControl({
-    engine: 'openworker',
+    engine: 'dsh',
     policy,
     candidates,
     routingPolicy: routingPolicy(),
@@ -54,7 +54,7 @@ describe('selectControl', () => {
   it('auto picks a model-turn resource and never a native agent', () => {
     const d = select([agent('native'), snap('api-a')], auto);
     expect(d.resourceId).toBe('api-a');
-    expect(d.engine).toBe('openworker');
+    expect(d.engine).toBe('dsh');
     expect(d.reasonCodes).toContain('control.auto');
     expect(d.decidedAt).toBe(NOW.toISOString());
     expect(d.controlDecisionId).toMatch(/^d\d+$/);

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NexarError } from '@nexar/contracts';
 import type { Logger } from '@nexar/contracts';
+import type { ProjectMemoryEntry } from '@nexar/project-memory';
 import { FileSessionStore } from '@nexar/sessions';
 import type { OperatingMode, OperatingSession } from '@nexar/sessions';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -225,12 +226,12 @@ describe('OperatingService', () => {
         ],
         artifacts: [{ label: 'draft' }],
       });
-      expect(t1?.context).toMatchObject({ policy: 'context@1', turnIds: [], omittedTurns: 0 });
+      expect(t1?.context).toMatchObject({ policy: 'context@2', turnIds: [], omittedTurns: 0 });
       // The Desktop state: no orchestrated lanes, so the fallback is recorded honestly.
       expect(t1?.lane).toMatchObject({
         requestedLane: 'cowork',
         effectiveLane: 'direct',
-        fallbackReason: 'openworker-unavailable',
+        fallbackReason: 'dsh-unavailable',
       });
       expect(session.activeTurnId).toBeNull();
       expect(h.service.executions()).toBe(0);
@@ -916,7 +917,7 @@ describe('OperatingService', () => {
         lane: { effectiveLane: 'code' },
         tasks: [{ taskId: 'task_9', state: 'succeeded' }],
         approvalIds: [`apr_${'c'.repeat(32)}`],
-        context: { policy: 'context@1/code-goal:context' },
+        context: { policy: 'context@2/code-goal:context' },
         outcome: { text: 'Committed 2 files', engineering: engineering('committed') },
       });
       expect(h.progress).toContain('Engineering step: task.started');
@@ -1086,7 +1087,7 @@ describe('OperatingService', () => {
       expect(requests[0]?.goal).toBe(long); // exact text, no wrapper
       const stored = (await h.session(s.id)).turns[0];
       expect(stored?.context).toMatchObject({
-        policy: 'context@1/code-goal:request-only',
+        policy: 'context@2/code-goal:request-only',
         chars: long.length,
         turnIds: [],
       });
@@ -1203,7 +1204,7 @@ describe('OperatingService', () => {
       });
     }
 
-    it('runs a cowork-lane turn through executeCowork with a depth 1 openworker correlation', async () => {
+    it('runs a cowork-lane turn through executeCowork with a depth 1 dsh correlation', async () => {
       const { h, requests, service } = await coworkHarness();
       const s = await h.newSession('cowork');
       await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
@@ -1212,8 +1213,8 @@ describe('OperatingService', () => {
       expect(h.requests).toHaveLength(0);
       expect(requests[0]?.correlation).toMatchObject({
         depth: 1,
-        chain: ['nexar', 'openworker'],
-        currentOrchestrator: 'openworker',
+        chain: ['nexar', 'dsh'],
+        currentOrchestrator: 'dsh',
         correlationId: requests[0]?.turnId,
       });
       const turn = (await h.session(s.id)).turns[0];
@@ -1251,7 +1252,7 @@ describe('OperatingService', () => {
       expect(JSON.stringify(task)).not.toContain('dec-1');
     });
 
-    it('falls back to direct with openworker-unavailable when the lane is unavailable', async () => {
+    it('falls back to direct with dsh-unavailable when the lane is unavailable', async () => {
       const { h, requests, service } = await coworkHarness();
       h.availability.cowork = false;
       const s = await h.newSession('cowork');
@@ -1261,17 +1262,17 @@ describe('OperatingService', () => {
       expect(h.requests).toHaveLength(1);
       expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
         effectiveLane: 'direct',
-        fallbackReason: 'openworker-unavailable',
+        fallbackReason: 'dsh-unavailable',
       });
     });
 
-    it('records openworker-control-unavailable when the lanes port names that reason', async () => {
+    it('records dsh-control-unavailable when the lanes port names that reason', async () => {
       const { h, requests } = await coworkHarness();
       h.availability.cowork = false;
       const service = h.makeService({
         lanes: {
           available: () => false,
-          fallbackReason: () => 'openworker-control-unavailable',
+          fallbackReason: () => 'dsh-control-unavailable',
         },
         executeCowork: () => Promise.reject(new Error('unused')),
       });
@@ -1283,11 +1284,11 @@ describe('OperatingService', () => {
       expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
         requestedLane: 'cowork',
         effectiveLane: 'direct',
-        fallbackReason: 'openworker-control-unavailable',
+        fallbackReason: 'dsh-control-unavailable',
       });
     });
 
-    it('keeps openworker-unavailable when the reason port has nothing or throws', async () => {
+    it('keeps dsh-unavailable when the reason port has nothing or throws', async () => {
       const throwing = (): string => {
         throw new Error('x');
       };
@@ -1304,7 +1305,7 @@ describe('OperatingService', () => {
         await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize.' });
         await service.whenIdle();
         expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
-          fallbackReason: 'openworker-unavailable',
+          fallbackReason: 'dsh-unavailable',
         });
       }
     });
@@ -1323,7 +1324,7 @@ describe('OperatingService', () => {
       expect(requests).toHaveLength(0);
       expect((await h.session(s.id)).turns[0]?.lane).toMatchObject({
         effectiveLane: 'direct',
-        fallbackReason: 'openworker-unavailable',
+        fallbackReason: 'dsh-unavailable',
       });
     });
 
@@ -1364,7 +1365,9 @@ describe('OperatingService', () => {
       h.availability.cowork = true;
       const service = h.makeService({
         executeCowork: () =>
-          Promise.reject(new NexarError('EXECUTION_TIMEOUT', 'OpenWorker did not finish in time')),
+          Promise.reject(
+            new NexarError('EXECUTION_TIMEOUT', 'DeepSeek Harness did not finish in time'),
+          ),
       });
       const s = await h.newSession('cowork');
       await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'a job' });
@@ -1566,6 +1569,169 @@ describe('OperatingService', () => {
         await service.whenIdle();
         expect(requests.map((r) => r.intent)).toEqual(['coding']);
       });
+    });
+  });
+
+  describe('project memory (context@2, A6)', () => {
+    const entry = (
+      n: number,
+      kind: ProjectMemoryEntry['kind'],
+      text: string,
+    ): ProjectMemoryEntry => ({
+      id: `mem_${n.toString(16).padStart(32, '0')}`,
+      kind,
+      text,
+      createdAt: '2026-10-02T10:00:00.000Z',
+      source: 'owner',
+    });
+
+    it('delivers an entry added between turns to Cowork, Code and Cowork again', async () => {
+      const h = await harness();
+      h.availability.cowork = true;
+      h.availability.code = true;
+      const memory: ProjectMemoryEntry[] = [];
+      const loads: string[] = [];
+      const cowork: DirectRequest[] = [];
+      const code: CodeRequest[] = [];
+      const service = h.makeService({
+        projectMemory: (projectId) => {
+          loads.push(projectId);
+          return Promise.resolve([...memory]);
+        },
+        executeCowork: async (request) => {
+          cowork.push(request);
+          await request.onTask(`task-cw-${String(cowork.length)}`);
+          return {
+            taskId: `task-cw-${String(cowork.length)}`,
+            text: 'cowork answer',
+            artifacts: [],
+          };
+        },
+        executeCode: async (request) => {
+          code.push(request);
+          await request.onTask('task-code');
+          return {
+            taskId: 'task-code',
+            text: 'done',
+            engineering: { planeTaskId: 'task-code', status: 'reported' },
+          };
+        },
+      });
+      const s = await h.newSession('cowork');
+      const block = [
+        'Project memory (owner-confirmed; binding for this turn):',
+        '- [constraint] never push to main',
+      ].join('\n');
+
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      expect(cowork[0]?.requiredContext).toBeUndefined();
+      expect(cowork[0]?.prompt).not.toContain('Project memory');
+
+      memory.push(entry(1, 'constraint', 'never push to main'));
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize again.' });
+      await service.whenIdle();
+      expect(cowork[1]?.requiredContext).toBe(block);
+      expect(cowork[1]?.prompt).toContain(block);
+
+      await h.store.setMode(s.id, 'code');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Please implement the retry logic.',
+      });
+      await service.whenIdle();
+      expect(code).toHaveLength(1);
+      expect(code[0]?.requiredContext).toBe(block);
+      expect(code[0]?.goal).toContain(block);
+
+      await h.store.setMode(s.id, 'cowork');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: 'Summarize once more.',
+      });
+      await service.whenIdle();
+      expect(cowork[2]?.requiredContext).toBe(block);
+      expect(cowork[2]?.prompt).toContain(block);
+
+      expect(loads.every((id) => id === 'proj-1')).toBe(true);
+      const stored = await h.session(s.id);
+      const last = stored.turns[stored.turns.length - 1];
+      expect(last?.context).toMatchObject({
+        policy: 'context@2',
+        requiredIds: [entry(1, 'constraint', '').id],
+      });
+      expect(last?.context?.requiredHash).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('keeps the block for a Code goal that falls back to the request only', async () => {
+      const h = await harness();
+      h.availability.code = true;
+      const code: CodeRequest[] = [];
+      const service = h.makeService({
+        projectMemory: () => Promise.resolve([entry(1, 'decision', 'use pnpm')]),
+        executeCode: async (request) => {
+          code.push(request);
+          await request.onTask('task-code');
+          return {
+            taskId: 'task-code',
+            text: 'done',
+            engineering: { planeTaskId: 'task-code', status: 'reported' },
+          };
+        },
+      });
+      const s = await h.newSession('code');
+      await service.submit({
+        sessionId: s.id,
+        submissionKey: nextKey(),
+        text: `Please implement ${'x'.repeat(MAX_CODE_GOAL_CHARS - 40)}`,
+      });
+      await service.whenIdle();
+      const turn = (await h.session(s.id)).turns[0];
+      expect(turn?.context?.policy).toBe('context@2/code-goal:request-only');
+      expect(code[0]?.goal).toBe(turn?.text);
+      expect(code[0]?.requiredContext).toContain('- [decision] use pnpm');
+      expect(turn?.context?.requiredIds).toEqual([entry(1, 'decision', '').id]);
+    });
+
+    it('fails the turn with the store error code when memory cannot be loaded', async () => {
+      const h = await harness();
+      const service = h.makeService({
+        projectMemory: () =>
+          Promise.reject(
+            new NexarError('VALIDATION_ERROR', 'Project memory record is unreadable', {
+              details: { reason: 'corrupt-record' },
+            }),
+          ),
+      });
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      const turn = (await h.session(s.id)).turns[0];
+      expect(turn).toMatchObject({
+        state: 'failed',
+        outcome: { error: { code: 'VALIDATION_ERROR' } },
+      });
+      expect(h.requests).toHaveLength(0);
+    });
+
+    it('fails the turn when the memory exceeds the required-context bound', async () => {
+      const h = await harness();
+      const service = h.makeService({
+        projectMemory: () =>
+          Promise.resolve(
+            Array.from({ length: 20 }, (_, i) => entry(i + 1, 'requirement', 'z'.repeat(1000))),
+          ),
+      });
+      const s = await h.newSession('cowork');
+      await service.submit({ sessionId: s.id, submissionKey: nextKey(), text: 'Summarize this.' });
+      await service.whenIdle();
+      expect((await h.session(s.id)).turns[0]).toMatchObject({
+        state: 'failed',
+        outcome: { error: { code: 'VALIDATION_ERROR' } },
+      });
+      expect(h.requests).toHaveLength(0);
     });
   });
 });

@@ -29,7 +29,7 @@ function capture(cwd: string): Captured {
 const ADD = [
   'clients',
   'add',
-  'openworker',
+  'mcp-client',
   '--tools',
   'nexar.submit_work,nexar.work_status',
   '--task-kinds',
@@ -65,7 +65,7 @@ describe('nexar clients (in-process, offline)', () => {
     if (process.platform !== 'win32') expect((await stat(file())).mode & 0o777).toBe(0o600);
 
     const registry = await ClientRegistry.open(file());
-    expect(registry.authenticate(token).clientId).toBe('openworker');
+    expect(registry.authenticate(token).clientId).toBe('mcp-client');
     expect(registry.list()[0]?.scopes).toEqual({
       tools: ['nexar.submit_work', 'nexar.work_status'],
       taskKinds: ['documentation', 'analysis'],
@@ -82,7 +82,7 @@ describe('nexar clients (in-process, offline)', () => {
 
     const text = capture(dir);
     expect(await runCli(['clients', 'list'], text.io)).toBe(0);
-    expect(text.out()).toContain('openworker');
+    expect(text.out()).toContain('mcp-client');
     expect(text.out()).toContain('active');
     expect(text.out()).not.toContain(token);
     expect(text.out()).not.toContain(hash);
@@ -94,7 +94,7 @@ describe('nexar clients (in-process, offline)', () => {
     expect(json.out()).not.toContain('tokenSha256');
     const parsed = JSON.parse(json.out()) as { id: string; scopes: { tools: string[] } }[];
     expect(parsed).toHaveLength(1);
-    expect(parsed[0]).toMatchObject({ id: 'openworker' });
+    expect(parsed[0]).toMatchObject({ id: 'mcp-client' });
   });
 
   it('prints the created client and token as JSON with --json', async () => {
@@ -117,8 +117,8 @@ describe('nexar clients (in-process, offline)', () => {
     const token = add.out().trim();
 
     const revoke = capture(dir);
-    expect(await runCli(['clients', 'revoke', 'openworker'], revoke.io)).toBe(0);
-    expect(revoke.out()).toBe('revoked openworker\n');
+    expect(await runCli(['clients', 'revoke', 'mcp-client'], revoke.io)).toBe(0);
+    expect(revoke.out()).toBe('revoked mcp-client\n');
 
     const registry = await ClientRegistry.open(file());
     expect(() => registry.authenticate(token)).toThrow('Authentication failed');

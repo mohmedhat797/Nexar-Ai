@@ -271,6 +271,10 @@ async function serve(ctx: CommandContext): Promise<number> {
           goal: frame.goal,
           // An older Desktop sends no title: the commit subject then falls back to the goal.
           ...(frame.title === undefined ? {} : { title: frame.title }),
+          // Carried to the DSH lanes only; never logged, recorded or echoed in a frame.
+          ...(frame.requiredContext === undefined
+            ? {}
+            : { requiredContext: frame.requiredContext }),
           ...(planId === undefined ? {} : { planId }),
           lineage: frame.lineage,
         },
@@ -447,13 +451,19 @@ async function serve(ctx: CommandContext): Promise<number> {
           type: 'ready',
           protocol: PLANE_PROTOCOL,
           planeVersion: CLI_VERSION,
-          readiness: extended
-            ? {
-                ...readiness,
-                ...(resources === undefined ? {} : { resources }),
-                control: controlOf(loaded),
-              }
-            : readiness,
+          readiness: {
+            ...readiness,
+            ...(extended
+              ? {
+                  ...(resources === undefined ? {} : { resources }),
+                  control: controlOf(loaded),
+                }
+              : {}),
+            // Only a Desktop that asked for it learns this plane accepts `run.requiredContext`.
+            ...(frame.features?.includes('required-context') === true
+              ? { features: ['required-context' as const] }
+              : {}),
+          },
         });
       } catch (error) {
         sendError(codeOf(error));

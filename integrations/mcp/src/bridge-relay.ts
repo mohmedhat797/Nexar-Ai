@@ -25,7 +25,7 @@ import { redirectConsoleToStderr } from './stdio.js';
 const PROTOCOL_VERSION = 1;
 const MAX_REQUEST_BYTES = 512 * 1024;
 const MAX_RESPONSE_CHARS = 8 * 1024 * 1024;
-/** Well under OpenWorker's 120 s tool cap; submit and status answer immediately in practice. */
+/** Well under typical MCP client tool-call caps (about 120 s); submit and status answer immediately in practice. */
 const DEFAULT_CALL_TIMEOUT_MS = 60_000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_STATUS_POLL_MAX_WAIT_MS = 15_000;
@@ -218,7 +218,7 @@ export interface BridgeRelayDeps {
   readonly statusPollMaxWaitMs?: number;
 }
 
-/** One text block holding JSON (OpenWorker forwards only text). Failures carry only the code. */
+/** One text block holding JSON (some MCP clients forward only text). Failures carry only the code. */
 function render(outcome: Outcome): CallToolResult {
   return outcome.ok
     ? { content: [{ type: 'text', text: JSON.stringify(outcome.value ?? null) }] }

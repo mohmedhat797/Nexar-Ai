@@ -1,6 +1,4 @@
 import { readFile, readdir } from 'node:fs/promises';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ElectronApplication, Page } from 'playwright-core';
@@ -10,31 +8,32 @@ import {
   addProject,
   createHarness,
   hasText,
+  dshEnv,
+  hasDsh,
   isVisible,
   seedE2EConfig,
   type Harness,
 } from './harness.js';
+import { SOW_UNITS as SOW_UNIT_SCRIPT, startModel, type FakeModel } from './dsh-model.js';
 
 /*
  * NXR-066 (part a): ADR-027 end to end, offline. Fakes only: OpenAI-compatible model servers on
- * loopback, the fake OpenWorker (`sow` scenario) and the fake engineering plane. Nothing here calls
+ * loopback, the real DeepSeek Harness runtime (`NEXAR_DSH_ENTRY`; those scenarios skip without it)
+ * and the fake engineering plane. Nothing here calls
  * a real service; the owner's live acceptance is a separate step.
  */
 
-const FAKE_OPENWORKER = fileURLToPath(
-  new URL('../../../tests/fixtures/fake-openworker.mjs', import.meta.url),
-);
 const FAKE_PLANE = fileURLToPath(
   new URL('../../../tests/fixtures/fake-plane.mjs', import.meta.url),
 );
 const SOW_PROMPT = 'Create a professional SOW using this project.';
 const REVIEW_PROMPT = 'Now verify whether the repository implementation supports this proposal.';
 const IMPLEMENT_PROMPT = 'Implement the missing part.';
-/** What the fake OpenWorker puts in the arguments of every permission request it makes. */
-const FAKE_ARGUMENT = 'SECRET-ARGUMENT';
+/** What the scripted control model puts in the arguments of a delegated unit (never in a record). */
+const FAKE_ARGUMENT = 'Unit extract, working from';
 const COMMIT_SHORT = 'c'.repeat(12);
 const BRANCH = 'nexar/task-fake-1';
-const SOW_UNITS = ['extract', 'synthesize', 'draft', 'review'];
+const SOW_UNITS = SOW_UNIT_SCRIPT.map((u) => u.unitId);
 const SOW_TIMEOUT = 240_000;
 
 let harness: Harness;
@@ -49,101 +48,10 @@ afterAll(async () => {
   await harness.dispose();
 });
 
-// --- fake OpenAI-compatible model server ----------------------------------------------------------
-
-interface FakeModel {
-  readonly port: number;
-  readonly baseUrl: string;
-  /** The `POST /v1/chat/completions` requests seen: whether tools were offered and the last role. */
-  readonly completions: { readonly tools: boolean; readonly last: string }[];
-  readonly close: () => Promise<void>;
-}
-
-const sse = (model: string, delta: object, finish: string | null): string =>
-  `data: ${JSON.stringify({
-    id: 'c1',
-    object: 'chat.completion.chunk',
-    created: 1,
-    model,
-    choices: [{ index: 0, delta, finish_reason: finish }],
-  })}\n\n`;
-
-/**
- * A model server listing one model. A request that offers tools (a control turn) is answered with
- * one tool call, then with text once the tool result is in the history; a request without tools (a
- * delegated unit) is answered with text naming the model.
- */
-async function startModel(model: string): Promise<FakeModel> {
-  const completions: { tools: boolean; last: string }[] = [];
-  const server: Server = createServer((req, res) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => {
-      const path = (req.url ?? '').split('?')[0] ?? '';
-      if (req.method === 'GET' && path === '/v1/models') {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ object: 'list', data: [{ id: model }] }));
-        return;
-      }
-      if (req.method !== 'POST' || path !== '/v1/chat/completions') {
-        res.writeHead(404).end();
-        return;
-      }
-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
-        messages: { role: string }[];
-        tools?: unknown[];
-      };
-      const last = body.messages.at(-1)?.role ?? '';
-      const tools = body.tools !== undefined;
-      completions.push({ tools, last });
-      res.writeHead(200, { 'content-type': 'text/event-stream' });
-      if (tools && last !== 'tool') {
-        res.write(
-          sse(
-            model,
-            {
-              role: 'assistant',
-              tool_calls: [
-                {
-                  index: 0,
-                  id: 'call_1',
-                  type: 'function',
-                  function: { name: 'scratch_note', arguments: '{"text":"outline"}' },
-                },
-              ],
-            },
-            null,
-          ),
-        );
-        res.write(sse(model, {}, 'tool_calls'));
-      } else {
-        res.write(sse(model, { role: 'assistant', content: `Answer from ${model}: ` }, null));
-        res.write(sse(model, { content: 'scope, deliverables and dates.' }, null));
-        res.write(sse(model, {}, 'stop'));
-      }
-      res.end('data: [DONE]\n\n');
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
-  const fake: FakeModel = {
-    port,
-    baseUrl: `http://127.0.0.1:${String(port)}/v1`,
-    completions,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeAllConnections();
-      }),
-  };
-  models.push(fake);
-  return fake;
-}
-
 /** The seeded resources: a control resource (declares tool calling) and a second work resource. */
 async function seedModels(userData: string): Promise<{ control: FakeModel; work: FakeModel }> {
-  const control = await startModel('control-model');
-  const work = await startModel('work-model');
+  const control = await startModel('control-model', { kind: 'sow' }, models);
+  const work = await startModel('work-model', undefined, models);
   await seedE2EConfig(userData, [
     { id: 'e2e-control', kind: 'openai-compatible', baseUrl: control.baseUrl, toolCalling: true },
     { id: 'e2e-work', kind: 'openai-compatible', baseUrl: work.baseUrl, toolCalling: false },
@@ -209,42 +117,18 @@ async function filesUnder(dir: string): Promise<string[]> {
   return out;
 }
 
-/** The tokens the fake OpenWorker was handed (provider `api_key` fields), read from its own log. */
-async function issuedTokens(userData: string): Promise<string[]> {
-  const log = await readFile(
-    join(`${userData}.runtime`, 'openworker', 'records.jsonl'),
-    'utf8',
-  ).catch(() => '');
-  return log
-    .split('\n')
-    .filter((line) => line !== '')
-    .flatMap((line) => {
-      const entry = JSON.parse(line) as {
-        kind?: string;
-        body?: { fields?: { api_key?: unknown } };
-      };
-      const key = entry.kind === 'provider' ? entry.body?.fields?.api_key : undefined;
-      return typeof key === 'string' && key !== '' ? [key] : [];
-    });
-}
-
 /**
  * Nothing the owner or an engine handed over may sit in Nexar's records: no permission argument,
- * no token the fake OpenWorker was issued, and no prompt outside the owner's own conversation turns
+ * and no prompt outside the owner's own conversation turns
  * (sessions are the owner's transcript; audit, approvals and telemetry carry ids and codes only).
  */
-async function expectCleanRecords(
-  userData: string,
-  prompts: readonly string[],
-  tokens: readonly string[],
-): Promise<void> {
+async function expectCleanRecords(userData: string, prompts: readonly string[]): Promise<void> {
   const state = join(userData, '.nexar');
   const files = await filesUnder(state);
   expect(files.length).toBeGreaterThan(0);
   for (const file of files) {
     const content = await readFile(file, 'utf8');
     expect(content).not.toContain(FAKE_ARGUMENT);
-    for (const token of tokens) expect(content).not.toContain(token);
     if (!file.startsWith(join(state, 'sessions'))) {
       for (const prompt of prompts) expect(content).not.toContain(prompt);
     }
@@ -296,7 +180,7 @@ async function pageText(page: Page): Promise<string> {
 async function expectSowTurn(page: Page, n: number): Promise<void> {
   const t = turnAt(page, n);
   await hasText(t.getByTestId('lane-effective'), 'Lane: cowork');
-  await hasText(t.getByTestId('lane-orchestrator'), 'Orchestrated by OpenWorker');
+  await hasText(t.getByTestId('lane-orchestrator'), 'Orchestrated by DeepSeek Harness');
   await hasText(t.getByTestId('lane-control'), 'Control: Nexar gateway on local.e2e-control');
   await isVisible(t.getByTestId('artifact-card').first());
   expect(await t.getByTestId('lane-fallback').count()).toBe(0);
@@ -327,6 +211,7 @@ interface TelemetryEvent {
   readonly record?: {
     readonly origin: string;
     readonly taskKind: string;
+    readonly resourceId: string;
     readonly outcome: string;
     readonly routing?: { readonly policy: string; readonly reasonCodes: readonly string[] };
   };
@@ -334,14 +219,25 @@ interface TelemetryEvent {
 
 /**
  * The route decision behind every delegated unit, from telemetry (ids, codes and kinds, no
- * content), and the owner-side permission records the bridge calls went through.
+ * content), and the permission records the turn left.
  */
-async function expectSowTelemetry(userData: string): Promise<void> {
+async function expectSowTelemetry(userData: string, controlRequests: number): Promise<void> {
   const lines = (await readFile(join(userData, '.nexar', 'telemetry.jsonl'), 'utf8')).split('\n');
   const events = lines.filter((l) => l !== '').map((l) => JSON.parse(l) as TelemetryEvent);
-  const unitRuns = events.flatMap((e) =>
+  const runs = events.flatMap((e) =>
     e.type === 'execution.finished' && e.record?.origin === 'control-plane' ? [e.record] : [],
   );
+  const unitRuns = runs.filter((r) => r.taskKind !== 'control-model-turn');
+  const controlRuns = runs.filter((r) => r.taskKind === 'control-model-turn');
+  // The control model and delegated work are independently accounted, once per actual request.
+  expect(controlRuns).toHaveLength(controlRequests);
+  expect(controlRequests).toBeGreaterThan(SOW_UNITS.length * 2);
+  for (const run of controlRuns) {
+    expect(run.resourceId).toContain('local.e2e-control');
+    expect(run.outcome).toBe('succeeded');
+    expect(run.routing?.policy).toBe('resource-intelligence');
+    expect(run.routing?.reasonCodes.length).toBeGreaterThan(0);
+  }
   expect(unitRuns.map((r) => r.taskKind)).toEqual([
     'analysis',
     'analysis',
@@ -358,22 +254,20 @@ async function expectSowTelemetry(userData: string): Promise<void> {
   );
   expect(selected.length).toBeGreaterThanOrEqual(SOW_UNITS.length);
 
+  // Nexar's own policy decided every permission request DeepSeek Harness made (none by a person).
+  // The runtime does not ask before an MCP tool call: the bridge grant and its events bound those.
   const dir = join(userData, '.nexar', 'approvals');
   const records = await Promise.all(
     (await filesUnder(dir)).map(
       async (f) =>
-        JSON.parse(await readFile(f, 'utf8')) as {
-          actionType: string;
-          decidedBy: string;
-          metadata?: { tool?: string };
-        },
+        JSON.parse(await readFile(f, 'utf8')) as { actionType: string; decidedBy: string },
     ),
   );
-  const submits = records.filter(
-    (r) => r.actionType === 'cowork.tool-call' && r.metadata?.tool?.endsWith('intelligence_submit'),
-  );
-  expect(submits).toHaveLength(SOW_UNITS.length);
-  expect(submits.every((r) => r.decidedBy === 'policy')).toBe(true);
+  expect(
+    records
+      .filter((r) => r.actionType === 'cowork.tool-call')
+      .every((r) => r.decidedBy === 'policy'),
+  ).toBe(true);
 }
 
 /** Strategy diversity: the unit that reviews the draft ran on another resource than the draft. */
@@ -385,14 +279,11 @@ function expectReviewApartFromDraft(turn: RecordedTurn): void {
   expect(review?.resourceId).not.toBe(draft?.resourceId);
 }
 
-const SOW_ENV = {
-  NEXAR_DESKTOP_TEST_OPENWORKER: FAKE_OPENWORKER,
-  NEXAR_FAKE_OPENWORKER_SCENARIO: 'sow',
-};
+const SOW_ENV = dshEnv;
 
 describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
-  it(
-    '1. a Cowork SOW is orchestrated by OpenWorker on Nexar’s control resource and delegated to other resources',
+  it.skipIf(!hasDsh)(
+    '1. a Cowork SOW is orchestrated by DeepSeek Harness on Nexar’s control resource and delegated to other resources',
     async () => {
       const userData = harness.newUserData('sow');
       const { control, work } = await seedModels(userData);
@@ -406,9 +297,12 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
       await succeeded(page, 0);
       await expectSowTurn(page, 0);
 
-      // The control loop ran through the gateway on the control resource: a tool call, then the answer.
+      // The control loop ran through the gateway on the control resource: the request, then one
+      // tool call after another (four units, each submitted and polled), then the answer.
       const controlTurns = control.completions.filter((c) => c.tools);
-      expect(controlTurns.map((c) => c.last)).toEqual(['user', 'tool']);
+      expect(controlTurns.at(0)?.last).toBe('user');
+      expect(controlTurns.length).toBeGreaterThan(SOW_UNITS.length * 2);
+      expect(controlTurns.slice(1).every((c) => c.last === 'tool')).toBe(true);
       // Units ran on resources Nexar chose, never as control turns.
       expect(
         [...control.completions, ...work.completions].filter((c) => !c.tools).length,
@@ -424,21 +318,16 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
         'utf8',
       );
       expect(draft).toContain('Unit draft, working from');
-      expect(draft).toContain('Unit extract, working from');
 
-      const tokens = await issuedTokens(userData);
-      expect(tokens.length).toBeGreaterThan(0);
-      const body = await pageText(page);
-      for (const token of tokens) expect(body).not.toContain(token);
-      expect(body).not.toContain(FAKE_ARGUMENT);
+      expect(await pageText(page)).not.toContain(FAKE_ARGUMENT);
       await harness.close(app);
-      await expectSowTelemetry(userData);
-      await expectCleanRecords(userData, [SOW_PROMPT], tokens);
+      await expectSowTelemetry(userData, controlTurns.length);
+      await expectCleanRecords(userData, [SOW_PROMPT]);
     },
     SOW_TIMEOUT,
   );
 
-  it(
+  it.skipIf(!hasDsh)(
     '1b. the review unit runs on a different resource than the draft unit',
     async () => {
       const userData = harness.newUserData('sow-diversity');
@@ -529,12 +418,12 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
       expect(frames.filter((type) => /push|remote|publish/i.test(type))).toEqual([]);
 
       await harness.close(app);
-      await expectCleanRecords(userData, [IMPLEMENT_PROMPT], []);
+      await expectCleanRecords(userData, [IMPLEMENT_PROMPT]);
     },
     SOW_TIMEOUT,
   );
 
-  it(
+  it.skipIf(!hasDsh)(
     '3a. without a control resource a Cowork turn says so and runs with Nexar direct execution',
     async () => {
       const userData = harness.newUserData('no-control');
@@ -563,7 +452,7 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
       await hasText(t.getByTestId('lane-effective'), 'Lane: direct');
       await hasText(
         t.getByTestId('lane-fallback'),
-        'No control-compatible resource can run Cowork. Using Nexar direct execution.',
+        'No control-compatible resource for DeepSeek Harness. Using Nexar direct execution.',
       );
       expect(await t.getByTestId('lane-orchestrator').count()).toBe(0);
       expect(await t.getByTestId('lane-control').count()).toBe(0);
@@ -576,14 +465,14 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
       expect(turn.lane).toMatchObject({
         requestedLane: 'cowork',
         effectiveLane: 'direct',
-        fallbackReason: 'openworker-control-unavailable',
+        fallbackReason: 'dsh-control-unavailable',
       });
       expect(turn.tasks[0]?.control).toBeUndefined();
       expect(turn.tasks[0]?.delegations).toBeUndefined();
       expect(turn.tasks[0]?.resourceId).toBe('local-echo');
 
       await harness.close(app);
-      await expectCleanRecords(userData, [SOW_PROMPT], await issuedTokens(userData));
+      await expectCleanRecords(userData, [SOW_PROMPT]);
     },
     SOW_TIMEOUT,
   );
@@ -621,12 +510,12 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
       expect(feature?.controlResourceId).toBeUndefined();
 
       await harness.close(app);
-      await expectCleanRecords(userData, [IMPLEMENT_PROMPT], []);
+      await expectCleanRecords(userData, [IMPLEMENT_PROMPT]);
     },
     SOW_TIMEOUT,
   );
 
-  it(
+  it.skipIf(!hasDsh)(
     '4. one conversation carries proposal, repository review and implementation with Auto everywhere',
     async () => {
       const userData = harness.newUserData('integrated');
@@ -659,14 +548,13 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
       await waitForReady(page, 'cowork-banner', 'cowork-refresh');
       await page.getByTestId('new-conversation').click();
 
-      // --- Turn 1: the proposal, orchestrated by OpenWorker on the control resource ---
+      // --- Turn 1: the proposal, orchestrated by DeepSeek Harness on the control resource ---
       await send(page, SOW_PROMPT);
       await succeeded(page, 0);
       await expectSowTurn(page, 0);
-      expect(control.completions.filter((c) => c.tools).map((c) => c.last)).toEqual([
-        'user',
-        'tool',
-      ]);
+      const controlTurns = control.completions.filter((c) => c.tools);
+      expect(controlTurns.at(0)?.last).toBe('user');
+      expect(controlTurns.slice(1).every((c) => c.last === 'tool')).toBe(true);
 
       // --- Turn 2: repository review, report only, on the Code lane after confirmation ---
       await send(page, REVIEW_PROMPT);
@@ -719,7 +607,7 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
         RecordedTurn,
       ];
       expectSowRecords(proposal);
-      await expectSowTelemetry(userData);
+      await expectSowTelemetry(userData, controlTurns.length);
       expect(repository.lane).toMatchObject({ effectiveLane: 'code' });
       expect(repository.outcome?.engineering).toMatchObject({ status: 'reported' });
       expect(repository.outcome?.engineering?.lanes?.[0]).toMatchObject({
@@ -740,11 +628,7 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
         .map((line) => (JSON.parse(line) as { type?: string }).type ?? '');
       expect(frames.filter((type) => /push|remote|publish/i.test(type))).toEqual([]);
 
-      const tokens = await issuedTokens(userData);
-      expect(tokens.length).toBeGreaterThan(0);
-      const body = await pageText(page);
-      for (const token of tokens) expect(body).not.toContain(token);
-      expect(body).not.toContain(FAKE_ARGUMENT);
+      expect(await pageText(page)).not.toContain(FAKE_ARGUMENT);
 
       // --- relaunch: all three turns, their lanes and decisions are still there ---
       await harness.close(app);
@@ -755,7 +639,7 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
       await hasText(turnAt(page, 1).getByTestId('eng-executors'), 'report · Executor: DeepSeek');
       await hasText(turnAt(page, 2).getByTestId('eng-commit'), COMMIT_SHORT);
       await harness.close(app);
-      await expectCleanRecords(userData, [SOW_PROMPT, REVIEW_PROMPT, IMPLEMENT_PROMPT], tokens);
+      await expectCleanRecords(userData, [SOW_PROMPT, REVIEW_PROMPT, IMPLEMENT_PROMPT]);
     },
     SOW_TIMEOUT * 2,
   );

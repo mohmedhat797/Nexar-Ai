@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -16,6 +16,7 @@ import type {
 } from '@nexar/contracts';
 import { DeepSeekHarnessExecutionAdapter } from '../adapter.js';
 import { renderPatchOverlay } from '../overlay.js';
+import { CODING_PROFILE, renderProfileOverlay } from '../profiles.js';
 import { deepseekHarnessResource } from '../resource.js';
 import { makeContext, makeTask, makeTempDir } from '../test/support.js';
 import type { FakeRecord, LogLine } from '../test/support.js';
@@ -166,6 +167,7 @@ describe('PermissionBroker: bridge tools', () => {
 // --- the adapter in gateway mode -----------------------------------------------------------------
 
 interface GatewayRecord extends FakeRecord {
+  notifications: { method: string; params?: Record<string, unknown> }[];
   mcpEndpoint?: string;
   mcpTokenIsControlToken?: boolean;
   hasControlToken?: boolean;
@@ -278,6 +280,7 @@ interface Setup {
   command?: string;
   nodeCommand?: string;
   gateway?: boolean;
+  requiredContext?: string;
 }
 
 async function setup(o: Setup = {}) {
@@ -336,6 +339,7 @@ async function setup(o: Setup = {}) {
     ...base,
     workspace: { path: workspacePath, access: 'read-write', launcher },
     ...(o.gateway === false ? {} : { gateway }),
+    ...(o.requiredContext === undefined ? {} : { requiredContext: o.requiredContext }),
   };
   const task = makeTask({ workingDirectory: dir });
   const run = () =>
@@ -350,12 +354,25 @@ const readRecord = (path: string): GatewayRecord =>
   JSON.parse(readFileSync(path, 'utf8')) as GatewayRecord;
 
 describe('DSH ACP in gateway mode', () => {
+  it('rejects a model route change and removes the isolated state home', async () => {
+    const t = await setup({ flags: { scenario: 'model-change' } });
+    await expect(t.run()).rejects.toMatchObject({
+      code: 'POLICY_REJECTED',
+      details: { reason: 'model-route-changed' },
+    });
+    expect(readRecord(t.recordPath).notifications.map((n) => n.method)).toContain('session/cancel');
+    expect(existsSync(t.launcher.specs[0]!.mounts![0]!.hostPath)).toBe(false);
+  });
   it('runs the loop on the nexar route without any DSH credential', async () => {
     const t = await setup({
       // A keystore credential that is not stored: the own-credential assertion must be skipped.
       auth: { mode: 'api-key', credential: { source: 'keystore', name: 'dsh-key' } },
     });
     const result = await t.run();
+    expect(result.usage.costUsd).toEqual({
+      status: 'unavailable',
+      reason: 'accounted by Nexar control gateway',
+    });
 
     expect(result.text).toBe('working. finished');
     expect(result.resolved).toEqual({
@@ -373,7 +390,11 @@ describe('DSH ACP in gateway mode', () => {
 
     const [spec] = t.launcher.specs;
     expect(spec?.services).toEqual({ dir: join(t.dir, 'svc'), gateway: true, bridge: false });
-    expect(spec?.env).toEqual({ DSH_HOME: '/home/agent/.dsh', NEXAR_CONTROL_TOKEN: TOKEN });
+    expect(spec?.env).toEqual({
+      DSH_HOME: '/home/agent/.dsh',
+      DSH_TELEMETRY_DISABLED: '1',
+      NEXAR_CONTROL_TOKEN: TOKEN,
+    });
     expect(spec?.args.slice(-4)).toEqual([
       '--profile',
       'acp',
@@ -385,7 +406,12 @@ describe('DSH ACP in gateway mode', () => {
     const record = readRecord(t.recordPath);
     expect(record.envKeys).toContain('NEXAR_CONTROL_TOKEN');
     expect(record.envKeys).not.toContain('DEEPSEEK_API_KEY');
-    expect(record.overlay).toBe(renderPatchOverlay({ nexarRoute: { baseURL: t.stub.baseURL } }));
+    expect(record.overlay).toBe(
+      renderProfileOverlay({
+        profile: CODING_PROFILE,
+        route: { kind: 'nexar', baseURL: t.stub.baseURL },
+      }),
+    );
     const methods = record.requests.map((r) => r.method);
     expect(methods).toEqual([
       'initialize',
@@ -403,9 +429,9 @@ describe('DSH ACP in gateway mode', () => {
     expect(record.requests[1]?.params).toEqual({ cwd: t.workspacePath, mcpServers: [] });
     expect(t.launcher.disposed).toBe(1);
 
-    const overlayPath = join(t.stateDir, 'acp', String(t.resource.id), 'nexar.patch.yml');
-    if (process.platform !== 'win32') expect(statSync(overlayPath).mode & 0o777).toBe(0o600);
-    expect(existsSync(overlayPath)).toBe(true);
+    const home = t.launcher.specs[0]!.mounts![0]!.hostPath;
+    expect(home.startsWith(join(t.stateDir, 'acp', 'turn-'))).toBe(true);
+    expect(existsSync(home)).toBe(false);
   });
 
   it('offers exactly one stdio `nexar` MCP server when the bridge is mounted', async () => {
@@ -480,7 +506,24 @@ describe('DSH ACP in gateway mode', () => {
     expect(everything).not.toContain(PROMPT_MARKER);
   });
 
-  it('leaves a run without a gateway on the resource credential (no overlay, no services)', async () => {
+  it('renders the required context into the gateway overlay and never anywhere else', async () => {
+    const t = await setup({ requiredContext: 'REQUIRED-CONTEXT-MARKER-42' });
+    await t.run();
+    const record = readRecord(t.recordPath);
+    expect(record.overlay).toBe(
+      renderProfileOverlay({
+        profile: CODING_PROFILE,
+        route: { kind: 'nexar', baseURL: t.stub.baseURL },
+        requiredContext: 'REQUIRED-CONTEXT-MARKER-42',
+      }),
+    );
+    expect(JSON.stringify([t.logs, t.events])).not.toContain('REQUIRED-CONTEXT-MARKER-42');
+    expect(JSON.stringify(t.stub.requests.map((r) => r.body.messages))).not.toContain(
+      'REQUIRED-CONTEXT-MARKER-42',
+    );
+  });
+
+  it('leaves a run without a gateway on the resource credential (resource route overlay, no services)', async () => {
     const t = await setup({ gateway: false });
     // Without a gateway the fake has no route: it takes its normal permission scenario (rejected, no gate).
     const result = await t.run();
@@ -488,8 +531,15 @@ describe('DSH ACP in gateway mode', () => {
     expect(result.resolved).toMatchObject({ provider: 'deepseek-official' });
     const [spec] = t.launcher.specs;
     expect(spec?.services).toBeUndefined();
-    expect(spec?.env).toEqual({ DSH_HOME: '/home/agent/.dsh', DEEPSEEK_API_KEY: DSH_KEY });
-    expect(spec?.args).not.toContain('--patch');
+    expect(spec?.env).toEqual({
+      DSH_HOME: '/home/agent/.dsh',
+      DSH_TELEMETRY_DISABLED: '1',
+      DEEPSEEK_API_KEY: DSH_KEY,
+    });
+    expect(spec?.args.slice(-2)).toEqual(['--patch', '/home/agent/.dsh/nexar.patch.yml']);
+    expect(readRecord(t.recordPath).overlay).toBe(
+      renderProfileOverlay({ profile: CODING_PROFILE, route: { kind: 'resource' } }),
+    );
     expect(t.stub.requests).toHaveLength(0);
   });
 });

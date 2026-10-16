@@ -17,7 +17,6 @@ import {
   type BehaviorPatch,
   type BehaviorSettings,
 } from '../shared/behavior.js';
-import { API_PROVIDER_IDS } from '../shared/providers.js';
 import { writeFileAtomic } from './atomic-write.js';
 import { migratePlanResourceId } from './plan-inventory-identity.js';
 
@@ -83,40 +82,29 @@ export const DEFAULT_CODE_PLANE: CodePlaneConfig = {
 
 // ---- Cowork lane (ADR-026) --------------------------------------------------------------------
 
-const BARE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-export const DEFAULT_OPENWORKER_EXECUTABLE = 'openworker-server';
-/** `openworker version` (the CLI entry point); `openworker-server` takes server flags only. */
-export const DEFAULT_OPENWORKER_VERSION_EXECUTABLE = 'openworker';
-
-/** An absolute path (either platform) or a bare command name; never a relative path or a NUL. */
-export function validExecutable(value: string): boolean {
+/** An absolute (either platform) path of a `.js` file: the DeepSeek Harness entry (ADR-030). */
+export function validDshEntry(value: string): boolean {
   if (value.length === 0 || value.length > 1024 || value.includes('\0')) return false;
-  return BARE_COMMAND.test(value) || isAbsolute(value) || win32.isAbsolute(value);
+  return (isAbsolute(value) || win32.isAbsolute(value)) && value.toLowerCase().endsWith('.js');
 }
 
-const CoworkSchema = z.strictObject({
-  executable: z.string().refine(validExecutable, 'invalid executable').optional(),
-  /** Upstream's version command is the separate `openworker` CLI, not the server binary. */
-  versionExecutable: z.string().refine(validExecutable, 'invalid executable').optional(),
-  allowedProviders: z
-    .array(z.enum(API_PROVIDER_IDS))
-    .max(API_PROVIDER_IDS.length)
-    .default([])
-    .transform((list) => [...new Set(list)]),
+// Not strict: sections written by older builds may carry retired keys (ADR-030); they are ignored on
+// read and kept on disk, because the app writes this section back exactly as found.
+const CoworkSchema = z.object({
+  /** The DeepSeek Harness entry script (development and tests); packaged builds ship their own. */
+  dshEntry: z.string().refine(validDshEntry, 'invalid DeepSeek Harness entry').optional(),
 });
 
-/** Owner configuration of the Cowork lane; only `allowedProviders` is ever written by the app. */
+/** Owner configuration of the Cowork lane; the app only reads it. */
 export interface CoworkConfig {
-  readonly executable?: string | undefined;
-  readonly versionExecutable?: string | undefined;
-  readonly allowedProviders: readonly string[];
+  readonly dshEntry?: string | undefined;
 }
 
 /** A damaged `cowork` section fails closed (lane unavailable) and is preserved verbatim. */
 export type CoworkConfigResult =
   { readonly valid: true; readonly value: CoworkConfig } | { readonly valid: false };
 
-const DEFAULT_COWORK: CoworkConfig = { allowedProviders: [] };
+const DEFAULT_COWORK: CoworkConfig = {};
 
 function parseCowork(raw: unknown): CoworkConfigResult {
   if (raw === undefined) return { valid: true, value: DEFAULT_COWORK };
@@ -373,10 +361,7 @@ export class SettingsStore {
       next.codePlane.valid && next.codePlaneRaw === undefined
         ? {}
         : { codePlane: next.codePlane.valid ? next.codePlane.value : next.codePlaneRaw };
-    const coworkSection =
-      next.cowork.valid && next.coworkRaw === undefined
-        ? {}
-        : { cowork: next.cowork.valid ? next.cowork.value : next.coworkRaw };
+    const coworkSection = next.coworkRaw === undefined ? {} : { cowork: next.coworkRaw };
     const behaviorSection =
       next.behavior.valid && next.behaviorRaw === undefined
         ? {}
@@ -523,28 +508,5 @@ export class SettingsStore {
   /** Main-process only: the validated Cowork configuration. */
   async getCowork(): Promise<CoworkConfigResult> {
     return (await this.load()).cowork;
-  }
-
-  /**
-   * Allows (or revokes) OpenWorker's use of one provider's key. Refused while the section is
-   * damaged. The key itself is never moved or copied.
-   */
-  setOpenWorkerAccess(provider: string, allowed: boolean): Promise<CoworkConfig> {
-    return this.serialized(async () => {
-      const loaded = await this.load();
-      if (!loaded.cowork.valid) {
-        throw new NexarError('CONFIGURATION_ERROR', 'The Cowork settings are not valid');
-      }
-      if (!(API_PROVIDER_IDS as readonly string[]).includes(provider)) {
-        throw new NexarError('VALIDATION_ERROR', 'Invalid provider');
-      }
-      const rest = loaded.cowork.value.allowedProviders.filter((p) => p !== provider);
-      const value: CoworkConfig = {
-        ...loaded.cowork.value,
-        allowedProviders: allowed ? [...rest, provider] : rest,
-      };
-      await this.write({ ...loaded, coworkRaw: value, cowork: { valid: true, value } });
-      return value;
-    });
   }
 }

@@ -13,5 +13,10 @@ export const MAX_REPORT_BYTES = 64 * 1024;
 export const MAX_OUTCOME_LANES = 16;
 /** Same bound as the engineering runner's goal limit. */
 export const MAX_GOAL_CHARS = 20_000;
+/**
+ * A `run` frame's optional `requiredContext` (owner-confirmed project memory). Same bound as
+ * `MAX_REQUIRED_CONTEXT_CHARS` in `@nexar/project-memory` (copied: this package stays dependency-light).
+ */
+export const MAX_REQUIRED_CONTEXT_CHARS = 16_000;
 /** A `run` title (the owner's request as one line; the commit subject derives from it). */
 export const MAX_TITLE_CHARS = 200;

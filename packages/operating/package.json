@@ -16,6 +16,7 @@
   ],
   "dependencies": {
     "@nexar/contracts": "workspace:*",
+    "@nexar/project-memory": "workspace:*",
     "@nexar/sessions": "workspace:*"
   }
 }

@@ -9,8 +9,6 @@ const key = (provider: ProviderRow['provider']): ProviderRow => ({
   keyCheckStatus: 'unchecked',
   usableBy: [],
   modelCount: 0,
-  openWorkerSupported: false,
-  openWorkerAllowed: false,
 });
 
 const subscription = (runtime: SubscriptionRow['runtime']): SubscriptionRow => ({
@@ -34,7 +32,7 @@ const resource = (id: string, connection: ResourceRow['connection']): ResourceRo
   quota: { freshness: 'unknown', sources: [] },
   costModel: 'unknown',
   capabilities: [],
-  control: { openworker: false, dsh: false },
+  control: { dsh: false },
   ...(connection === undefined ? {} : { connection }),
 });
 

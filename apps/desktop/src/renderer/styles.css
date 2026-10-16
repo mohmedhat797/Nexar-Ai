@@ -389,6 +389,21 @@ textarea {
   align-items: center;
   gap: 10px;
 }
+.project-memory {
+  padding: 8px var(--pad);
+  border-bottom: 1px solid var(--line);
+}
+.project-memory-list {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+.project-memory-form {
+  display: flex;
+  gap: 8px;
+}
+.project-memory-form input {
+  flex: 1;
+}
 .session-mode button {
   flex: none;
 }

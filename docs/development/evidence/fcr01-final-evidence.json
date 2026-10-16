@@ -1,0 +1,915 @@
+{
+  "schemaVersion": "fcr01-evidence-v1",
+  "review": "FCR-01",
+  "date": "2026-10-11",
+  "source": {
+    "intakeCommit": "5430a5dadce4043a4e71c61dfb1fec8acd2a13ad",
+    "codeCommit": "723ae706f38d8de65e639b6401ee5fab69705b07",
+    "codeTree": "6a5759f8cb1a1aa2ae8a71d65d82120f476e4951",
+    "ownerBranch": "feat/nexar-unified-dsh-runtime",
+    "auditBranch": "codex/fcr01-audit",
+    "base": "main",
+    "baseCommit": "677eefd282fb240cb9583dead80ae100bdeab176",
+    "finalDocumentationCommit": "See final PR head; documentation-only diff verified against codeCommit"
+  },
+  "windowsFull": {
+    "status": "NEXAR_WINDOWS_FULL_PASS",
+    "timestamp": "2026-10-11T03:55:43.793Z",
+    "durationSeconds": 1505.37,
+    "start": {
+      "commit": "723ae706f38d8de65e639b6401ee5fab69705b07",
+      "branch": "codex/fcr01-audit",
+      "isDirty": false,
+      "dirtyFingerprint": null,
+      "summary": "723ae70"
+    },
+    "end": {
+      "commit": "723ae706f38d8de65e639b6401ee5fab69705b07",
+      "branch": "codex/fcr01-audit",
+      "isDirty": false,
+      "dirtyFingerprint": null,
+      "summary": "723ae70"
+    },
+    "sourceStable": true,
+    "os": {
+      "platform": "win32",
+      "release": "10.0.26300",
+      "arch": "x64",
+      "cpus": 20,
+      "totalMemGb": "15.73",
+      "isWsl": false
+    },
+    "tools": {
+      "node": "v22.23.3",
+      "pnpm": "10.33.0",
+      "dsh": {
+        "package": "@deepseek-ai/dsh",
+        "version": "0.2.0-rc.2",
+        "lockMatches": true
+      },
+      "gitleaks": "8.28.0",
+      "electron": "44.5.1",
+      "embeddedNode": "24.21.0"
+    },
+    "preflight": [
+      {
+        "name": "node-version",
+        "status": "PASS"
+      },
+      {
+        "name": "pnpm-version",
+        "status": "PASS"
+      },
+      {
+        "name": "workspace-lockfile",
+        "status": "PASS"
+      },
+      {
+        "name": "dsh-pin-lock",
+        "status": "PASS"
+      },
+      {
+        "name": "gitleaks-binary",
+        "status": "PASS"
+      },
+      {
+        "name": "temp-directory",
+        "status": "PASS"
+      }
+    ],
+    "stages": [
+      {
+        "id": "dependencies",
+        "name": "Frozen lockfile dependency verification",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 1790,
+        "failureCategory": null,
+        "tests": null
+      },
+      {
+        "id": "dsh-install",
+        "name": "Pinned DSH runtime install & verification",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 67873,
+        "failureCategory": null,
+        "tests": null
+      },
+      {
+        "id": "format-check",
+        "name": "Prettier formatting check",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 26419,
+        "failureCategory": null,
+        "tests": null
+      },
+      {
+        "id": "lint",
+        "name": "ESLint static analysis",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 49362,
+        "failureCategory": null,
+        "tests": null
+      },
+      {
+        "id": "boundaries",
+        "name": "Package boundaries and secret guard",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 521,
+        "failureCategory": null,
+        "tests": null
+      },
+      {
+        "id": "typecheck",
+        "name": "TypeScript typecheck (project references)",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 16931,
+        "failureCategory": null,
+        "tests": null
+      },
+      {
+        "id": "test-offline",
+        "name": "Offline unit & integration test suite (with DSH entry)",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 220096,
+        "failureCategory": null,
+        "tests": {
+          "testFilesPassed": 213,
+          "testFilesFailed": 0,
+          "testFilesTotal": 229,
+          "testsPassed": 4285,
+          "testsFailed": 0,
+          "testsSkipped": 162,
+          "testsPending": 4,
+          "testsTodo": 0,
+          "testsTotal": 4451,
+          "testsUnclassified": 0
+        }
+      },
+      {
+        "id": "build",
+        "name": "Production build (CLI and Desktop)",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 3065,
+        "failureCategory": null,
+        "tests": null
+      },
+      {
+        "id": "cli-smoke-resources",
+        "name": "CLI smoke: resources listing",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 868,
+        "failureCategory": null,
+        "tests": null
+      },
+      {
+        "id": "cli-smoke-run",
+        "name": "CLI smoke: offline general run",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 1123,
+        "failureCategory": null,
+        "tests": null
+      },
+      {
+        "id": "dsh-context-real",
+        "name": "Real DSH offline context & compaction acceptance",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 19902,
+        "failureCategory": null,
+        "tests": {
+          "testFilesPassed": 1,
+          "testFilesFailed": 0,
+          "testFilesTotal": 1,
+          "testsPassed": 3,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "testsTotal": 3
+        }
+      },
+      {
+        "id": "desktop-e2e-source",
+        "name": "Desktop E2E (source build with NEXAR_DSH_ENTRY)",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 232554,
+        "failureCategory": null,
+        "tests": {
+          "testFilesPassed": 8,
+          "testFilesFailed": 0,
+          "testFilesTotal": 8,
+          "testsPassed": 22,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "testsTotal": 22
+        }
+      },
+      {
+        "id": "desktop-package-win",
+        "name": "Package Windows desktop installer (with bundled DSH runtime)",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 672908,
+        "failureCategory": null,
+        "tests": null
+      },
+      {
+        "id": "desktop-e2e-packaged",
+        "name": "Packaged Desktop E2E (bundled DSH runtime only, no external entry)",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 187315,
+        "failureCategory": null,
+        "tests": {
+          "testFilesPassed": 8,
+          "testFilesFailed": 0,
+          "testFilesTotal": 8,
+          "testsPassed": 22,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "testsTotal": 22
+        }
+      },
+      {
+        "id": "linux-sandbox",
+        "name": "Linux bubblewrap Engineering sandbox validation",
+        "status": "BLOCKED",
+        "required": false,
+        "exitCode": 0,
+        "durationMs": 0,
+        "failureCategory": "ENVIRONMENT_UNSUPPORTED",
+        "tests": null
+      },
+      {
+        "id": "gitleaks-scan",
+        "name": "Gitleaks full-history security scan (pinned 8.28.0, redacted)",
+        "status": "PASS",
+        "required": true,
+        "exitCode": 0,
+        "durationMs": 1731,
+        "failureCategory": null,
+        "tests": null
+      }
+    ],
+    "counts": {
+      "collected": 4451,
+      "executed": 4285,
+      "passed": 4285,
+      "failed": 0,
+      "skipped": 162,
+      "pending": 4,
+      "todo": 0,
+      "unclassified": 0,
+      "files": 229
+    },
+    "package": {
+      "installerName": "Nexar-0.1.0-windows-x64-setup.exe",
+      "sizeBytes": 322009732,
+      "sha256": "c161d853d886ecbf9e63a15de86c02a91ace68484d05ac9faa2c606bec2b35fc",
+      "shaMatchesActual": true,
+      "isStale": false,
+      "bundledDshVersion": "0.2.0-rc.2",
+      "bundledDshMatches": true,
+      "signed": false,
+      "signatureStatus": "NotSigned",
+      "mtimeMs": 1791692233647.0264
+    },
+    "packagedSource": {
+      "result": "PASS",
+      "packagedMainMatchesBuiltBytes": true,
+      "mainSha256": "95be91d0fd3e0834dc295b0b6d0cb5bbfb0026808c9879ba2f5392960b92a61f",
+      "dependencies": [
+        {
+          "archivePath": "node_modules/@nexar/sessions/dist/store.js",
+          "builtPath": "packages/sessions/dist/store.js",
+          "sha256": "a51269305550f0d04681dcdbce8da9b648219d4f13a2f95771be45d7fae37fa2",
+          "byteMatch": true,
+          "markers": ["lease-acquisition-held", "lease-unverifiable"]
+        },
+        {
+          "archivePath": "node_modules/@nexar/integration-deepseek-harness/dist/profiles.js",
+          "builtPath": "integrations/deepseek-harness/dist/profiles.js",
+          "sha256": "8086af5df31791faf6cb90c53360397bf66f2368a4493570c4c2af335c9b6e7c",
+          "byteMatch": true,
+          "markers": ["tool-subagent-fork", "tool-subagent-list-agents"]
+        }
+      ]
+    }
+  },
+  "linuxWsl": {
+    "status": "LINUX_WSL2_VALIDATION_PASS",
+    "fullNativeUbuntu": false,
+    "distribution": "Ubuntu 24.04.5",
+    "kernel": "6.18.33.2-microsoft-standard-WSL2",
+    "node": "22.23.3",
+    "pnpm": "10.33.0",
+    "bubblewrap": "0.11.1",
+    "socat": "1.8.1.1",
+    "gitCommit": "5430a5dadce4043a4e71c61dfb1fec8acd2a13ad",
+    "dirtyFingerprint": "0a2d11b2d05b67ecea4555defbd0b45e5e59f5c804df39630c9e36e37fc92020",
+    "gitTree": "6a5759f8cb1a1aa2ae8a71d65d82120f476e4951",
+    "counts": {
+      "collected": 4451,
+      "executed": 4429,
+      "passed": 4429,
+      "failed": 0,
+      "skipped": 22,
+      "pending": 0,
+      "todo": 0,
+      "unclassified": 0,
+      "files": 229
+    },
+    "maxWorkers": 1,
+    "unitDurationSeconds": 267.43,
+    "availableQualityBuildCliGates": "PASS",
+    "realDshSandboxHandshake": "PASS",
+    "realDshCodingPrompt": {
+      "result": "PASS",
+      "modelRequests": 3,
+      "permissions": 0,
+      "workspaceWrite": "verified",
+      "outsideWrite": "blocked (ENOENT)",
+      "requiredContext": "all model requests",
+      "credentialsInArgv": false
+    },
+    "firstFinalSourceRun": {
+      "maxWorkers": 2,
+      "passed": 4428,
+      "failed": 1,
+      "skipped": 22,
+      "pending": 0,
+      "collected": 4451,
+      "failure": "Project Memory concurrent adds exceeded unchanged 5s timeout",
+      "followupFocusedPassed": 29,
+      "rootCause": "Probable host contention; not established"
+    },
+    "missing": ["native Ubuntu Full CI", "Xvfb/Linux desktop E2E", "native Linux Gitleaks"]
+  },
+  "historicalRuns": [
+    {
+      "codeCommit": "c4df4c8ef7aa964b05720e21ece2e5cecc5f20a4",
+      "status": "NEXAR_WINDOWS_FULL_FAIL",
+      "stages": [
+        {
+          "id": "dependencies",
+          "name": "Frozen lockfile dependency verification",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 2240,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "dsh-install",
+          "name": "Pinned DSH runtime install & verification",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 19908,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "format-check",
+          "name": "Prettier formatting check",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 17506,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "lint",
+          "name": "ESLint static analysis",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 69573,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "boundaries",
+          "name": "Package boundaries and secret guard",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 906,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "typecheck",
+          "name": "TypeScript typecheck (project references)",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 34627,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "test-offline",
+          "name": "Offline unit & integration test suite (with DSH entry)",
+          "status": "FAIL",
+          "required": true,
+          "exitCode": 1,
+          "durationMs": 183089,
+          "failureCategory": "COMMAND_EXIT_NONZERO",
+          "tests": {
+            "testFilesPassed": 210,
+            "testFilesFailed": 1,
+            "testFilesTotal": 227,
+            "testsPassed": 4279,
+            "testsFailed": 1,
+            "testsSkipped": 162,
+            "testsTotal": 4446
+          }
+        },
+        {
+          "id": "build",
+          "name": "Production build (CLI and Desktop)",
+          "status": "SKIPPED",
+          "required": true,
+          "exitCode": null,
+          "durationMs": 0,
+          "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+          "tests": null
+        },
+        {
+          "id": "cli-smoke-resources",
+          "name": "CLI smoke: resources listing",
+          "status": "SKIPPED",
+          "required": true,
+          "exitCode": null,
+          "durationMs": 0,
+          "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+          "tests": null
+        },
+        {
+          "id": "cli-smoke-run",
+          "name": "CLI smoke: offline general run",
+          "status": "SKIPPED",
+          "required": true,
+          "exitCode": null,
+          "durationMs": 0,
+          "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+          "tests": null
+        },
+        {
+          "id": "dsh-context-real",
+          "name": "Real DSH offline context & compaction acceptance",
+          "status": "SKIPPED",
+          "required": true,
+          "exitCode": null,
+          "durationMs": 0,
+          "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+          "tests": null
+        },
+        {
+          "id": "desktop-e2e-source",
+          "name": "Desktop E2E (source build with NEXAR_DSH_ENTRY)",
+          "status": "SKIPPED",
+          "required": true,
+          "exitCode": null,
+          "durationMs": 0,
+          "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+          "tests": null
+        },
+        {
+          "id": "desktop-package-win",
+          "name": "Package Windows desktop installer (with bundled DSH runtime)",
+          "status": "SKIPPED",
+          "required": true,
+          "exitCode": null,
+          "durationMs": 0,
+          "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+          "tests": null
+        },
+        {
+          "id": "desktop-e2e-packaged",
+          "name": "Packaged Desktop E2E (bundled DSH runtime only, no external entry)",
+          "status": "SKIPPED",
+          "required": true,
+          "exitCode": null,
+          "durationMs": 0,
+          "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+          "tests": null
+        },
+        {
+          "id": "linux-sandbox",
+          "name": "Linux bubblewrap Engineering sandbox validation",
+          "status": "SKIPPED",
+          "required": false,
+          "exitCode": null,
+          "durationMs": 0,
+          "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+          "tests": null
+        },
+        {
+          "id": "gitleaks-scan",
+          "name": "Gitleaks full-history security scan (pinned 8.28.0, redacted)",
+          "status": "SKIPPED",
+          "required": true,
+          "exitCode": null,
+          "durationMs": 0,
+          "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+          "tests": null
+        }
+      ]
+    },
+    {
+      "codeCommit": "479501e303249eea2fc741687152d472bdc5c3e2",
+      "status": "NEXAR_WINDOWS_FULL_PASS",
+      "sourceStable": true,
+      "stages": [
+        {
+          "id": "dependencies",
+          "name": "Frozen lockfile dependency verification",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 998,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "dsh-install",
+          "name": "Pinned DSH runtime install & verification",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 49683,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "format-check",
+          "name": "Prettier formatting check",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 24577,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "lint",
+          "name": "ESLint static analysis",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 138172,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "boundaries",
+          "name": "Package boundaries and secret guard",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 4866,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "typecheck",
+          "name": "TypeScript typecheck (project references)",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 42339,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "test-offline",
+          "name": "Offline unit & integration test suite (with DSH entry)",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 257216,
+          "failureCategory": null,
+          "tests": {
+            "testFilesPassed": 212,
+            "testFilesFailed": 0,
+            "testFilesTotal": 228,
+            "testsPassed": 4282,
+            "testsFailed": 0,
+            "testsSkipped": 162,
+            "testsPending": 4,
+            "testsTodo": 0,
+            "testsTotal": 4448,
+            "testsUnclassified": 0
+          }
+        },
+        {
+          "id": "build",
+          "name": "Production build (CLI and Desktop)",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 3531,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "cli-smoke-resources",
+          "name": "CLI smoke: resources listing",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 1090,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "cli-smoke-run",
+          "name": "CLI smoke: offline general run",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 894,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "dsh-context-real",
+          "name": "Real DSH offline context & compaction acceptance",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 18991,
+          "failureCategory": null,
+          "tests": {
+            "testFilesPassed": 1,
+            "testFilesFailed": 0,
+            "testFilesTotal": 1,
+            "testsPassed": 3,
+            "testsFailed": 0,
+            "testsSkipped": 0,
+            "testsTotal": 3
+          }
+        },
+        {
+          "id": "desktop-e2e-source",
+          "name": "Desktop E2E (source build with NEXAR_DSH_ENTRY)",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 190523,
+          "failureCategory": null,
+          "tests": {
+            "testFilesPassed": 8,
+            "testFilesFailed": 0,
+            "testFilesTotal": 8,
+            "testsPassed": 22,
+            "testsFailed": 0,
+            "testsSkipped": 0,
+            "testsTotal": 22
+          }
+        },
+        {
+          "id": "desktop-package-win",
+          "name": "Package Windows desktop installer (with bundled DSH runtime)",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 702864,
+          "failureCategory": null,
+          "tests": null
+        },
+        {
+          "id": "desktop-e2e-packaged",
+          "name": "Packaged Desktop E2E (bundled DSH runtime only, no external entry)",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 183715,
+          "failureCategory": null,
+          "tests": {
+            "testFilesPassed": 8,
+            "testFilesFailed": 0,
+            "testFilesTotal": 8,
+            "testsPassed": 22,
+            "testsFailed": 0,
+            "testsSkipped": 0,
+            "testsTotal": 22
+          }
+        },
+        {
+          "id": "linux-sandbox",
+          "name": "Linux bubblewrap Engineering sandbox validation",
+          "status": "BLOCKED",
+          "required": false,
+          "exitCode": 0,
+          "durationMs": 0,
+          "failureCategory": "ENVIRONMENT_UNSUPPORTED",
+          "tests": null
+        },
+        {
+          "id": "gitleaks-scan",
+          "name": "Gitleaks full-history security scan (pinned 8.28.0, redacted)",
+          "status": "PASS",
+          "required": true,
+          "exitCode": 0,
+          "durationMs": 1815,
+          "failureCategory": null,
+          "tests": null
+        }
+      ],
+      "installerSha256": "65c10521b06e2175d51bdf20a4baeced54ad706103cd43c8092fdadbedc1a793"
+    },
+    {
+      "sourceCommit": "a3fd0250142a18c3ad2f5478faae4b37e861f216",
+      "dirtyFingerprint": "27b1c2252e306426",
+      "durationSeconds": 1775.18,
+      "passedStages": 15,
+      "blockedStages": 1,
+      "historicalInstallerSha256": "9571845014f0b101b26560d65613a33fbf4f7d90875ceeed28ea891908ef1517",
+      "manualCollected": 4417,
+      "manualPassed": 4244,
+      "manualSkipped": 169,
+      "unclassifiedHistoricalOutcomes": 4,
+      "rawAssertionsAvailable": false
+    }
+  ],
+  "countSemantics": {
+    "collected": "Includes skipped, pending and todo identities",
+    "executed": "passed + failed",
+    "uniqueAcrossRuns": null,
+    "overlap": "Focused suites/platform runs overlap; source/packaged E2E repeat identities"
+  },
+  "regressions": {
+    "freshAndStaleLeaseBaselineFailed": 3,
+    "leaseFocusedWindows": {
+      "passed": 108,
+      "skipped": 1
+    },
+    "leaseFocusedLinux": {
+      "passed": 109,
+      "skipped": 0
+    },
+    "syntheticSecretPositiveControl": "detected, including tests/local-ci.test.ts path"
+  },
+  "dependencies": {
+    "workspaceProductionAudit": {
+      "advisories": 0,
+      "dependencies": 224
+    },
+    "pinnedDshAudit": {
+      "affectedPackageEntries": 12,
+      "underlyingAdvisories": 2,
+      "managedReachability": "No reviewed managed use of affected OAuth/unzip APIs; source-level inference",
+      "advisories": [
+        "https://github.com/advisories/GHSA-6qxp-vccf-f47h",
+        "https://github.com/advisories/GHSA-px8p-9vwx-vf98"
+      ]
+    }
+  },
+  "blockers": [
+    "Owner decision: Cowork OS read isolation / trusted-content release policy",
+    "Native Ubuntu exact-source Full CI; hosted Actions account payments/spending limit"
+  ],
+  "governance": {
+    "pr": 41,
+    "draft": true,
+    "adr030": "Proposed",
+    "merged": false,
+    "published": false,
+    "nxr070Started": false
+  },
+  "verdicts": [
+    {
+      "area": "Security",
+      "verdict": "SECURITY_REVIEW_BLOCKED"
+    },
+    {
+      "area": "Runtime",
+      "verdict": "DSH_RUNTIME_VERIFIED"
+    },
+    {
+      "area": "Windows",
+      "verdict": "WINDOWS_FINAL_ACCEPTANCE_PASS"
+    },
+    {
+      "area": "Linux",
+      "verdict": "LINUX_ACCEPTANCE_PARTIAL"
+    },
+    {
+      "area": "Cross-platform",
+      "verdict": "CROSS_PLATFORM_ACCEPTANCE_INCOMPLETE"
+    },
+    {
+      "area": "Architecture",
+      "verdict": "ADR030_BLOCKED"
+    },
+    {
+      "area": "Overall",
+      "verdict": "NEXAR_FCR01_BLOCKED_BY_EXTERNAL_DEPENDENCY"
+    },
+    {
+      "area": "Next milestone",
+      "verdict": "NXR070_PREREQUISITES_NOT_YET_SATISFIED"
+    }
+  ],
+  "windowsQuick": {
+    "status": "LOCAL_CI_QUICK_PASS",
+    "timestamp": "2026-10-11T04:22:22.875Z",
+    "durationSeconds": 211.76,
+    "start": {
+      "commit": "723ae706f38d8de65e639b6401ee5fab69705b07",
+      "branch": "codex/fcr01-audit",
+      "isDirty": false,
+      "dirtyFingerprint": null,
+      "summary": "723ae70"
+    },
+    "end": {
+      "commit": "723ae706f38d8de65e639b6401ee5fab69705b07",
+      "branch": "codex/fcr01-audit",
+      "isDirty": false,
+      "dirtyFingerprint": null,
+      "summary": "723ae70"
+    },
+    "sourceStable": true,
+    "stages": [
+      {
+        "id": "format-check",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 18597,
+        "exitCode": 0,
+        "tests": null
+      },
+      {
+        "id": "lint",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 50046,
+        "exitCode": 0,
+        "tests": null
+      },
+      {
+        "id": "boundaries",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 506,
+        "exitCode": 0,
+        "tests": null
+      },
+      {
+        "id": "typecheck",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 15733,
+        "exitCode": 0,
+        "tests": null
+      },
+      {
+        "id": "test-offline",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 126216,
+        "exitCode": 0,
+        "tests": {
+          "testFilesPassed": 210,
+          "testFilesFailed": 0,
+          "testFilesTotal": 229,
+          "testsPassed": 4274,
+          "testsFailed": 0,
+          "testsSkipped": 173,
+          "testsPending": 4,
+          "testsTodo": 0,
+          "testsTotal": 4451,
+          "testsUnclassified": 0
+        }
+      }
+    ]
+  }
+}

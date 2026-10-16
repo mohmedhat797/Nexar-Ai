@@ -20,6 +20,7 @@ import type {
   SecretResolver,
 } from '@nexar/contracts';
 import { DeepSeekHarnessExecutionAdapter } from '../adapter.js';
+import { CODING_PROFILE, MAX_REQUIRED_CONTEXT_CHARS, renderProfileOverlay } from '../profiles.js';
 import { DEEPSEEK_HARNESS_ADAPTER_ID, deepseekHarnessResource } from '../resource.js';
 import { makeContext, makeTask, makeTempDir } from '../test/support.js';
 import type { FakeRecord, LogLine } from '../test/support.js';
@@ -67,18 +68,29 @@ class FakeLauncher implements ProcessLauncher {
     private readonly workspacePath: string,
     readonly isolation: 'none' | 'sandbox' = 'sandbox',
     private readonly reportedIsolation: 'none' | 'sandbox' = isolation,
+    private readonly beforePrepared?: () => Promise<void>,
+    private readonly failDispose = false,
   ) {}
-  prepare(spec: LaunchSpec): Promise<PreparedLaunch> {
+  async prepare(spec: LaunchSpec): Promise<PreparedLaunch> {
     this.specs.push(spec);
+    await this.beforePrepared?.();
+    const mount = spec.mounts?.[0];
+    // Sandbox paths in arguments map back to the mount's host path, as the real mount would resolve them.
+    const args = spec.args.map((a) =>
+      mount !== undefined && a.startsWith(`${mount.sandboxPath}/`)
+        ? mount.hostPath + a.slice(mount.sandboxPath.length)
+        : a,
+    );
     return Promise.resolve({
       command: spec.command,
-      args: spec.args,
+      args,
       env: { PATH: process.env.PATH ?? '' },
       cwd: this.workspacePath,
       workspacePath: this.workspacePath,
       isolation: this.reportedIsolation,
       dispose: () => {
         this.disposed++;
+        if (this.failDispose) throw new Error('private-path-must-not-leak');
         return Promise.resolve();
       },
     });
@@ -100,13 +112,17 @@ interface Options {
   prompt?: string;
   systemPrompt?: string;
   timeoutMs?: number;
+  requiredContext?: string;
+  stateDir?: string;
+  beforePrepared?: () => Promise<void>;
+  failDispose?: boolean;
 }
 
 function setup(o: Options = {}) {
   const dir = makeTempDir();
   const recordPath = join(dir, 'record.json');
   const workspacePath = join(dir, 'ws');
-  const stateDir = join(dir, 'state');
+  const stateDir = o.stateDir ?? join(dir, 'state');
   mkdirSync(workspacePath);
   const store = o.store ?? new InMemoryApprovalStore();
   const gate = new ApprovalGate({ mode: 'store', store, pollIntervalMs: 10 });
@@ -114,6 +130,8 @@ function setup(o: Options = {}) {
     workspacePath,
     o.isolation ?? 'sandbox',
     o.reportedIsolation ?? o.isolation ?? 'sandbox',
+    o.beforePrepared,
+    o.failDispose,
   );
   const flags = Object.entries({ record: recordPath, ...o.flags }).map(
     ([k, v]) => `--fake-${k}=${v}`,
@@ -158,6 +176,7 @@ function setup(o: Options = {}) {
       access: o.access ?? 'read-write',
       launcher,
     },
+    ...(o.requiredContext === undefined ? {} : { requiredContext: o.requiredContext }),
   };
   const task = makeTask({ workingDirectory: dir });
   const taskWithPrompts = {
@@ -193,6 +212,125 @@ async function decideWhenPending(
 }
 
 describe('ACP engineering path: permissions via approvals', () => {
+  it('returns a bounded timeout for uncooperative preparation and cleans up when it settles later', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const t = setup({ timeoutMs: 50, beforePrepared: () => gate });
+    const running = t.run().catch((e: unknown) => e);
+    await waitFor(() => (t.launcher.specs.length === 1 ? true : undefined));
+    const home = t.launcher.specs[0]!.mounts![0]!.hostPath;
+    try {
+      expect(await running).toMatchObject({ code: 'EXECUTION_TIMEOUT' });
+      expect(t.launcher.disposed).toBe(0);
+      expect(existsSync(home)).toBe(true);
+    } finally {
+      release();
+    }
+    await waitFor(() => (!existsSync(home) ? true : undefined));
+    expect(t.launcher.disposed).toBe(1);
+    expect(existsSync(t.recordPath)).toBe(false);
+  }, 5000);
+  it('awaits interrupted preparation before disposing and removing its state home', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const t = setup({ beforePrepared: () => gate });
+    let settled = false;
+    const running = t
+      .run()
+      .catch((e: unknown) => e)
+      .finally(() => {
+        settled = true;
+      });
+    await waitFor(() => (t.launcher.specs.length === 1 ? true : undefined));
+    const home = t.launcher.specs[0]!.mounts![0]!.hostPath;
+    try {
+      t.controller.abort();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(settled).toBe(false);
+      expect(existsSync(home)).toBe(true);
+    } finally {
+      release();
+    }
+    expect(await running).toMatchObject({ code: 'EXECUTION_CANCELLED' });
+    expect(t.launcher.disposed).toBe(1);
+    expect(existsSync(home)).toBe(false);
+    expect(existsSync(t.recordPath)).toBe(false);
+  });
+  it('isolates concurrent required-context overlays and removes both homes on cancellation', async () => {
+    const stateDir = join(makeTempDir(), 'shared-state');
+    const a = setup({ stateDir, flags: { scenario: 'hang' }, requiredContext: 'Project A policy' });
+    const b = setup({ stateDir, flags: { scenario: 'hang' }, requiredContext: 'Project B policy' });
+    const running = [a, b].map((t) => t.run().catch((e: unknown) => e));
+    const homes: string[] = [];
+    try {
+      for (const [index, t] of [a, b].entries()) {
+        await waitFor(() =>
+          existsSync(t.recordPath) &&
+          readAcpRecord(t.recordPath).requests.some((r) => r.method === 'session/prompt')
+            ? true
+            : undefined,
+        );
+        const home = t.launcher.specs[0]!.mounts![0]!.hostPath;
+        homes.push(home);
+        const overlayPath = join(home, 'nexar.patch.yml');
+        const overlay = readFileSync(overlayPath, 'utf8');
+        expect(overlay).toContain(index === 0 ? 'Project A policy' : 'Project B policy');
+        expect(overlay).not.toContain(index === 0 ? 'Project B policy' : 'Project A policy');
+        if (process.platform !== 'win32') {
+          expect(statSync(home).mode & 0o777).toBe(0o700);
+          expect(statSync(overlayPath).mode & 0o777).toBe(0o600);
+        }
+      }
+      expect(homes[0]).not.toBe(homes[1]);
+    } finally {
+      a.controller.abort();
+      b.controller.abort();
+      const results = await Promise.all(running);
+      for (const result of results) expect(result).toMatchObject({ code: 'EXECUTION_CANCELLED' });
+    }
+    for (const home of homes) expect(existsSync(home)).toBe(false);
+  });
+
+  it('removes native-key state after success and uses a fresh home on the next run', async () => {
+    const t = setup({ approvals: 'none' });
+    await t.run();
+    const first = t.launcher.specs[0]!.mounts![0]!.hostPath;
+    expect(existsSync(first)).toBe(false);
+    await t.run();
+    const second = t.launcher.specs[1]!.mounts![0]!.hostPath;
+    expect(second).not.toBe(first);
+    expect(existsSync(second)).toBe(false);
+  });
+
+  it('rejects a model route change in native-key mode', async () => {
+    const t = setup({ flags: { scenario: 'model-change' } });
+    await expect(t.run()).rejects.toMatchObject({
+      code: 'POLICY_REJECTED',
+      details: { reason: 'model-route-changed' },
+    });
+    expect(readAcpRecord(t.recordPath).notifications.map((n) => n.method)).toContain(
+      'session/cancel',
+    );
+    expect(existsSync(t.launcher.specs[0]!.mounts![0]!.hostPath)).toBe(false);
+  });
+
+  it('accepts a notification naming the NRC-selected native resource model', async () => {
+    const t = setup({
+      approvals: 'none',
+      flags: {
+        scenario: 'model-change',
+        'model-value': JSON.stringify(['deepseek-official', 'deepseek-v4-flash']),
+        'model-continue': '1',
+      },
+    });
+    await expect(t.run()).resolves.toMatchObject({
+      resolved: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    });
+  });
   it('runs end to end and allow_once is sent after a human approves', async () => {
     const t = setup({
       prompt: PROMPT_MARKER,
@@ -442,15 +580,63 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
   });
 
   it('refuses a read-write workspace with a non-sandbox launcher before preparing anything', async () => {
-    const t = setup({ isolation: 'none' });
+    const t = setup({ isolation: 'none', requiredContext: 'Always run the tests.' });
     await expect(t.run()).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
     expect(t.launcher.specs).toEqual([]);
     expect(existsSync(t.recordPath)).toBe(false);
+    expect(existsSync(join(t.stateDir, 'acp'))).toBe(false);
   });
 
   it('re-checks the isolation reported by prepare and disposes without spawning', async () => {
     const t = setup({ isolation: 'sandbox', reportedIsolation: 'none' });
     await expect(t.run()).rejects.toMatchObject({ code: 'POLICY_REJECTED' });
+    expect(t.launcher.disposed).toBe(1);
+    expect(existsSync(t.recordPath)).toBe(false);
+  });
+
+  it('native-key mode passes --patch with the Coding overlay and keeps llm-deepseek enabled', async () => {
+    const t = setup({
+      requiredContext: 'Always run {{the}} tests.',
+      acp: { permissions: { mode: 'deny' } },
+    });
+    await t.run();
+    const record = readAcpRecord(t.recordPath);
+    expect(record.argv).toContain('--patch');
+    const overlay = record.overlay as string;
+    expect(overlay).toBe(
+      renderProfileOverlay({
+        profile: CODING_PROFILE,
+        route: { kind: 'resource' },
+        requiredContext: 'Always run {{the}} tests.',
+      }),
+    );
+    const disabled = [...overlay.matchAll(/^- id: (\S+)\n {2}disabled: true$/gm)].map((m) => m[1]);
+    expect(disabled).toEqual(expect.arrayContaining(['session-log-deepseek', 'otel']));
+    expect(disabled).not.toContain('llm-deepseek');
+    expect(disabled).not.toContain('tool-bash');
+    expect(overlay).not.toMatch(/llm-pi-ai|NEXAR_CONTROL_TOKEN/);
+    expect(overlay).not.toContain('{{the}}');
+    expect(overlay).toContain('Always run { {the} } tests.');
+    // The context is never logged, sent as an event or put in the prompt turn.
+    expect(JSON.stringify([t.logs, t.events, record.requests[3]?.params])).not.toContain(
+      'Always run',
+    );
+  });
+
+  it('writes a Coding overlay with an empty personaSuffix when no context is given', async () => {
+    const t = setup({ acp: { permissions: { mode: 'deny' } } });
+    await t.run();
+    const overlay = readAcpRecord(t.recordPath).overlay as string;
+    expect(overlay).toContain('    personaSuffix: ""');
+    expect(overlay).toContain(`    personaPrefix: ${JSON.stringify(CODING_PROFILE.persona)}`);
+  });
+
+  it('rejects an oversized required context before spawning and disposes the launch', async () => {
+    const t = setup({
+      requiredContext: 'x'.repeat(MAX_REQUIRED_CONTEXT_CHARS + 1),
+      acp: { permissions: { mode: 'deny' } },
+    });
+    await expect(t.run()).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
     expect(t.launcher.disposed).toBe(1);
     expect(existsSync(t.recordPath)).toBe(false);
   });
@@ -465,14 +651,30 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
   });
 
   it('builds the sandbox launch spec from allowlisted env and one DSH state mount', async () => {
-    const t = setup();
+    const t = setup({
+      beforePrepared: () => {
+        const mount = t.launcher.specs[0]?.mounts?.[0];
+        if (process.platform !== 'win32')
+          expect(statSync(mount?.hostPath as string).mode & 0o777).toBe(0o700);
+        return Promise.resolve();
+      },
+    });
     const running = t.run();
     await decideWhenPending(t.store, 'approve');
     await running;
     const spec = t.launcher.specs[0] as LaunchSpec;
     expect(spec.command).toBe(process.execPath);
-    expect(spec.args.slice(-2)).toEqual(['--profile', 'acp']);
-    expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh', DEEPSEEK_API_KEY: 'sk-test-key-123' });
+    expect(spec.args.slice(-4)).toEqual([
+      '--profile',
+      'acp',
+      '--patch',
+      '/home/agent/.dsh/nexar.patch.yml',
+    ]);
+    expect(spec.env).toEqual({
+      DSH_HOME: '/home/agent/.dsh',
+      DSH_TELEMETRY_DISABLED: '1',
+      DEEPSEEK_API_KEY: 'sk-test-key-123',
+    });
     expect(spec.workspace).toBe(t.workspacePath);
     expect(spec.workspaceAccess).toBe('read-write');
     expect(spec.network).toEqual({ mode: 'proxy', allowHosts: ['api.deepseek.com'] });
@@ -480,8 +682,7 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     expect(spec.mounts).toHaveLength(1);
     expect(mount).toMatchObject({ sandboxPath: '/home/agent/.dsh', access: 'read-write' });
     expect(mount?.hostPath.startsWith(t.stateDir)).toBe(true);
-    if (process.platform !== 'win32')
-      expect(statSync(mount?.hostPath as string).mode & 0o777).toBe(0o700);
+    expect(existsSync(mount?.hostPath as string)).toBe(false);
   });
 
   it('omits the credential when it is not set and honors allowHosts', async () => {
@@ -491,7 +692,7 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     });
     await t.run();
     const spec = t.launcher.specs[0] as LaunchSpec;
-    expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh' });
+    expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh', DSH_TELEMETRY_DISABLED: '1' });
     expect(spec.network).toEqual({ mode: 'proxy', allowHosts: ['example.test'] });
   });
 
@@ -507,7 +708,11 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     });
     await t.run();
     const spec = t.launcher.specs[0] as LaunchSpec;
-    expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh', DEEPSEEK_API_KEY: stored });
+    expect(spec.env).toEqual({
+      DSH_HOME: '/home/agent/.dsh',
+      DSH_TELEMETRY_DISABLED: '1',
+      DEEPSEEK_API_KEY: stored,
+    });
     expect(JSON.stringify(t.logs)).not.toContain(stored);
   });
 
@@ -579,5 +784,20 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
 
   it('keeps the adapter id wired for the engineering path', () => {
     expect(adapterId('deepseek-harness')).toBe(DEEPSEEK_HARNESS_ADAPTER_ID);
+  });
+
+  it('fails successful execution on cleanup failure without leaking paths or masking primary failure', async () => {
+    const successful = setup({ failDispose: true, acp: { permissions: { mode: 'deny' } } });
+    await expect(successful.run()).rejects.toMatchObject({
+      code: 'INTEGRATION_UNAVAILABLE',
+      message: 'dsh state cleanup did not complete',
+    });
+    expect(JSON.stringify(successful.logs)).not.toContain('private-path-must-not-leak');
+    const failed = setup({
+      failDispose: true,
+      flags: { scenario: 'rpc-error', 'rpc-message': 'upstream exploded' },
+    });
+    await expect(failed.run()).rejects.toMatchObject({ code: 'PROVIDER_ERROR' });
+    expect(JSON.stringify(failed.logs)).not.toContain('private-path-must-not-leak');
   });
 });

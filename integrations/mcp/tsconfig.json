@@ -9,6 +9,6 @@
   "references": [
     { "path": "../../packages/access" },
     { "path": "../../packages/contracts" },
-    { "path": "../openworker" }
+    { "path": "../../packages/work-bridge" }
   ]
 }

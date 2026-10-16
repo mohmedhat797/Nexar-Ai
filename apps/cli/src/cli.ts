@@ -16,6 +16,7 @@ import { routeCommand } from './commands/route.js';
 import { runCommand } from './commands/run.js';
 import { sandboxCommand } from './commands/sandbox.js';
 import { workflowsCommand } from './commands/workflows.js';
+import { coworkCommand } from './commands/cowork.js';
 import { EXIT, UsageError, exitCodeFor, type CliIo } from './io.js';
 
 import { CLI_VERSION } from './version.js';
@@ -34,6 +35,7 @@ const COMMANDS: readonly Command[] = [
   engineerCommand,
   sandboxCommand,
   planeCommand,
+  coworkCommand,
   routeCommand,
   runCommand,
 ];

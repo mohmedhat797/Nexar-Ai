@@ -15,7 +15,7 @@ import { LocalArtifactStore } from '@nexar/artifacts';
 import type { Logger } from '@nexar/contracts';
 import { createNexarWithProjects, parseConfig, type NexarRuntime } from '@nexar/core';
 import { EchoExecutionAdapter, echoResource } from '@nexar/integration-echo';
-import { createWorkBridge, type WorkBridge } from '@nexar/integration-openworker';
+import { createWorkBridge, type WorkBridge } from '@nexar/work-bridge';
 import { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
 import {
   NEXAR_MCP_TOOLS,
@@ -212,7 +212,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
   /** A connected client whose process would have been launched with `token`. */
   async function asClient(
     scopes: ClientScopes = FULL,
-    id = 'openworker',
+    id = 'mcp-client',
     options: Parameters<typeof setup>[0] = {},
   ): Promise<{ client: Client; token: string; deps: NexarMcpDeps }> {
     const { token } = await registry.add(id, scopes);
@@ -322,7 +322,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
       expect(out.structured).toEqual(out.json);
       expect(executed).toBe(1);
       // The launcher's source, not the model's, is stamped unless it says otherwise.
-      expect(submitted[0]).toMatchObject({ version: 2, source: 'openworker' });
+      expect(submitted[0]).toMatchObject({ version: 2, source: 'mcp' });
     });
 
     it('persists the result as an artifact and reports it', async () => {
@@ -347,7 +347,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
     });
 
     it('answers running for slow work and completes through work_status', async () => {
-      const { client } = await asClient(FULL, 'openworker', { delayMs: 150 });
+      const { client } = await asClient(FULL, 'mcp-client', { delayMs: 150 });
       const first = await call(client, 'nexar.submit_work', work({ waitSeconds: 0 }));
       expect(first.json['status']).toBe('running');
       expect(first.json['taskId']).toMatch(/^task_/);
@@ -438,7 +438,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
     };
 
     it('refuses every tool when NEXAR_CLIENT_TOKEN is missing', async () => {
-      await registry.add('openworker', FULL);
+      await registry.add('mcp-client', FULL);
       const client = await connect(await setup({ token: undefined }));
       for (const name of ALL_TOOLS) {
         expect(
@@ -453,7 +453,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
     });
 
     it('refuses a wrong, malformed or unexpanded token', async () => {
-      await registry.add('openworker', FULL);
+      await registry.add('mcp-client', FULL);
       for (const token of [generateToken(), 'nxr_short', '${NEXAR_CLIENT_TOKEN}', '']) {
         const client = await connect(await setup({ token }));
         expect(await call(client, 'nexar.submit_work', work())).toMatchObject(refusal);
@@ -465,7 +465,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
       const { client, token } = await asClient();
       expect((await call(client, 'nexar.submit_work', work())).json['status']).toBe('completed');
       // What `nexar clients revoke` does, from another process.
-      await (await ClientRegistry.open(join(stateDir, 'clients.json'))).revoke('openworker');
+      await (await ClientRegistry.open(join(stateDir, 'clients.json'))).revoke('mcp-client');
       expect(await call(client, 'nexar.submit_work', work({ requestId: 'r-2' }))).toMatchObject(
         refusal,
       );
@@ -550,7 +550,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
       await call(client, 'nexar.submit_work', work());
       const [record] = await auditRecords();
       expect(record).toMatchObject({
-        clientId: 'openworker',
+        clientId: 'mcp-client',
         auth: 'succeeded',
         policy: 'rejected',
         outcome: 'rejected',
@@ -665,7 +665,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
     ];
 
     it('returns only the safe allowlist and never credentials, env names, metadata or probe detail', async () => {
-      const { client } = await asClient(FULL, 'openworker', { extraResources: true });
+      const { client } = await asClient(FULL, 'mcp-client', { extraResources: true });
       const out = await call(client, 'nexar.resources');
       expect(out.isError).toBe(false);
       const resources = out.json['resources'] as Record<string, unknown>[];
@@ -718,7 +718,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
   });
 
   describe('nexar.work_status', () => {
-    it('never shows another client’s request', async () => {
+    it('never shows another clientâ€™s request', async () => {
       const alice = await asClient(FULL, 'alice');
       await call(alice.client, 'nexar.submit_work', work());
       const bob = await registry.add('bob', FULL);
@@ -763,7 +763,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
     });
 
     it('reports an audit write failure instead of pretending success', async () => {
-      const deps = await setup({ token: (await registry.add('openworker', FULL)).token });
+      const deps = await setup({ token: (await registry.add('mcp-client', FULL)).token });
       const client = await connect({
         ...deps,
         audit: { append: () => Promise.reject(new Error('disk full')) },
@@ -838,7 +838,7 @@ describe('nexar MCP server (in-memory client, real echo engine)', () => {
       );
       expect(byRequest['r-1']).toMatchObject({
         tool: 'nexar.submit_work',
-        clientId: 'openworker',
+        clientId: 'mcp-client',
         auth: 'succeeded',
         policy: 'allowed',
         projectId: 'demo',

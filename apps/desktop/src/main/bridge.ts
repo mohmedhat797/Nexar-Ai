@@ -6,7 +6,7 @@ import { approvalChannels } from './approvals.js';
 import { artifactChannels } from './artifacts.js';
 import { behaviorChannels } from './behavior.js';
 import { codeChannels } from './code.js';
-import { coworkChannels } from './cowork.js';
+import { coworkChannels } from './dsh-cowork.js';
 import {
   JobRegistry,
   NoArgs,
@@ -18,6 +18,7 @@ import {
 } from './channel.js';
 import { createOperating } from './operating.js';
 import { projectChannels } from './projects.js';
+import { projectMemoryChannels } from './project-memory.js';
 import { chatgptPlanChannels } from './chatgpt-plan.js';
 import { providerChannels } from './providers.js';
 import { subscriptionChannels } from './subscriptions.js';
@@ -67,6 +68,7 @@ export function createBridge(deps: BridgeDeps): Bridge {
     ...approvalChannels,
     ...workflowChannels,
     ...sessionChannels,
+    ...projectMemoryChannels,
     ...codeChannels,
     ...coworkChannels,
     ...behaviorChannels,

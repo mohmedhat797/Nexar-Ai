@@ -23,7 +23,10 @@ import { createControlModelTurnPorts } from './composition.js';
 import type { HostEnvironment } from './seams.js';
 
 export interface PlaneLaneEngineOptions {
-  readonly runtime: Pick<NexarRuntime, 'nexar' | 'controller' | 'registry' | 'policy'>;
+  readonly runtime: Pick<
+    NexarRuntime,
+    'nexar' | 'controller' | 'registry' | 'policy' | 'telemetry'
+  >;
   readonly io: HostEnvironment;
   readonly logger: Logger;
   /** `<state>/.nexar`; lane service directories live under `lanes/` and are removed at lane end. */
@@ -87,6 +90,7 @@ export class PlaneLaneEngine implements LaneEngine {
       clock: this.clock,
       newId: this.newId,
       logger: this.options.logger,
+      ...(runtime.telemetry === undefined ? {} : { telemetry: runtime.telemetry }),
       onEvent: (event) => hostRef.current?.noteControlEvent(event),
     });
     if (gateway.preview('dsh', policy) === undefined) {

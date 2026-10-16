@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
 import { createServer, type Server as NetServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -10,12 +10,102 @@ import { build } from 'esbuild';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { BridgeHost } from '@nexar/engine-gateway';
 import { createFakeControl, okTurn, silentLogger } from '@nexar/engine-gateway/testing';
+import { parseGatewayExit } from './exit-diagnostic.js';
 
 const SENTINEL = 'SENTINEL-prompt-and-args';
 const TOKEN = 'tok-0123456789abcdef';
 
 type Frame = { v: number; id: string; token: string; op: string; turn: Record<string, unknown> };
 type Answer = { ok: true; value: unknown } | { ok: false; code: string };
+
+interface ChildExit {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+}
+const childExits = new WeakMap<ChildProcess, Promise<ChildExit>>();
+const liveChildren = new Set<ChildProcess>();
+/** The last bytes of each child's stderr, kept so an early exit can say which exit it was. */
+const MAX_STDERR_TAIL_BYTES = 4096;
+const stderrTails = new WeakMap<ChildProcess, () => string>();
+
+function spawnGateway(script: string, execArgv: readonly string[] = []): ChildProcess {
+  const proc = spawn(process.execPath, [...execArgv, script], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+  });
+  liveChildren.add(proc);
+  let tail = Buffer.alloc(0);
+  proc.stderr?.on('data', (chunk: Buffer) => {
+    const joined = Buffer.concat([tail, chunk]);
+    tail =
+      joined.length > MAX_STDERR_TAIL_BYTES
+        ? Buffer.from(joined.subarray(joined.length - MAX_STDERR_TAIL_BYTES))
+        : joined;
+  });
+  proc.stderr?.on('error', () => undefined);
+  stderrTails.set(proc, () => tail.toString('utf8'));
+  childExits.set(
+    proc,
+    new Promise((resolve) => {
+      proc.once('close', (code, signal) => {
+        liveChildren.delete(proc);
+        resolve({ code, signal });
+      });
+    }),
+  );
+  proc.stdin?.on('error', () => undefined);
+  return proc;
+}
+
+function childClosed(proc: ChildProcess): Promise<ChildExit> {
+  const closed = childExits.get(proc);
+  if (closed === undefined) throw new Error('untracked gateway child');
+  return closed;
+}
+
+/** The child's stderr tail (at most 4096 bytes); complete once the child has closed. */
+const stderrOf = (proc: ChildProcess): string => stderrTails.get(proc)?.() ?? '';
+
+async function earlyExit(
+  proc: ChildProcess,
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): Promise<Error> {
+  // 'exit' can come before the last stderr bytes are read: wait for stdio to close, bounded.
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    childClosed(proc),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, 250);
+    }),
+  ]);
+  clearTimeout(timer);
+  const status = code === null ? 'null' : `0x${(code >>> 0).toString(16)}`;
+  const diagnostic = parseGatewayExit(stderrOf(proc));
+  const reported = diagnostic === undefined ? 'none' : `${diagnostic.phase}/${diagnostic.code}`;
+  return new Error(
+    `gateway child exited before ready (pid=${proc.pid}, code=${status}, signal=${signal ?? 'null'}, diagnostic=${reported})`,
+  );
+}
+
+async function stopChild(proc: ChildProcess): Promise<void> {
+  // Register close at spawn, then wait for stdio teardown before closing the endpoint or deleting files.
+  const timeout = setTimeout(() => proc.kill(), 5_000);
+  try {
+    proc.stdin?.end();
+    expect(await childClosed(proc), `gateway child pid=${proc.pid}`).toEqual({
+      code: 0,
+      signal: null,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+afterAll(async () => {
+  // Also reclaim a process whose launch failed before assignment to a fixture variable.
+  await Promise.all([...liveChildren].map(stopChild));
+});
 
 const result = (patch: Record<string, unknown> = {}): Answer => ({
   ok: true,
@@ -182,14 +272,9 @@ describe('control gateway translator', () => {
       logLevel: 'silent',
     });
   }, 60_000);
-  afterAll(() => rm(dir, { recursive: true, force: true }));
 
   async function launch(endpointPath: string): Promise<{ child: ChildProcess; port: number }> {
-    const proc = spawn(process.execPath, [script], {
-      stdio: ['pipe', 'pipe', 'ignore'],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-    });
-    proc.stdin?.on('error', () => undefined);
+    const proc = spawnGateway(script);
     proc.stdin?.write(`${JSON.stringify({ endpoint: endpointPath })}\n`);
     const line = await new Promise<string>((resolve, reject) => {
       let buffered = '';
@@ -197,7 +282,10 @@ describe('control gateway translator', () => {
         buffered += chunk.toString();
         if (buffered.includes('\n')) resolve(buffered.split('\n')[0] ?? '');
       });
-      proc.once('exit', () => reject(new Error('child exited early')));
+      proc.once('error', () =>
+        reject(new Error(`gateway child failed to spawn (pid=${proc.pid})`)),
+      );
+      proc.once('exit', (code, signal) => void earlyExit(proc, code, signal).then(reject));
     });
     return { child: proc, port: (JSON.parse(line) as { port: number }).port };
   }
@@ -207,9 +295,12 @@ describe('control gateway translator', () => {
     ({ child, port } = await launch(endpoint.path));
   }, 30_000);
   afterAll(async () => {
-    child?.stdin?.end();
-    child?.kill();
-    await endpoint.stop();
+    try {
+      if (child !== undefined) await stopChild(child);
+    } finally {
+      await endpoint.stop();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
   afterEach(() => {
     endpoint.frames.length = 0;
@@ -500,27 +591,98 @@ describe('control gateway translator', () => {
       const reply = await chat(dead.port, sdkRequest());
       expect(reply.status).toBe(502);
     } finally {
-      dead.child.stdin?.end();
-      dead.child.kill();
+      await stopChild(dead.child);
     }
   });
 
   it('exits when stdin closes', async () => {
     const other = await launch(endpoint.path);
-    const exited = new Promise<number | null>((resolve) => other.child.once('exit', resolve));
     other.child.stdin?.end();
-    expect(await exited).toBe(0);
+    expect(await childClosed(other.child)).toEqual({ code: 0, signal: null });
   });
 
   it('exits non-zero on a bad config line', async () => {
-    const proc = spawn(process.execPath, [script], {
-      stdio: ['pipe', 'pipe', 'ignore'],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-    });
-    const exited = new Promise<number | null>((resolve) => proc.once('exit', resolve));
-    proc.stdin?.on('error', () => undefined);
+    const proc = spawnGateway(script);
     proc.stdin?.write('{"endpoint":42}\n');
-    expect(await exited).toBe(2);
+    expect(await childClosed(proc)).toEqual({ code: 2, signal: null });
+  });
+
+  describe('exit diagnostics', () => {
+    /** Runs a fresh child to its own exit; `preload` (CommonJS source) is required before the entry. */
+    async function runToExit(
+      stdin: string,
+      preload?: string,
+    ): Promise<{ exit: ChildExit; stderr: string }> {
+      const execArgv: string[] = [];
+      if (preload !== undefined) {
+        const file = join(dir, `preload-${randomUUID()}.cjs`);
+        await writeFile(file, preload);
+        execArgv.push('--require', file);
+      }
+      const proc = spawnGateway(script, execArgv);
+      proc.stdin?.write(stdin);
+      const exit = await childClosed(proc);
+      return { exit, stderr: stderrOf(proc) };
+    }
+
+    const line = (phase: string, code: string): string =>
+      `${JSON.stringify({ nexarGatewayExit: { phase, code } })}\n`;
+    const configLine = `${JSON.stringify({ endpoint: 'ignored' })}\n`;
+
+    it('writes exactly one config line, with no message or path, on a bad config', async () => {
+      const cases: [string, string][] = [
+        ['{"endpoint":42,"note":"C:\\\\secret\\\\path"}\n', 'unknown'],
+        ['not json C:\\secret\\path\n', 'SyntaxError'],
+        ['x'.repeat(5000), 'unknown'],
+      ];
+      for (const [stdin, code] of cases) {
+        const run = await runToExit(stdin);
+        expect(run.exit).toEqual({ code: 2, signal: null });
+        expect(run.stderr).toBe(line('config', code));
+      }
+    });
+
+    // There is no reliable way to make a loopback bind fail on demand, so a preload replaces
+    // net.Server#listen with one that emits the error a real failure would; the bundle is unchanged.
+    it('exits 1 with the listen phase when the server errors', async () => {
+      const run = await runToExit(
+        configLine,
+        `require('node:net').Server.prototype.listen = function () {
+           const error = Object.assign(new Error('listen EADDRINUSE /secret/path'), { code: 'EADDRINUSE' });
+           process.nextTick(() => this.emit('error', error));
+           return this;
+         };`,
+      );
+      expect(run.exit).toEqual({ code: 1, signal: null });
+      expect(run.stderr).toBe(line('listen', 'EADDRINUSE'));
+    });
+
+    it('exits 1 with the stdin phase when stdin errors', async () => {
+      const run = await runToExit(
+        '',
+        `setImmediate(() => process.stdin.emit('error', Object.assign(new Error('read EIO /secret/path'), { code: 'EIO' })));`,
+      );
+      expect(run.exit).toEqual({ code: 1, signal: null });
+      expect(run.stderr).toBe(line('stdin', 'EIO'));
+    });
+
+    it('exits 1 with the uncaught phase on an uncaught exception or rejection, without a stack', async () => {
+      const thrown = await runToExit(
+        configLine,
+        `require('node:net').Server.prototype.listen = function () {
+           throw Object.assign(new Error('boom /secret/path'), { code: 'ERR_TEST_BOOM' });
+         };`,
+      );
+      expect(thrown.exit).toEqual({ code: 1, signal: null });
+      expect(thrown.stderr).toBe(line('uncaught', 'ERR_TEST_BOOM'));
+
+      const rejected = await runToExit(
+        '',
+        `setImmediate(() => void Promise.reject(new TypeError('nope /secret/path')));`,
+      );
+      expect(rejected.exit).toEqual({ code: 1, signal: null });
+      expect(rejected.stderr).toBe(line('uncaught', 'TypeError'));
+    });
   });
 
   it('binds loopback only', async () => {
@@ -529,7 +691,7 @@ describe('control gateway translator', () => {
       const reply = await http(probe.port, { path: '/v1/models' });
       expect(reply.status).toBe(200);
     } finally {
-      probe.child.stdin?.end();
+      await stopChild(probe.child);
     }
   });
 });
@@ -577,27 +739,29 @@ describe('control gateway end to end (child -> endpoint -> gateway -> fake port)
       gateway,
     });
     const endpointPath = await host.start();
-    const proc = spawn(process.execPath, [script], {
-      stdio: ['pipe', 'pipe', 'ignore'],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-    });
-    proc.stdin?.on('error', () => undefined);
+    const proc = spawnGateway(script);
     proc.stdin?.write(`${JSON.stringify({ endpoint: endpointPath })}\n`);
-    const line = await new Promise<string>((resolve) => {
+    const line = await new Promise<string>((resolve, reject) => {
       let buffered = '';
       proc.stdout?.on('data', (chunk: Buffer) => {
         buffered += chunk.toString();
         if (buffered.includes('\n')) resolve(buffered.split('\n')[0] ?? '');
       });
+      proc.once('error', () =>
+        reject(new Error(`gateway child failed to spawn (pid=${proc.pid})`)),
+      );
+      proc.once('exit', (code, signal) => void earlyExit(proc, code, signal).then(reject));
     });
     child = proc;
     port = (JSON.parse(line) as { port: number }).port;
   }, 60_000);
   afterAll(async () => {
-    child.stdin?.end();
-    child.kill();
-    await host.stop();
-    await rm(dir, { recursive: true, force: true });
+    try {
+      await stopChild(child);
+    } finally {
+      await host.stop();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   const grant = {
@@ -605,7 +769,7 @@ describe('control gateway end to end (child -> endpoint -> gateway -> fake port)
     turnId: 't1',
     correlationId: 'c1',
     projectId: 'proj',
-    engine: 'openworker',
+    engine: 'dsh',
     access: 'read-only',
     maxUnits: 1,
     ttlMs: 60_000,

@@ -10,6 +10,8 @@ import {
   type ModelTurnPortRequest,
   type NexarErrorCode,
   type ResourceSnapshot,
+  type TelemetryEvent,
+  type TelemetrySink,
 } from '@nexar/contracts';
 import { ControlModelGateway, type ControlEvent } from './gateway.js';
 import { NOW, routingPolicy, snap } from './fixtures.js';
@@ -44,7 +46,7 @@ const fail = (code: NexarErrorCode): NexarError => new NexarError(code, 'boom');
 
 function setup(
   handlers: Record<string, (r: ModelTurnPortRequest) => Promise<PortResult> | PortResult>,
-  options: { retries?: number; candidates?: ResourceSnapshot[] } = {},
+  options: { retries?: number; candidates?: ResourceSnapshot[]; telemetry?: TelemetrySink } = {},
 ) {
   const events: ControlEvent[] = [];
   const calls: { resource: string; request: ModelTurnPortRequest }[] = [];
@@ -70,6 +72,7 @@ function setup(
     newId: () => `dec-${String(++n)}`,
     logger: silent,
     onEvent: (e) => events.push(e),
+    ...(options.telemetry === undefined ? {} : { telemetry: options.telemetry }),
     ...(options.retries === undefined ? {} : { retries: options.retries }),
   });
   const request = (
@@ -77,7 +80,7 @@ function setup(
     patch: Partial<ControlTurnRequest> = {},
   ): ControlTurnRequest => ({
     lineage,
-    engine: 'openworker',
+    engine: 'dsh',
     controlDecisionId: decisionId,
     messages: [{ role: 'user', content: SENTINEL }],
     ...patch,
@@ -97,12 +100,102 @@ async function rejection(p: Promise<unknown>): Promise<NexarError> {
 }
 
 describe('ControlModelGateway', () => {
+  it('accounts each actual provider attempt against the selected resource, including restarts', async () => {
+    const records: TelemetryEvent[] = [];
+    const { gateway, request, calls } = setup(
+      {
+        a: () => {
+          throw new NexarError('PROVIDER_ERROR', SENTINEL, { retryable: true });
+        },
+        b: () => ({
+          ...ok(),
+          usage: { inputTokens: measured(3), outputTokens: measured(1), costUsd: measured(0.02) },
+        }),
+      },
+      {
+        telemetry: {
+          emit: (event) => {
+            records.push(event);
+          },
+        },
+      },
+    );
+    const first = gateway.begin(
+      'dsh',
+      { mode: 'pinned', resourceId: 'a', fallback: 'auto' },
+      lineage,
+    );
+    await expect(gateway.turn(request(first.controlDecisionId), signal())).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+    });
+    const next = gateway.restart(first.controlDecisionId);
+    await gateway.turn(request(next.controlDecisionId), signal());
+    await gateway.turn(request(next.controlDecisionId), signal());
+    const finished = records.filter((event) => event.type === 'execution.finished');
+    expect(finished).toHaveLength(calls.length);
+    expect(finished.map((event) => event.record.resourceId)).toEqual(['a', 'a', 'b', 'b']);
+    expect(new Set(finished.map((event) => event.record.taskId)).size).toBe(4);
+    expect(finished[0]?.record.usage.inputTokens.status).toBe('unavailable');
+    expect(finished[0]?.record.outcome).toBe('failed');
+    expect(finished[2]?.record).toMatchObject({
+      provider: 'acme',
+      model: 'b',
+      origin: 'control-plane',
+      usage: { costUsd: measured(0.02) },
+    });
+    expect(JSON.stringify(records)).not.toContain(SENTINEL);
+  });
+
+  it('does not retry a successful provider call when the accounting sink fails', async () => {
+    const emit = vi.fn(() => {
+      throw new Error(SENTINEL);
+    });
+    const { gateway, request, calls } = setup({ a: () => ok() }, { telemetry: { emit } });
+    const decision = gateway.begin('dsh', auto, lineage);
+    await expect(
+      gateway.turn(request(decision.controlDecisionId), signal()),
+    ).resolves.toMatchObject({ text: 'hi' });
+    expect(calls).toHaveLength(1);
+    expect(emit).toHaveBeenCalledTimes(1);
+  });
+
+  it('records cancellation with unknown usage and never accounts a preflight refusal', async () => {
+    const records: TelemetryEvent[] = [];
+    const { gateway, request } = setup(
+      {
+        a: () => {
+          throw fail('EXECUTION_CANCELLED');
+        },
+      },
+      {
+        telemetry: {
+          emit: (event) => {
+            records.push(event);
+          },
+        },
+      },
+    );
+    await expect(gateway.turn(request('missing'), signal())).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    expect(records).toHaveLength(0);
+    const decision = gateway.begin('dsh', auto, lineage);
+    await expect(gateway.turn(request(decision.controlDecisionId), signal())).rejects.toMatchObject(
+      { code: 'EXECUTION_CANCELLED' },
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      type: 'execution.finished',
+      record: { outcome: 'cancelled', usage: { costUsd: { status: 'unavailable' } } },
+    });
+  });
+
   it('previews the resource begin would pin, without side effects', () => {
     const { gateway, events } = setup({ a: () => ok(), b: () => ok() });
     const pinned: ControlResourcePolicy = { mode: 'pinned', resourceId: 'b', fallback: 'none' };
-    expect(gateway.preview('openworker', pinned)).toEqual({ resourceId: 'b' });
-    expect(gateway.preview('openworker', undefined)?.resourceId).toBe(
-      gateway.begin('openworker', auto, lineage).resourceId,
+    expect(gateway.preview('dsh', pinned)).toEqual({ resourceId: 'b' });
+    expect(gateway.preview('dsh', undefined)?.resourceId).toBe(
+      gateway.begin('dsh', auto, lineage).resourceId,
     );
     // Only the explicit `begin` recorded and emitted a decision.
     expect(events.map((e) => e.type)).toEqual(['control.decided']);
@@ -111,16 +204,16 @@ describe('ControlModelGateway', () => {
   it('previews nothing when no resource qualifies or the policy is unusable', () => {
     const { gateway, events } = setup({ a: () => ok() });
     expect(
-      gateway.preview('openworker', { mode: 'pinned', resourceId: 'zz', fallback: 'none' }),
+      gateway.preview('dsh', { mode: 'pinned', resourceId: 'zz', fallback: 'none' }),
     ).toBeUndefined();
-    expect(gateway.preview('openworker', { mode: 'pinned', fallback: 'auto' })).toBeUndefined();
+    expect(gateway.preview('dsh', { mode: 'pinned', fallback: 'auto' })).toBeUndefined();
     const empty = setup({}, { candidates: [] });
-    expect(empty.gateway.preview('openworker', auto)).toBeUndefined();
+    expect(empty.gateway.preview('dsh', auto)).toBeUndefined();
     expect(events).toEqual([]);
   });
   it('pins the same resource across turns and stamps resourceId', async () => {
     const { gateway, calls, request } = setup({ a: () => ok(), b: () => ok() });
-    const d = gateway.begin('openworker', auto, lineage);
+    const d = gateway.begin('dsh', auto, lineage);
     const r1 = await gateway.turn(request(d.controlDecisionId), signal());
     const r2 = await gateway.turn(request(d.controlDecisionId), signal());
     expect(r1.resourceId).toBe(d.resourceId);
@@ -138,11 +231,7 @@ describe('ControlModelGateway', () => {
       },
       { retries: 1 },
     );
-    const d = gateway.begin(
-      'openworker',
-      { mode: 'pinned', resourceId: 'a', fallback: 'auto' },
-      lineage,
-    );
+    const d = gateway.begin('dsh', { mode: 'pinned', resourceId: 'a', fallback: 'auto' }, lineage);
     const e = await rejection(gateway.turn(request(d.controlDecisionId), signal()));
     expect(e.code).toBe('PROVIDER_ERROR');
     expect(e.details?.reason).toBe('control-resource-failed');
@@ -159,7 +248,7 @@ describe('ControlModelGateway', () => {
     const { gateway, calls, request } = setup({
       a: () => (++n === 1 ? Promise.reject(fail('QUOTA_EXHAUSTED')) : ok('later')),
     });
-    const d = gateway.begin('openworker', auto, lineage);
+    const d = gateway.begin('dsh', auto, lineage);
     const r = await gateway.turn(request(d.controlDecisionId), signal());
     expect(r.text).toBe('later');
     expect(calls).toHaveLength(2);
@@ -171,7 +260,7 @@ describe('ControlModelGateway', () => {
         throw fail('AUTH_REQUIRED');
       },
     });
-    const d = gateway.begin('openworker', auto, lineage);
+    const d = gateway.begin('dsh', auto, lineage);
     const e = await rejection(gateway.turn(request(d.controlDecisionId), signal()));
     expect(e.code).toBe('AUTH_REQUIRED');
     expect(calls).toHaveLength(1);
@@ -190,7 +279,7 @@ describe('ControlModelGateway', () => {
       },
       { retries: 0 },
     );
-    let d = gateway.begin('openworker', auto, lineage);
+    let d = gateway.begin('dsh', auto, lineage);
     const tried = new Set<string>();
     for (let i = 0; i < 2; i++) {
       tried.add(d.resourceId);
@@ -211,13 +300,13 @@ describe('ControlModelGateway', () => {
       },
       { retries: 0 },
     );
-    const d = one.gateway.begin('openworker', auto, lineage);
+    const d = one.gateway.begin('dsh', auto, lineage);
     await rejection(one.gateway.turn(one.request(d.controlDecisionId), signal()));
     expect(() => one.gateway.restart(d.controlDecisionId)).toThrow(/No eligible/);
 
     const none = setup({ a: () => ok(), b: () => ok() });
     const p = none.gateway.begin(
-      'openworker',
+      'dsh',
       { mode: 'pinned', resourceId: 'a', fallback: 'none' },
       lineage,
     );
@@ -226,7 +315,7 @@ describe('ControlModelGateway', () => {
 
   it('restart ends the old decision and records control.restart', async () => {
     const { gateway, events, request } = setup({ a: () => ok(), b: () => ok() });
-    const d = gateway.begin('openworker', auto, lineage);
+    const d = gateway.begin('dsh', auto, lineage);
     const next = gateway.restart(d.controlDecisionId);
     expect(next.controlDecisionId).not.toBe(d.controlDecisionId);
     expect(events.at(-1)).toMatchObject({
@@ -250,11 +339,7 @@ describe('ControlModelGateway', () => {
         return ok('y', { sig: 'other' });
       },
     });
-    const d1 = gateway.begin(
-      'openworker',
-      { mode: 'pinned', resourceId: 'a', fallback: 'auto' },
-      lineage,
-    );
+    const d1 = gateway.begin('dsh', { mode: 'pinned', resourceId: 'a', fallback: 'auto' }, lineage);
     const r1 = await gateway.turn(request(d1.controlDecisionId), signal());
     expect(r1.extras).toEqual({ sig: 'private' });
     const history = [
@@ -266,11 +351,7 @@ describe('ControlModelGateway', () => {
     expect(seen[1]).toEqual([undefined, { sig: 'private' }, undefined]);
 
     // A different decision never sees them, even if the engine replays the old history.
-    const d2 = gateway.begin(
-      'openworker',
-      { mode: 'pinned', resourceId: 'b', fallback: 'auto' },
-      lineage,
-    );
+    const d2 = gateway.begin('dsh', { mode: 'pinned', resourceId: 'b', fallback: 'auto' }, lineage);
     await gateway.turn(request(d2.controlDecisionId, { messages: history }), signal());
     expect(seen[2]).toEqual([undefined, undefined, undefined]);
   });
@@ -280,9 +361,13 @@ describe('ControlModelGateway', () => {
     await expect(gateway.turn(request('nope'), signal())).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
-    const d = gateway.begin('openworker', auto, lineage);
+    const d = gateway.begin('dsh', auto, lineage);
     await expect(
-      gateway.turn(request(d.controlDecisionId, { engine: 'dsh' }), signal()),
+      gateway.turn(
+        // A retired engine id (persisted data only): never a match.
+        request(d.controlDecisionId, { engine: 'retired' as unknown as 'dsh' }),
+        signal(),
+      ),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     await expect(
       gateway.turn(
@@ -298,7 +383,7 @@ describe('ControlModelGateway', () => {
 
   it('validates request bounds before calling the port', async () => {
     const { gateway, calls, request } = setup({ a: () => ok() });
-    const d = gateway.begin('openworker', auto, lineage);
+    const d = gateway.begin('dsh', auto, lineage);
     await expect(
       gateway.turn(
         request(d.controlDecisionId, { tools: [{ name: 'bad name', parameters: {} }] }),
@@ -316,7 +401,7 @@ describe('ControlModelGateway', () => {
           r.signal.addEventListener('abort', () => reject(new Error('aborted')));
         }),
     });
-    const d = gateway.begin('openworker', auto, lineage);
+    const d = gateway.begin('dsh', auto, lineage);
     const pending = rejection(gateway.turn(request(d.controlDecisionId), controller.signal));
     await vi.waitFor(() => expect(calls).toHaveLength(1));
     controller.abort();
@@ -326,7 +411,7 @@ describe('ControlModelGateway', () => {
 
   it('rejects a turn on an already-aborted signal without calling the port', async () => {
     const { gateway, calls, request } = setup({ a: () => ok() });
-    const d = gateway.begin('openworker', auto, lineage);
+    const d = gateway.begin('dsh', auto, lineage);
     const controller = new AbortController();
     controller.abort();
     expect(
@@ -349,12 +434,12 @@ describe('ControlModelGateway', () => {
       logger,
       onEvent: (e) => events.push(e),
     });
-    const d = gateway.begin('openworker', auto, lineage);
+    const d = gateway.begin('dsh', auto, lineage);
     await rejection(
       gateway.turn(
         {
           lineage,
-          engine: 'openworker',
+          engine: 'dsh',
           controlDecisionId: d.controlDecisionId,
           messages: [
             { role: 'user', content: SENTINEL },
@@ -378,7 +463,7 @@ describe('ControlModelGateway', () => {
       { candidates: [snap('a'), snap('noport')] },
     );
     const d = gateway.begin(
-      'openworker',
+      'dsh',
       { mode: 'pinned', resourceId: 'noport', fallback: 'auto' },
       lineage,
     );

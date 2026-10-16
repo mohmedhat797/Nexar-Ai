@@ -30,7 +30,7 @@ function request(n: number, over: Partial<ApprovalRequest> = {}): ApprovalReques
     instanceId: 'inst',
     taskId: 'task_1',
     projectId: 'demo',
-    clientId: 'openworker',
+    clientId: 'mcp-client',
     actionType: 'email.send',
     summary: 'Send the proposal to Acme',
     risk: 'high',
@@ -66,7 +66,7 @@ describe('nexar approvals (in-process, offline)', () => {
     expect(pending.out()).toContain(id1);
     expect(pending.out()).toContain('email.send');
     expect(pending.out()).toContain('Send the proposal to Acme');
-    expect(pending.out()).toContain('openworker');
+    expect(pending.out()).toContain('mcp-client');
     expect(pending.out()).not.toContain(id2);
 
     const all = capture(dir);
@@ -78,7 +78,7 @@ describe('nexar approvals (in-process, offline)', () => {
     expect(await runCli(['approvals', 'list', '--json'], json.io)).toBe(0);
     const rows = JSON.parse(json.out()) as Record<string, unknown>[];
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: id1, risk: 'high', clientId: 'openworker' });
+    expect(rows[0]).toMatchObject({ id: id1, risk: 'high', clientId: 'mcp-client' });
     expect(rows[0]).not.toHaveProperty('fingerprint');
     expect(rows[0]).not.toHaveProperty('parameters');
   });

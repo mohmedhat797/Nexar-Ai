@@ -47,7 +47,6 @@ function toRow(snapshot: ResourceSnapshot, quota: ResourceRow['quota']): Resourc
           },
         }),
     control: {
-      openworker: isControlCompatible(descriptor, 'openworker'),
       dsh: isControlCompatible(descriptor, 'dsh'),
     },
   };

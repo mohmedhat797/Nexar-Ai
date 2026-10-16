@@ -281,6 +281,12 @@ export class ClaudeCodeExecutionAdapter implements ExecutionAdapter {
 
     const prepared = await workspace.launcher.prepare(spec, context.signal);
     try {
+      if (sandboxed && prepared.isolation !== 'sandbox') {
+        throw new NexarError(
+          'POLICY_REJECTED',
+          'Launcher did not apply the sandbox; refusing to run Claude',
+        );
+      }
       logger.debug('spawning claude in workspace', {
         model: settings.model,
         access: workspace.access,

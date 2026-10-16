@@ -7,7 +7,7 @@ import {
   toSafeResource,
   type NexarMcpDeps,
 } from '@nexar/integration-mcp';
-import { createWorkBridge } from '@nexar/integration-openworker';
+import { createWorkBridge } from '@nexar/work-bridge';
 import { explainRouteDecision } from '@nexar/resource-controller';
 import type { Command } from '../args.js';
 import {
@@ -27,7 +27,7 @@ const JOB_TIMEOUT_MS = 30 * 60_000;
 
 export const mcpCommand: Command = {
   name: 'mcp',
-  summary: 'Serve Nexar to MCP clients such as OpenWorker (stdio only)',
+  summary: 'Serve Nexar to MCP clients to any MCP client (stdio only)',
   usage: `${USAGE}\n\nReads the client token from $NEXAR_CLIENT_TOKEN. Create one with "nexar clients add".`,
   options: {},
   async run(ctx) {
@@ -65,7 +65,7 @@ export const mcpCommand: Command = {
               capabilities: [...input.capabilities],
               ...(input.maxCostUsd === undefined ? {} : { maxCostUsd: input.maxCostUsd }),
             },
-            origin: { source: 'openworker', project: input.project },
+            origin: { source: 'mcp', project: input.project },
           });
           const decision = await runtime.nexar.route(task);
           return summarizeRoute(decision, explainRouteDecision(decision));
