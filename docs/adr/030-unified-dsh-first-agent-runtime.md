@@ -1,7 +1,8 @@
 # ADR-030: Unified DSH-first agent runtime
 
-- **Status:** Proposed (2026-10-10). Implementation proceeds on `feat/nexar-unified-dsh-runtime` as a
-  Draft PR; nothing merges until the owner accepts this ADR.
+- **Status:** Accepted (2026-10-17). Owner decision approved the unified DeepSeek Harness runtime,
+  WSL2/Bubblewrap Cowork isolation, NRC authority, Project Memory ownership, and deferral of AppContainer
+  and NXR-070.
 - **Supersedes on acceptance:** ADR-004 (OpenWorker productivity engine), ADR-026 (Cowork lane —
   supervised OpenWorker). **Amends:** ADR-002, ADR-024 §4/§9/§10, ADR-027 §7A/§9, ADR-028.
 - **Detail:** [`docs/architecture/unified-dsh-runtime/`](../architecture/unified-dsh-runtime/architecture.md)
@@ -60,7 +61,7 @@ plus the 0.2.x re-check recorded in the architecture document):
    Nexar answers each write permission. An unavailable sandbox blocks the turn without direct or
    host-local fallback. Coding retains `PlaneLaneEngine`/`EngineeringRunner` and its existing
    security envelope. Both use the same `DshProfile`, overlay renderer, ACP client and broker.
-   This placement revision remains Proposed; see [implementation](../architecture/unified-dsh-runtime/NXR_SEC02_Architecture_Implementation.md)
+   This placement revision is **Accepted** by owner decision; see [implementation](../architecture/unified-dsh-runtime/NXR_SEC02_Architecture_Implementation.md)
    and [security evidence](../architecture/unified-dsh-runtime/NXR_SEC02_Security_Assessment.md).
 5. **NRC stays the model authority.** A DSH profile's overlay declares exactly one model route,
    `nexar` (pi-ai `openai-completions` → the Control Model Gateway, ADR-027 §7A), and selects it as

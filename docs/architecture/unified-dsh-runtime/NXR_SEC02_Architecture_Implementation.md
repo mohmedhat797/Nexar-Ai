@@ -1,6 +1,6 @@
 # NXR-SEC-02 / NXR-SEC-02B — isolated Cowork implementation
 
-Date: 2026-10-16. ADR-030 remains **Proposed**. No AppContainer work or NXR-070 implementation.
+Date: 2026-10-17. ADR-030 is **Accepted** by owner decision. No AppContainer work or NXR-070 implementation.
 
 Implementation commit `dc27f551fdab7c80337982598ba07c7c0faca8e5` matches the clean tested tree `249bfcc10c4d32aa6b7abddcbfca1a2f71ebcd24`.
 Windows Full CI passed all 16 required gates, including actual WSL execution and 25/25 source plus
