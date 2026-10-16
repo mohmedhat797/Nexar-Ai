@@ -1,23 +1,25 @@
 # ADR-029: Connection-Scoped Resources and Canonical Continuity (Resource Fabric v2, reconciled)
 
 - Status: **Proposed** (not adopted; owner approval pending)
-- Date: 2026-10-09 (final corrections C1–C5 and clarifications K1–K2 applied; see [closure report](../architecture/nxr-070/NXR070_Final_Corrections_Closure_Report.md))
+- Date: 2026-10-17 (reconciled with accepted ADR-030 baseline and NXR-070R upstream research; R01–R17 applied; corrections C1–C5 and clarifications K1–K2 preserved; see [reconciliation report](../architecture/nxr-070/NXR070R2_Final_Architecture_Reconciliation.md))
 - Supersedes as a draft: `b843d04:docs/adr/029-resource-fabric-provider-runtime-v2.md` (Codex research, base `4c69d1c`)
-- Baseline: accepted v0.6 `9e71014` (merge `2f856f9`, CI `37955286149`); main `677eefd` (docs CI `37958959182` attempt 2)
-- Relationship: **amends ADR-028** §"Domain and ownership" and its deferral of multi-account UI (for the tiers below only); **refines ADR-027** §10 (review diversity) and **ADR-024** §10 (context policy). ADR-024/027/028 remain authoritative for everything not amended here. ADR-014/015/016/018/019/020/021/022 are unchanged.
+- Baseline: accepted ADR-030 baseline `6ea56f99d758bc18698c1fa5770b399a283fe6ad` (Unified DSH Runtime `@deepseek-ai/dsh@0.2.0-rc.2`, WSL2/Bubblewrap Cowork isolation, Linux kernel Coding sandbox, Project Memory)
+- Relationship: **amends ADR-028** §"Domain and ownership" and its deferral of multi-account UI (for the tiers below only); **refines ADR-027** §10 (review diversity) and **ADR-024** §10 (context policy); **harmonizes with accepted ADR-030** (single unified DSH agent runtime, WSL2/Bubblewrap Cowork, Linux kernel Coding, Project Memory ownership). ADR-024/027/028/030 remain authoritative for everything not amended here. ADR-014/015/016/018/019/020/021/022 are unchanged.
 - Implementation: **NOT STARTED.** Approval of this ADR does not authorize live login, allowance use or source reuse.
-- Companion documents: [Blueprint](../architecture/nxr-070/NXR070_Implementation_Blueprint_Reconciled.md), [Security](../architecture/nxr-070/NXR070_Security_Threat_Model_Reconciled.md), [Decision register](../architecture/nxr-070/NXR070_Architecture_Decision_Register.md), [Execution plan](../architecture/nxr-070/NXR070_Execution_Plan_Reconciled.md), [Traceability](../architecture/nxr-070/NXR070_Reconciliation_Traceability.md), [Approval brief](../architecture/nxr-070/NXR070_Final_Architecture_Approval_Brief.md). Audit evidence: [Findings register](../architecture/nxr-070/audit/NXR070_Critical_Findings_Register.md).
+- Companion documents: [Blueprint](../architecture/nxr-070/NXR070_Implementation_Blueprint_Reconciled.md), [Security](../architecture/nxr-070/NXR070_Security_Threat_Model_Reconciled.md), [Decision register](../architecture/nxr-070/NXR070_Architecture_Decision_Register.md), [Execution plan](../architecture/nxr-070/NXR070_Execution_Plan_Reconciled.md), [Traceability](../architecture/nxr-070/NXR070_Reconciliation_Traceability.md), [Approval brief](../architecture/nxr-070/NXR070_Final_Architecture_Approval_Brief.md), [Reconciliation](../architecture/nxr-070/NXR070R2_Final_Architecture_Reconciliation.md). Audit evidence: [Findings register](../architecture/nxr-070/audit/NXR070_Critical_Findings_Register.md).
 
 ## 1. Context
 
-v0.6 already has the hard parts:
+v0.6 and ADR-030 already provide the foundational components:
 
+- unified DeepSeek Harness runtime with managed ACP stdio transport;
+- OS-enforced isolation (WSL2/Bubblewrap for Cowork, Linux kernel bubblewrap for Coding);
 - connection- and route-scoped inventories with generation guards;
 - stable hashed resource ids;
 - hard-filter-first routing;
 - pinned Control;
 - bounded worker grants;
-- canonical sessions with per-turn native sessions;
+- canonical sessions with per-turn native sessions and Project Memory (`ProjectMemoryStore`);
 - strict Desktop/plane boundaries.
 
 What it lacks is **owner-configurable connections**. Connection ids, credential slots, inventory sources and native runtime homes are fixed, one per provider route. As a result Nexar cannot hold two accounts of one provider and cannot tell the plane's accounts from Desktop's. Nor can it reliably carry goals, constraints and decisions across model switches: the Code lane can drop all prior context on overflow (F-21).
@@ -44,17 +46,18 @@ The audit found that most of these rename existing contracts (F-03), conflict wi
 | Host                  | `machine`                                                                                       | A separate Nexar composition (`desktop`, `plane`) with its own registry, NRC, telemetry and credentials                                                         |
 | Connection key        | `connectionKey(host, connectionId)` (PROPOSED)                                                  | The key used by policy, telemetry and lifecycle. Never a path or environment name                                                                               |
 
-## 3. Invariants carried from v0.6 (must hold in every unit)
+## 3. Invariants carried from v0.6 and ADR-030 (must hold in every unit)
 
 - **B1.** Every capability array member is validated before alias normalization. Aliases resolve registered own properties only (`834a865`, `1feb97f`).
 - **B2.** Per-turn delegation admission uses the shared monotonic `DelegationUnitLimit`. No restart, fallback, grant remint, connection change, rotation or policy change resets or bypasses it (`3cbd6a6`).
 - **B3.** Upstream permission modes never grant Nexar authority. Read-only grants deny write, shell, network and foreign MCP (`4559857`). NRC selection never grants file, tool, network or commit permission.
 - **B4.** One-unit standalone grants exclude `reviewOf`. Review lineage applies only within a multi-unit grant (`9e71014`).
-- **B5.** A native or provider session lives for at most one Nexar turn; a Control restart is a new upstream session (`apps/desktop/src/main/cowork.ts`). Continuity is carried by canonical sessions and the context policy.
+- **B5.** A native or provider session lives for at most one Nexar turn; a Control restart is a new upstream session (`apps/desktop/src/main/wsl-cowork.ts`, `packages/engineering/src/runner.ts`). Continuity is carried by canonical sessions, Project Memory and the context policy.
 - **B6.** Built-in connections keep their v0.6 `connectionId`s. Every existing resource id, pin, telemetry aggregate and session reference stays byte-identical.
-- **B7.** Write-capable lanes run only through the sandbox launcher. Native child environments stay explicit allowlists; Codex never receives API-key variables.
-- **B8.** v0.6 session records (`schemaVersion: 1`, strict schemas in `packages/sessions/src/record.ts`) stay readable by the v0.6 reader. NXR-070 adds no field to session or turn records (§4.6.5).
+- **B7.** Write-capable lanes run only through the sandbox launcher (WSL2/Bubblewrap for Cowork, Linux kernel bubblewrap for Coding). Native child environments stay explicit allowlists; Codex never receives API-key variables.
+- **B8.** Session records (`schemaVersion: 1`, strict schemas in `packages/sessions/src/record.ts`) stay readable by existing readers. NXR-070 adds no field to session or turn records (§4.6.5).
 - **B9.** `FileSessionStore` (`packages/sessions/src/store.ts`) remains the only writer of the session directory. It holds the process lease (`.lease`), serializes writes per session, checks revisions, and writes atomically: exclusive temp file, `fsync`, replace, mode 0600, directory 0700, canonical-directory check. NXR-070 adds no second writer.
+- **B10.** `ProjectMemoryStore` (`packages/project-memory`) owns project-wide confirmed facts. Rendered project memory is authoritative and generated before/after compaction and auxiliary calls; it is not stored in turn sidecars.
 
 ## 4. Decision
 
@@ -193,7 +196,7 @@ Tiers 3 and 4 stay on the roadmap as objectives; no isolation is claimed before 
 
 ### 4.6 Continuity (owner-confirmed, Decision B)
 
-Native sessions remain per turn (B5). NXR-070 adds no resume, fork or native-session persistence. `context@2` is built only from the canonical session plus Nexar-owned structured records.
+Native sessions remain per turn (B5). NXR-070 adds no resume, fork or native-session persistence. `context@3` is built from the canonical session, Project Memory (`ProjectMemoryStore`, `packages/project-memory`), plus Nexar-owned structured records.
 
 **4.6.1 Classification (deterministic; never decided by a model).** The owner's direction is a conservative policy: capacity pressure never makes anything optional.
 
@@ -207,6 +210,7 @@ Native sessions remain per turn (B5). NXR-070 adds no resume, fork or native-ses
 
 - Model output can _suggest_ a constraint or decision, but only an owner action or a Nexar structured record promotes an item to C1–C3 or marks one C4.
 - Content inside `<untrusted-input>` can never change any item's class.
+- Project Memory (`packages/project-memory`) confirmed facts are authoritatively injected and never classified as omittable.
 
 **4.6.2 Capacity.** Three separate limits apply.
 
@@ -222,37 +226,39 @@ Characters are never equated with tokens. When the window is known, the conserva
 
 **4.6.3 Assembly and overflow.**
 
-1. Include C1–C3 with source attribution: turn id, record id, or owner action.
-2. Include all C5.
-3. Fill the remaining budget with C4, newest first.
-4. Disclose each omitted C4 item, as turn ids and counts, in the handoff header and the sidecar.
+1. Include Project Memory confirmed facts block (`### Project Memory\n...`).
+2. Include C1–C3 with source attribution: turn id, record id, or owner action.
+3. Include all C5.
+4. Fill the remaining budget with C4, newest first.
+5. Disclose each omitted C4 item, as turn ids and counts, in the handoff header and the sidecar.
 
 If C1–C3 do not fit, reject with `context.required-overflow`. If C1–C3 plus C5 do not fit, reject with `context.unclassified-overflow`. Each rejection names the classes and sizes, and the owner can:
 
 - mark turns optional;
 - or approve an **independent turn**.
 
-An independent turn requires an explicit per-turn owner action. It is recorded as policy `context@2/independent`, and the prompt states that prior context was not sent. Oversized turns are **never** converted automatically: the v0.6 Code-lane request-only fallback (`packages/operating/src/service.ts:607–625`) is removed for `context@2` turns.
+An independent turn requires an explicit per-turn owner action. It is recorded as policy `context@3/independent`, and the prompt states that prior context was not sent. Oversized turns are **never** converted automatically: the legacy Code-lane request-only fallback is removed for `context@3` turns.
 
 **4.6.4 Trust.**
 
 - All prior content stays inside `<untrusted-input>`.
-- `context@2` is a summary of canonical content. It is never native runtime state, and it never carries permissions, grants, approvals or authorization.
+- `context@3` is a summary of canonical content and Project Memory. It is never native runtime state, and it never carries permissions, grants, approvals or authorization.
 - Content sent to a different provider is canonical-session content already visible to the owner. The `dataLocality` filter still applies.
 
 **4.6.5 Persistence, sidecar integrity and downgrade compatibility.**
 
-Evidence from v0.6 (`packages/sessions/src/record.ts`, `packages/sessions/src/store.ts`):
+Evidence from accepted baseline (`packages/sessions/src/record.ts`, `packages/sessions/src/store.ts`, `packages/sessions/src/types.ts`):
 
-- **Strict schemas.** The session, turn and context schemas are `z.strictObject` with `schemaVersion: z.literal(1)`. An unknown key makes the session corrupt: `parseSession` throws, and `list` shows the session as `unavailable`.
+- **Strict schemas.** The session, turn and context schemas are `z.strictObject` with `schemaVersion: z.literal(1)`.
 - **Free policy string.** `context.policy` is any string of 1–64 characters.
+- **Nine-field manifest.** `ContextManifest` contains 9 fields: `schemaVersion`, `policy`, `hash`, `truncated`, `turnCount`, `byteCount`, `tokenCount`, plus `requiredIds` and `requiredHash` (introduced in ADR-030).
 - **Listing filter.** The store lists only `^(ses_[0-9a-f]{32})\.json$`.
 - **Deletion.** The store deletes only its lease file and its own temporary file on a failed write. It has no session deletion or backup API.
 - **Write and read protocol.** See B9. Reads go through `readBounded`: regular file, single link, size-bounded, real path inside the canonical directory, handle identity re-checked.
 
 Contract:
 
-1. **Manifest.** `context@2` turns write the existing seven-field manifest unchanged in shape, with `policy` `context@2`, `context@2/code-goal` or `context@2/independent`, and `hash` covering the full handoff. The v0.6 reader loads these sessions.
+1. **Manifest.** `context@3` turns write the accepted nine-field manifest unchanged in shape, with `policy` `context@3`, `context@3/code-goal` or `context@3/independent`, and `hash` covering the full handoff. Existing readers (`context@2` and `context@1`) load these sessions without error.
 
 2. **Sidecar document.** The file is `ses_<id>.context.json` (`session-context@1`). Its fields:
    - `schemaVersion: 1`, `sessionId`;
@@ -263,7 +269,7 @@ Contract:
    - `disclosures[]`: each `{turnId, reason}`;
    - `capacity`.
 
-   C2 and C3 are **never** stored only in the sidecar; they are re-derived from canonical records on every build.
+   C2 and C3 are **never** stored only in the sidecar; they are re-derived from canonical records on every build. Project Memory is stored in `ProjectMemoryStore`, not in the turn sidecar.
 
 3. **Single writer.** Only `FileSessionStore` writes the sidecar. It does so through new store methods that run under the same lease, the same per-session `serialized` chain and the same `expectedRevision` check as session mutations (B9).
    - A turn mutation that changes context writes the session first, then the sidecar bound to the new revision.
@@ -283,27 +289,27 @@ Contract:
 6. **Staleness detection and reconciliation.** The sidecar is fresh only if `sidecar.sessionId === session.id`, `boundRevision === session.revision`, and every covered turn's digest matches the session. Otherwise it is **stale**: a valid filename does not establish freshness. Reconciliation runs under the lease and the session's serialized chain:
    - **Covered turns with unchanged digests** keep their marks.
    - **Changed or missing turns:** their optional marks are dropped, which fails toward retention. Promotions sourced from them are kept, because the text is stored, and flagged `source-changed` or `source-missing` for owner review. They stay C1.
-   - **Turns not covered**, for example added by v0.6 after a downgrade or after a crash, are C5.
+   - **Turns not covered**, for example added after a downgrade or after a crash, are C5.
    - The sidecar is then rewritten bound to the current revision.
 
    Reconciliation never drops a promotion and never makes anything optional.
 
 7. **Missing, corrupt, unsupported or foreign sidecar.**
-   - **Missing, with no `context@2*` manifest in the session's turns:** this is a normal `context@1` or v0.6 session. The sidecar is created on first need, and all prior content is C5.
-   - **Missing, but a `context@2*` manifest exists:** promotions or marks may have been lost. `context@2` turns are refused with `context.store-missing` until the owner chooses **Reconstruct typed context**. Reconstruct rebuilds from canonical records (C2/C3 re-derived, all else C5) and tells the owner that prior promotions are unavailable.
-   - **Corrupt, oversized, unsupported `schemaVersion`, linked, or bound to another session:** `context@2` turns are refused with `context.store-unreadable`. The file is never rewritten or deleted automatically. **Reconstruct typed context** first renames it to `ses_<id>.context.<timestamp>.quarantine` (0600, preserved, excluded from both the v0.6 and the sidecar filename patterns), then writes a new sidecar.
+   - **Missing, with no `context@3*` manifest in the session's turns:** this is a normal `context@2` or `context@1` session. Historical `context@2` turns legitimately have no sidecar. The sidecar is created on first need under `context@3`, and all prior content is C5.
+   - **Missing, but a `context@3*` manifest exists:** promotions or marks may have been lost. `context@3` turns are refused with `context.store-missing` until the owner chooses **Reconstruct typed context**. Reconstruct rebuilds from canonical records (C2/C3 re-derived, Project Memory retained, all else C5) and tells the owner that prior promotions are unavailable.
+   - **Corrupt, oversized, unsupported `schemaVersion`, linked, or bound to another session:** `context@3` turns are refused with `context.store-unreadable`. The file is never rewritten or deleted automatically. **Reconstruct typed context** first renames it to `ses_<id>.context.<timestamp>.quarantine` (0600, preserved, excluded from both the session and the sidecar filename patterns), then writes a new sidecar.
    - In every case, context is never built without known required items. Reconstruction errs toward retention.
 
 8. **Backup, deletion and orphans.**
-   - NXR-070 adds no session deletion. v0.6 has none.
+   - NXR-070 adds no session deletion.
    - A sidecar without a matching session file is an orphan. It is ignored by builds, reported in diagnostics, and **never deleted automatically**.
    - Restoring a session from backup without its sidecar falls under item 7 (missing). Restoring an older session next to a newer sidecar falls under item 6 (digest mismatch, so stale).
    - Any future deletion feature must remove the session and its sidecar in one serialized store operation, under its own ADR.
 
 9. **Forward and downgrade.**
-   - **Forward:** `context@1` sessions are read unchanged; their prior content is C5.
-   - **Downgrade:** v0.6 reads `context@2` sessions (TST-45) and ignores sidecars and quarantine files.
-   - **Upgrade:** turns added or changed under v0.6 are detected by revision and digest (item 6).
+   - **Forward:** `context@1` and `context@2` sessions are read unchanged; their prior content is C5.
+   - **Downgrade / Revert:** reverting `context@3` rolls back safely to accepted ADR-030 (`context@2` + Project Memory); existing readers read `context@3` sessions (TST-45) and ignore sidecars and quarantine files.
+   - **Upgrade:** turns added or changed under earlier versions are detected by revision and digest (item 6).
 
 10. **Native-session boundary.** Any future native-session lifecycle needs its own ADR and a separate store keyed by `(connectionKey, credentialGeneration)`. It must never be stored in session records, manifests or sidecars, and may never carry authority. NXR-070 writes nothing of this kind.
 
@@ -334,7 +340,9 @@ Records written before this change read as `legacy`. Records hold ids, counts an
 | learned quality ranking                              | automatic conversion to an independent turn      |
 | budgets and billing                                  | rebinding a connection to a different account    |
 | HTTP/SSE MCP                                         | a second session-directory writer                |
-| switching the default to `@2`                        | —                                                |
+| switching the default to `@2`                        | importing external orchestrator or T3 runtime    |
+| T3 external read-only connector                      | floating or unverified DSH package replacement   |
+| DSH upgrade beyond `@deepseek-ai/dsh@0.2.0-rc.2`     | —                                                |
 
 ## 5. Reconciliation of draft decisions D1–D18
 
@@ -348,7 +356,7 @@ Records written before this change read as `legacy`. Records hold ids, counts an
 | D6  | Inventory authority             | Kept (ADR-028)                                                                                                                  |
 | D7  | Optional ACP worker             | Deferred (§4.9)                                                                                                                 |
 | D8  | Nexar permissions authoritative | Kept, plus B3                                                                                                                   |
-| D9  | Session transitions and handoff | Amended per owner Decision B: conservatively classified `context@2` with an integrity-checked sidecar (§4.6)                    |
+| D9  | Session transitions and handoff | Amended per owner Decision B: conservatively classified `context@3` with an integrity-checked sidecar (§4.6)                    |
 | D10 | Control pinning                 | Kept; lifecycle actions refused while active (§4.3)                                                                             |
 | D11 | Telemetry authority             | Amended: provenance only; no budget (§4.8)                                                                                      |
 | D12 | NRC ranking                     | Amended: `@2` reuses v1 scoring; quota neutrality (§4.5)                                                                        |
@@ -369,17 +377,17 @@ The change is purely additive:
 - **Rollback.**
   - Turning the feature flag off hides owner connections. Their credentials, homes, binding records and tombstones are retained, and their pins fail explicitly.
   - A code-only revert is safe for the identity contract, the review dimensions, `@2` and provenance.
-  - Reverting `context@2` is safe because v0.6 reads its sessions (TST-45) and ignores sidecars and quarantine files. Re-enabling reconciles (TST-49). No session migration happens in either direction, and nothing is deleted.
+  - Reverting `context@3` is safe because existing readers read its sessions (TST-45) and ignore sidecars and quarantine files, falling back safely to accepted ADR-030 `context@2` and Project Memory. Re-enabling reconciles (TST-49). No session migration happens in either direction, and nothing is deleted.
 
 ## 7. Security consequences
 
-See the [reconciled threat model](../architecture/nxr-070/NXR070_Security_Threat_Model_Reconciled.md), risks R-01 to R-15. No existing v0.6 control is weakened. The renderer never supplies ids, paths or scope names. Credential values and account subjects never cross IPC.
+See the [reconciled threat model](../architecture/nxr-070/NXR070_Security_Threat_Model_Reconciled.md), risks R-01 to R-15. No existing control is weakened. The renderer never supplies ids, paths or scope names. Credential values and account subjects never cross IPC.
 
 ## 8. Proposed amendment notes for accepted ADRs (text only; not applied)
 
 - **ADR-028**, append: "Amended by ADR-029 (if accepted): connections become owner-configurable per the tiers in ADR-029 §4.4; built-in connection ids are frozen; a connection never changes account."
 - **ADR-027 §10**, append: "Review diversity dimensions beyond resource id are defined in ADR-029 §4.5 (opt-in; host is attribution only)."
-- **ADR-024 §10**, append: "`context@2` (ADR-029 §4.6) adds conservative classification and a sidecar written only by `FileSessionStore`; the session record schema is unchanged."
+- **ADR-024 §10**, append: "`context@3` (ADR-029 §4.6) adds conservative classification and a sidecar written only by `FileSessionStore`; the session record schema is unchanged."
 
 ## 9. Consequences
 

@@ -1,6 +1,6 @@
-import { lstat, stat } from 'node:fs/promises';
+import { lstat, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, posix } from 'node:path';
+import { isAbsolute, join, posix } from 'node:path';
 import {
   NexarError,
   type EgressEvent,
@@ -64,6 +64,8 @@ const PROXY_VARS = [
 ] as const;
 const SYSTEM_COMMAND_PREFIXES = ['/usr', '/bin', '/sbin', '/lib', '/lib64'] as const;
 const DEFAULT_PATH_SUFFIX = ['/usr/local/bin', '/usr/bin', '/bin'] as const;
+// Values never enter shell text or process argv. exec preserves the process-tree cleanup contract.
+const ENVIRONMENT_FD_SCRIPT = 'nexar_args=$1; shift; exec "$@" 3<"$nexar_args"';
 
 function isSameOrUnder(path: string, base: string): boolean {
   return path === base || path.startsWith(`${base}/`);
@@ -146,6 +148,18 @@ export class SandboxLauncher implements ProcessLauncher {
       if (signal.aborted) {
         throw cancelled();
       }
+      // bubblewrap --args reads NUL-separated options from an inherited descriptor. Keep the
+      // existing --clearenv + explicit --setenv policy, with values in a 0600 ephemeral file inside
+      // the 0700 run directory. dispose (including abort/failure) removes it with the run directory.
+      const environmentPath = join(runDir.path, 'environment.args');
+      const environmentArgs = Object.keys(env)
+        .sort()
+        .flatMap((key) => ['--setenv', key, env[key] ?? '']);
+      await writeFile(environmentPath, `${environmentArgs.join('\0')}\0`, {
+        flag: 'wx',
+        mode: 0o600,
+      });
+      if (signal.aborted) throw cancelled();
       const args = buildBwrapArgs({
         workspace,
         workspaceAccess: spec.workspaceAccess,
@@ -157,13 +171,21 @@ export class SandboxLauncher implements ProcessLauncher {
         ...(services === undefined ? {} : { services }),
         allowNestedUserNamespaces: this.options.allowNestedUserNamespaces ?? false,
         env,
+        environmentFd: 3,
         command,
         args: spec.args,
       });
       signal.addEventListener('abort', onAbort, { once: true });
       return {
-        command: availability.bwrapPath,
-        args,
+        command: '/bin/sh',
+        args: [
+          '-c',
+          ENVIRONMENT_FD_SCRIPT,
+          'nexar-sandbox',
+          environmentPath,
+          availability.bwrapPath,
+          ...args,
+        ],
         env: { PATH: '/usr/bin:/bin' },
         cwd: workspace,
         workspacePath: SANDBOX_WORKSPACE,

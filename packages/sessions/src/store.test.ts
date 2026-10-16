@@ -293,13 +293,14 @@ describe('writer lease', () => {
     expect(await readdir(dir)).toEqual([]);
   });
 
-  it('takes over an unreadable lease', async () => {
+  it('refuses an unverifiable lease without overwriting it', async () => {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, '.lease'), 'not json');
     const store = make(2, { isProcessAlive: () => true });
-    await store.acquireLease();
-    const lease = JSON.parse(await readFile(join(dir, '.lease'), 'utf8')) as { pid: number };
-    expect(lease.pid).toBe(1002);
+    await expectRejects(store.acquireLease(), 'CONFLICT', 'lease-unverifiable');
+    expect(store.holdsLease()).toBe(false);
+    expect(await readFile(join(dir, '.lease'), 'utf8')).toBe('not json');
+    expect((await readdir(dir)).sort()).toEqual(['.lease']);
   });
 
   it('can be re-acquired after release', async () => {

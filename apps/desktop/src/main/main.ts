@@ -5,11 +5,11 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } fr
 import { NexarError, isNexarError, type ResourceDescriptor } from '@nexar/contracts';
 import { createOpenAiAccountClient } from '@nexar/integration-openai-account';
 import { BridgeHost, ControlModelGateway } from '@nexar/engine-gateway';
+import { FileProjectMemoryStore } from '@nexar/project-memory';
 import { FileSessionStore } from '@nexar/sessions';
 import {
   checkProviderCredential,
   createControlModelTurnPorts,
-  createEngineExecutor,
   createNativeSubscriptions,
   createNativeModelInventories,
   engineAllocator,
@@ -18,7 +18,10 @@ import { SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js
 import { createBridge } from './bridge.js';
 import { CodePlane } from './code-plane.js';
 import { ControlGatewayChild } from './control-gateway-child.js';
-import { CoworkService, createScriptSpawn } from './cowork.js';
+import { DshCoworkService, type CoworkLane } from './dsh-cowork.js';
+import { WslCoworkBackend } from './wsl-cowork.js';
+import { loadCoworkInputs } from './cowork-inputs.js';
+import { boundedCoworkExecutor } from './cowork-executor.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost, type EngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
@@ -222,7 +225,6 @@ async function start(): Promise<void> {
     clipboard,
     config,
     engine,
-    settings,
     checkKey: (provider) =>
       checkProviderCredential(provider, { resolveSecret: keys.resolveSecret }),
   });
@@ -246,6 +248,12 @@ async function start(): Promise<void> {
     if (!isNexarError(error) || error.code !== 'CONFLICT') throw error;
     logger.warn('sessions are open in another Nexar process', { code: error.code });
   }
+  // Project memory (ADR-030 §7): owner-confirmed knowledge, written only while this process holds the
+  // sessions lease (single writer), read into every turn's required context.
+  const projectMemory = new FileProjectMemoryStore({
+    stateDir: join(userData, '.nexar'),
+    isWriter: () => sessionStore.holdsLease(),
+  });
   // The Code lane (ADR-025): Desktop reaches the WSL2 engineering plane through `wsl.exe`. Under the
   // test-only `NEXAR_DESKTOP_USER_DATA` override the real WSL is never touched: the lane uses the
   // fake plane named by `NEXAR_DESKTOP_TEST_PLANE`, or is simply unavailable. Neither variable is
@@ -267,15 +275,29 @@ async function start(): Promise<void> {
   // Non-blocking: the lane reports "still being checked" until the first probe finishes.
   void codePlane.refresh();
 
-  // The Cowork lane (ADR-026): one supervised, private OpenWorker per process, started on first need
-  // (or at launch when the owner already allowed a provider). Under the test-only
-  // `NEXAR_DESKTOP_USER_DATA` override OpenWorker is never launched unless the fake named by
-  // `NEXAR_DESKTOP_TEST_OPENWORKER` is given. Neither variable is ever set in production.
-  const testOpenWorker = process.env['NEXAR_DESKTOP_TEST_OPENWORKER'];
+  // The Cowork lane (ADR-030): one private DeepSeek Harness child per turn, bound to the NRC through
+  // the Control Model Gateway. Under the test-only `NEXAR_DESKTOP_USER_DATA` override it is never
+  // launched unless the entry named by `NEXAR_DESKTOP_TEST_DSH_ENTRY` is given. Neither variable is
+  // ever set in production.
+  const testDshEntry = process.env['NEXAR_DESKTOP_TEST_DSH_ENTRY'];
+  const dshTestEntry =
+    underTestOverride && testDshEntry !== undefined && isAbsolute(testDshEntry)
+      ? testDshEntry
+      : undefined;
+  // The packaged E2E names no entry: it opts the app's own bundled runtime in with this flag (only
+  // honoured in a packaged app under the override), so the runtime is found as in production.
+  const dshPackagedUnderTest =
+    underTestOverride &&
+    app.isPackaged &&
+    process.env['NEXAR_DESKTOP_TEST_DSH_RUNTIME'] === 'packaged';
+  const localCoworkFixture =
+    underTestOverride &&
+    process.env['NEXAR_DESKTOP_TEST_LOCAL_COWORK'] === '1' &&
+    process.env['NEXAR_DESKTOP_TEST_WSL_COWORK'] !== '1';
   // The Intelligence Bridge endpoint (ADR-027 §9a): a per-launch local pipe/socket, never a port.
   // Started lazily with the first grant (NXR-059 part b: `ensureStarted()`), so no pipe or socket
   // exists unless delegation is used. Stopped at quit.
-  const coworkRef: { current?: CoworkService } = {};
+  const coworkRef: { current?: CoworkLane } = {};
   const bridgeHostRef: { current?: BridgeHost } = {};
   // The Control Model Gateway (ADR-027 §7A) behind the host's `control` op: pi resources only, over the
   // engine's current registry snapshot and routing policy (read per call, so a config reload is picked up).
@@ -299,12 +321,13 @@ async function start(): Promise<void> {
     newId: randomUUID,
     logger,
     // controlFailed of a grant reads these (the host is created right after).
+    telemetry: { emit: (event) => engine.composition().runtime.telemetry?.emit(event) },
     onEvent: (event) => bridgeHostRef.current?.noteControlEvent(event),
   });
   const bridgeHost = new BridgeHost({
     gateway: controlGateway,
     allocator: engineAllocator(engine),
-    executor: createEngineExecutor(engine),
+    executor: boundedCoworkExecutor(engine),
     clock: () => new Date(),
     newId: randomUUID,
     logger,
@@ -319,19 +342,26 @@ async function start(): Promise<void> {
     endpoint: () => bridgeHost.ensureStarted(),
     logger,
   });
-  const cowork = new CoworkService({
+  const cowork = new DshCoworkService({
+    // The host-local path is available only to explicit offline fixture runs.
+    ...(!localCoworkFixture
+      ? {
+          backend: new WslCoworkBackend(settings),
+          approvedInputs: (request) => loadCoworkInputs(engine, sessions, request),
+        }
+      : {}),
     bridgeHost,
     controlGateway,
     controlChild: controlGatewayChild,
     settings,
     engine,
-    keys,
     logger,
-    stateDir: join(runtimePath, 'openworker'),
-    disabled: underTestOverride && !(testOpenWorker !== undefined && isAbsolute(testOpenWorker)),
-    ...(underTestOverride && testOpenWorker !== undefined && isAbsolute(testOpenWorker)
-      ? { spawn: createScriptSpawn(testOpenWorker) }
-      : {}),
+    stateDir: join(runtimePath, 'dsh-cowork'),
+    disabled: localCoworkFixture && dshTestEntry === undefined && !dshPackagedUnderTest,
+    testEntry: dshTestEntry,
+    ...(app.isPackaged
+      ? { resourcesPath: process.resourcesPath }
+      : { devEntry: process.env['NEXAR_DSH_ENTRY'] }),
     createTask: (request, excludedResourceIds) =>
       newTask(
         engine,
@@ -348,7 +378,7 @@ async function start(): Promise<void> {
       ),
   });
   coworkRef.current = cowork;
-  // Quitting ends the lanes' children (a plane run, a starting or running OpenWorker) as soon as it
+  // Quitting ends the lanes' children (a plane run, a running Cowork turn) as soon as it
   // begins, and the exit waits (bounded) for that before the sessions lease is given back (best
   // effort, so the next launch needs no stale recovery). Exiting first left a supervised server
   // running behind the closed app.
@@ -386,6 +416,7 @@ async function start(): Promise<void> {
     appInfo: { version: app.getVersion(), platform: process.platform },
     decider: decider(),
     sessions,
+    projectMemory,
     codePlane,
     cowork,
     // A turn outlives the call that started it; every live window hears about it.

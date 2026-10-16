@@ -35,7 +35,7 @@
       "path": "./packages/engineering"
     },
     {
-      "path": "./integrations/openworker"
+      "path": "./packages/work-bridge"
     },
     {
       "path": "./integrations/mcp"
@@ -78,6 +78,9 @@
     },
     {
       "path": "./packages/sessions"
+    },
+    {
+      "path": "./packages/project-memory"
     },
     {
       "path": "./packages/plane-protocol"

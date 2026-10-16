@@ -1,0 +1,102 @@
+name: CI (Self-Hosted)
+
+# Optional Self-Hosted CI workflow for Nexar AI (ADR-030 continuation).
+# Runs the shared Nexar Local CI orchestrator on isolated Windows and Linux runners.
+# Does NOT consume GitHub-hosted Actions minutes.
+# Trigger: manual workflow_dispatch by repository maintainers.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Validation mode (full or quick)'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - quick
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-self-hosted-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-ci:
+    name: Windows Validation (Self-Hosted Runner)
+    runs-on: [self-hosted, Windows, X64, nexar-windows-ci]
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Git HEAD
+        shell: pwsh
+        run: |
+          Write-Host "Verifying checkout SHA..."
+          $head = git rev-parse HEAD
+          Write-Host "Active HEAD: $head"
+
+      - name: Run Nexar Local CI Orchestrator (${{ inputs.mode }})
+        shell: pwsh
+        run: |
+          if ("${{ inputs.mode }}" -eq "full") {
+            pnpm ci:local:full
+          } else {
+            pnpm ci:local:quick
+          }
+
+      - name: Upload Local CI Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexar-local-ci-reports-windows-${{ github.sha }}
+          if-no-files-found: warn
+          path: .nexar/ci/reports/*
+
+      - name: Upload Windows Installer Artifacts
+        if: success() && inputs.mode == 'full'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexar-windows-installer-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            release/desktop/*.exe
+            release/desktop/*.sha256
+
+  linux-ci:
+    name: Linux Validation (Self-Hosted Runner)
+    runs-on: [self-hosted, Linux, X64, nexar-linux-ci]
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Git HEAD
+        shell: bash
+        run: |
+          echo "Active HEAD: $(git rev-parse HEAD)"
+
+      - name: Run Nexar Local CI Orchestrator (${{ inputs.mode }})
+        shell: bash
+        run: |
+          if [ "${{ inputs.mode }}" = "full" ]; then
+            pnpm ci:local:full
+          else
+            pnpm ci:local:quick
+          fi
+
+      - name: Upload Local CI Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexar-local-ci-reports-linux-${{ github.sha }}
+          if-no-files-found: warn
+          path: .nexar/ci/reports/*

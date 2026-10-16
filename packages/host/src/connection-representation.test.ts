@@ -50,7 +50,7 @@ describe('provider connection representation', () => {
     const table = rows.map(([name, d]) => {
       const c = connectionOf(d);
       return `${name}: ${c?.id}/${c?.method}/${c?.authClass}/${c?.support} control=${String(
-        isControlCompatible(d, 'openworker'),
+        isControlCompatible(d, 'dsh'),
       )}`;
     });
     expect(table).toEqual([
@@ -71,7 +71,7 @@ describe('provider connection representation', () => {
     const configured = piModelResource({ id: 'x', provider: 'anthropic', model: 'm' });
     expect(connectionOf(configured)?.id).toBe('anthropic.api');
     // Configured resources keep their capabilities: no silent model-turn grant.
-    expect(isControlCompatible(configured, 'openworker')).toBe(false);
+    expect(isControlCompatible(configured, 'dsh')).toBe(false);
     expect(
       connectionOf({
         ...configured,

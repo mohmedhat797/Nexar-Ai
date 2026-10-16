@@ -38,7 +38,7 @@ Chain: original proposal (Codex research `b843d04`) → finding ([register](audi
 | 070G profiles                         | F-03, F-14       | merged into F′ and G′ (no new entity)          | REQ-21, 22                           | OD-1                                   |
 | 070H NRC v2                           | F-09, F-13       | C′ + G′                                        | REQ-20, 22, 37                       | OD-5, OD-11                            |
 | 070I settings UX                      | F-13, F-15       | H′ (minimal UI in B′)                          | REQ-15, 23                           | OD-7                                   |
-| 070J session handoff                  | F-07, F-21       | I′ (`context@2` + sidecar)                     | REQ-24–27, 32–35, 40–45              | OD-3, OD-10, OD-13, OD-14              |
+| 070J session handoff                  | F-07, F-21       | I′ (`context@3` + sidecar)                     | REQ-24–27, 32–35, 40–45              | OD-3, OD-10, OD-13, OD-14              |
 | 070K compatibility migration          | O-1, F-13        | removed (built-ins frozen; sessions unchanged) | REQ-06, 16, 40                       | OD-1, OD-14                            |
 | 070L acceptance                       | F-10, F-16       | J′                                             | Execution plan §5                    | OD-12                                  |
 
@@ -56,7 +56,7 @@ Chain: original proposal (Codex research `b843d04`) → finding ([register](audi
 | Inventory@2 / Resource@2               | F-14                   | Additive fields only                                                                                                 |
 | Observation / Profile                  | F-14                   | F′ provenance on existing records                                                                                    |
 | NRCDecision@2                          | F-14                   | Explanation fields in `@2` policy                                                                                    |
-| ContextHandoff@1                       | F-07, F-21, C2, C5, K1 | `context@2` + integrity-checked sidecar `session-context@1`                                                          |
+| ContextHandoff@1                       | F-07, F-21, C2, C5, K1 | `context@3` + integrity-checked sidecar `session-context@1`                                                          |
 
 ## Owner requirements, corrections and clarifications
 
@@ -70,7 +70,7 @@ Chain: original proposal (Codex research `b843d04`) → finding ([register](audi
 | C2 Required-context classification        | ADR §4.6.1–4.6.4              | REQ-24, 25, 32–35        | TST-24, 25, 32–40        |
 | C3 Rotation and account identity          | ADR §4.3                      | REQ-09, 10, 36–38        | TST-09, 10, 41, 42       |
 | C4 Id generation and tombstone ownership  | ADR §4.1; Blueprint §4        | REQ-03 (A′), REQ-39 (B′) | TST-03 (A′), TST-43 (B′) |
-| C5 `context@2` downgrade safety           | ADR §4.6.5; Blueprint §6      | REQ-40, 41               | TST-44–48                |
+| C5 `context@3` downgrade safety           | ADR §4.6.5; Blueprint §6      | REQ-40, 41               | TST-44–48                |
 | **K1** Sidecar integrity                  | ADR §3 (B9), §4.6.5 items 2–9 | REQ-41–45                | TST-46, 47, 49–56        |
 | **K2** Verified account switching         | ADR §4.3                      | REQ-13, 37, 46, 47       | TST-13, 42, 57, 58       |
 | OD-13 conservative direction              | ADR §4.6.1, §4.6.3            | REQ-33                   | TST-33, 35, 36           |

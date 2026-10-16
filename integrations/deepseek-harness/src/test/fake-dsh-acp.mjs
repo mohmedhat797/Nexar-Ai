@@ -6,7 +6,9 @@
 //
 //   --fake-protocol=1|2        protocolVersion answered by `initialize` (default 1)
 //   --fake-scenario=<name>     normal (default) | unknown-call | no-reject | hang | hang-permission |
-//                              rpc-error | probe-fs | no-input
+//                              rpc-error | probe-fs | no-input | model-change; with a `nexar` route in
+//                              the overlay only `normal` runs the gateway loop, any other name asks
+//                              one permission question (host-local tests use `ask`)
 //   --fake-ignore-cancel=1     never answer the prompt after `session/cancel` (forces a kill)
 //   --fake-tool=<name>         tool name used as the `tool_call` title (default `bash`)
 //   --fake-input=<json>        `rawInput` of the tool call (default {"command":"ls"})
@@ -14,6 +16,7 @@
 //   --fake-stop=<reason>       stopReason of the prompt response (default end_turn)
 //   --fake-rpc-message=<text>  error message for the rpc-error scenario
 //   --fake-unit-capability=<c> capability the gateway session's bridge unit asks for (default `unit`)
+//   --fake-exit-once=<path>    exit (code 3) mid-turn unless <path> exists; creates it first
 //   --fake-unit=0|1            run the bridge unit when an `nexar` MCP server was offered (default 1)
 //
 // Gateway mode: when the `--patch <overlay>` file declares the pi-ai route `nexar`, `session/prompt`
@@ -23,7 +26,7 @@
 // The token and prompt text are never recorded.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -45,6 +48,7 @@ const stopReason = setting('stop', 'end_turn');
 const rpcMessage = setting('rpc-message', 'upstream exploded');
 const recordPath = setting('record', undefined);
 const unitCapability = setting('unit-capability', 'unit');
+const exitOnce = setting('exit-once', undefined);
 
 const patchAt = argv.indexOf('--patch');
 const overlay = patchAt === -1 ? undefined : readFileSync(argv[patchAt + 1], 'utf8');
@@ -60,6 +64,19 @@ const record = {
   dshHome: process.env.DSH_HOME,
   cwd: process.cwd(),
   pid: process.pid,
+  // Host-local sessions: what the child saw, never the token itself.
+  envHome: process.env.HOME,
+  envUserProfile: process.env.USERPROFILE,
+  envPermissionMode: process.env.DSH_PERMISSION_MODE,
+  envTelemetryDisabled: process.env.DSH_TELEMETRY_DISABLED,
+  tokenLeakedInto: Object.entries(process.env)
+    .filter(
+      ([name, value]) =>
+        name !== 'NEXAR_CONTROL_TOKEN' &&
+        process.env.NEXAR_CONTROL_TOKEN !== undefined &&
+        String(value).includes(process.env.NEXAR_CONTROL_TOKEN),
+    )
+    .map(([name]) => name),
   requests: [],
   notifications: [],
   clientReplies: [],
@@ -339,10 +356,31 @@ async function runPrompt(id, sessionId, promptText) {
     sessionUpdate: 'agent_message_chunk',
     content: { type: 'text', text: 'working. ' },
   });
+  if (exitOnce !== undefined && !existsSync(exitOnce)) {
+    // Crash mid-turn the first time only (the marker survives for the next process).
+    writeFileSync(exitOnce, 'x');
+    process.exit(3);
+  }
   if (nexarBaseUrl !== undefined && scenario === 'normal') {
     return runGatewayPrompt(id, sessionId, promptText);
   }
 
+  if (scenario === 'model-change') {
+    update(sessionId, {
+      sessionUpdate: 'config_option_update',
+      configOptions: [
+        {
+          id: 'model',
+          currentValue: setting('model-value', JSON.stringify(['deepseek-official', 'x'])),
+        },
+      ],
+    });
+    if (setting('model-continue', '0') !== '1') {
+      await waitForCancel();
+      send({ id, result: { stopReason: 'cancelled' } });
+      return;
+    }
+  }
   if (scenario === 'hang') {
     await waitForCancel();
     if (ignoreCancel) return;

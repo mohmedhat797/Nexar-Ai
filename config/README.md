@@ -106,7 +106,7 @@ List a task's artifacts with `nexar artifacts list --project <id> --task <task-i
 The engine defaults to `project-only`: a working directory is accepted only with a project (and is
 replaced by its canonical path). The CLI deliberately uses `project-or-unscoped` so the owner at
 their own terminal can run `nexar run --cwd <dir>` without a project; the directory is then only
-canonicalized. External clients such as the OpenWorker Work Bridge must always go through a project.
+canonicalized. External clients of the MCP Work Bridge must always go through a project.
 
 ## What the example does
 

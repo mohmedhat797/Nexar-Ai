@@ -159,3 +159,17 @@ TST-28 and TST-29 are deliberately unassigned.
 5. Publish the documentation-only NXR-070-0 PR, then implement A′.
 
 Consistency validation results are in the [approval brief](NXR070_Final_Architecture_Approval_Brief.md) §7.
+
+## 11. Round 3 Reconciliation: ADR-030 and Upstream Intelligence (R01–R17)
+
+Following the acceptance of ADR-030 (2026-10-17) and completion of the NXR-070R research into T3 Code v0.1.0 and DeepSeek Harness candidate 0.2.1-alpha.5:
+
+1. **Baseline updated:** `6ea56f99d758bc18698c1fa5770b399a283fe6ad` on `main` is authoritative.
+2. **Unified DSH runtime:** OpenWorker retired; DSH `@deepseek-ai/dsh@0.2.0-rc.2` is the sole runtime.
+3. **OS-enforced isolation:** Cowork executes inside WSL2/Bubblewrap; Coding inside Linux kernel bubblewrap.
+4. **Policy renamed to `context@3`:** preserves accepted `context@2` + Project Memory (`ProjectMemoryStore`).
+5. **Nine-field manifest:** conforms to accepted production shape.
+6. **Single writer:** `FileSessionStore` retains exclusive write lease for sessions and sidecars.
+7. **T3 Code reference:** architectural study only; no runtime import.
+8. **Controlled upgrade pipeline:** 19-gate verification for any future DSH candidate.
+9. See [NXR070R2_Final_Architecture_Reconciliation.md](NXR070R2_Final_Architecture_Reconciliation.md) for complete details.

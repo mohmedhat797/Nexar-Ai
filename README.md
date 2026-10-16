@@ -9,7 +9,7 @@ agents, and productivity engines are **components behind adapters**; Nexar owns 
 tasks, AI resources, the resource registry, the resource controller, routing policy, execution
 adapters, and telemetry.
 
-> Status: **v0.3 — Engineering Machine** (developer preview). On top of v0.2 (OpenWorker over an
+> Status: **v0.3 — Engineering Machine** (developer preview). On top of v0.2 (any MCP client over an
 > authenticated, audited stdio MCP server; documentation and meeting drafts as local files), Nexar can
 > now run sandboxed, multi-agent engineering tasks: write-capable coding agents edit a private
 > worktree inside a bubblewrap sandbox, Nexar gates and reviews the patch, and — only after your
@@ -35,7 +35,7 @@ auth, and blind spots. Nexar is one layer that:
 ```mermaid
 flowchart LR
   CLI[nexar CLI] --> ENG[Nexar engine]
-  OW[OpenWorker] -- "MCP over stdio" --> MCP[MCP server<br/>auth · scopes · audit]
+  MC[MCP client] -- "MCP over stdio" --> MCP[MCP server<br/>auth · scopes · audit]
   MCP --> WB[Work Bridge v2<br/>async jobs]
   WB --> WF[Workflows]
   WB --> ENG
@@ -89,7 +89,7 @@ and the [ADRs](docs/adr/).
 | Access                   | `@nexar/access`                       | Scoped client tokens (hashed at rest, revocable) and a one-record-per-request audit log (ADR-015)                                                                                                                                                                |
 | Workflows                | `@nexar/workflows` + `workflows/`     | Data-driven: technical documentation, SOW, solution proposal, meeting brief (+ follow-up draft); untrusted-input boundary, drafts only (ADR-017)                                                                                                                 |
 | MCP server               | `@nexar/integration-mcp`              | stdio-only server (`@modelcontextprotocol/server@2.2.0`): `nexar.submit_work`, `work_status`, `route`, `resources`, `workflows`                                                                                                                                  |
-| OpenWorker Work Bridge   | `@nexar/integration-openworker`       | Work Bridge v2: project-required requests, async jobs, per-client idempotent request ids, result artifact, route explanations, workflow requests                                                                                                                 |
+| Work Bridge              | `@nexar/work-bridge`                  | Work Bridge v2: project-required requests, async jobs, per-client idempotent request ids, result artifact, route explanations, workflow requests                                                                                                                 |
 | Claude Code adapter      | `@nexar/integration-claude-code`      | Native agent via `claude -p`; read-only by default; **verified live**                                                                                                                                                                                            |
 | DeepSeek Harness adapter | `@nexar/integration-deepseek-harness` | Nexar-owned JSON-RPC client for `dsh --profile sdk`; handshake verified against real `dsh 0.2.0-rc.2`; model execution needs `DEEPSEEK_API_KEY`; stops its whole process group                                                                                   |
 | pi-ai adapter            | `@nexar/integration-pi`               | Direct models via exact-pinned `@earendil-works/pi-ai@0.99.2`; OpenAI-compatible local endpoints                                                                                                                                                                 |
@@ -103,7 +103,7 @@ and the [ADRs](docs/adr/).
 | DSH ACP (v0.3)           | `@nexar/integration-deepseek-harness` | `dsh --profile acp` for engineering lanes; ACP permission requests become approvals (deny by default)                                                                                                                                                            |
 | CLI                      | `@nexar/cli`                          | `doctor`, `resources [--discovered]`, `route [--explain]`, `run`, `projects list`, `artifacts list`, `approvals list\|approve\|deny`, `clients add\|list\|revoke`, `mcp serve`, `workflows list`, `engineer run\|list\|show\|plans\|cleanup`, `sandbox selftest` |
 
-**Verified live:** OpenWorker v0.3.0's own MCP client (`coworker.mcp.MCPManager`) drove
+**Verified live (v0.2):** a third-party MCP client drove
 `nexar mcp serve` → Claude Code → artifacts for a raw request, the `sow` workflow and `meeting-brief`
 (including a prompt-injection attempt that produced only drafts), and a CLI `technical-documentation`
 run succeeded with the example config. DeepSeek Harness and pi-ai live model runs are still blocked on
@@ -137,11 +137,11 @@ default settings those factors are neutral. Evidence:
 - Vendor quota probes: none of the installed runtimes has a supported, non-experimental quota
   interface yet, so their quota is shown as `unknown` unless the owner declares an allowance.
 
-## Using Nexar from OpenWorker
+## Using Nexar from an MCP client
 
-OpenWorker starts `nexar mcp serve` as a child process and authenticates with a scoped client token
+An MCP client starts `nexar mcp serve` as a child process and authenticates with a scoped client token
 from `nexar clients add`. Setup, tool reference, the 120 s polling model and the `workflow` request
-shape are in [`docs/integration/openworker-mcp.md`](docs/integration/openworker-mcp.md).
+shape are in [`docs/integration/mcp-client.md`](docs/integration/mcp-client.md).
 
 ## Workflows
 
@@ -173,7 +173,7 @@ xvfb-run -a pnpm desktop:e2e            # drives the real app with Playwright (L
 Working today: open a folder as a project, Cowork chat with a "why this AI?" explanation, results
 saved as drafts in the project, project files with preview, AI resources, approvals, workflows, and
 six themes. Coming next: Windows packaging and fixes, providers and API keys, AI behavior settings,
-scheduled tasks, Code mode on the WSL2 engineering plane, and OpenWorker as the Cowork agent
+scheduled tasks, Code mode on the WSL2 engineering plane, and DeepSeek Harness as the Cowork agent
 ([backlog NXR-051 to NXR-056](docs/backlog/README.md)). The app has not been run on Windows yet.
 
 **Continuing development locally:** [`docs/guides/local-development.md`](docs/guides/local-development.md)
@@ -290,8 +290,8 @@ only contacts endpoints the owner lists, and nothing reads runtime credentials t
 
 ## Repository map
 
-`apps/cli` · `packages/{contracts,resource-registry,resource-controller,telemetry,core,projects,artifacts,approvals,access,workflows,sandbox,worktrees,engineering}` ·
-`integrations/{echo,claude-code,deepseek-harness,pi,openworker,mcp,codex,antigravity,delegate-skills}` ·
+`apps/cli` · `packages/{contracts,resource-registry,resource-controller,telemetry,core,projects,artifacts,approvals,access,workflows,work-bridge,sandbox,worktrees,engineering}` ·
+`integrations/{echo,claude-code,deepseek-harness,pi,mcp,codex,antigravity,delegate-skills}` ·
 `workflows/` · `engineering/` (lane plans) · `examples/` · `config/` ·
 `docs/{architecture,adr,integration,research,roadmap,backlog,devlog}`.
 Contributor/agent operating rules: [`CLAUDE.md`](CLAUDE.md).

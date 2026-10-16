@@ -70,8 +70,8 @@ describe('credentials', () => {
 describe('ClientRegistry', () => {
   it('stores only the hash, never the token', async () => {
     const registry = await ClientRegistry.open(file);
-    const { client, token } = await registry.add('openworker', scopes, {
-      displayName: 'OpenWorker',
+    const { client, token } = await registry.add('mcp-client', scopes, {
+      displayName: 'MCP Client',
     });
     const bytes = await readFile(file, 'utf8');
     expect(bytes).not.toContain(token);
@@ -82,7 +82,7 @@ describe('ClientRegistry', () => {
 
   it('list hides hashes', async () => {
     const registry = await ClientRegistry.open(file);
-    await registry.add('openworker', scopes);
+    await registry.add('mcp-client', scopes);
     const listed = registry.list();
     expect(listed).toHaveLength(1);
     expect(JSON.stringify(listed)).not.toContain('tokenSha256');
@@ -91,17 +91,17 @@ describe('ClientRegistry', () => {
 
   it('authenticates a valid token and returns a frozen identity', async () => {
     const registry = await ClientRegistry.open(file);
-    const { token } = await registry.add('openworker', scopes);
+    const { token } = await registry.add('mcp-client', scopes);
     const identity = registry.authenticate(token);
-    expect(identity.clientId).toBe('openworker');
+    expect(identity.clientId).toBe('mcp-client');
     expect(identity.scopes).toEqual(scopes);
     expect(Object.isFrozen(identity)).toBe(true);
   });
 
   it('rejects duplicates, bad ids, and unknown revocations with CONFIGURATION_ERROR', async () => {
     const registry = await ClientRegistry.open(file);
-    await registry.add('openworker', scopes);
-    await expect(registry.add('openworker', scopes)).rejects.toMatchObject({
+    await registry.add('mcp-client', scopes);
+    await expect(registry.add('mcp-client', scopes)).rejects.toMatchObject({
       code: 'CONFIGURATION_ERROR',
     });
     await expect(registry.add('Bad Id', scopes)).rejects.toMatchObject({
@@ -112,7 +112,7 @@ describe('ClientRegistry', () => {
 
   it('gives every authentication failure the identical error', async () => {
     const registry = await ClientRegistry.open(file);
-    const { token } = await registry.add('openworker', scopes);
+    const { token } = await registry.add('mcp-client', scopes);
     const other = await registry.add('other', scopes);
     await registry.revoke('other');
     await registry.reload();
@@ -141,10 +141,10 @@ describe('ClientRegistry', () => {
 
   it('revocation takes effect after reload, not before', async () => {
     const registry = await ClientRegistry.open(file);
-    const { token } = await registry.add('openworker', scopes);
+    const { token } = await registry.add('mcp-client', scopes);
     const cli = await ClientRegistry.open(file);
-    await cli.revoke('openworker');
-    expect(registry.authenticate(token).clientId).toBe('openworker');
+    await cli.revoke('mcp-client');
+    expect(registry.authenticate(token).clientId).toBe('mcp-client');
     await registry.reload();
     expect(failure(() => registry.authenticate(token)).code).toBe('AUTH_REQUIRED');
     expect(registry.list()[0]?.revokedAt).toBeDefined();
@@ -173,7 +173,7 @@ describe('ClientRegistry', () => {
 
   it('fails closed on corrupt or malformed files', async () => {
     const registry = await ClientRegistry.open(file);
-    await registry.add('openworker', scopes);
+    await registry.add('mcp-client', scopes);
     const good = JSON.parse(await readFile(file, 'utf8')) as { clients: Record<string, unknown>[] };
     const bad: string[] = [
       '{not json',
@@ -202,13 +202,13 @@ describe('ClientRegistry', () => {
 
   it('creates the directory 0700 and file 0600', async () => {
     const registry = await ClientRegistry.open(file);
-    await registry.add('openworker', scopes);
+    await registry.add('mcp-client', scopes);
     // Windows permissions are ACL-based; Node's mode bits do not represent them.
     if (process.platform !== 'win32') {
       expect((await stat(join(dir, 'state'))).mode & 0o777).toBe(0o700);
       expect((await stat(file)).mode & 0o777).toBe(0o600);
     }
-    expect(await readFile(file, 'utf8')).toContain('openworker');
+    expect(await readFile(file, 'utf8')).toContain('mcp-client');
   });
 
   it('serializes concurrent adds without losing clients', async () => {

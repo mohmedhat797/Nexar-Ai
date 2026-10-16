@@ -23,6 +23,19 @@ export interface PermissionBrokerOptions {
    * Arguments are never inspected.
    */
   readonly bridgeTools?: readonly string[] | undefined;
+  /**
+   * Host-local sessions: replaces the policy/gate evaluation (bridge tools are still allowed first).
+   * Answers are still chosen by option kind; any error rejects.
+   */
+  readonly decide?: ((input: PermissionDecisionInput) => Promise<Decision>) | undefined;
+}
+
+/** What a host-local decision function sees of one tool call. */
+export interface PermissionDecisionInput {
+  readonly tool: string;
+  readonly kind: string;
+  readonly rawInput: unknown;
+  readonly toolCallId: string;
 }
 
 interface PermissionRequest {
@@ -99,6 +112,17 @@ export class PermissionBroker {
     }
 
     const tool = info.title;
+    const hostDecide = this.options.decide;
+    if (hostDecide !== undefined) {
+      if (!request.options.some((o) => o.kind === 'allow_once')) return 'reject';
+      if (this.options.bridgeTools?.includes(tool) === true) return 'allow';
+      return hostDecide({
+        tool,
+        kind: info.kind ?? 'other',
+        rawInput: info.rawInput,
+        toolCallId: request.toolCallId,
+      });
+    }
     const action: OutwardAction = {
       type: ACP_ACTION_TYPE,
       target: `${ADAPTER_NAME}:${tool}`,

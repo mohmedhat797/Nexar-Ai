@@ -46,6 +46,8 @@ export interface NexarRuntime {
   /** The routing policy selected by `config.routing.policy`. */
   readonly policy: RoutingPolicy;
   readonly projects: ProjectRegistry;
+  /** Shared accounting sink for executions and control model calls. */
+  readonly telemetry?: TelemetrySink;
 }
 
 const discardSink: TelemetrySink = { emit: () => undefined };
@@ -113,7 +115,7 @@ export function createNexar(config: NexarConfig, options: CreateNexarOptions): N
       ? {}
       : { workingDirectoryPolicy: options.workingDirectoryPolicy }),
   });
-  return { nexar, registry, adapters, controller, policy, projects };
+  return { nexar, registry, adapters, controller, policy, projects, telemetry };
 }
 
 /** `createNexar` with the project registry built from `config.projects` (canonicalizes roots). */

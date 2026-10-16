@@ -1,6 +1,17 @@
 /* eslint-disable @typescript-eslint/require-await -- injected async seams in tests need no await */
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -71,11 +82,14 @@ async function rejection(
   );
 }
 
-function envOf(args: readonly string[]): Record<string, string> {
+async function envOf(args: readonly string[]): Promise<Record<string, string>> {
+  const file = args[3];
+  if (file === undefined) throw new Error('missing environment argument file');
+  const data = (await readFile(file, 'utf8')).split('\0');
   const env: Record<string, string> = {};
-  args.forEach((a, i) => {
+  data.forEach((a, i) => {
     if (a === '--setenv') {
-      env[args[i + 1] ?? ''] = args[i + 2] ?? '';
+      env[data[i + 1] ?? ''] = data[i + 2] ?? '';
     }
   });
   return env;
@@ -132,7 +146,7 @@ describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
   it('returns the bwrap command with the expected shape', async () => {
     const prepared = await launcher().prepare(spec(), signal());
     expect(prepared).toMatchObject({
-      command: '/usr/bin/bwrap',
+      command: '/bin/sh',
       env: { PATH: '/usr/bin:/bin' },
       cwd: ws,
       workspacePath: '/work',
@@ -193,7 +207,7 @@ describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
       }),
       signal(),
     );
-    const env = envOf(prepared.args);
+    const env = await envOf(prepared.args);
     expect(env).toEqual({
       KEEP: 'me',
       HOME: '/home/agent',
@@ -214,7 +228,7 @@ describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
       }),
       signal(),
     );
-    const env = envOf(prepared.args);
+    const env = await envOf(prepared.args);
     for (const key of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) {
       expect(env[key]).toBe('http://127.0.0.1:3128');
     }
@@ -260,7 +274,8 @@ describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
           args.findIndex((_, i) => seq.every((item, j) => args[i + j] === item));
         expect(at('--ro-bind', svc, '/run/nexar-services')).toBeGreaterThan(-1);
         expect(at('--ro-bind', relay, '/opt/nexar/bridge-relay.cjs')).toBeGreaterThan(-1);
-        const script = args[args.indexOf('-c') + 1] ?? '';
+        const commandArgs = args.slice(args.indexOf('--') + 1);
+        const script = commandArgs[commandArgs.indexOf('-c') + 1] ?? '';
         expect(script).toContain(
           `TCP-LISTEN:${SANDBOX_GATEWAY_PORT},bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/nexar-services/gateway.sock`,
         );
@@ -294,8 +309,8 @@ describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
         spec({ env: { NO_PROXY: '*' }, services: services() }),
         signal(),
       );
-      expect(envOf(withGateway.args)['NO_PROXY']).toBe('127.0.0.1');
-      expect(envOf(withGateway.args)['no_proxy']).toBe('127.0.0.1');
+      expect((await envOf(withGateway.args))['NO_PROXY']).toBe('127.0.0.1');
+      expect((await envOf(withGateway.args))['no_proxy']).toBe('127.0.0.1');
       await withGateway.dispose();
       for (const patch of [{ gateway: false }, undefined]) {
         const prepared = await launcher().prepare(
@@ -306,8 +321,8 @@ describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
           }),
           signal(),
         );
-        expect(envOf(prepared.args)['NO_PROXY']).toBeUndefined();
-        expect(envOf(prepared.args)['no_proxy']).toBeUndefined();
+        expect((await envOf(prepared.args))['NO_PROXY']).toBeUndefined();
+        expect((await envOf(prepared.args))['no_proxy']).toBeUndefined();
         await prepared.dispose();
       }
     });
@@ -386,7 +401,7 @@ describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
       spec({ env: {}, command: join(tool, 'bin', 'node') }),
       signal(),
     );
-    expect(envOf(prepared.args)['PATH']).toBe(`${tool}/bin:/usr/local/bin:/usr/bin:/bin`);
+    expect((await envOf(prepared.args))['PATH']).toBe(`${tool}/bin:/usr/local/bin:/usr/bin:/bin`);
     expect(prepared.args.slice(-2)).toEqual([join(tool, 'bin', 'node'), 'a']);
     await prepared.dispose();
   });
@@ -444,6 +459,27 @@ describe.skipIf(process.platform === 'win32')('SandboxLauncher', () => {
     controller.abort();
     await p2.dispose();
     expect(await readdir(runBase)).toEqual([]);
+  });
+
+  it('keeps synthetic credentials out of argv in a private, disposable argument file', async () => {
+    const token = 'FCR01-synthetic-credential-7391';
+    const prepared = await launcher().prepare(
+      spec({ env: { NEXAR_CONTROL_TOKEN: token } }),
+      signal(),
+    );
+    const file = prepared.args[3];
+    if (file === undefined) throw new Error('missing argument file');
+    try {
+      expect(prepared.args.join('\n')).not.toContain(token);
+      expect(JSON.stringify(prepared.env)).not.toContain(token);
+      expect(prepared.args).toContain('--clearenv');
+      expect(prepared.args).toContain('--args');
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+      expect((await envOf(prepared.args))['NEXAR_CONTROL_TOKEN']).toBe(token);
+    } finally {
+      await prepared.dispose();
+    }
+    expect(existsSync(file)).toBe(false);
   });
 
   it('cleans up the run dir when the allowlist is invalid', async () => {

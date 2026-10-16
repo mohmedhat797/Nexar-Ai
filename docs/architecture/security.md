@@ -39,7 +39,7 @@ subscription logins. Security is an architectural requirement, not a later featu
 2. **Nexar ↔ model providers**: third-party data processors. Routing respects
    `requirements.privacy = 'local-only'` by rejecting resources whose `dataLocality` is
    `third-party`.
-3. **OpenWorker ↔ Nexar** (v0.2): OpenWorker is a separate application that launches `nexar mcp serve`
+3. **MCP client ↔ Nexar** (v0.2): an MCP client is a separate application that launches `nexar mcp serve`
    over stdio. Every tool call is authenticated with a client token, authorized against that client's
    scopes, audited, and treated as untrusted task input (ADR-014, ADR-015).
 4. **Repository ↔ local machine**: nothing machine-specific (tokens, session DBs, `.nexar/`, `.env`)
@@ -89,7 +89,7 @@ Eight hard gates. Each is enforced in code and proven by offline tests (`pnpm te
 | 5   | No secrets in audit or telemetry                       | `packages/access/src/audit.ts` (explicit field allowlist, sanitized ids); `packages/telemetry/src/redact.ts`; `packages/core/src/engine.ts` (`artifacts.stored` carries refs only)                                                     | `packages/access/src/audit.test.ts` (allowlisted keys only); `packages/access/src/registry.test.ts` (only the hash is stored); `packages/telemetry/src/telemetry.test.ts`; `packages/core/src/artifacts.test.ts`; `integrations/mcp/src/server.test.ts`   |
 | 6   | MCP stdout is protocol-only                            | `integrations/mcp/src/stdio.ts` (`redirectConsoleToStderr`; logs and notice go to stderr)                                                                                                                                              | `integrations/mcp/src/stdio-process.test.ts` (raw stdout bytes are JSON-RPC only); `integrations/mcp/src/server.test.ts` (`redirectConsoleToStderr`)                                                                                                      |
 | 7   | Outward actions fail closed without approval           | `packages/approvals/src/outward.ts` (`performOutwardAction`: executor required first, then approval, consume, execute; `V0_2_OUTWARD_EXECUTORS` is empty); `gate.ts` (deny-all default); `packages/workflows` has no outward code path | `packages/approvals/src/approvals.test.ts` (no executors; deny by default; binding; single use; restart recovery); `packages/workflows/src/static.test.ts` (no mail, HTTP or approvals import); `packages/workflows/src/runner.test.ts` (drafts only)     |
-| 8   | Request input cannot grant filesystem permissions      | `integrations/openworker/src/schema.ts` (strict schema; no scope, path-policy or permission fields); `integrations/mcp/src/server.ts` (client cost cap, scopes from the token); `packages/projects/src/merge.ts` (stricter wins)       | `integrations/mcp/src/server.test.ts` (request fields do not widen scopes); `packages/projects/src/merge.test.ts`; `packages/workflows/src/runner.test.ts` (inputs cannot choose project or directory)                                                    |
+| 8   | Request input cannot grant filesystem permissions      | `packages/work-bridge/src/schema.ts` (strict schema; no scope, path-policy or permission fields); `integrations/mcp/src/server.ts` (client cost cap, scopes from the token); `packages/projects/src/merge.ts` (stricter wins)          | `integrations/mcp/src/server.test.ts` (request fields do not widen scopes); `packages/projects/src/merge.test.ts`; `packages/workflows/src/runner.test.ts` (inputs cannot choose project or directory)                                                    |
 
 Supporting controls: artifact names are sanitized with a forced extension and written with `O_EXCL`
 (`packages/artifacts/src/sanitize.ts`, `store.ts`); workflow inputs are wrapped as untrusted and never
@@ -209,7 +209,7 @@ error codes, never paths or messages.
   reduce it, but models can still follow injected text. The real guarantee is structural: workflows
   and the engine have no outward code path, so the worst case is a misleading local draft. Every
   output needs human review.
-- **OpenWorker MCP tools may not be available in scheduled automations** (upstream behaviour,
-  unverified; see the [OpenWorker research](../research/upstream/openworker.md)).
+- **MCP tools may not be available in scheduled automations of some MCP clients** (client behaviour,
+  unverified).
 - No encryption at rest for `.nexar/` state, telemetry, audit or artifacts (owner-only file modes only).
 - No rate limiting of failed authentication.

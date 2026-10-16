@@ -34,9 +34,13 @@ ADR (or amend status) when you change one.
 | [026](026-cowork-lane-supervised-openworker.md)                    | Cowork lane: a Nexar-supervised OpenWorker                                | Accepted                       |
 | [027](027-resource-orchestration-architecture.md)                  | Nexar-owned resources, Engine Gateway and plan-level strategy             | Accepted                       |
 | [029](029-connection-scoped-resources-and-canonical-continuity.md) | Connection-scoped resources and canonical continuity (Resource Fabric v2) | Proposed                       |
+| [030](030-unified-dsh-first-agent-runtime.md)                      | Unified DSH-first agent runtime                                           | Accepted                       |
 
 Template: Status · Context · Decision · Rationale · Alternatives considered · Consequences · Risks ·
 Follow-up work.
 
 [ADR-028: Dynamic Provider Sessions and Model Inventory](028-dynamic-provider-sessions-and-model-inventory.md)
 is accepted (2026-10-06); implementation NXR-068 blocks v0.6 live acceptance.
+
+[ADR-030: Unified DSH-first agent runtime](030-unified-dsh-first-agent-runtime.md) is accepted
+(2026-10-17); ADR-029 stays Proposed.

@@ -6,7 +6,7 @@ import { assertSessionId, assertTurnId } from '@nexar/sessions';
  * Nexar side; they are never read from a request body, a tool argument or an orchestrator reply.
  */
 
-export type Orchestrator = 'nexar' | 'openworker' | 'dsh';
+export type Orchestrator = 'nexar' | 'dsh';
 
 export const MAX_DELEGATION_DEPTH = 2;
 

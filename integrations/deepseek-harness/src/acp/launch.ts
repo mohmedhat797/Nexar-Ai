@@ -11,16 +11,17 @@ import type {
 } from '@nexar/contracts';
 import { credentialVariable, resolveOwnCredential } from '../env.js';
 import type { CredentialSources } from '../env.js';
-import { NEXAR_CONTROL_TOKEN_ENV, renderPatchOverlay } from '../overlay.js';
+import { NEXAR_CONTROL_TOKEN_ENV } from '../overlay.js';
+import { CODING_PROFILE, renderProfileOverlay } from '../profiles.js';
+import type { DshOverlayRoute } from '../profiles.js';
 import { RuntimeProcess } from '../runtime-process.js';
 import type { BinarySpec } from '../runtime-process.js';
 import { isGatewayMode, requireGatewayEndpoints } from './gateway.js';
 
 /** Where the per-resource DSH state directory appears inside the sandbox. */
 export const SANDBOX_DSH_HOME = '/home/agent/.dsh';
-/** The Nexar patch overlay of a gateway session, inside the DSH state directory. */
-export const GATEWAY_OVERLAY_FILE = 'nexar.patch.yml';
-
+/** The Nexar Coding profile overlay of every lane, inside the DSH state directory. */
+export const OVERLAY_FILE = 'nexar.patch.yml';
 export interface AcpLaunchOptions {
   readonly binary: BinarySpec;
   readonly workspace: EngineeringWorkspace;
@@ -38,21 +39,25 @@ export interface AcpLaunchOptions {
    * the resource's own credential: no DSH key is resolved, injected or required.
    */
   readonly gateway?: ExecutionGateway | undefined;
+  /** Owner-confirmed project memory, rendered into the overlay's `personaSuffix`. Never logged or recorded. */
+  readonly requiredContext?: string | undefined;
 }
 
 /**
  * Builds the sandbox launch spec for `dsh --profile acp` and asks the launcher to wrap it.
  *
- * KNOWN GAP: the launcher passes `spec.env` to bubblewrap as `--setenv` arguments, so the values
- * (including the API key, when one is configured, or the lane's gateway token) are visible in the
- * argv of the bwrap process to the owner's other processes via `/proc`. The host is trusted by the
- * threat model (the gateway token is lane-scoped and short-lived), but a later change should hand
- * the environment over through `bwrap --args <fd>` instead.
+ * The sandbox launcher delivers `spec.env` through `bwrap --args <fd>`, keeping provider keys and
+ * gateway tokens out of process argv while preserving a cleared, explicit child environment.
+ * The ephemeral argument file is private and removed at disposal; the host identity remains trusted.
  *
  * Gateway mode (`options.gateway.engine === 'dsh'`): the spec carries the lane's `services`, the
  * environment gets the lane token as `NEXAR_CONTROL_TOKEN`, and after `prepare` the mounted service
- * locations are required (`INTEGRATION_UNAVAILABLE` before anything is spawned) and the Nexar patch
- * overlay naming the in-sandbox gateway is written into the DSH state directory.
+ * locations are required (`INTEGRATION_UNAVAILABLE` before anything is spawned).
+ *
+ * Every launch (gateway or native-key) writes the Coding profile overlay into the DSH state
+ * directory (0600) and passes `--patch`: persona, privacy rows, profile tool rows and the required
+ * project context. Gateway mode adds the single `nexar` route naming the in-sandbox gateway; native-key
+ * mode (`route: resource`) keeps the resource's own `llm-deepseek` credential.
  *
  * Refuses (`POLICY_REJECTED`) to write to a workspace unless the isolation really is the sandbox,
  * both on the launcher's declaration and on what `prepare` reports; nothing is spawned in that case.
@@ -71,7 +76,7 @@ export async function prepareAcpLaunch(
   await chmod(options.dshStateDir, 0o700);
 
   const gateway = isGatewayMode(options.gateway) ? options.gateway : undefined;
-  const env: Record<string, string> = { DSH_HOME: SANDBOX_DSH_HOME };
+  const env: Record<string, string> = { DSH_HOME: SANDBOX_DSH_HOME, DSH_TELEMETRY_DISABLED: '1' };
   if (gateway === undefined) {
     const variable = credentialVariable(options.resource);
     const credential = resolveOwnCredential(options.resource, options.sources);
@@ -88,7 +93,8 @@ export async function prepareAcpLaunch(
       ...options.binary.args,
       '--profile',
       'acp',
-      ...(gateway === undefined ? [] : ['--patch', `${SANDBOX_DSH_HOME}/${GATEWAY_OVERLAY_FILE}`]),
+      '--patch',
+      `${SANDBOX_DSH_HOME}/${OVERLAY_FILE}`,
     ],
     env,
     workspace: workspace.path,
@@ -101,13 +107,23 @@ export async function prepareAcpLaunch(
   };
   const prepared = await workspace.launcher.prepare(spec, signal);
   try {
+    if (signal.aborted) throw new NexarError('EXECUTION_CANCELLED', 'execution was cancelled');
     if (writable && prepared.isolation !== 'sandbox') throw notSandboxed();
-    if (gateway !== undefined) {
-      const { baseURL } = requireGatewayEndpoints(gateway, prepared);
-      const overlay = join(options.dshStateDir, GATEWAY_OVERLAY_FILE);
-      await writeFile(overlay, renderPatchOverlay({ nexarRoute: { baseURL } }), { mode: 0o600 });
-      await chmod(overlay, 0o600);
-    }
+    const route: DshOverlayRoute =
+      gateway === undefined
+        ? { kind: 'resource' }
+        : { kind: 'nexar', baseURL: requireGatewayEndpoints(gateway, prepared).baseURL };
+    const overlay = join(options.dshStateDir, OVERLAY_FILE);
+    await writeFile(
+      overlay,
+      renderProfileOverlay({
+        profile: CODING_PROFILE,
+        route,
+        requiredContext: options.requiredContext,
+      }),
+      { mode: 0o600 },
+    );
+    await chmod(overlay, 0o600);
   } catch (error) {
     await prepared.dispose().catch(() => undefined);
     throw error;

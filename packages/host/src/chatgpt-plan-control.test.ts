@@ -72,7 +72,7 @@ describe('Cowork control loop on a ChatGPT plan resource', () => {
     const snapshot = snapshots.find((s) => s.descriptor.id === plan.id);
     expect(snapshot?.state).toMatchObject({ availability: 'available', auth: 'authenticated' });
     expect(snapshot?.descriptor.provenance).toBe('discovered:host');
-    expect(isControlCompatible(plan, 'openworker')).toBe(true);
+    expect(isControlCompatible(plan, 'dsh')).toBe(true);
 
     const gateway = new ControlModelGateway({
       ports: createControlModelTurnPorts(host, { connections }),
@@ -82,14 +82,14 @@ describe('Cowork control loop on a ChatGPT plan resource', () => {
       newId: () => 'decision-1',
       logger: noopLogger,
     });
-    const decision = gateway.begin('openworker', { mode: 'auto', fallback: 'auto' }, lineage);
+    const decision = gateway.begin('dsh', { mode: 'auto', fallback: 'auto' }, lineage);
     expect(decision.resourceId).toBe('chatgpt-plan:gpt-5.2');
 
     server.replies = [{ kind: 'tool-call', name: 'list_files', arguments: '{"dir":"."}' }];
     const result = await gateway.turn(
       {
         lineage,
-        engine: 'openworker',
+        engine: 'dsh',
         controlDecisionId: decision.controlDecisionId,
         messages: [{ role: 'user', content: 'what is here?' }],
         tools: [
@@ -130,7 +130,7 @@ describe('Cowork control loop on a ChatGPT plan resource', () => {
       .turn(
         {
           lineage,
-          engine: 'openworker',
+          engine: 'dsh',
           controlDecisionId: decision.controlDecisionId,
           messages: [{ role: 'user', content: 'again' }],
         },

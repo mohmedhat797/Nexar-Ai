@@ -244,12 +244,10 @@ function ApiKeyMethod({
   row,
   busy,
   onChange,
-  onOpenWorkerAccess,
 }: {
   row: ProviderRow;
   busy: boolean;
   onChange: (provider: ApiProviderId, action: 'save' | 'remove' | 'check') => Promise<void>;
-  onOpenWorkerAccess: (provider: ApiProviderId, allowed: boolean) => Promise<void>;
 }): ReactElement {
   const name = PROVIDER_LABELS[row.provider];
   const hasKey = row.status === 'saved' || row.lastFour !== undefined;
@@ -273,22 +271,6 @@ function ApiKeyMethod({
                 .map((runtime) => (runtime === 'pi' ? 'pi-ai' : 'DeepSeek Harness'))
                 .join(', ')}
         </p>
-        {row.openWorkerSupported ? (
-          <label className="field-inline small">
-            <input
-              type="checkbox"
-              data-testid={`openworker-access-${row.provider}`}
-              checked={row.openWorkerAllowed}
-              disabled={busy}
-              onChange={(e) => void onOpenWorkerAccess(row.provider, e.target.checked)}
-            />
-            <span>Allow OpenWorker to use this key</span>
-          </label>
-        ) : (
-          <p className="muted small" data-testid={`openworker-unsupported-${row.provider}`}>
-            Not available to OpenWorker
-          </p>
-        )}
       </div>
       <div className="row">
         <button
@@ -411,21 +393,6 @@ export function ProvidersView({ resources }: { resources: readonly ResourceRow[]
     }
   }
 
-  async function setOpenWorkerAccess(provider: ApiProviderId, allowed: boolean): Promise<void> {
-    const name = PROVIDER_LABELS[provider];
-    setBusy(true);
-    setError(null);
-    try {
-      const updated = await call(nexar.setOpenWorkerAccess({ provider, allowed }));
-      setRows((current) => current.map((row) => (row.provider === provider ? updated : row)));
-      setStatus(`${name}: OpenWorker access ${allowed ? 'allowed' : 'not allowed'}.`);
-    } catch (failure) {
-      setError(errorText(failure));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const cards = groupProviderCards({ keys: rows, subscriptions: subscriptions.rows, resources });
   const ready = loaded && subscriptions.loaded;
 
@@ -446,7 +413,7 @@ export function ProvidersView({ resources }: { resources: readonly ResourceRow[]
         </p>
         <p className="muted small">
           Subscriptions work only with their own native agent. They never become API keys and cannot
-          power pi-ai, DeepSeek Harness or OpenWorker.
+          power pi-ai or DeepSeek Harness.
         </p>
         <p className="muted">
           Copy your API key, then choose Save from clipboard for its provider. Nexar stores it
@@ -500,12 +467,7 @@ export function ProvidersView({ resources }: { resources: readonly ResourceRow[]
                 />
               )}
               {card.apiKey !== undefined && (
-                <ApiKeyMethod
-                  row={card.apiKey}
-                  busy={busy}
-                  onChange={change}
-                  onOpenWorkerAccess={setOpenWorkerAccess}
-                />
+                <ApiKeyMethod row={card.apiKey} busy={busy} onChange={change} />
               )}
               {card.chatgptPlan && <ChatGptPlanMethod />}
               {card.local && <LocalEndpointsView />}

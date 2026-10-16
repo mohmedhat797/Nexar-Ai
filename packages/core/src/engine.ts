@@ -92,6 +92,11 @@ export interface RunOptions {
    */
   readonly gateway?: ExecutionGateway;
   readonly gatewayResourceId?: string;
+  /**
+   * Engineering lanes only: owner-confirmed project memory handed to the adapter unchanged (never
+   * logged or recorded). Requires workspace.
+   */
+  readonly requiredContext?: string;
 }
 
 export interface RunOutcome {
@@ -269,6 +274,12 @@ export class Nexar {
         'A gateway session requires an engineering workspace',
       );
     }
+    if (options.requiredContext !== undefined && options.workspace === undefined) {
+      throw new NexarError(
+        'VALIDATION_ERROR',
+        'Required context requires an engineering workspace',
+      );
+    }
     const workspace =
       options.workspace === undefined
         ? undefined
@@ -353,6 +364,9 @@ export class Nexar {
             (options.gatewayResourceId === undefined || options.gatewayResourceId === resourceId)
               ? { gateway: options.gateway }
               : {}),
+            ...(options.requiredContext === undefined
+              ? {}
+              : { requiredContext: options.requiredContext }),
           },
         ),
         signal,

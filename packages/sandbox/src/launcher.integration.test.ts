@@ -115,6 +115,18 @@ describe.skipIf(!realAvailable)('SandboxLauncher (real bubblewrap)', () => {
     expect(await readFile(join(ws, 'out.txt'), 'utf8')).toBe('hi\n');
   });
 
+  it('delivers synthetic credentials through the private fd and closes it before execution', async () => {
+    const token = 'synthetic-fcr01-token-with-spaces';
+    const result = await run(
+      sh('printf "%s" "$SYNTHETIC_TOKEN"; test ! -e /proc/self/fd/3', {
+        env: { SYNTHETIC_TOKEN: token },
+      }),
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe(token);
+    expect(await readdir(join(root, 'run'))).toEqual([]);
+  });
+
   it('keeps / read-only and /work/.git read-only (also against mv)', async () => {
     const result = await run(
       sh(

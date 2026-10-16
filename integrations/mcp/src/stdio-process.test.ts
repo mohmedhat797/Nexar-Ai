@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ClientRegistry } from '@nexar/access';
 import { echoResource } from '@nexar/integration-echo';
 
-// Process-level: drives the BUILT CLI (`pnpm build` first), exactly as OpenWorker would launch it.
+// Process-level: drives the BUILT CLI (`pnpm build` first), exactly as an MCP client would launch it.
 const MAIN = fileURLToPath(new URL('../../../apps/cli/dist/main.js', import.meta.url));
 
 const SECRET_PROMPT = 'TOP-SECRET-PROMPT-TEXT';
@@ -34,7 +34,7 @@ describe.skipIf(!existsSync(MAIN))('nexar mcp serve (real process, stdio)', () =
       }),
     );
     const registry = await ClientRegistry.open(join(dir, '.nexar', 'clients.json'));
-    ({ token } = await registry.add('openworker', {
+    ({ token } = await registry.add('mcp-client', {
       tools: ['nexar.submit_work', 'nexar.work_status', 'nexar.route', 'nexar.resources'],
       taskKinds: ['documentation'],
       projects: ['demo'],
@@ -140,7 +140,7 @@ describe.skipIf(!existsSync(MAIN))('nexar mcp serve (real process, stdio)', () =
       'nexar.resources',
       'nexar.submit_work',
     ]);
-    expect(audit.every((a) => a.clientId === 'openworker')).toBe(true);
+    expect(audit.every((a) => a.clientId === 'mcp-client')).toBe(true);
     const rawAudit = await readFile(join(dir, '.nexar', 'audit.jsonl'), 'utf8');
     expect(rawAudit).not.toContain(SECRET_PROMPT);
     expect(rawAudit).not.toContain(token);

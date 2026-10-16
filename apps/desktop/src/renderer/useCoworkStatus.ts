@@ -8,7 +8,7 @@ export interface CoworkStatus {
   /** A status call or a refresh is in flight. */
   readonly loading: boolean;
   readonly error: string | null;
-  /** Re-probes OpenWorker now. */
+  /** Re-probes DeepSeek Harness now. */
   readonly refresh: () => void;
 }
 

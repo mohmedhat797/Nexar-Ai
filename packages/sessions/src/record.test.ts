@@ -160,6 +160,30 @@ describe('session records', () => {
     }
   });
 
+  it('still reads records written before the retired engine was removed (ADR-030)', () => {
+    const engineering = {
+      planeTaskId: 'task_1',
+      status: 'reported',
+      lanes: [
+        { role: 'implementation', resourceId: 'x:y', executor: 'engine', engine: 'openworker' },
+      ],
+    };
+    const lane = {
+      policy: 'rules@1',
+      mode: 'cowork',
+      requestedLane: 'cowork',
+      effectiveLane: 'direct',
+      fallbackReason: 'openworker-unavailable',
+    };
+    const stored = edit((r) => {
+      turnOf(r)['lane'] = lane;
+      turnOf(r)['outcome'] = { text: 'x', engineering };
+    });
+    const turn = parseSession(stored).turns[0];
+    expect(turn?.outcome?.engineering).toEqual(engineering);
+    expect(turn?.lane?.fallbackReason).toBe('openworker-unavailable');
+  });
+
   it('binds the record to the expected id', () => {
     expectCorrupt(serializeSession(valid()), `ses_${'b'.repeat(32)}`);
   });
@@ -188,5 +212,33 @@ describe('session records', () => {
     const broken = { ...valid(), activeTurnId: null };
     expect(() => serializeSession(broken)).toThrow(NexarError);
     expect(() => serializeSession({ ...valid(), title: '' })).toThrow(NexarError);
+  });
+
+  it('parses context@1 manifests without the required-context fields and context@2 with them', () => {
+    const base = {
+      turnIds: [],
+      omittedTurns: 0,
+      truncatedTurnIds: [],
+      chars: 10,
+      artifactIds: [],
+      hash: 'h'.repeat(64),
+    };
+    const withContext = (context: Record<string, unknown>): string =>
+      edit((r) => (turnOf(r)['context'] = context));
+
+    const v1 = parseSession(withContext({ policy: 'context@1', ...base }), SID);
+    expect(v1.turns[0]?.context).toEqual({ policy: 'context@1', ...base });
+
+    const v2 = {
+      policy: 'context@2',
+      ...base,
+      requiredIds: [`mem_${'1'.repeat(32)}`],
+      requiredHash: 'a'.repeat(64),
+    };
+    expect(parseSession(withContext(v2), SID).turns[0]?.context).toEqual(v2);
+
+    expectCorrupt(withContext({ ...v2, requiredIds: ['nope'] }), SID);
+    expectCorrupt(withContext({ ...v2, requiredHash: 'short' }), SID);
+    expectCorrupt(withContext({ ...v2, extra: 1 }), SID);
   });
 });

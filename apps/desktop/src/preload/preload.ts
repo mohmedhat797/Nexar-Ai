@@ -3,7 +3,6 @@ import type { NexarApi, SessionEvent, TaskEvent } from '../shared/api.js';
 import { CHANNELS, SESSION_EVENT_CHANNEL, TASK_EVENT_CHANNEL } from '../shared/channels.js';
 import { z } from 'zod';
 import {
-  OpenWorkerAccessArgsSchema,
   ProviderArgsSchema,
   ProviderListSchema,
   ProviderRowSchema,
@@ -151,13 +150,6 @@ const api: NexarApi = {
     invokeProvider(CHANNELS.providersRemoveKey, { provider }, ProviderRowSchema),
   checkProviderKey: (provider) =>
     invokeProvider(CHANNELS.providersCheckKey, { provider }, ProviderRowSchema),
-  setOpenWorkerAccess: (args) =>
-    invokeProvider(
-      CHANNELS.providersSetOpenWorkerAccess,
-      args,
-      ProviderRowSchema,
-      OpenWorkerAccessArgsSchema,
-    ),
   listProjects: () => invoke(CHANNELS.projectsList, {}),
   addProject: () => invoke(CHANNELS.projectsAdd, {}),
   removeProject: (id) => invoke(CHANNELS.projectsRemove, { id }),
@@ -183,6 +175,9 @@ const api: NexarApi = {
   cancelTurn: (args) => invoke(CHANNELS.sessionsCancel, args),
   setSessionMode: (args) => invoke(CHANNELS.sessionsSetMode, args),
   renameSession: (args) => invoke(CHANNELS.sessionsRename, args),
+  listProjectMemory: (projectId) => invoke(CHANNELS.projectMemoryList, { projectId }),
+  addProjectMemory: (args) => invoke(CHANNELS.projectMemoryAdd, args),
+  removeProjectMemory: (args) => invoke(CHANNELS.projectMemoryRemove, args),
   codeStatus: (args) => invoke(CHANNELS.codeStatus, args),
   refreshCode: (args) => invoke(CHANNELS.codeRefresh, args),
   setPlaneProject: (args) => invoke(CHANNELS.codeSetPlaneProject, args),

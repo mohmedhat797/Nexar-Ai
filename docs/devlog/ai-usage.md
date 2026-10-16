@@ -177,3 +177,11 @@ validation reported 79% of the five-hour allowance and 77% of the weekly allowan
 credits remain unused. No dollar or per-agent token figures are exposed. The next major subsystem
 is deferred to continuation while the completed unit is checked, pushed and handed off.
 Final local validation reported 89% of the five-hour allowance and 78% of the weekly allowance used.
+
+Unified DSH runtime (ADR-030, 2026-10-10): Claude Opus 5.5 did the architecture study, upstream
+re-check, a Windows host-local ACP spike, the ADR/blueprint, briefs, reviews, gates and commits.
+Every implementation unit (UDSH-01 to UDSH-07, plus one UDSH-05 fix round) was dispatched to Claude
+Sonnet 5.5 through the claude-delegate relay with `--model claude-sonnet-5-5`; each relay stream's
+init event reports `claude-sonnet-5-5`. Sonnet never committed; Opus re-ran the gates before each
+commit. No paid provider inference was used: all agent-runtime tests use a deterministic fake Chat
+Completions endpoint. Token and dollar figures are not exposed and are not estimated.

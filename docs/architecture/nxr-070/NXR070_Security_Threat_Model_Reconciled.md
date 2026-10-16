@@ -2,14 +2,14 @@
 
 - **Scope:** [ADR-029 reconciled](../../adr/029-connection-scoped-resources-and-canonical-continuity.md) and its [blueprint](NXR070_Implementation_Blueprint_Reconciled.md), with corrections C1–C5 and clarifications K1–K2 ([closure report](NXR070_Final_Corrections_Closure_Report.md)).
 - **Supersedes:** the audit-stage [threat model](audit/NXR070_Security_Threat_Model.md). This document maps its T-01…T-18 into R-01…R-15.
-- **Baseline:** every v0.6 control stays in force and none is weakened, including:
+- **Baseline:** accepted ADR-030 baseline `6ea56f99d758bc18698c1fa5770b399a283fe6ad`, every security control stays in force and none is weakened, including:
   - renderer sandbox and zod IPC;
   - key-store ACL and atomic writes;
   - minimal child environments;
-  - the sandbox launcher;
+  - the sandbox launcher (WSL2/Bubblewrap for Cowork, Linux kernel bubblewrap for Coding);
   - grants, `DelegationUnitLimit`, `PermissionBroker` and approvals;
   - plane isolation;
-  - the strict session schemas and the single-writer `FileSessionStore`;
+  - the strict session schemas, single-writer `FileSessionStore`, and `ProjectMemoryStore`;
   - telemetry allowlists.
 
 ## Trust boundaries
@@ -51,7 +51,8 @@
 - B3: mode ≠ authority, and selection ≠ permission.
 - B4: no `reviewOf` in standalone grants.
 - B5: per-turn native sessions.
-- B7: sandboxed write lanes, and no API-key environment for Codex.
+- B7: sandboxed write lanes (WSL2/Bubblewrap Cowork, Linux kernel Coding), and no API-key environment for Codex.
+- B10: `ProjectMemoryStore` owns project-wide confirmed facts; rendered blocks injected authoritatively.
 - B8: v0.6-readable sessions.
 - B9: a single session-directory writer.
 

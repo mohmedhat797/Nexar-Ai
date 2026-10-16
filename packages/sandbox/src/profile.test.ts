@@ -240,4 +240,18 @@ describe('buildBwrapArgs', () => {
       buildBwrapArgs({ ...base, env: { PATH: '/usr/bin', ALPHA: '2', ZED: '1' } }),
     );
   });
+
+  it('preserves isolation while sourcing environment values from a descriptor', () => {
+    const token = 'FCR01-synthetic-token-581';
+    const args = buildBwrapArgs({ ...base, env: { NEXAR_CONTROL_TOKEN: token }, environmentFd: 3 });
+    expect(args).toContain('--clearenv');
+    expect(indexOfSeq(args, '--args', '3')).toBeGreaterThan(args.indexOf('--clearenv'));
+    expect(args).not.toContain('--setenv');
+    expect(args.join('\n')).not.toContain(token);
+    expect(args).toContain('--unshare-net');
+    expect(args).toContain('/work/.git');
+    for (const environmentFd of [-1, 0, 2, 3.5, Number.NaN]) {
+      expect(() => buildBwrapArgs({ ...base, environmentFd })).toThrow(NexarError);
+    }
+  });
 });

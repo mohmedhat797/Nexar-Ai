@@ -4,10 +4,9 @@
 
 The package is internally consistent after corrections C1–C5 and clarifications K1–K2. ADR-029 is **not** approved and remains Proposed. Implementation has not started.
 
-- **Baseline (verified 2026-10-09):**
-  - v0.6 implementation `9e71014`, merge `2f856f9`, CI `37955286149` success;
-  - main `677eefd`, docs CI `37958959182` attempt 2 success;
-  - research `b843d04`, unchanged.
+- **Baseline (verified 2026-10-17):**
+  - accepted ADR-030 baseline `6ea56f99d758bc18698c1fa5770b399a283fe6ad` (Unified DSH Runtime `@deepseek-ai/dsh@0.2.0-rc.2`, WSL2/Bubblewrap Cowork, Linux kernel Coding sandbox, Project Memory);
+  - NXR-070R research reports (Document A, B, C) reconciled.
 - **Closure:** [corrections closure report](NXR070_Final_Corrections_Closure_Report.md).
 
 ## 1. What changed from Codex's original design
@@ -19,7 +18,7 @@ The package is internally consistent after corrections C1–C5 and clarification
 | Alias manifest and compatibility retirement                                                                           | Built-in ids frozen and never re-pointed                                                                                                                                   |
 | One registry across environments; host as a review dimension                                                          | Each host is an independent authority; host is attribution only (C1)                                                                                                       |
 | Optional Codex ACP worker                                                                                             | Deferred                                                                                                                                                                   |
-| Native session bindings, resume/fork, delivery receipts                                                               | `context@2` with conservative deterministic classification (C2, OD-13), stored in an integrity-checked sidecar written only by the existing session store (C5, K1)         |
+| Native session bindings, resume/fork, delivery receipts                                                               | `context@3` with conservative deterministic classification (C2, OD-13), stored in an integrity-checked sidecar written only by the existing session store (C5, K1)         |
 | NRC v2 lexicographic ranking with quota/cost preference                                                               | `@2` = v1 scoring + hard filters + provenance; quota rank-neutral; no budget                                                                                               |
 | Instance-first accounts                                                                                               | Your order (Decision A), with assurance levels (C3), evidence gates E-1 and E-2, and single-plan Replace (OD-15)                                                           |
 
@@ -40,7 +39,7 @@ The package is internally consistent after corrections C1–C5 and clarification
 
 | Status                            | Decisions                                                                                                                                                                                                                                                                              |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Confirmed by you**              | OD-3 (`context@2`, no native resume/fork/persistence); OD-4a (API keys first); OD-4b (Codex homes second); OD-6 (no budget enforcement); **OD-13 direction** (conservative)                                                                                                            |
+| **Confirmed by you**              | OD-3 (`context@3`, no native resume/fork/persistence); OD-4a (API keys first); OD-4b (Codex homes second); OD-6 (no budget enforcement); **OD-13 direction** (conservative)                                                                                                            |
 | **Conditionally accepted by you** | **OD-14** (sidecar). The conditions are now specified (ADR §4.6.5, REQ-40–45), so it can be approved                                                                                                                                                                                   |
 | **Pending**                       | OD-1 (ADR-029); OD-2 (ACP deferral); OD-5 (review dimensions); OD-7 (lifecycle); OD-8 (account binding); OD-9 (host ids); OD-10 (overflow rule); OD-13 category list (recommended: owner-marked optional or superseded turns only); final OD-14; **OD-15** (Replace plan account, new) |
 | **Evidence gates**                | OD-4c (concurrent ChatGPT plan, gate E-1); OD-4d (Claude, gate E-2)                                                                                                                                                                                                                    |
@@ -106,12 +105,13 @@ Performed on this package after K1–K2:
 
 ## Package index
 
-| Document                                                                                               | Content                                                         |
-| ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
-| [ADR029_Reconciled_Proposed.md](../../adr/029-connection-scoped-resources-and-canonical-continuity.md) | The proposed ADR                                                |
-| [NXR070_Implementation_Blueprint_Reconciled.md](NXR070_Implementation_Blueprint_Reconciled.md)         | REQ-01–47, TST-01–58, units and gates                           |
-| [NXR070_Security_Threat_Model_Reconciled.md](NXR070_Security_Threat_Model_Reconciled.md)               | R-01–R-15                                                       |
-| [NXR070_Architecture_Decision_Register.md](NXR070_Architecture_Decision_Register.md)                   | OD/AD status, evidence gates                                    |
-| [NXR070_Execution_Plan_Reconciled.md](NXR070_Execution_Plan_Reconciled.md)                             | Sequence, rollback, release gates                               |
-| [NXR070_Reconciliation_Traceability.md](NXR070_Reconciliation_Traceability.md)                         | Proposal → finding → correction → requirement → test → decision |
-| [NXR070_Final_Corrections_Closure_Report.md](NXR070_Final_Corrections_Closure_Report.md)               | C1–C5 and K1–K2 closure                                         |
+| Document                                                                                               | Content                                                          |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| [ADR029_Reconciled_Proposed.md](../../adr/029-connection-scoped-resources-and-canonical-continuity.md) | The proposed ADR                                                 |
+| [NXR070R2_Final_Architecture_Reconciliation.md](NXR070R2_Final_Architecture_Reconciliation.md)         | Final R01–R17 reconciliation report against ADR-030 and upstream |
+| [NXR070_Implementation_Blueprint_Reconciled.md](NXR070_Implementation_Blueprint_Reconciled.md)         | REQ-01–47, TST-01–58, units and gates                            |
+| [NXR070_Security_Threat_Model_Reconciled.md](NXR070_Security_Threat_Model_Reconciled.md)               | R-01–R-15                                                        |
+| [NXR070_Architecture_Decision_Register.md](NXR070_Architecture_Decision_Register.md)                   | OD/AD status, evidence gates                                     |
+| [NXR070_Execution_Plan_Reconciled.md](NXR070_Execution_Plan_Reconciled.md)                             | Sequence, rollback, release gates                                |
+| [NXR070_Reconciliation_Traceability.md](NXR070_Reconciliation_Traceability.md)                         | Proposal → finding → correction → requirement → test → decision  |
+| [NXR070_Final_Corrections_Closure_Report.md](NXR070_Final_Corrections_Closure_Report.md)               | C1–C5 and K1–K2 closure                                          |

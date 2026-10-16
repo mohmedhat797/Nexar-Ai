@@ -126,6 +126,15 @@ const contextSchema = z.strictObject({
   chars: z.number().int().nonnegative(),
   artifactIds: stringList(MAX_ARTIFACTS_PER_TURN * 8, 2048),
   hash: label(128),
+  // `context@2` (ADR-030 §7): optional so `context@1` records still parse.
+  requiredIds: z
+    .array(z.string().regex(/^mem_[0-9a-f]{32}$/))
+    .max(256)
+    .optional(),
+  requiredHash: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
 });
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -139,6 +148,7 @@ const engineeringSchema = z.strictObject({
         role: label(64),
         resourceId: label(128),
         executor: z.enum(['engine', 'native']).optional(),
+        // legacy (ADR-030): read-only; the retired engine id only on turns recorded by older builds.
         engine: z.enum(['openworker', 'dsh']).optional(),
         executorReason: label(64).optional(),
         controlResourceId: label(128).optional(),

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { NexarError, isNexarError, type Logger, type NexarErrorCode } from '@nexar/contracts';
 import type { CodeRequest, CodeResult } from '@nexar/operating';
 import {
+  MAX_REQUIRED_CONTEXT_CHARS,
   PLANE_PROTOCOL,
   runTitle,
   type ApprovalSummary,
@@ -9,6 +10,7 @@ import {
   type DesktopFrame,
   type DiffFrame,
   type PlaneControl,
+  type PlaneFeature,
   type PlaneFrame,
   type PlaneReadiness,
   type PlaneResource,
@@ -79,6 +81,9 @@ export const MAX_ACTIVE_RUNS = 4;
 const REPORT_PLAN = 'repository-report';
 /** The plan the plane runs for a plan intent (NXR-053): a report-only implementation plan. */
 const IMPLEMENTATION_PLAN = 'implementation-plan';
+/** What this Desktop asks a plane for: the newest first, then what every older plane understands. */
+const FEATURES_CURRENT: readonly PlaneFeature[] = ['resources', 'required-context'];
+const FEATURES_LEGACY: readonly PlaneFeature[] = ['resources'];
 const MAX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FINGERPRINT_PREFIX = 12;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
@@ -127,7 +132,7 @@ function resourceDto(resource: PlaneResource): PlaneResourceDto {
         }),
     auth: resource.auth,
     availability: resource.availability,
-    control: { openworker: resource.control.openworker, dsh: resource.control.dsh },
+    control: { dsh: resource.control.dsh },
   };
 }
 
@@ -272,6 +277,8 @@ export class CodePlane {
   private readonly diffs = new Map<string, CodeDiffDto>();
   private reportAdvertised = false;
   private planAdvertised = false;
+  /** The plane signalled `required-context` at its last handshake. */
+  private requiredContextAdvertised = false;
   private disposed = false;
 
   constructor(private readonly options: CodePlaneOptions) {
@@ -391,16 +398,31 @@ export class CodePlane {
   private async probe(): Promise<PlaneStatus> {
     const config = await this.reloadConfig();
     if (!config.valid) return this.statusOf('plane-missing', {}, PLANE_REASONS['settings-invalid']);
+    const current = await this.probeWith(config.value, FEATURES_CURRENT);
+    if (!current.rejectedFeatures) return current.status;
+    // A plane older than `required-context` rejects the unknown feature: ask again without it.
+    return (await this.probeWith(config.value, FEATURES_LEGACY)).status;
+  }
+
+  private async probeWith(
+    config: Extract<CodePlaneConfigResult, { valid: true }>['value'],
+    features: readonly PlaneFeature[],
+  ): Promise<{ readonly status: PlaneStatus; readonly rejectedFeatures: boolean }> {
     let conn: PlaneConnection;
     try {
-      conn = new PlaneConnection(this.options.launcher(config.value));
+      conn = new PlaneConnection(this.options.launcher(config));
     } catch {
-      return this.statusOf('wsl-unavailable');
+      return { status: this.statusOf('wsl-unavailable'), rejectedFeatures: false };
     }
     try {
-      const handshake = await this.handshake(conn);
-      if (!handshake.ok) return this.statusOf(handshake.state);
-      return this.statusFromReady(handshake.ready);
+      const handshake = await this.handshake(conn, features);
+      if (!handshake.ok) {
+        return {
+          status: this.statusOf(handshake.state),
+          rejectedFeatures: handshake.code === 'VALIDATION_ERROR' && features !== FEATURES_LEGACY,
+        };
+      }
+      return { status: this.statusFromReady(handshake.ready), rejectedFeatures: false };
     } finally {
       await conn.close(this.timings.shutdownMs);
     }
@@ -422,7 +444,17 @@ export class CodePlane {
     return this.cached?.status.state === 'ready' && this.planAdvertised;
   }
 
+  /**
+   * Whether the plane signalled `required-context` at its last handshake: only then may a `run`
+   * frame carry `requiredContext` (an older plane's strict schema rejects the key).
+   */
+  supportsRequiredContext(): boolean {
+    return this.requiredContextAdvertised;
+  }
+
   private statusFromReady(ready: Extract<PlaneFrame, { type: 'ready' }>): PlaneStatus {
+    this.requiredContextAdvertised =
+      ready.readiness.features?.includes('required-context') === true;
     this.reportAdvertised = ready.readiness.plans.includes(REPORT_PLAN);
     this.planAdvertised = ready.readiness.plans.includes(IMPLEMENTATION_PLAN);
     const state = stateFromReadiness(ready.readiness);
@@ -442,12 +474,13 @@ export class CodePlane {
   /** `initialize`, then wait (bounded) for `ready`; an `error` before it is a launch failure. */
   private async handshake(
     conn: PlaneConnection,
+    features: readonly PlaneFeature[],
   ): Promise<
     | { readonly ok: true; readonly ready: Extract<PlaneFrame, { type: 'ready' }> }
-    | { readonly ok: false; readonly state: PlaneStateDto }
+    | { readonly ok: false; readonly state: PlaneStateDto; readonly code?: NexarErrorCode }
   > {
     try {
-      conn.send({ type: 'initialize', protocol: PLANE_PROTOCOL, features: ['resources'] });
+      conn.send({ type: 'initialize', protocol: PLANE_PROTOCOL, features: [...features] });
     } catch {
       return { ok: false, state: 'protocol-mismatch' };
     }
@@ -458,7 +491,9 @@ export class CodePlane {
       if (event.type === 'end') return { ok: false, state: stateFromEnd(event.reason) };
       const { frame } = event;
       if (frame.type === 'ready') return { ok: true, ready: frame };
-      if (frame.type === 'error') return { ok: false, state: stateFromErrorCode(frame.code) };
+      if (frame.type === 'error') {
+        return { ok: false, state: stateFromErrorCode(frame.code), code: frame.code };
+      }
       return { ok: false, state: 'protocol-mismatch' }; // anything else before `ready`
     }
   }
@@ -654,7 +689,12 @@ export class CodePlane {
     signal.addEventListener('abort', onAbort, { once: true });
 
     try {
-      const handshake = await this.handshake(conn);
+      // The last probe learned whether this plane understands `required-context`; an older plane
+      // rejects an `initialize` that lists it.
+      const handshake = await this.handshake(
+        conn,
+        this.requiredContextAdvertised ? FEATURES_CURRENT : FEATURES_LEGACY,
+      );
       if (signal.aborted) throw cancelled();
       if (!handshake.ok) {
         throw new NexarError('SANDBOX_UNAVAILABLE', PLANE_REASONS[handshake.state]);
@@ -665,6 +705,7 @@ export class CodePlane {
       if (project.state !== 'ready') {
         throw new NexarError('SANDBOX_UNAVAILABLE', project.reason);
       }
+      const requiredContext = this.requiredContextField(request);
 
       // The commit subject derives from the owner's own request, never the context@1 header.
       const title = runTitle(request.turnText);
@@ -674,6 +715,7 @@ export class CodePlane {
         planeProject,
         goal: request.goal,
         ...(title === undefined ? {} : { title }),
+        ...requiredContext,
         intent: request.intent,
         lineage: {
           sessionId: request.sessionId,
@@ -691,6 +733,28 @@ export class CodePlane {
       this.finishRun(run);
       await conn.close(this.timings.shutdownMs);
     }
+  }
+
+  /**
+   * The `run` frame's `requiredContext` field. Required context is never dropped silently: a plane
+   * that did not signal support only gets the turn when the goal already carries the exact block;
+   * otherwise the turn fails closed.
+   */
+  private requiredContextField(request: CodeRequest): { readonly requiredContext?: string } {
+    const { requiredContext } = request;
+    if (requiredContext === undefined || requiredContext === '') return {};
+    if (requiredContext.length > MAX_REQUIRED_CONTEXT_CHARS) {
+      throw new NexarError('VALIDATION_ERROR', 'The required project context is too long', {
+        details: { reason: 'required-context-overflow' },
+      });
+    }
+    if (this.requiredContextAdvertised) return { requiredContext };
+    if (request.goal.includes(requiredContext)) return {};
+    throw new NexarError(
+      'VALIDATION_ERROR',
+      'The engineering plane does not support the required project context',
+      { details: { reason: 'required-context-unsupported' } },
+    );
   }
 
   /** Consumes the run's frames until the outcome (and its diff) or a failure. */

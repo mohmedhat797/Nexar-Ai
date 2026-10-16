@@ -59,7 +59,7 @@ describe('relay <-> endpoint <-> bridge (fake executor)', () => {
       turnId: 't1',
       correlationId: 'c1',
       projectId: 'proj',
-      engine: 'openworker',
+      engine: 'dsh',
       access: 'draft',
       maxUnits: 4,
       ttlMs: 60_000,
@@ -142,7 +142,7 @@ describe('relay <-> endpoint <-> bridge (fake executor)', () => {
       sessionId: 'restricted',
       turnId: 'restricted-turn',
       projectId: 'proj',
-      engine: 'openworker' as const,
+      engine: 'dsh' as const,
     };
     const { token } = host.mint({
       ...identity,
@@ -234,7 +234,7 @@ describe('relay <-> endpoint <-> bridge (fake executor)', () => {
       turnId: 't2',
       correlationId: 'c2',
       projectId: 'proj',
-      engine: 'openworker',
+      engine: 'dsh',
       access: 'read-only',
       maxUnits: 1,
       ttlMs: 60_000,

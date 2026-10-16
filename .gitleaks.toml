@@ -19,3 +19,14 @@ condition = "AND"
 paths = ['''^apps/desktop/src/control-gateway/server\.test\.ts$''']
 regexTarget = "secret"
 regexes = ['''^tok-0123456789abcdef$''']
+
+[[rules.allowlists]]
+description = "Synthetic test secrets in local CI test suite"
+condition = "AND"
+paths = ['''^tests/local-ci\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^ghp_ABC1234567890defABC1234567890def123$''',
+  '''^sk-abcdef1234567890123456$''',
+]
+

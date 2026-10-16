@@ -2,6 +2,7 @@ import {
   NexarError,
   assertExtrasWithinBounds,
   measured,
+  estimated,
   unavailable,
   type ControlTurnResult,
   type Measured,
@@ -265,7 +266,7 @@ function tokens(value: number): Measured<number> {
     : unavailable('provider reported no token count');
 }
 
-function toTurnResult(message: PiAssistantMessageLike): TurnResult {
+function toTurnResult(message: PiAssistantMessageLike, plan: boolean): TurnResult {
   const text = message.content
     .filter((b) => b.type === 'text')
     .map((b) => b.text ?? '')
@@ -292,7 +293,17 @@ function toTurnResult(message: PiAssistantMessageLike): TurnResult {
     ...(text === '' ? {} : { text }),
     toolCalls,
     finishReason,
-    usage: { inputTokens: tokens(message.usage.input), outputTokens: tokens(message.usage.output) },
+    usage: {
+      inputTokens: tokens(message.usage.input),
+      outputTokens: tokens(message.usage.output),
+      cacheReadTokens: tokens(message.usage.cacheRead),
+      cacheWriteTokens: tokens(message.usage.cacheWrite),
+      costUsd: plan
+        ? unavailable('ChatGPT plan usage has no reported cash cost')
+        : Number.isFinite(message.usage.cost.total) && message.usage.cost.total > 0
+          ? estimated(message.usage.cost.total, 'pi-ai catalog rates')
+          : unavailable('provider has no reported cash cost'),
+    },
     ...(withExtras ? { extras } : {}),
   };
 }
@@ -432,7 +443,7 @@ export class PiModelTurnPort implements ModelTurnPort {
       }
       if (message.stopReason === 'error')
         throw guard === undefined ? failureFor(message, secrets) : guard.failure();
-      return toTurnResult(message);
+      return toTurnResult(message, plan);
     } catch (e) {
       if (availabilityFailure !== undefined && e === availabilityFailure) throw e;
       if (guard !== undefined) {

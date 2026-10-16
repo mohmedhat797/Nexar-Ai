@@ -2,6 +2,7 @@ dist
 release
 coverage
 pnpm-lock.yaml
+integrations/deepseek-harness/dsh-runtime.package-lock.json
 docs/research/**
 .claude/
 docs/devlog/evidence/**

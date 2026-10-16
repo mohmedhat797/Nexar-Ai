@@ -92,7 +92,7 @@ function LaneLine({ turn }: { turn: TurnDto }): ReactElement | null {
       {isCoworkTurn(turn) && (
         <span data-testid="lane-orchestrator">
           {' '}
-          · Orchestrated by OpenWorker{resource === undefined ? '' : ` using ${resource}`}
+          · Orchestrated by DeepSeek Harness{resource === undefined ? '' : ` using ${resource}`}
         </span>
       )}
       {isCoworkTurn(turn) && control !== null && (

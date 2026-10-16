@@ -54,7 +54,7 @@
       "path": "../../integrations/mcp"
     },
     {
-      "path": "../../integrations/openworker"
+      "path": "../../packages/work-bridge"
     }
   ]
 }

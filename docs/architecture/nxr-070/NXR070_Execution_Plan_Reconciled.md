@@ -14,7 +14,7 @@ Estimates are qualified assumptions for the ADR-009 workflow: Opus architects an
 | 5    | G′ `resource-intelligence@2`                         | C′, F′                                           | new policy module / v1 untouched                                                                                                                              | 2             |
 | 6    | D′ Codex homes                                       | B′                                               | codex integration, homes, lifecycle guards / no Claude, no plan                                                                                               | 2             |
 | 7    | H′ Providers UI v2                                   | B′, D′                                           | renderer and IPC / no new authority                                                                                                                           | 2             |
-| 8    | I′ `context@2` + sidecar                             | OD-1, OD-10, OD-13, OD-14 (parallel from step 1) | operating classifier and assembler; sidecar methods inside `FileSessionStore`; owner actions / no session schema change, no second writer, no native state    | 3             |
+| 8    | I′ `context@3` + sidecar                             | OD-1, OD-10, OD-13, OD-14 (parallel from step 1) | operating classifier and assembler; sidecar methods inside `FileSessionStore`; owner actions / no session schema change, no second writer, no native state    | 3             |
 | 9    | J′ owner acceptance                                  | all above                                        | evidence / no release                                                                                                                                         | owner session |
 | —    | E′ concurrent plan accounts                          | gate E-1                                         | —                                                                                                                                                             | not scheduled |
 | —    | Claude accounts                                      | gate E-2                                         | —                                                                                                                                                             | not scheduled |
@@ -33,12 +33,12 @@ Test ownership:
 
 ## 3. Rollback
 
-| Unit           | Rollback                                      | Data effect                                                                                                                                                              |
-| -------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A′, C′, F′, G′ | revert commit                                 | none                                                                                                                                                                     |
-| B′, D′, H′     | feature flag off                              | owner connections hidden; credentials, homes, binding records and tombstones retained; pins fail explicitly; a replaced plan connection stays retired                    |
-| I′             | revert to `context@1`                         | sessions stay readable by v0.6 (TST-45, TST-55, evidence ADR §4.6.5); sidecars and quarantine files untouched; re-enabling reconciles (TST-49); no migration or deletion |
-| Any            | never force-push, never hard-reset owner data | —                                                                                                                                                                        |
+| Unit           | Rollback                                                  | Data effect                                                                                                                                                              |
+| -------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A′, C′, F′, G′ | revert commit                                             | none                                                                                                                                                                     |
+| B′, D′, H′     | feature flag off                                          | owner connections hidden; credentials, homes, binding records and tombstones retained; pins fail explicitly; a replaced plan connection stays retired                    |
+| I′             | revert to `context@2` + Project Memory (ADR-030 baseline) | sessions stay readable by v0.6 (TST-45, TST-55, evidence ADR §4.6.5); sidecars and quarantine files untouched; re-enabling reconciles (TST-49); no migration or deletion |
+| Any            | never force-push, never hard-reset owner data             | —                                                                                                                                                                        |
 
 ## 4. CI gates (per commit and unit)
 
@@ -54,20 +54,20 @@ Test ownership:
 2. Desktop and plane are built from the same SHA where both changed.
 3. The owner live matrix passes. Each row needs an explicit owner action:
 
-   | Row | Scenario                                                                                  | PASS                                                                                                           |
-   | --- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-   | L1  | Two OpenAI API-key connections                                                            | Both route independently; removing one leaves the other's pins and history intact                              |
-   | L2  | Two Codex connections (owner logs in to the second home)                                  | Executions observe distinct homes; attribution correct                                                         |
-   | L3  | Rotation of one API key while idle, then attempted while a turn runs                      | Idle: same resource ids, next execution uses the new key, assurance "owner-asserted"; active: refused          |
-   | L4  | Disable, Remove, Restore, Forget and same-account re-entry on an owner connection         | Each behaves per ADR §4.3; the account never changes                                                           |
-   | L5  | Review with `connection` preferred, then required with no eligible candidate              | Preferred: different connection when eligible; required and unavailable: explicit failure, no downgrade        |
-   | L6  | Cross-provider turn sequence with an early unpromoted constraint and one promoted to C1   | Both carried with attribution; overflow rejected with explanation; independent turn only by explicit action    |
-   | L7  | Plan re-sign-in with the same account; then (optional, owner choice) Replace plan account | Same → connection continues; Replace → old connection retired, old pins fail explicitly, new connection active |
-   | L8  | v0.6 regression (Cowork SOW, read-only standalone unit, native Code lane)                 | Unchanged results                                                                                              |
+   | Row | Scenario                                                                                       | PASS                                                                                                           |
+   | --- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+   | L1  | Two OpenAI API-key connections                                                                 | Both route independently; removing one leaves the other's pins and history intact                              |
+   | L2  | Two Codex connections (owner logs in to the second home)                                       | Executions observe distinct homes; attribution correct                                                         |
+   | L3  | Rotation of one API key while idle, then attempted while a turn runs                           | Idle: same resource ids, next execution uses the new key, assurance "owner-asserted"; active: refused          |
+   | L4  | Disable, Remove, Restore, Forget and same-account re-entry on an owner connection              | Each behaves per ADR §4.3; the account never changes                                                           |
+   | L5  | Review with `connection` preferred, then required with no eligible candidate                   | Preferred: different connection when eligible; required and unavailable: explicit failure, no downgrade        |
+   | L6  | Cross-provider turn sequence with an early unpromoted constraint and one promoted to C1        | Both carried with attribution; overflow rejected with explanation; independent turn only by explicit action    |
+   | L7  | Plan re-sign-in with the same account; then (optional, owner choice) Replace plan account      | Same → connection continues; Replace → old connection retired, old pins fail explicitly, new connection active |
+   | L8  | v0.6 regression (WSL2 Cowork DSH, read-only standalone unit, Linux kernel sandboxed Code lane) | Unchanged results                                                                                              |
 
    Control-loop rows are Cowork only. DSH Code Control stays unconfigured and outside NXR-070.
 
-4. Rollback rehearsal for I′, on the release candidate: a session written under `context@2` opens and mutates in the v0.6 build, then reopens and reconciles in the new build (the TST-49 procedure).
+4. Rollback rehearsal for I′, on the release candidate: a session written under `context@3` opens and mutates in the v0.6 build, then reopens and reconciles in the new build (the TST-49 procedure).
 5. The evidence document records SHAs, consent, counts and reason codes, with no secrets or subjects.
 6. The PR stays draft until the owner accepts. No release or tag without a separate decision.
 

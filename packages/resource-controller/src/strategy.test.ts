@@ -229,7 +229,7 @@ describe('planStrategy examples', () => {
 
   it('restricts control units to control-compatible resources', () => {
     const noTurn = snap('no-turn', { capabilities: CAPS });
-    const g = graph([unit('c', { control: 'openworker' }), unit('plain')]);
+    const g = graph([unit('c', { control: 'dsh' }), unit('plain')]);
     const s = planStrategy({
       graph: g,
       candidates: [noTurn, api('turn')],
@@ -516,7 +516,7 @@ function randomGraph(r: () => number): WorkGraph {
       'high',
       undefined,
     ]);
-    const control = r() < 0.25 ? pick<ControlEngine>(r, ['openworker', 'dsh']) : undefined;
+    const control = r() < 0.25 ? pick<ControlEngine>(r, ['dsh']) : undefined;
     units.push(
       unit(`u${String(i)}`, {
         dependsOn,

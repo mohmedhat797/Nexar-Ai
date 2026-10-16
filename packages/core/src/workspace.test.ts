@@ -126,6 +126,34 @@ describe('engine: engineering workspace', () => {
     expect(adapter.requests).toHaveLength(0);
   });
 
+  describe('required context', () => {
+    const MARKER = 'REQUIRED-CONTEXT-MARKER-5';
+    const task = (nexar: Awaited<ReturnType<typeof setup>>['nexar']) =>
+      nexar.createTask({ kind: 'coding', prompt: 'p', projectId: 'demo' });
+
+    it('reaches the adapter context unchanged, and only then', async () => {
+      const { nexar, adapter } = await setup();
+      await nexar.run(task(nexar), { workspace: ws(worktree), requiredContext: MARKER });
+      await nexar.run(task(nexar), { workspace: ws(worktree) });
+      expect(adapter.contexts[0]?.requiredContext).toBe(MARKER);
+      expect(adapter.contexts[1]).not.toHaveProperty('requiredContext');
+    });
+
+    it('is refused without a workspace', async () => {
+      const { nexar, adapter } = await setup();
+      await expect(nexar.run(task(nexar), { requiredContext: MARKER })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
+      expect(adapter.requests).toHaveLength(0);
+    });
+
+    it('never reaches telemetry', async () => {
+      const { nexar, sink } = await setup();
+      await nexar.run(task(nexar), { workspace: ws(worktree), requiredContext: MARKER });
+      expect(JSON.stringify(sink.events)).not.toContain(MARKER);
+    });
+  });
+
   describe('gateway session', () => {
     const SENTINEL = 'sentinel-token-0000';
     const gateway: ExecutionGateway = {

@@ -211,7 +211,7 @@ function PermissionGroup<T extends string>({
 }
 
 const ENGINE_LABEL: Readonly<Record<Mode, string>> = {
-  cowork: 'OpenWorker',
+  cowork: 'DeepSeek Harness',
   code: 'DeepSeek Harness',
 };
 const MODE_LABEL: Readonly<Record<Mode, string>> = { cowork: 'Cowork', code: 'Code' };

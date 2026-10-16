@@ -8,6 +8,7 @@ import { usePlaneApprovals } from '../usePlaneApprovals.js';
 import { CodeBanner } from './CodeStatus.js';
 import { CoworkBanner } from './CoworkStatus.js';
 import { Icon } from './Icon.js';
+import { ProjectMemoryPanel } from './ProjectMemoryPanel.js';
 import { SessionTurnView } from './SessionTurnView.js';
 
 /** `general` is the default: Nexar decides from the message. Anything else is an explicit choice. */
@@ -205,6 +206,7 @@ export function ChatView({
       </header>
       {coworkView && <CoworkBanner cowork={cowork} />}
       {codeView && <CodeBanner code={code} />}
+      <ProjectMemoryPanel projectId={project.id} />
       <div className="messages">
         {error !== null && (
           <div className="notice notice-bad" role="alert" data-testid="chat-error">

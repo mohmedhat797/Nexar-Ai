@@ -88,7 +88,7 @@ export interface ResourceRow {
     readonly support: 'official' | 'experimental';
   };
   /** Whether the resource can drive that engine's control loop (`model-turn`). */
-  readonly control: { readonly openworker: boolean; readonly dsh: boolean };
+  readonly control: { readonly dsh: boolean };
 }
 
 export type MeasuredNumber =
@@ -199,7 +199,7 @@ export interface PlaneResourceDto {
   readonly support?: 'official' | 'experimental';
   readonly auth: 'authenticated' | 'unauthenticated' | 'not-required' | 'unknown';
   readonly availability: 'available' | 'degraded' | 'unavailable' | 'unknown';
-  readonly control: { readonly openworker: boolean; readonly dsh: boolean };
+  readonly control: { readonly dsh: boolean };
 }
 
 /** The engineering plane's state. Ids and fixed texts only; never a path, distro or command. */
@@ -230,10 +230,10 @@ export interface CodeDiffDto {
   readonly files: readonly string[];
 }
 
-/** The Cowork lane (supervised OpenWorker, ADR-026). Fixed texts and a version only. */
+/** The Cowork lane (DeepSeek Harness Cowork profile, ADR-030). Fixed texts and a version only. */
 export const COWORK_STATES = [
   'ready',
-  'openworker-missing',
+  'dsh-missing',
   'unsupported-version',
   'startup-failed',
   'configuration-missing',
@@ -243,6 +243,7 @@ export interface CoworkStatusDto {
   readonly state: (typeof COWORK_STATES)[number];
   readonly reason: string;
   readonly version?: string;
+  readonly placement?: 'WSL2_BUBBLEWRAP';
 }
 
 export interface WorkflowDto {
@@ -357,6 +358,7 @@ export interface TurnEngineeringDto {
     readonly role: string;
     readonly resourceId: string;
     readonly executor?: 'engine' | 'native';
+    // legacy (ADR-030): read-only; the retired engine id only on turns recorded by older builds.
     readonly engine?: 'openworker' | 'dsh';
     readonly executorReason?: string;
     readonly controlResourceId?: string;
@@ -371,6 +373,17 @@ export interface TurnEngineeringDto {
 
 export interface SessionDto extends SessionSummaryDto {
   readonly turns: readonly TurnDto[];
+}
+
+export type ProjectMemoryKindDto =
+  'constraint' | 'decision' | 'requirement' | 'review-obligation' | 'pending-work';
+
+/** One owner-confirmed project memory entry: ids, kind, text, time; never a path. */
+export interface ProjectMemoryDto {
+  readonly id: string;
+  readonly kind: ProjectMemoryKindDto;
+  readonly text: string;
+  readonly createdAt: string;
 }
 
 export interface SubmitTurnArgs {
@@ -427,11 +440,6 @@ export interface NexarApi {
   saveProviderKeyFromClipboard(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   removeProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
   checkProviderKey(provider: ApiProviderId): Promise<BridgeResult<ProviderRow>>;
-  /** Owner opt-in: lets OpenWorker use this provider's saved key (never moves the key). */
-  setOpenWorkerAccess(args: {
-    provider: ApiProviderId;
-    allowed: boolean;
-  }): Promise<BridgeResult<ProviderRow>>;
   listProjects(): Promise<BridgeResult<readonly ProjectDto[]>>;
   /** Opens the native folder dialog in the main process; null when cancelled. */
   addProject(): Promise<BridgeResult<ProjectDto | null>>;
@@ -477,6 +485,19 @@ export interface NexarApi {
     title: string;
     expectedRevision?: number;
   }): Promise<BridgeResult<SessionDto>>;
+  /** Owner-confirmed project memory (ADR-030 §7): included completely in every turn. */
+  listProjectMemory(projectId: string): Promise<BridgeResult<readonly ProjectMemoryDto[]>>;
+  addProjectMemory(args: {
+    projectId: string;
+    kind: ProjectMemoryKindDto;
+    text: string;
+    sessionId?: string;
+    turnId?: string;
+  }): Promise<BridgeResult<ProjectMemoryDto>>;
+  removeProjectMemory(args: {
+    projectId: string;
+    entryId: string;
+  }): Promise<BridgeResult<{ readonly removed: boolean }>>;
   codeStatus(args?: { projectId?: string }): Promise<BridgeResult<PlaneStatusDto>>;
   /** Re-probes the engineering plane now (otherwise the status is cached for a minute). */
   refreshCode(args?: { projectId?: string }): Promise<BridgeResult<PlaneStatusDto>>;
@@ -489,7 +510,7 @@ export interface NexarApi {
   getBehavior(): Promise<BridgeResult<BehaviorView>>;
   setBehavior(patch: BehaviorPatch): Promise<BridgeResult<BehaviorView>>;
   coworkStatus(): Promise<BridgeResult<CoworkStatusDto>>;
-  /** Re-probes OpenWorker now (otherwise the status is cached for a minute). */
+  /** Re-probes DeepSeek Harness now (otherwise the status is cached for a minute). */
   refreshCowork(): Promise<BridgeResult<CoworkStatusDto>>;
   /** Subscribes to task progress; returns the unsubscribe function. */
   onTaskEvent(callback: (event: TaskEvent) => void): () => void;

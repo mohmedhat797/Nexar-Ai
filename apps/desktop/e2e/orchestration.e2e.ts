@@ -80,14 +80,14 @@ describe('Nexar Desktop providers and orchestration', () => {
     await expect.poll(() => page.getByTestId('plane-resource-row').count(), POLL).toBe(2);
     await hasText(plane, 'pi:deepseek-chat');
     await hasText(plane, 'claude-code');
-    await hasText(plane, 'OpenWorker, DeepSeek Harness');
+    await hasText(plane, 'DeepSeek Harness');
     expect(await plane.locator('button, input, select, a').count()).toBe(0);
 
     // --- AI behavior: the control dropdown lists only model-turn resources ---
     await openSettings(page, 'AI behavior');
     const control = page.getByTestId('orch-cowork-control');
     await isVisible(control);
-    await hasText(page.getByTestId('orch-cowork-engine'), 'OpenWorker');
+    await hasText(page.getByTestId('orch-cowork-engine'), 'DeepSeek Harness');
     await hasText(page.getByTestId('orch-code-engine'), 'DeepSeek Harness');
     await expect
       .poll(() => optionTexts(page, 'orch-cowork-control').then((o) => o.length), POLL)
@@ -133,7 +133,7 @@ describe('Nexar Desktop providers and orchestration', () => {
     await expect.poll(() => page.getByTestId('resource-details').count(), POLL).toBeGreaterThan(0);
     await hasText(page.getByTestId('resources-table'), 'model-turn');
     await hasText(page.getByTestId('resources-table'), 'local · official');
-    await hasText(page.getByTestId('resources-table'), 'OpenWorker, DeepSeek Harness');
+    await hasText(page.getByTestId('resources-table'), 'DeepSeek Harness');
 
     // --- No secret reaches any of these pages ---
     const saved = await app.evaluate(async ({ clipboard, safeStorage }, key) => {

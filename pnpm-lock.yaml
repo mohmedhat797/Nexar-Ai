@@ -65,9 +65,6 @@ importers:
       '@nexar/integration-mcp':
         specifier: workspace:*
         version: link:../../integrations/mcp
-      '@nexar/integration-openworker':
-        specifier: workspace:*
-        version: link:../../integrations/openworker
       '@nexar/plane-protocol':
         specifier: workspace:*
         version: link:../../packages/plane-protocol
@@ -86,6 +83,9 @@ importers:
       '@nexar/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
+      '@nexar/work-bridge':
+        specifier: workspace:*
+        version: link:../../packages/work-bridge
       '@nexar/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
@@ -114,15 +114,15 @@ importers:
       '@nexar/host':
         specifier: workspace:*
         version: link:../../packages/host
+      '@nexar/integration-deepseek-harness':
+        specifier: workspace:*
+        version: link:../../integrations/deepseek-harness
       '@nexar/integration-openai-account':
         specifier: workspace:*
         version: link:../../integrations/openai-account
       '@nexar/integration-openai-compat':
         specifier: workspace:*
         version: link:../../integrations/openai-compat
-      '@nexar/integration-openworker':
-        specifier: workspace:*
-        version: link:../../integrations/openworker
       '@nexar/operating':
         specifier: workspace:*
         version: link:../../packages/operating
@@ -132,6 +132,9 @@ importers:
       '@nexar/process':
         specifier: workspace:*
         version: link:../../packages/process
+      '@nexar/project-memory':
+        specifier: workspace:*
+        version: link:../../packages/project-memory
       '@nexar/projects':
         specifier: workspace:*
         version: link:../../packages/projects
@@ -266,9 +269,9 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@nexar/integration-openworker':
+      '@nexar/work-bridge':
         specifier: workspace:*
-        version: link:../openworker
+        version: link:../../packages/work-bridge
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -312,40 +315,6 @@ importers:
       zod:
         specifier: ^4.6.5
         version: 4.6.5
-
-  integrations/openworker:
-    dependencies:
-      '@nexar/approvals':
-        specifier: workspace:*
-        version: link:../../packages/approvals
-      '@nexar/artifacts':
-        specifier: workspace:*
-        version: link:../../packages/artifacts
-      '@nexar/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@nexar/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@nexar/process':
-        specifier: workspace:*
-        version: link:../../packages/process
-      '@nexar/projects':
-        specifier: workspace:*
-        version: link:../../packages/projects
-      '@nexar/resource-controller':
-        specifier: workspace:*
-        version: link:../../packages/resource-controller
-      '@nexar/workflows':
-        specifier: workspace:*
-        version: link:../../packages/workflows
-      zod:
-        specifier: ^4.6.5
-        version: 4.6.5
-    devDependencies:
-      '@nexar/integration-echo':
-        specifier: workspace:*
-        version: link:../echo
 
   integrations/pi:
     dependencies:
@@ -505,6 +474,9 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@nexar/project-memory':
+        specifier: workspace:*
+        version: link:../project-memory
       '@nexar/sessions':
         specifier: workspace:*
         version: link:../sessions
@@ -523,6 +495,15 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../contracts
+
+  packages/project-memory:
+    dependencies:
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/projects:
     dependencies:
@@ -565,6 +546,34 @@ importers:
       '@nexar/contracts':
         specifier: workspace:*
         version: link:../contracts
+
+  packages/work-bridge:
+    dependencies:
+      '@nexar/artifacts':
+        specifier: workspace:*
+        version: link:../artifacts
+      '@nexar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@nexar/core':
+        specifier: workspace:*
+        version: link:../core
+      '@nexar/projects':
+        specifier: workspace:*
+        version: link:../projects
+      '@nexar/resource-controller':
+        specifier: workspace:*
+        version: link:../resource-controller
+      '@nexar/workflows':
+        specifier: workspace:*
+        version: link:../workflows
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@nexar/integration-echo':
+        specifier: workspace:*
+        version: link:../../integrations/echo
 
   packages/workflows:
     dependencies:

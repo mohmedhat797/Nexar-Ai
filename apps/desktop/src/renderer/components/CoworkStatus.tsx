@@ -3,8 +3,9 @@ import type { CoworkStatusDto } from '../../shared/api.js';
 import type { CoworkStatus } from '../useCoworkStatus.js';
 
 export const COWORK_EXECUTABLE_NOTE =
-  "Nexar runs its own private OpenWorker. Its executable is set in the owner's desktop settings file.";
-const PROVIDER_HINT = 'Allow OpenWorker to use a provider key in Settings → Providers.';
+  'Isolated Cowork requires the configured WSL2 sandbox and its pinned DeepSeek Harness runtime.';
+const PROVIDER_HINT =
+  'Add a model resource that can run tool turns in Settings → Providers so Nexar can control DeepSeek Harness.';
 
 /** What the Cowork lane can do right now, as a banner above the transcript. */
 export function CoworkBanner({ cowork }: { cowork: CoworkStatus }): ReactElement {
@@ -13,7 +14,7 @@ export function CoworkBanner({ cowork }: { cowork: CoworkStatus }): ReactElement
     return (
       <div className="code-banner" data-testid="cowork-banner" data-state="checking" role="status">
         <span className="code-banner-text" data-testid="cowork-banner-reason">
-          {error ?? 'Checking OpenWorker…'}
+          {error ?? 'Checking DeepSeek Harness…'}
         </span>
         {error !== null && (
           <button
@@ -30,10 +31,17 @@ export function CoworkBanner({ cowork }: { cowork: CoworkStatus }): ReactElement
   }
   if (status.state === 'ready') {
     return (
-      <div className="code-banner code-banner-ready" data-testid="cowork-banner" data-state="ready">
+      <div
+        className="code-banner code-banner-ready"
+        data-testid="cowork-banner"
+        data-state="ready"
+        data-placement={status.placement}
+      >
         <span className="chip chip-ok">Ready</span>
         <span className="code-banner-text" data-testid="cowork-banner-reason">
-          OpenWorker ready
+          {status.placement === 'WSL2_BUBBLEWRAP'
+            ? 'Isolated Cowork ready (WSL2)'
+            : 'DeepSeek Harness ready'}
         </span>
         {status.version !== undefined && (
           <span className="small muted" data-testid="cowork-banner-version">
@@ -48,6 +56,7 @@ export function CoworkBanner({ cowork }: { cowork: CoworkStatus }): ReactElement
       className="code-banner code-banner-blocked"
       data-testid="cowork-banner"
       data-state={status.state}
+      data-placement={status.placement}
     >
       <div className="code-banner-row">
         <span className="chip chip-warn">Not ready</span>
@@ -82,11 +91,15 @@ export function CoworkBanner({ cowork }: { cowork: CoworkStatus }): ReactElement
 export function CoworkFacts({ status }: { status: CoworkStatusDto }): ReactElement {
   return (
     <dl className="facts" data-testid="cowork-facts">
+      <dt>Runtime</dt>
+      <dd data-testid="cowork-runtime">
+        {status.version === undefined ? 'DeepSeek Harness' : `DeepSeek Harness ${status.version}`}
+      </dd>
       <dt>State</dt>
       <dd data-testid="cowork-state">{status.state}</dd>
       <dt>Reason</dt>
       <dd data-testid="cowork-reason">{status.reason}</dd>
-      <dt>OpenWorker version</dt>
+      <dt>DeepSeek Harness version</dt>
       <dd data-testid="cowork-version">{status.version ?? 'unknown'}</dd>
     </dl>
   );
