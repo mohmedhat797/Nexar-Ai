@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
+  connectionKey,
   resourceId,
+  type ConnectionDefinition,
   type ProviderModelInventory,
   type ProviderModelSelection,
   type ProviderRuntimeIdentity,
@@ -8,6 +10,34 @@ import {
   type ResourceId,
 } from '@nexar/contracts';
 import { inventoryIdentityKey } from './inventory.js';
+
+function slugifyCatalogId(raw: string): string {
+  const slug = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9._:-]/g, '-')
+    .replace(/^[^a-z0-9]+/, '')
+    .slice(0, 128);
+  if (slug === '') throw new Error('Invalid catalog model id');
+  return slug;
+}
+
+/** Default connection → existing `pi.<provider>.<model>` id; any other → `catalog:<sha256(connectionKey, provider, model)>`. */
+export function catalogResourceId(
+  connection: ConnectionDefinition,
+  provider: string,
+  model: string,
+): ResourceId {
+  if (!provider || typeof provider !== 'string' || !model || typeof model !== 'string') {
+    throw new Error('Invalid catalog resource selection');
+  }
+  if (connection.builtIn) {
+    return resourceId(slugifyCatalogId(`pi.${provider}.${model}`));
+  }
+  const key = connectionKey(connection.machine, connection.id);
+  const tuple = [key, provider, model];
+  const hash = createHash('sha256').update(JSON.stringify(tuple)).digest('hex');
+  return resourceId(`catalog:${hash}`);
+}
 
 /** Stable public identity: no model labels, observation dates, credentials or mutable defaults. */
 export function inventoryResourceId(
