@@ -52,7 +52,7 @@ ADR-029/030 remain Accepted without status edits. DSH remains exactly `@deepseek
 - Corrupted primary authority fails closed; a `.bak` file is not automatic recovery. Reconciliation must preserve current credentials, generations and retired identities.
 - Supported code rollback must retain the hardened connection authority and current credential/settings state. A pre-remediation binary cannot enforce new retirement/binding rules and must not open an upgraded writable profile. No arbitrary old-binary downgrade or universal power-loss durability is claimed.
 - Native-home multi-account management, review diversity and future routing policy remain outside B′.
-- Historical intermittent Gateway/Providers observations were not root-caused by this remediation. Existing diagnostics remain.
+- Earlier Gateway/Providers observations are not universally explained. The newly captured stale-readiness failure is corrected with deterministic and Desktop evidence described in the runtime report; existing diagnostics remain.
 - Upstream dependency debt is not declared resolved or vulnerability-free.
 
 FINAL_VERDICTS

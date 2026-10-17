@@ -44,6 +44,14 @@ Separate tests hold an actual Control request, a direct Desktop task, and a dele
 
 Negative execution cases reject A referencing B, a built-in scope, no scope, an invalid scope, wrong provider, stale generation or wrong host. Disabled/tombstoned/missing-credential cases are exercised through the lifecycle scenario. No account substitution or environment-secret fallback is added.
 
+## Availability coherence regression found during acceptance
+
+A captured Providers turn failed with `INTEGRATION_UNAVAILABLE` in 102 ms after the credential was forgotten; its UI test then waited 60 seconds for a result. The diagnostic bundle is `apps/desktop/.nexar/e2e-diagnostics/providers-2026-10-17T22-32-17-092Z`. This occurrence was an availability/coherence failure, not evidence of a slow provider request.
+
+Three deterministic regression cases failed before correction (`.nexar/ci/control-availability-red.log`): withdrawn control retained cached Cowork readiness in both execution placements, and pinned preview disagreed with actual admission. The correction caches verified runtime discovery separately from live NRC eligibility, filters control candidates against current connection authority, and validates pins consistently in preview and admission. Live registry descriptors also protect legacy built-in pins whose IDs remain unchanged. Withdrawal, restoration and newly available control resources are tested within the runtime cache window.
+
+Production isolated Cowork still enters its blocking lane when unavailable; no host fallback was introduced. Existing admitted execution is not cancelled by status changes. The corrected actual Providers scenario completed both turns, across restart and Forget, and verified secret absence and exact confirmed-action IPC (`.nexar/ci/remediation-desktop-control-final.log`). This does not establish that every older intermittent Providers observation had the same cause.
+
 ## Desktop and real runtime evidence
 
 FINAL_ACCEPTANCE_SUMMARY

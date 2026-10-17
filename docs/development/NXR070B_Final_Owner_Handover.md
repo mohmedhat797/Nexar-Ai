@@ -80,6 +80,8 @@ See [security and persistence acceptance](NXR070B_Security_and_Persistence_Accep
 
 ## H. Tests
 
+Acceptance exposed outdated Desktop fixtures (global absence of password inputs, unconfirmed removal and the retired raw deletion channel). They now verify clipboard-only legacy cards, a separate masked empty key form, and an exact host-issued confirmation ticket. The corrected orchestration and Providers scenarios were executed. A separate Providers second-turn failure was captured as `INTEGRATION_UNAVAILABLE` after 102 ms and reproduced by deterministic availability tests; live NRC eligibility is now separated from runtime discovery caching. See the runtime report for red/green evidence.
+
 FINAL_TEST_TABLE
 
 Raw logs and JSON are retained in `.nexar/ci`. Reports distinguish passed, skipped and pending assertions. The first fresh WSL run failed because the checkout had no built `dist` outputs; after `pnpm exec tsc -b`, the suite passed. An earlier Full CI was deliberately stopped after 12 passing gates for the private-binding boundary change; it is not represented as full acceptance.
@@ -102,10 +104,12 @@ The correction commits remain on the existing PR branch. No force-push, main pus
 
 ## K. Remaining risks
 
+- **WSL test timing observation:** a four-worker run at `664c812` had two unchanged five-second test timeouts (consent and existing concurrent KeyStore writes). Both suites passed in isolation, then the full suite passed with one worker. The root cause is not established; no timeout or assertion was relaxed. Preserve the failed and successful reports rather than labelling this observation fixed.
+
 - Live vendor authentication, actual key validity, paid inference, account quota and external revocation remain untested by authorization.
 - Pre-remediation binary downgrade on an upgraded writable profile is unsupported; preserve hardened authority and current state.
 - Corrupt authority requiring unprovable manual reconciliation remains unavailable, intentionally.
-- Historical intermittent Gateway child exit and Providers timeout were not root-caused here; diagnostic coverage remains.
+- Historical Gateway child exit and earlier Providers timeout observations are not universally explained. The newly captured stale-readiness failure is corrected separately; diagnostic coverage remains.
 - Pinned upstream dependency debt remains tracked; no vulnerability-free claim or dependency upgrade is made.
 - Later native-home/account management, review diversity, routing changes and upstream update execution remain outside B′.
 

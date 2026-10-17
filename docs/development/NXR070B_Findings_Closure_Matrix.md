@@ -25,6 +25,8 @@ The original findings register remains unchanged in the independent audit worktr
 
 ## Reading the results
 
+F01/F02 also include the availability-coherence correction exposed by full Desktop acceptance: `dsh-cowork.test.ts` tests live withdrawal/addition/restoration despite cached runtime discovery; `connection-runtime.test.ts` tests stale candidate filtering, strict preview/admission agreement and legacy built-in pin protection. Three deterministic cases were executed red before correction. The actual Providers second turn then succeeded after Forget without changing the production WSL fail-closed boundary.
+
 Offline integration uses synthetic credentials in disposable stores and injected model transport at the existing Nexar host seam. Desktop E2E uses the actual preload/IPC, main-process authority, persistent settings, secure storage, production publisher and UI. Actual DSH/WSL acceptance is a separate gate. No live-provider acceptance is implied.
 
 FINAL_ACCEPTANCE_SUMMARY

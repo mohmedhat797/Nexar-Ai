@@ -67,6 +67,8 @@ Existing KeyStore tests cover ciphertext, secret-free errors, unavailable encryp
 
 ## Platform and scan evidence
 
+Current connection eligibility is applied before control selection/preview even while registry probes settle. Cowork runtime-version discovery can remain cached, while control availability is recomputed against NRC. Preview applies the same managed-pin checks as admission, including legacy built-ins. The isolated production lane continues to block rather than falling back to host execution; explicit regressions cover that distinction.
+
 FINAL_ACCEPTANCE_SUMMARY
 
 WSL2/Bubblewrap and Coding protections remain unchanged. Existing accepted isolation tests run against synthetic fixtures; no AppContainer experiment, security identity change or sandbox permission change was performed. Live provider acceptance and external token revocation remain untested by design.
