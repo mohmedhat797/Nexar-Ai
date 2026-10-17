@@ -702,6 +702,11 @@ describe('Desktop Providers', () => {
     const reopened = page.getByTestId('provider-deepseek');
     await expect.poll(() => reopened.innerText(), POLL).toContain('ending in Q7x9');
     await reopened.getByRole('button', { name: 'Remove DeepSeek API key' }).click();
+    await expect
+      .poll(() => page.getByRole('dialog', { name: 'Confirm connection action' }).isVisible(), POLL)
+      .toBe(true);
+    await page.getByLabel('Connection name confirmation').fill('DeepSeek (API)');
+    await page.getByRole('button', { name: 'Confirm connection action', exact: true }).click();
     await expect.poll(() => reopened.innerText(), POLL).toContain('Not saved');
     await expect
       .poll(() => page.getByRole('button', { name: 'Refresh providers' }).isEnabled(), POLL)

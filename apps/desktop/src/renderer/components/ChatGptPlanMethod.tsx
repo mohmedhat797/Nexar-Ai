@@ -27,7 +27,11 @@ function statusLine(status: ChatGptPlanStatus): string {
  * The ChatGPT plan method of the OpenAI card (NXR-067): Sign in with ChatGPT. Shows the fixed status
  * text and three actions; no token, code, URL or account identifier ever reaches this view.
  */
-export function ChatGptPlanMethod(): ReactElement {
+export function ChatGptPlanMethod({
+  revision = 0,
+  onChanged,
+  onForget,
+}: { revision?: number; onChanged?: () => void; onForget?: () => void } = {}): ReactElement {
   const [status, setStatus] = useState<ChatGptPlanStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +49,7 @@ export function ChatGptPlanMethod(): ReactElement {
     return () => {
       active = false;
     };
-  }, []);
+  }, [revision]);
 
   // Follow a running sign-in once a second, for at most ten minutes.
   useEffect(() => {
@@ -72,6 +76,10 @@ export function ChatGptPlanMethod(): ReactElement {
   }, [signingIn]);
 
   async function act(action: PlanAction): Promise<void> {
+    if (action === 'disconnect' && onForget !== undefined) {
+      onForget();
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -88,6 +96,7 @@ export function ChatGptPlanMethod(): ReactElement {
       setError(errorText(failure));
     } finally {
       setBusy(false);
+      onChanged?.();
     }
   }
 

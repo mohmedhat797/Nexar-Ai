@@ -6,6 +6,7 @@ import { useCodeStatus } from '../useCodeStatus.js';
 import { ChatGptPlanMethod } from './ChatGptPlanMethod.js';
 import { LocalEndpointsView } from './LocalEndpointsView.js';
 import { PlaneResources } from './PlaneResources.js';
+import { ConnectionManagement, type ConnectionIntent } from './ConnectionManagement.js';
 
 const PROVIDER_LABELS: Readonly<Record<ApiProviderId, string>> = {
   anthropic: 'Anthropic',
@@ -277,7 +278,7 @@ function ApiKeyMethod({
           type="button"
           className="btn btn-primary"
           aria-label={`Save ${name} API key from clipboard`}
-          disabled={busy || row.status === 'unavailable'}
+          disabled={busy || row.status === 'unavailable' || hasKey}
           onClick={() => void onChange(row.provider, 'save')}
         >
           Save from clipboard
@@ -310,6 +311,8 @@ function ApiKeyMethod({
  * it (ADR-027 section 3), then the engineering plane's resources, read-only.
  */
 export function ProvidersView({ resources }: { resources: readonly ResourceRow[] }): ReactElement {
+  const [connectionRevision, setConnectionRevision] = useState(0);
+  const [connectionIntent, setConnectionIntent] = useState<ConnectionIntent | null>(null);
   const subscriptions = useSubscriptions();
   const plane = useCodeStatus(undefined, true);
   const [rows, setRows] = useState<readonly ProviderRow[]>([]);
@@ -363,6 +366,10 @@ export function ProvidersView({ resources }: { resources: readonly ResourceRow[]
     provider: ApiProviderId,
     action: 'save' | 'remove' | 'check',
   ): Promise<void> {
+    if (action === 'remove') {
+      setConnectionIntent({ connectionId: `${provider}.api` });
+      return;
+    }
     const name = PROVIDER_LABELS[provider];
     let completed = false;
     setBusy(true);
@@ -373,11 +380,10 @@ export function ProvidersView({ resources }: { resources: readonly ResourceRow[]
       const updated = await call(
         action === 'save'
           ? nexar.saveProviderKeyFromClipboard(provider)
-          : action === 'remove'
-            ? nexar.removeProviderKey(provider)
-            : nexar.checkProviderKey(provider),
+          : nexar.checkProviderKey(provider),
       );
       completed = true;
+      setConnectionRevision((value) => value + 1);
       setRows((current) => current.map((row) => (row.provider === provider ? updated : row)));
       setStatus(
         action === 'check'
@@ -469,7 +475,13 @@ export function ProvidersView({ resources }: { resources: readonly ResourceRow[]
               {card.apiKey !== undefined && (
                 <ApiKeyMethod row={card.apiKey} busy={busy} onChange={change} />
               )}
-              {card.chatgptPlan && <ChatGptPlanMethod />}
+              {card.chatgptPlan && (
+                <ChatGptPlanMethod
+                  revision={connectionRevision}
+                  onChanged={() => setConnectionRevision((value) => value + 1)}
+                  onForget={() => setConnectionIntent({ plan: true })}
+                />
+              )}
               {card.local && <LocalEndpointsView />}
               {card.notAvailable && ready && (
                 <p className="muted" data-testid={`provider-unavailable-${card.id}`}>
@@ -483,6 +495,15 @@ export function ProvidersView({ resources }: { resources: readonly ResourceRow[]
           <p className="muted">No API providers available.</p>
         )}
       </section>
+      <ConnectionManagement
+        revision={connectionRevision}
+        intent={connectionIntent}
+        onIntentHandled={() => setConnectionIntent(null)}
+        onChanged={() => {
+          setConnectionRevision((value) => value + 1);
+          void refresh();
+        }}
+      />
       <PlaneResources status={plane.status} error={plane.error} />
     </div>
   );

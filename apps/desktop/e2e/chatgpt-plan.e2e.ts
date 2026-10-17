@@ -159,6 +159,9 @@ describe('Nexar Desktop ChatGPT plan', () => {
     // --- Disconnect removes the candidate ---
     await openSettings(page, 'Providers');
     await page.getByRole('button', { name: 'Disconnect ChatGPT plan', exact: true }).click();
+    await isVisible(page.getByRole('dialog', { name: 'Confirm connection action' }));
+    await page.getByLabel('Connection name confirmation').fill('ChatGPT Plan');
+    await page.getByRole('button', { name: 'Confirm connection action', exact: true }).click();
     await hasText(page.getByTestId('chatgpt-plan-state'), 'Not connected');
     await openSettings(page, 'AI behavior');
     await expect
@@ -175,6 +178,41 @@ describe('Nexar Desktop ChatGPT plan', () => {
       )
       .toBe(false);
     expect(responses.requests).toHaveLength(0);
+    // Sequential replacement creates a different identity; only a new owner sign-in can bind it.
+    await openSettings(page, 'Providers');
+    await page
+      .getByRole('article', { name: 'ChatGPT Plan', exact: true })
+      .getByRole('button', { name: 'Replace Plan account', exact: true })
+      .click();
+    await isVisible(page.getByRole('dialog', { name: 'Confirm connection action' }));
+    await page.getByRole('button', { name: 'Confirm connection action', exact: true }).click();
+    await hasText(
+      page.getByRole('article', { name: 'ChatGPT Plan retired', exact: true }),
+      'Permanently retired',
+    );
+    {
+      auth.idClaims = { sub: 'synthetic-replacement-subject' };
+      try {
+        await page.getByRole('button', { name: 'Connect ChatGPT plan', exact: true }).click();
+        await hasText(page.getByTestId('chatgpt-plan-state'), 'Connected');
+        await openSettings(page, 'AI behavior');
+        await expect
+          .poll(
+            async () =>
+              (await controlValues(page)).some(
+                (v) => v.startsWith('inventory:') && v !== originalId,
+              ),
+            POLL,
+          )
+          .toBe(true);
+        expect(await controlValues(page)).not.toContain(originalId);
+        expect(await page.locator('body').innerText()).not.toContain(
+          'synthetic-replacement-subject',
+        );
+      } finally {
+        auth.idClaims = {};
+      }
+    }
     await harness.close(app);
-  });
+  }, 180_000);
 });
