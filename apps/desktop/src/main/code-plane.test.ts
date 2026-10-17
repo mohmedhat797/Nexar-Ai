@@ -11,6 +11,8 @@ import {
   MAX_ACTIVE_RUNS,
   MAX_STORED_DIFFS,
   PLANE_REASONS,
+  hostQualifyPlaneConnection,
+  hostQualifyPlaneResource,
   progressLine,
   stateFromReadiness,
   type PlaneTimings,
@@ -1200,5 +1202,28 @@ describe('launchers', () => {
     }
     const start = (await readLog()).find((e) => e.event === 'start');
     expect(start?.env).not.toContain('NEXAR_TEST_SECRET');
+  });
+});
+
+describe('host attribution (TST-05)', () => {
+  it('qualifies plane connections with machine: plane without touching wire protocol', () => {
+    expect(hostQualifyPlaneConnection('claude-code')).toBe('plane:claude-code');
+    expect(hostQualifyPlaneConnection('deepseek.api')).toBe('plane:deepseek.api');
+  });
+
+  it('augments received PlaneResourceDto with machine: plane on receipt', () => {
+    const rawDto = {
+      id: 'claude-code',
+      auth: 'authenticated' as const,
+      availability: 'available' as const,
+      control: { dsh: false },
+      provider: 'anthropic',
+      method: 'subscription' as const,
+      support: 'official' as const,
+    };
+    const attributed = hostQualifyPlaneResource(rawDto);
+    expect(attributed.machine).toBe('plane');
+    expect(attributed.id).toBe('claude-code');
+    expect(attributed.provider).toBe('anthropic');
   });
 });

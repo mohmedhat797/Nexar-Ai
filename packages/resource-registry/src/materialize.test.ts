@@ -1,12 +1,14 @@
 import {
+  BUILTIN_CONNECTIONS,
   adapterId,
   resourceId,
+  type ConnectionDefinition,
   type ProviderModelEntry,
   type ProviderModelInventory,
   type ResourceDescriptor,
 } from '@nexar/contracts';
 import { describe, expect, it } from 'vitest';
-import { inventoryResourceId, materializeInventory } from './materialize.js';
+import { catalogResourceId, inventoryResourceId, materializeInventory } from './materialize.js';
 
 const entry: ProviderModelEntry = {
   selection: { kind: 'model', id: 'new-model' },
@@ -189,5 +191,109 @@ describe('inventory resource materialization', () => {
         { legacyId: () => resourceId('collision') },
       ),
     ).toThrow('Duplicate inventory resource identity');
+  });
+});
+
+describe('catalogResourceId (TST-01, TST-02, TST-03, TST-05)', () => {
+  it('reproduces built-in pi.<provider>.<model> IDs byte-for-byte (TST-01)', () => {
+    const builtinAnthropic = BUILTIN_CONNECTIONS['anthropic.subscription'];
+    const id = catalogResourceId(builtinAnthropic, 'anthropic', 'claude-3-5-sonnet-20241022');
+    expect(id).toBe('pi.anthropic.claude-3-5-sonnet-20241022');
+
+    const builtinDeepseek = BUILTIN_CONNECTIONS['deepseek.api'];
+    const dsId = catalogResourceId(builtinDeepseek, 'deepseek', 'deepseek-chat');
+    expect(dsId).toBe('pi.deepseek.deepseek-chat');
+
+    const builtinOpenai = BUILTIN_CONNECTIONS['openai.subscription'];
+    const oaiId = catalogResourceId(builtinOpenai, 'openai', 'gpt-4o');
+    expect(oaiId).toBe('pi.openai.gpt-4o');
+  });
+
+  it('generates distinct IDs for two owner connections using the same provider and model (TST-02)', () => {
+    const connA: ConnectionDefinition = {
+      id: 'openai.caaaaaaaaa',
+      provider: 'openai',
+      method: 'api',
+      authClass: 'official-api',
+      support: 'official',
+      machine: 'desktop',
+      label: 'Work Account',
+      enabled: true,
+      builtIn: false,
+      credentialScope: { kind: 'keystore', name: 'OPENAI_API_KEY__CAAAAAAAAA' },
+    };
+    const connB: ConnectionDefinition = {
+      ...connA,
+      id: 'openai.cbbbbbbbbb',
+      label: 'Personal Account',
+      credentialScope: { kind: 'keystore', name: 'OPENAI_API_KEY__CBBBBBBBBB' },
+    };
+
+    const idA = catalogResourceId(connA, 'openai', 'gpt-5');
+    const idB = catalogResourceId(connB, 'openai', 'gpt-5');
+
+    expect(idA).toMatch(/^catalog:[0-9a-f]{64}$/);
+    expect(idB).toMatch(/^catalog:[0-9a-f]{64}$/);
+    expect(idA).not.toBe(idB);
+  });
+
+  it('maintains ID stability across label, credential, and preference changes (TST-03)', () => {
+    const original: ConnectionDefinition = {
+      id: 'anthropic.caaaaaaaaa',
+      provider: 'anthropic',
+      method: 'api',
+      authClass: 'official-api',
+      support: 'official',
+      machine: 'desktop',
+      label: 'Old Label',
+      enabled: true,
+      builtIn: false,
+      credentialScope: { kind: 'keystore', name: 'ANTHROPIC_API_KEY__CAAAAAAAAA' },
+    };
+    const modified: ConnectionDefinition = {
+      ...original,
+      label: 'New Renamed Label',
+      enabled: false,
+      credentialScope: { kind: 'keystore', name: 'ROTATED_KEY' },
+    };
+
+    expect(catalogResourceId(modified, 'anthropic', 'claude-3-5-haiku')).toBe(
+      catalogResourceId(original, 'anthropic', 'claude-3-5-haiku'),
+    );
+  });
+
+  it('distinguishes desktop and plane host origins for identical connectionId and model (TST-05)', () => {
+    const desktopConn: ConnectionDefinition = {
+      id: 'openai.caaaaaaaaa',
+      provider: 'openai',
+      method: 'api',
+      authClass: 'official-api',
+      support: 'official',
+      machine: 'desktop',
+      label: 'Desktop Conn',
+      enabled: true,
+      builtIn: false,
+      credentialScope: { kind: 'none' },
+    };
+    const planeConn: ConnectionDefinition = {
+      ...desktopConn,
+      machine: 'plane',
+      label: 'Plane Conn',
+    };
+
+    const desktopId = catalogResourceId(desktopConn, 'openai', 'gpt-5');
+    const planeId = catalogResourceId(planeConn, 'openai', 'gpt-5');
+
+    expect(desktopId).not.toBe(planeId);
+  });
+
+  it('rejects invalid or empty provider and model selections', () => {
+    const conn = BUILTIN_CONNECTIONS['anthropic.subscription'];
+    expect(() => catalogResourceId(conn, '', 'model')).toThrow(
+      'Invalid catalog resource selection',
+    );
+    expect(() => catalogResourceId(conn, 'anthropic', '')).toThrow(
+      'Invalid catalog resource selection',
+    );
   });
 });

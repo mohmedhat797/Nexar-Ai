@@ -1,9 +1,10 @@
-import type {
-  InventorySource,
-  ProviderModelEntry,
-  ProviderRuntimeIdentity,
-  ResourceDescriptor,
-  SubscriptionRuntimeId,
+import {
+  BUILTIN_CONNECTIONS,
+  type InventorySource,
+  type ProviderModelEntry,
+  type ProviderRuntimeIdentity,
+  type ResourceDescriptor,
+  type SubscriptionRuntimeId,
 } from '@nexar/contracts';
 import {
   claudeCodeResource,
@@ -31,11 +32,11 @@ export function createNativeModelInventories(options: {
     {
       sourceId: 'claude-code',
       identity: {
-        provider: 'anthropic',
-        connectionId: 'anthropic.subscription',
+        provider: BUILTIN_CONNECTIONS['anthropic.subscription'].provider,
+        connectionId: BUILTIN_CONNECTIONS['anthropic.subscription'].id,
         runtimeId: 'claude-code',
         routeId: 'claude.native',
-        machine: 'desktop',
+        machine: BUILTIN_CONNECTIONS['anthropic.subscription'].machine,
       },
       source: createClaudeModelInventorySource(options),
       template: () => claudeCodeResource(),
@@ -43,11 +44,11 @@ export function createNativeModelInventories(options: {
     {
       sourceId: 'codex',
       identity: {
-        provider: 'openai',
-        connectionId: 'openai.subscription',
+        provider: BUILTIN_CONNECTIONS['openai.subscription'].provider,
+        connectionId: BUILTIN_CONNECTIONS['openai.subscription'].id,
         runtimeId: 'codex',
         routeId: 'codex.native',
-        machine: 'desktop',
+        machine: BUILTIN_CONNECTIONS['openai.subscription'].machine,
       },
       source: codexDefaultInventorySource(options),
       template: () => codexResource(),
@@ -55,11 +56,11 @@ export function createNativeModelInventories(options: {
     {
       sourceId: 'antigravity',
       identity: {
-        provider: 'google',
-        connectionId: 'google.subscription',
+        provider: BUILTIN_CONNECTIONS['google.subscription'].provider,
+        connectionId: BUILTIN_CONNECTIONS['google.subscription'].id,
         runtimeId: 'antigravity',
         routeId: 'google.native',
-        machine: 'desktop',
+        machine: BUILTIN_CONNECTIONS['google.subscription'].machine,
       },
       source: antigravityModelInventorySource(options),
       template: () => antigravityResource(),
