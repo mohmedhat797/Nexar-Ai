@@ -56,6 +56,38 @@ function fixture() {
   return { execute, probe, isAvailable, onModelRejected, adapter, context, request };
 }
 describe('inventory execution guard', () => {
+  it('retains admission through actual native probe settlement and failure cleanup', async () => {
+    let finish!: (value: Awaited<ReturnType<ExecutionAdapter['probe']>>) => void;
+    const release = vi.fn(),
+      validate = vi.fn();
+    const probe = vi.fn<ExecutionAdapter['probe']>().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const adapter = guardInventoryAdapter(
+      { id: adapterId('fake'), displayName: 'Fake', supports: () => true, probe, execute: vi.fn() },
+      {
+        isAvailable: () => true,
+        onModelRejected: () => undefined,
+        acquire: () => Promise.resolve({ release }),
+        validate,
+      },
+    );
+    const pending = adapter.probe(resource, new AbortController().signal);
+    await vi.waitFor(() => expect(probe).toHaveBeenCalledOnce());
+    expect(release).not.toHaveBeenCalled();
+    expect(validate).toHaveBeenCalledWith(resource);
+    finish({ availability: 'available', auth: 'unknown', observedAt: new Date().toISOString() });
+    await pending;
+    expect(release).toHaveBeenCalledOnce();
+    probe.mockRejectedValueOnce(Error('synthetic native failure'));
+    await expect(adapter.probe(resource, new AbortController().signal)).rejects.toThrow(
+      'synthetic native failure',
+    );
+    expect(release).toHaveBeenCalledTimes(2);
+  });
   it('blocks a stale previously probed resource without invoking its runtime and preserves ordinary native resources', async () => {
     const f = fixture();
     expect((await f.adapter.probe(resource, f.context.signal)).availability).toBe('available');

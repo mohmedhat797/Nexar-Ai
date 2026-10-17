@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { CHANNELS } from '../shared/channels.js';
-import type { ConnectionDto } from '../shared/connections.js';
+import type { ConnectionDto, ConnectionConfirmation } from '../shared/connections.js';
 import { createHarness, type Harness } from './test-harness.js';
 import { DesktopKeyStore, type DesktopEncryption } from './desktop-key-store.js';
 import { SettingsStore } from './settings-store.js';
@@ -458,8 +458,16 @@ describe('ConnectionManager', () => {
       }
 
       // 5. Forget Credentials
+      const forgetTicket = await harness.call<ConnectionConfirmation>(CHANNELS.connectionPrepare, {
+        connectionId: id,
+        action: 'forget',
+      });
+      expect(forgetTicket.ok).toBe(true);
+      if (!forgetTicket.ok) throw Error('confirmation unavailable');
       const forgetRes = await harness.call<ConnectionDto>(CHANNELS.connectionForgetCredentials, {
         connectionId: id,
+        confirmation: forgetTicket.value.token,
+        confirmationName: 'IPC Anthropic',
       });
       expect(forgetRes.ok).toBe(true);
       if (forgetRes.ok) {
@@ -467,8 +475,15 @@ describe('ConnectionManager', () => {
       }
 
       // 6. Remove
+      const removeTicket = await harness.call<ConnectionConfirmation>(CHANNELS.connectionPrepare, {
+        connectionId: id,
+        action: 'remove',
+      });
+      expect(removeTicket.ok).toBe(true);
+      if (!removeTicket.ok) throw Error('confirmation unavailable');
       const removeRes = await harness.call<ConnectionDto>(CHANNELS.connectionRemove, {
         connectionId: id,
+        confirmation: removeTicket.value.token,
       });
       expect(removeRes.ok).toBe(true);
       if (removeRes.ok) {

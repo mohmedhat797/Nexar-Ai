@@ -9,7 +9,9 @@ export const PLAN_ID = 'openai.chatgpt-plan';
 export const OWNER_API_ID = /^([a-z0-9]+)\.api\.c([a-z2-7]{10})$/;
 const PLAN_OWNER_ID = /^openai\.chatgpt-plan\.c([a-z2-7]{10})$/;
 const timestamp = (s: string): boolean =>
-  /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(s) && Number.isFinite(Date.parse(s));
+  /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(s) &&
+  Number.isFinite(Date.parse(s)) &&
+  new Date(s).toISOString() === s;
 
 export function defaultDefinition(id: string): ConnectionDefinition | undefined {
   const canonical = Object.values(BUILTIN_CONNECTIONS).find((d) => d.id === id);

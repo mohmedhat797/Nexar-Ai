@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
-import { NexarError, isNexarError, type ResourceDescriptor } from '@nexar/contracts';
+import {
+  BUILTIN_CONNECTIONS,
+  NexarError,
+  isNexarError,
+  type ResourceDescriptor,
+} from '@nexar/contracts';
 import { createOpenAiAccountClient } from '@nexar/integration-openai-account';
 import { BridgeHost, ControlModelGateway } from '@nexar/engine-gateway';
 import { FileProjectMemoryStore } from '@nexar/project-memory';
@@ -26,6 +31,7 @@ import { ConfigStore } from './config-store.js';
 import { createEngineHost, type EngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
 import { ConnectionManager } from './connection-manager.js';
+import { ConnectionRuntime } from './connection-runtime.js';
 import { ChatGptPlanService } from './chatgpt-plan.js';
 import { chatGptPlanInventoryDefinition } from './chatgpt-plan-resources.js';
 import { ProviderInventoryService } from './provider-inventory.js';
@@ -112,6 +118,17 @@ async function start(): Promise<void> {
   const config = new ConfigStore(join(userData, 'nexar.config.json'), logger);
   await config.ensure();
   const settings = new SettingsStore(join(userData, 'desktop-settings.json'));
+  // The existing per-profile writer lease also protects connection authority across Desktop instances.
+  const sessionStore = new FileSessionStore(join(userData, '.nexar', 'sessions'));
+  let sessions: FileSessionStore | undefined;
+  try {
+    const { interruptedTurns } = await sessionStore.acquireLease();
+    sessions = sessionStore;
+    if (interruptedTurns > 0) logger.info('marked running turns interrupted', { interruptedTurns });
+  } catch (error) {
+    if (!isNexarError(error) || error.code !== 'CONFLICT') throw error;
+    logger.warn('sessions are open in another Nexar process', { code: error.code });
+  }
   // The installed app's catalogs are shipped beside app.asar, outside the workspace layout.
   // Keep owner-declared catalog overrides; only supply packaged defaults for missing values.
   const engineEnv = { ...process.env };
@@ -135,9 +152,40 @@ async function start(): Promise<void> {
   // republished (a recomposition) whenever the connection appears or disappears.
   const planTest = chatGptTestHooks(process.env, underTestOverride);
   const engineRef: { current?: EngineHost } = {};
+  const providersRef: { current?: ProviderService } = {};
   const inventoryRef: { current?: ProviderInventoryService } = {};
+  const previousConnections = new Map<string, string>();
+  const connectionManager: ConnectionManager = new ConnectionManager({
+    settingsStore: settings,
+    keyStore: keys,
+    isWriter: () => sessionStore.holdsLease(),
+    affectedPins: (record) => {
+      const current = engineRef.current;
+      if (current === undefined)
+        throw new NexarError('RESOURCE_UNAVAILABLE', 'Connection management is not ready');
+      return connectionRuntime.effects(record, settings, current);
+    },
+    onChange: async () => {
+      for (const record of await connectionManager.listConnections()) {
+        const version = `${record.credentialGeneration}:${record.lifecycleState}`;
+        if (previousConnections.get(record.id) !== version) {
+          inventoryRef.current?.invalidateConnection(record.id);
+          if (record.builtIn) providersRef.current?.invalidate(record.provider);
+        }
+        previousConnections.set(record.id, version);
+      }
+      const plan = await connectionManager.currentPlan();
+      inventoryRef.current?.rebindConnection('chatgpt-plan', plan.id);
+      await engineRef.current?.reload();
+    },
+  });
+  await connectionManager.initialize();
+  for (const record of await connectionManager.listConnections())
+    previousConnections.set(record.id, `${record.credentialGeneration}:${record.lifecycleState}`);
+  const connectionRuntime: ConnectionRuntime = new ConnectionRuntime(connectionManager);
   const chatgptPlan = new ChatGptPlanService({
     keys,
+    authority: connectionManager,
     callback: new SigninCallbackSupervisor(),
     openExternal: planTest?.openExternal ?? ((url) => shell.openExternal(url)),
     installationId: () => installationId(userData),
@@ -163,14 +211,33 @@ async function start(): Promise<void> {
     cachePath: join(userData, 'provider-model-inventory.json'),
     logger,
     onChange: () => engineRef.current?.reload() ?? Promise.resolve(),
+    acquire: async (identity) =>
+      identity.routeId === 'openai.responses.account'
+        ? connectionManager.acquirePlanOperation(
+            (await connectionManager.currentPlan()).id,
+            'refresh',
+          )
+        : connectionManager.acquireExecution(identity.connectionId),
   });
   inventoryRef.current = providerInventory;
+  providerInventory.rebindConnection('chatgpt-plan', (await connectionManager.currentPlan()).id);
   await providerInventory.restore();
   app.on('before-quit', () => providerInventory.dispose());
   // The token seam reaches the pi adapter and the control ports here only; the CLI and the plane get none.
   const planConnections = {
-    isPlanModelAvailable: (descriptor: ResourceDescriptor) =>
-      providerInventory.isModelAvailable('chatgpt-plan', descriptor),
+    isPlanModelAvailable: (descriptor: ResourceDescriptor) => {
+      try {
+        connectionManager.validateResource(descriptor);
+      } catch {
+        return false;
+      }
+      const connection = descriptor.metadata?.['connection'] as { id?: string } | undefined;
+      return (
+        (connection?.id !== undefined &&
+          connectionManager.getActiveExecutionCount(connection.id) > 0) ||
+        providerInventory.isModelAvailable('chatgpt-plan', descriptor)
+      );
+    },
     onPlanModelRejected: (descriptor: ResourceDescriptor) =>
       providerInventory.rejectResource(descriptor),
     resolve: async (
@@ -178,14 +245,19 @@ async function start(): Promise<void> {
       signal: AbortSignal,
       options?: { readonly refresh?: boolean },
     ) => {
+      connectionManager.validateResource(descriptor);
+      const current = await connectionManager.currentPlan();
+      if ((descriptor.metadata?.['connection'] as { id?: string } | undefined)?.id !== current.id)
+        throw new NexarError('AUTH_REQUIRED', 'The Plan connection is unavailable');
       const generation = providerInventory.snapshot('chatgpt-plan').generation;
       const token = await chatgptPlan.accessToken(
         options?.refresh === true ? { refresh: true } : {},
       );
       if (signal.aborted) throw new NexarError('EXECUTION_CANCELLED', 'Execution was cancelled');
       if (
-        generation !== providerInventory.snapshot('chatgpt-plan').generation ||
-        !providerInventory.isModelAvailable('chatgpt-plan', descriptor)
+        (generation !== providerInventory.snapshot('chatgpt-plan').generation ||
+          !providerInventory.isModelAvailable('chatgpt-plan', descriptor)) &&
+        connectionManager.getActiveExecutionCount(current.id) === 0
       ) {
         throw new NexarError('RESOURCE_UNAVAILABLE', 'Model inventory is not current', {
           retryable: false,
@@ -201,11 +273,41 @@ async function start(): Promise<void> {
     logger,
     resolveSecret: keys.resolveSecret,
     connections: planConnections,
-    extraResources: () => Promise.resolve(providerInventory.descriptors()),
-    inventoryGuard: {
+    extraResources: async () => {
+      const api = await connectionRuntime.descriptors();
+      const plan = await connectionManager.currentPlan();
+      const other = providerInventory
+        .descriptors()
+        .map((descriptor) => {
+          if (
+            (descriptor.metadata?.['connection'] as { id?: string } | undefined)?.id !==
+            'openai.chatgpt-plan'
+          )
+            return descriptor;
+          return {
+            ...descriptor,
+            metadata: {
+              ...descriptor.metadata,
+              connection: {
+                id: plan.id,
+                provider: plan.provider,
+                method: plan.method,
+                authClass: plan.authClass,
+                support: plan.support,
+              },
+              connectionHost: plan.machine,
+              connectionGeneration: plan.credentialGeneration,
+            },
+          };
+        })
+        .filter((descriptor) => connectionManager.isAvailable(descriptor));
+      connectionRuntime.remember(other);
+      return [...other, ...api];
+    },
+    inventoryGuard: connectionRuntime.guard({
       isAvailable: (descriptor) => providerInventory.isAvailable(descriptor),
       onModelRejected: (descriptor) => providerInventory.rejectResource(descriptor),
-    },
+    }),
     trace: traceStartup,
   });
   engineRef.current = engine;
@@ -223,32 +325,42 @@ async function start(): Promise<void> {
   app.on('before-quit', () => clearInterval(inventoryTimer));
   const providers = new ProviderService({
     keys,
+    authority: connectionManager,
     clipboard,
     config,
     engine,
     checkKey: (provider) =>
       checkProviderCredential(provider, { resolveSecret: keys.resolveSecret }),
   });
+  providersRef.current = providers;
   const subscriptions = new SubscriptionService(
     createNativeSubscriptions({ env: engineEnv, cwd: app.getPath('home') }),
     (runtime) => providerInventory.invalidate(runtime),
+    {
+      login: (runtime) =>
+        connectionManager.acquireAuthentication(
+          Object.values(BUILTIN_CONNECTIONS).find(
+            (def) =>
+              def.credentialScope.kind === 'native-home' &&
+              def.credentialScope.runtimeId === runtime,
+          )?.id ?? '',
+        ),
+      probe: (runtime) =>
+        connectionManager.acquireExecution(
+          Object.values(BUILTIN_CONNECTIONS).find(
+            (def) =>
+              def.credentialScope.kind === 'native-home' &&
+              def.credentialScope.runtimeId === runtime,
+          )?.id ?? '',
+        ),
+    },
   );
   app.on('before-quit', () => subscriptions.dispose());
 
   // Operating Sessions (ADR-024): this process is the single writer. If another Nexar process holds
   // the lease, sessions stay unavailable (every session channel answers CONFLICT) instead of racing it.
-  const sessionStore = new FileSessionStore(join(userData, '.nexar', 'sessions'));
-  let sessions: FileSessionStore | undefined;
-  try {
-    traceStartup('engine');
-    const { interruptedTurns } = await sessionStore.acquireLease();
-    traceStartup('sessions');
-    sessions = sessionStore;
-    if (interruptedTurns > 0) logger.info('marked running turns interrupted', { interruptedTurns });
-  } catch (error) {
-    if (!isNexarError(error) || error.code !== 'CONFLICT') throw error;
-    logger.warn('sessions are open in another Nexar process', { code: error.code });
-  }
+  traceStartup('engine');
+  traceStartup('sessions');
   // Project memory (ADR-030 §7): owner-confirmed knowledge, written only while this process holds the
   // sessions lease (single writer), read into every turn's required context.
   const projectMemory = new FileProjectMemoryStore({
@@ -304,9 +416,15 @@ async function start(): Promise<void> {
   // engine's current registry snapshot and routing policy (read per call, so a config reload is picked up).
   const controlPorts = createControlModelTurnPorts(
     { env: engineEnv, cwd: dirname(config.path) },
-    { resolveSecret: keys.resolveSecret, connections: planConnections },
+    {
+      resolveSecret: keys.resolveSecret,
+      connections: planConnections,
+      validateResource: (descriptor) => connectionManager.validateResource(descriptor),
+    },
   );
   const controlGateway = new ControlModelGateway({
+    admit: (descriptor) => connectionManager.acquireResource(descriptor),
+    validatePin: (id) => connectionRuntime.validatePin(id),
     ports: controlPorts,
     candidates: () => engine.composition().runtime.registry.snapshot(),
     policy: {
@@ -401,13 +519,6 @@ async function start(): Promise<void> {
     QUIT_CLEANUP_BOUND_MS,
   );
   void cowork.warm();
-  const connectionManager = new ConnectionManager({
-    settingsStore: settings,
-    keyStore: keys,
-    onChange: () => {
-      void engineRef.current?.reload().catch(() => undefined);
-    },
-  });
   const bridge = createBridge({
     engine,
     config,

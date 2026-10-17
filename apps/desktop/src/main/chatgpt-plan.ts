@@ -22,6 +22,8 @@ import { CHANNELS } from '../shared/channels.js';
 import { NoArgs, defineChannel, type ChannelDefinition } from './channel.js';
 import type { DesktopKeyStore } from './desktop-key-store.js';
 import type { SigninCallbackSupervisor } from './signin-callback-child.js';
+import type { ConnectionLease, ConnectionManager } from './connection-manager.js';
+import { PLAN_ID, planScopeName } from './connection-state.js';
 
 /*
  * The owner's ChatGPT Plus/Pro plan as an `official-account` connection (ADR-022 amendment 2026-10-05):
@@ -50,6 +52,7 @@ const Stored = z.strictObject({
   scope: z.string().max(MAX_SCOPE_CHARS),
 });
 type StoredConnection = z.output<typeof Stored>;
+const Binding = z.strictObject({ v: z.literal(1), sub: z.string().min(1).max(256) });
 
 export interface ChatGptPlanDeps {
   readonly keys: Pick<DesktopKeyStore, 'availability' | 'saveBlob' | 'readBlob' | 'removeBlob'>;
@@ -70,6 +73,7 @@ export interface ChatGptPlanDeps {
   readonly onChange?: () => void;
   /** Clears public inventory before account-changing operations, including a cancelled sign-in. */
   readonly onChanging?: () => void;
+  readonly authority?: ConnectionManager;
 }
 
 type Idle =
@@ -90,6 +94,7 @@ const PUBLIC_CODES: ReadonlySet<NexarErrorCode> = new Set<NexarErrorCode>([
   'AUTH_REQUIRED',
   'CONFLICT',
   'CONFIGURATION_ERROR',
+  'POLICY_REJECTED',
 ]);
 
 /** Only a few codes leave this service; anything else (timeouts, upstream) is a provider error. */
@@ -119,14 +124,33 @@ export class ChatGptPlanService {
   private lock: Promise<unknown> = Promise.resolve();
   private disposed = false;
   private disconnecting = false;
+  private connectionId = PLAN_ID;
+  private credentialScope = CHATGPT_PLAN_CONNECTION;
+  private removed = false;
 
   constructor(private readonly deps: ChatGptPlanDeps) {
     this.client = deps.client ?? createOpenAiAccountClient();
     this.now = deps.clock ?? Date.now;
   }
 
-  status(): Promise<ChatGptPlanStatus> {
-    return Promise.resolve(this.currentStatus());
+  async status(): Promise<ChatGptPlanStatus> {
+    await this.loadIdentity();
+    if (this.removed)
+      return {
+        state: 'signed-out',
+        reason: 'disconnected',
+        message: CHATGPT_PLAN_MESSAGES.disconnected,
+      };
+    return this.currentStatus();
+  }
+
+  private async loadIdentity(): Promise<void> {
+    const record = await this.deps.authority?.currentPlan();
+    if (record !== undefined) {
+      this.connectionId = record.id;
+      this.credentialScope = planScopeName(record.id)!;
+      this.removed = record.lifecycleState === 'TOMBSTONED';
+    }
   }
 
   /**
@@ -147,6 +171,7 @@ export class ChatGptPlanService {
       }),
     };
     let timedOut = false;
+    let lease: ConnectionLease | undefined;
     const timer = setTimeout(
       () => {
         timedOut = true;
@@ -155,6 +180,8 @@ export class ChatGptPlanService {
       (this.deps.signInTimeoutMs ?? SIGN_IN_TIMEOUT_MS) + SIGN_IN_GRACE_MS,
     );
     try {
+      await this.loadIdentity();
+      lease = await this.deps.authority?.acquirePlanOperation(this.connectionId, 'signin');
       await this.signInOnce(controller.signal);
       this.idle = { state: 'signed-out' };
     } catch (error) {
@@ -167,6 +194,7 @@ export class ChatGptPlanService {
         throw timedOut ? new NexarError('PROVIDER_ERROR', FIXED) : publicError(error);
       }
     } finally {
+      lease?.release();
       clearTimeout(timer);
       this.signIn = undefined;
       finished();
@@ -187,12 +215,14 @@ export class ChatGptPlanService {
 
   /** Forgets the tokens on this computer. The grant itself is revoked in ChatGPT settings. */
   async disconnect(): Promise<ChatGptPlanStatus> {
+    if (this.deps.authority !== undefined)
+      throw new NexarError('POLICY_REJECTED', 'Use the confirmed connection Forget action');
     if (this.disconnecting) throw new NexarError('CONFLICT', FIXED);
     this.disconnecting = true;
     this.notifyChanging();
     try {
       await this.cancel();
-      await this.locked(() => this.deps.keys.removeBlob(CHATGPT_PLAN_CONNECTION));
+      await this.locked(() => this.deps.keys.removeBlob(this.credentialScope));
     } catch (error) {
       this.deps.logger.warn('chatgpt-plan.disconnect-failed', {});
       throw publicError(error);
@@ -213,24 +243,30 @@ export class ChatGptPlanService {
    * must not be spent twice).
    */
   async accessToken(options: { readonly refresh?: boolean } = {}): Promise<string> {
-    const current = this.require();
-    const forced = options.refresh === true;
-    if (!forced && current.expiresAt - this.now() > REFRESH_MARGIN_MS) return current.accessToken;
+    await this.loadIdentity();
+    const lease = await this.deps.authority?.acquirePlanOperation(this.connectionId, 'refresh');
     try {
-      return await this.locked(async () => {
-        // Re-read: a concurrent caller may already have refreshed, or the owner disconnected.
-        const latest = this.require();
-        if (
-          forced
-            ? latest.accessToken !== current.accessToken
-            : latest.expiresAt - this.now() > REFRESH_MARGIN_MS
-        ) {
-          return latest.accessToken;
-        }
-        return (await this.refresh(latest)).accessToken;
-      });
-    } catch (error) {
-      throw isNexarError(error) && error.code === 'AUTH_REQUIRED' ? error : publicError(error);
+      const current = this.require();
+      const forced = options.refresh === true;
+      if (!forced && current.expiresAt - this.now() > REFRESH_MARGIN_MS) return current.accessToken;
+      try {
+        return await this.locked(async () => {
+          // Re-read: a concurrent caller may already have refreshed, or the owner disconnected.
+          const latest = this.require();
+          if (
+            forced
+              ? latest.accessToken !== current.accessToken
+              : latest.expiresAt - this.now() > REFRESH_MARGIN_MS
+          ) {
+            return latest.accessToken;
+          }
+          return (await this.refresh(latest)).accessToken;
+        });
+      } catch (error) {
+        throw isNexarError(error) && error.code === 'AUTH_REQUIRED' ? error : publicError(error);
+      }
+    } finally {
+      lease?.release();
     }
   }
 
@@ -257,7 +293,7 @@ export class ChatGptPlanService {
   }
 
   private currentStatus(): ChatGptPlanStatus {
-    if (this.disconnecting)
+    if (this.disconnecting || this.removed)
       return ChatGptPlanStatusSchema.parse({
         state: 'signed-out',
         reason: 'disconnected',
@@ -365,21 +401,25 @@ export class ChatGptPlanService {
       if (accountFailureReason(error) !== 'grant-rejected') throw error;
       // The grant is gone (refresh token expired or revoked): forget it and ask for a new sign-in.
       this.notifyChanging();
-      await this.deps.keys.removeBlob(CHATGPT_PLAN_CONNECTION).catch(() => undefined);
+      // The binding is retained even when the grant expires. Do not silently swallow deletion failure.
+      if (this.deps.authority !== undefined)
+        await this.deps.authority.expirePlanCredentials(this.connectionId);
+      else await this.deps.keys.removeBlob(this.credentialScope);
       this.idle = { state: 'signed-out', reason: 'expired' };
       this.deps.logger.warn('chatgpt-plan.expired', {});
       this.notifyChange();
       throw new NexarError('AUTH_REQUIRED', 'The ChatGPT sign-in expired');
     }
-    // The refresh token has rotated: whatever happens to the ID token, the new tokens must be kept.
+    // Publish refreshed credentials only after any supplied identity evidence verifies continuity.
     let idToken = current.idToken;
     if (next.idToken !== undefined) {
-      try {
-        await this.client.verifyIdToken({ idToken: next.idToken, clientId: current.clientId });
-        idToken = next.idToken;
-      } catch {
-        /* Keep the earlier, already verified ID token. */
-      }
+      const verified = await this.client.verifyIdToken({
+        idToken: next.idToken,
+        clientId: current.clientId,
+      });
+      if (verified.sub !== current.sub)
+        throw new NexarError('POLICY_REJECTED', 'ChatGPT account identity does not match');
+      idToken = next.idToken;
     }
     const updated: StoredConnection = {
       ...current,
@@ -392,20 +432,36 @@ export class ChatGptPlanService {
     const sharingChanged = hasPlanSharing(current.scope) !== hasPlanSharing(updated.scope);
     if (sharingChanged) this.notifyChanging();
     await this.store(updated);
-    if (sharingChanged) this.notifyChange();
+    this.notifyChange();
     return updated;
   }
 
   private async store(connection: StoredConnection): Promise<void> {
+    const bindingText = this.deps.keys.readBlob(this.credentialScope + ':binding');
+    const retained =
+      bindingText === undefined
+        ? this.peek()?.sub
+        : Binding.parse(JSON.parse(Buffer.from(bindingText, 'base64url').toString('utf8'))).sub;
+    if (retained !== undefined && retained !== connection.sub)
+      throw new NexarError('POLICY_REJECTED', 'ChatGPT account identity does not match');
     const encoded = Buffer.from(JSON.stringify(Stored.parse(connection)), 'utf8').toString(
       'base64url',
     );
-    await this.deps.keys.saveBlob(CHATGPT_PLAN_CONNECTION, encoded);
+    const binding = Buffer.from(JSON.stringify({ v: 1, sub: connection.sub })).toString(
+      'base64url',
+    );
+    if (this.deps.authority !== undefined)
+      await this.deps.authority.commitPlanCredentials(this.connectionId, encoded, binding);
+    else {
+      // Standalone service compatibility; production Desktop always supplies the shared authority.
+      await this.deps.keys.saveBlob(this.credentialScope + ':binding', binding);
+      await this.deps.keys.saveBlob(this.credentialScope, encoded);
+    }
   }
 
   /** The stored connection, `undefined` when none; throws when storage or its content is unusable. */
   private peek(): StoredConnection | undefined {
-    const encoded = this.deps.keys.readBlob(CHATGPT_PLAN_CONNECTION);
+    const encoded = this.deps.keys.readBlob(this.credentialScope);
     if (encoded === undefined) return undefined;
     try {
       return Stored.parse(JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')));

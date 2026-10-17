@@ -46,6 +46,7 @@ import {
   PiModelTurnPort,
   localEndpointDiscoverySource,
   piCatalogDiscoverySource,
+  type PiModelsLike,
 } from '@nexar/integration-pi';
 import { DiscoveryService, mergeDiscovered } from '@nexar/resource-registry';
 import { EngineeringRunner, PlanCatalog, laneHistoryProvider } from '@nexar/engineering';
@@ -81,19 +82,27 @@ export interface Composition {
 export function discoverySources(
   config: DiscoveryConfig,
   env: Readonly<Record<string, string | undefined>>,
-): { readonly sources: readonly DiscoverySource[]; readonly disabled: readonly string[] } {
+): {
+  readonly sources: readonly DiscoverySource[];
+  readonly disabled: readonly string[];
+} {
   const cli = [
     claudeCodeCliDiscoverySource({ env }),
     codexCliDiscoverySource({ env }),
     antigravityCliDiscoverySource({ env }),
-    deepseekHarnessCliDiscoverySource({ env, credentialSource: config.credentialSource }),
+    deepseekHarnessCliDiscoverySource({
+      env,
+      credentialSource: config.credentialSource,
+    }),
   ];
   const piCatalog = piCatalogDiscoverySource({
     providers: config.piCatalog.providers,
     credentialSource: config.credentialSource,
     maxModels: config.piCatalog.maxModels,
   });
-  const local = localEndpointDiscoverySource({ endpoints: config.localEndpoints.endpoints });
+  const local = localEndpointDiscoverySource({
+    endpoints: config.localEndpoints.endpoints,
+  });
   const disabled = [
     ...(config.cli.enabled ? [] : cli.map((s) => s.id)),
     ...(config.piCatalog.enabled ? [] : [piCatalog.id]),
@@ -187,10 +196,14 @@ export function createAdapters(
   io: HostEnvironment,
   configDir: string,
   options: {
-    readonly approvals?: { readonly gate: ApprovalGate; readonly store: ApprovalStore };
+    readonly approvals?: {
+      readonly gate: ApprovalGate;
+      readonly store: ApprovalStore;
+    };
     readonly resolveSecret?: SecretResolver;
     readonly connections?: ConnectionSeam;
     readonly inventoryGuard?: InventoryExecutionGuard;
+    readonly piModels?: PiModelsLike;
     /** Engineering toolchain mounts: the sandbox shows them at the same paths (ADR-019). */
     readonly toolchainPaths?: readonly string[];
   } = {},
@@ -210,7 +223,12 @@ export function createAdapters(
       ...(nodeCommand === undefined ? {} : { nodeCommand }),
       ...secrets,
     }),
-    new PiExecutionAdapter({ env: io.env, ...secrets, ...connectionOptions(options.connections) }),
+    new PiExecutionAdapter({
+      env: io.env,
+      ...secrets,
+      ...connectionOptions(options.connections),
+      ...(options.piModels === undefined ? {} : { models: options.piModels }),
+    }),
     new DelegateSkillsExecutionAdapter({
       env: io.env,
       stateDir: join(configDir, '.nexar', 'runtimes', 'delegate-skills'),
@@ -227,14 +245,28 @@ export function createAdapters(
  */
 export function createControlModelTurnPorts(
   io: HostEnvironment,
-  options: { readonly resolveSecret?: SecretResolver; readonly connections?: ConnectionSeam } = {},
+  options: {
+    readonly resolveSecret?: SecretResolver;
+    readonly connections?: ConnectionSeam;
+    readonly piModels?: PiModelsLike;
+    readonly validateResource?: (descriptor: ResourceDescriptor) => void;
+  } = {},
 ): (descriptor: ResourceDescriptor) => ModelTurnPort | undefined {
   const port = new PiModelTurnPort({
     env: io.env,
     ...connectionOptions(options.connections),
     ...(options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret }),
+    ...(options.piModels === undefined ? {} : { models: options.piModels }),
   });
-  return (descriptor) => (descriptor.runtime.adapter === PI_ADAPTER_ID ? port : undefined);
+  return (descriptor) =>
+    descriptor.runtime.adapter === PI_ADAPTER_ID
+      ? {
+          turn: async (request) => {
+            options.validateResource?.(request.descriptor);
+            return port.turn(request);
+          },
+        }
+      : undefined;
 }
 
 /**
@@ -248,7 +280,10 @@ export async function compose(
   options: {
     readonly workingDirectoryPolicy?: 'project-only' | 'project-or-unscoped';
     /** Lets the DeepSeek Harness adapter answer ACP permission requests through Nexar approvals. */
-    readonly approvals?: { readonly gate: ApprovalGate; readonly store: ApprovalStore };
+    readonly approvals?: {
+      readonly gate: ApprovalGate;
+      readonly store: ApprovalStore;
+    };
     /** `config` (default): discover only when `discovery.enabled`; `always`: for `--discovered`. */
     readonly discover?: 'config' | 'always';
     /**
@@ -264,6 +299,7 @@ export async function compose(
      */
     readonly extraResources?: readonly ResourceDescriptor[];
     readonly inventoryGuard?: InventoryExecutionGuard;
+    readonly piModels?: PiModelsLike;
   } = {},
 ): Promise<Composition> {
   const configDir = stateBaseDir(loaded, io);
@@ -330,7 +366,9 @@ export async function compose(
       workingDirectoryPolicy: options.workingDirectoryPolicy ?? 'project-or-unscoped',
       // The built-in default config has no telemetry path of its own.
       ...(loaded.source === 'default'
-        ? { telemetry: new JsonlFileTelemetrySink(join(io.cwd, '.nexar', 'telemetry.jsonl')) }
+        ? {
+            telemetry: new JsonlFileTelemetrySink(join(io.cwd, '.nexar', 'telemetry.jsonl')),
+          }
         : {}),
     },
   );
@@ -357,7 +395,10 @@ export function builtinWorkflowsDir(io: HostEnvironment): string {
 export async function composeWorkflows(
   runtime: NexarRuntime,
   io: HostEnvironment,
-): Promise<{ readonly catalog: WorkflowCatalog; readonly runner: WorkflowRunner }> {
+): Promise<{
+  readonly catalog: WorkflowCatalog;
+  readonly runner: WorkflowRunner;
+}> {
   const catalog = await WorkflowCatalog.load({
     builtinDir: builtinWorkflowsDir(io),
     projects: runtime.projects,
@@ -434,7 +475,9 @@ export async function composeEngineering(
   const stateDir = nexarStateDir(loaded, io);
   const store = new FileApprovalStore(join(stateDir, 'approvals'));
   const gate = new ApprovalGate({ mode: 'store', store, logger });
-  const { runtime } = await compose(loaded, io, logger, { approvals: { gate, store } });
+  const { runtime } = await compose(loaded, io, logger, {
+    approvals: { gate, store },
+  });
 
   const egress: EgressCounts = { allowed: 0, denied: 0 };
   const onEgress = (event: EgressEvent): void => {

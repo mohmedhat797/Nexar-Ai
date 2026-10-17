@@ -30,25 +30,26 @@ afterAll(async () => {
 });
 
 function fakeKeys() {
-  let blob: string | undefined;
+  const blobs = new Map<string, string>();
   const state = {
     available: true,
     saves: 0,
     get blob(): string | undefined {
-      return blob;
+      return blobs.get(CHATGPT_PLAN_CONNECTION);
     },
     set blob(value: string | undefined) {
-      blob = value;
+      if (value === undefined) blobs.delete(CHATGPT_PLAN_CONNECTION);
+      else blobs.set(CHATGPT_PLAN_CONNECTION, value);
     },
     availability: (): boolean => state.available,
-    saveBlob: (_name: string, value: string): Promise<void> => {
-      state.saves += 1;
-      blob = value;
+    saveBlob: (name: string, value: string): Promise<void> => {
+      if (name === CHATGPT_PLAN_CONNECTION) state.saves += 1;
+      blobs.set(name, value);
       return Promise.resolve();
     },
-    readBlob: (): string | undefined => blob,
-    removeBlob: (): Promise<void> => {
-      blob = undefined;
+    readBlob: (name: string): string | undefined => blobs.get(name),
+    removeBlob: (name: string): Promise<void> => {
+      blobs.delete(name);
       return Promise.resolve();
     },
   };
@@ -382,7 +383,7 @@ describe('accessToken', () => {
     await expect(slow.accessToken()).rejects.toMatchObject({ code: 'PROVIDER_ERROR' });
   });
 
-  it('keeps the rotated tokens even when the refreshed ID token does not verify', async () => {
+  it('rejects unverifiable refresh identity without overwriting the established tokens', async () => {
     const service = make();
     await service.connect();
     const before = decode(keys.blob);
@@ -399,12 +400,8 @@ describe('accessToken', () => {
             },
           }
         : undefined;
-    await expect(service.accessToken()).resolves.toBe('access-token-sentinel-9');
-    expect(decode(keys.blob)).toMatchObject({
-      refreshToken: 'refresh-token-sentinel-9',
-      idToken: before['idToken'],
-      scope: before['scope'],
-    });
+    await expect(service.accessToken()).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+    expect(decode(keys.blob)).toEqual(before);
   });
 
   it('refuses when nothing is connected', async () => {
@@ -628,7 +625,8 @@ describe('forced refresh and change notifications (NXR-067 b)', () => {
     expect(onChange.mock.calls).toEqual([[]]);
     await service.accessToken({ refresh: true });
     expect(onChanging).toHaveBeenCalledOnce();
-    expect(onChange).toHaveBeenCalledOnce();
+    // Each committed credential generation invalidates inventory, including same-scope refresh.
+    expect(onChange).toHaveBeenCalledTimes(2);
   });
 
   it('a forced refresh replaces a token the provider rejected, once for concurrent callers', async () => {

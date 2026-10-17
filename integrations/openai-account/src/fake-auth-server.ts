@@ -33,6 +33,7 @@ export interface FakeAuthServer {
   /** Answer the next authorize request with `error=access_denied` instead of a code. */
   denyNextAuthorize: boolean;
   tokenDelayMs: number;
+  includeRefreshIdToken: boolean;
   close(): Promise<void>;
 }
 
@@ -66,6 +67,7 @@ export async function startFakeAuthServer(): Promise<FakeAuthServer> {
     expiresIn: 3600,
     denyNextAuthorize: false,
     tokenDelayMs: 0,
+    includeRefreshIdToken: false,
     close: () =>
       new Promise((resolve) => {
         server.close(() => resolve());
@@ -118,7 +120,12 @@ export async function startFakeAuthServer(): Promise<FakeAuthServer> {
       const presented = form['refresh_token'] ?? '';
       if (!refreshTokens.delete(presented)) return invalidGrant;
       refreshTokens.add(base.refresh_token);
-      return { status: 200, body: base };
+      return {
+        status: 200,
+        body: state.includeRefreshIdToken
+          ? { ...base, id_token: await idToken(form['client_id'] ?? '', '') }
+          : base,
+      };
     }
     return { status: 400, body: { error: 'unsupported_grant_type' } };
   }

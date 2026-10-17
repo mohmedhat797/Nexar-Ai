@@ -31,6 +31,9 @@ import {
   ConnectionIdArgsSchema,
   ConnectionListSchema,
   ConnectionRotateArgsSchema,
+  ConnectionPrepareArgsSchema,
+  ConnectionConfirmationSchema,
+  ConnectionConfirmedArgsSchema,
 } from '../shared/connections.js';
 
 /** One fixed channel per method; arguments are always an object (validated in the main process). */
@@ -159,6 +162,13 @@ const api: NexarApi = {
     invokeProvider(CHANNELS.providersCheckKey, { provider }, ProviderRowSchema),
   listConnections: () =>
     invokeProvider(CHANNELS.connectionList, {}, ConnectionListSchema, z.strictObject({})),
+  prepareConnectionAction: (input) =>
+    invokeProvider(
+      CHANNELS.connectionPrepare,
+      input,
+      ConnectionConfirmationSchema,
+      ConnectionPrepareArgsSchema,
+    ),
   addConnection: (input) =>
     invokeProvider(CHANNELS.connectionAdd, input, ConnectionDtoSchema, ConnectionAddArgsSchema),
   disableConnection: (input) =>
@@ -166,7 +176,12 @@ const api: NexarApi = {
   enableConnection: (input) =>
     invokeProvider(CHANNELS.connectionEnable, input, ConnectionDtoSchema, ConnectionIdArgsSchema),
   removeConnection: (input) =>
-    invokeProvider(CHANNELS.connectionRemove, input, ConnectionDtoSchema, ConnectionIdArgsSchema),
+    invokeProvider(
+      CHANNELS.connectionRemove,
+      input,
+      ConnectionDtoSchema,
+      ConnectionConfirmedArgsSchema,
+    ),
   restoreConnection: (input) =>
     invokeProvider(CHANNELS.connectionRestore, input, ConnectionDtoSchema, ConnectionIdArgsSchema),
   forgetConnectionCredentials: (input) =>
@@ -174,7 +189,7 @@ const api: NexarApi = {
       CHANNELS.connectionForgetCredentials,
       input,
       ConnectionDtoSchema,
-      ConnectionIdArgsSchema,
+      ConnectionConfirmedArgsSchema,
     ),
   rotateConnectionKey: (input) =>
     invokeProvider(
@@ -183,12 +198,12 @@ const api: NexarApi = {
       ConnectionDtoSchema,
       ConnectionRotateArgsSchema,
     ),
-  replaceChatGptPlanAccount: () =>
+  replaceChatGptPlanAccount: (input) =>
     invokeProvider(
       CHANNELS.chatgptPlanReplaceAccount,
-      {},
+      input,
       ChatGptPlanStatusSchema,
-      z.strictObject({}),
+      ConnectionConfirmedArgsSchema,
     ),
   listProjects: () => invoke(CHANNELS.projectsList, {}),
   addProject: () => invoke(CHANNELS.projectsAdd, {}),

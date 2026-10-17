@@ -78,7 +78,7 @@ describe('Settings backup and atomic-write regression gates', () => {
     expect((await new SettingsStore(path).get()).theme).toBe('light');
     await expect(fs.readFile(path + '.bak', 'utf8')).rejects.toThrow();
   });
-  it('F04 corrupt backup does not damage valid primary; corrupt primary plus backup defaults', async () => {
+  it('F04 corrupt backup does not damage valid primary; corrupt primary fails connection authority closed', async () => {
     const path = join(dir, 'settings.json');
     const store = new SettingsStore(path);
     await store.set({ theme: 'light' });
@@ -87,6 +87,6 @@ describe('Settings backup and atomic-write regression gates', () => {
     expect((await new SettingsStore(path).get()).theme).toBe('dark');
     await fs.writeFile(path, '{AUDIT-broken-primary');
     const loaded = await new SettingsStore(path).getConnections();
-    expect(loaded.valid && Object.keys(loaded.value.connections)).toEqual([]);
+    expect(loaded.valid).toBe(false);
   });
 });

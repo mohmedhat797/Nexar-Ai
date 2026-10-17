@@ -41,6 +41,46 @@ afterEach(async () => {
 });
 
 describe('native subscription service and bridge', () => {
+  it('holds native login and probe admissions until the actual provider operation settles', async () => {
+    service.dispose();
+    let finishProbe!: () => void, finishLogin!: () => void;
+    const probeRelease = vi.fn(),
+      loginRelease = vi.fn();
+    native.probe = vi.fn(
+      () =>
+        new Promise<NativeSubscriptionProbe>((resolve) => {
+          finishProbe = () => resolve(account);
+        }),
+    );
+    native.login = vi.fn(
+      () =>
+        new Promise<NativeSubscriptionLoginOutcome>((resolve) => {
+          finishLogin = () => resolve('succeeded');
+        }),
+    );
+    service = new SubscriptionService(
+      { 'claude-code': native, codex: native, antigravity: native },
+      undefined,
+      {
+        probe: () => Promise.resolve({ release: probeRelease }),
+        login: () => Promise.resolve({ release: loginRelease }),
+      },
+    );
+    const probe = service.refresh('codex');
+    await vi.waitFor(() => expect(native.probe).toHaveBeenCalledOnce());
+    expect(probeRelease).not.toHaveBeenCalled();
+    finishProbe();
+    await probe;
+    expect(probeRelease).toHaveBeenCalledOnce();
+    native.probe = vi.fn(() => Promise.resolve(account));
+    await service.start('codex');
+    await vi.waitFor(() => expect(native.login).toHaveBeenCalledOnce());
+    expect(loginRelease).not.toHaveBeenCalled();
+    await service.cancel('codex');
+    expect(loginRelease).not.toHaveBeenCalled();
+    finishLogin();
+    await vi.waitFor(() => expect(loginRelease).toHaveBeenCalledOnce());
+  });
   it('returns only runtime-scoped metadata and keeps unsupported Google explicit', async () => {
     const bridge = createBridge({ ...h.deps, subscriptions: service });
     expect(

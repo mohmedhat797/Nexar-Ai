@@ -24,6 +24,10 @@ export class SubscriptionService {
   constructor(
     private readonly runtimes: Readonly<Record<SubscriptionRuntimeId, NativeSubscriptionRuntime>>,
     private readonly onChanging?: (runtime: SubscriptionRuntimeId) => void,
+    private readonly admission?: {
+      readonly login: (runtime: SubscriptionRuntimeId) => Promise<{ release(): void }>;
+      readonly probe: (runtime: SubscriptionRuntimeId) => Promise<{ release(): void }>;
+    },
   ) {}
 
   async list(): Promise<readonly SubscriptionRow[]> {
@@ -54,12 +58,19 @@ export class SubscriptionService {
   async start(runtime: SubscriptionRuntimeId): Promise<SubscriptionRow> {
     if (this.disposed) throw new NexarError('CONFIGURATION_ERROR', 'Subscription service closed');
     if (this.jobs.has(runtime)) throw new NexarError('CONFLICT', 'Sign-in is already running');
-    this.notifyChanging(runtime);
     // Reserve before awaiting the probe so simultaneous IPC calls cannot launch two logins.
     const controller = new AbortController();
     this.jobs.set(runtime, controller);
     this.set(runtime, { ...this.row(runtime), loginState: 'running' });
-    void this.finish(runtime, controller);
+    try {
+      const lease = await this.admission?.login(runtime);
+      this.notifyChanging(runtime);
+      void this.finish(runtime, controller, lease);
+    } catch (error) {
+      this.jobs.delete(runtime);
+      this.set(runtime, { ...this.row(runtime), loginState: 'failed' });
+      throw error;
+    }
     return Promise.resolve(this.row(runtime));
   }
 
@@ -76,10 +87,14 @@ export class SubscriptionService {
     for (const probe of this.probeControllers.values()) probe.abort();
   }
 
-  private async finish(runtime: SubscriptionRuntimeId, controller: AbortController): Promise<void> {
+  private async finish(
+    runtime: SubscriptionRuntimeId,
+    controller: AbortController,
+    lease?: { release(): void },
+  ): Promise<void> {
     try {
       const pending = this.probes.get(runtime);
-      const preflight = pending ? await pending : await this.read(runtime, controller.signal);
+      const preflight = pending ? await pending : await this.read(runtime, controller.signal, true);
       if (controller.signal.aborted) return;
       if (!preflight.loginSupported || preflight.status === 'unavailable') {
         this.set(runtime, { ...preflight, loginState: 'unavailable' });
@@ -88,7 +103,7 @@ export class SubscriptionService {
       const outcome = await this.runtimes[runtime].login(controller.signal);
       const row = controller.signal.aborted
         ? this.row(runtime)
-        : await this.read(runtime, controller.signal);
+        : await this.read(runtime, controller.signal, true);
       this.set(runtime, { ...row, loginState: controller.signal.aborted ? 'cancelled' : outcome });
     } catch {
       this.set(runtime, {
@@ -98,14 +113,19 @@ export class SubscriptionService {
     } finally {
       this.notifyChanging(runtime);
       this.jobs.delete(runtime);
+      lease?.release();
     }
   }
 
   private async read(
     runtime: SubscriptionRuntimeId,
     signal: AbortSignal,
+    bound = false,
   ): Promise<SubscriptionRow> {
+    let lease: { release(): void } | undefined;
     try {
+      if (!bound && this.admission !== undefined) lease = await this.admission.probe(runtime);
+      if (signal.aborted || this.disposed) return this.row(runtime);
       // Construct the DTO explicitly: additional vendor fields are never forwarded.
       const probe = await this.runtimes[runtime].probe(signal);
       return this.set(runtime, {
@@ -120,6 +140,8 @@ export class SubscriptionService {
       });
     } catch {
       return this.set(runtime, { ...this.row(runtime), status: 'unknown', authMode: 'unknown' });
+    } finally {
+      lease?.release();
     }
   }
 

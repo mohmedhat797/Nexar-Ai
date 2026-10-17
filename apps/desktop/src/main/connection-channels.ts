@@ -6,8 +6,11 @@ import {
   ConnectionIdArgsSchema,
   ConnectionListSchema,
   ConnectionRotateArgsSchema,
+  ConnectionPrepareArgsSchema,
+  ConnectionConfirmationSchema,
+  ConnectionConfirmedArgsSchema,
 } from '../shared/connections.js';
-import { ChatGptPlanStatusSchema } from '../shared/chatgpt-plan.js';
+import { ChatGptPlanStatusSchema, CHATGPT_PLAN_MESSAGES } from '../shared/chatgpt-plan.js';
 import { NoArgs, defineChannel, type ChannelDefinition } from './channel.js';
 import type { ConnectionManager } from './connection-manager.js';
 
@@ -19,6 +22,11 @@ function requireConnectionManager(manager: ConnectionManager | undefined): Conne
 }
 
 export const connectionChannels: Readonly<Record<string, ChannelDefinition>> = {
+  [CHANNELS.connectionPrepare]: defineChannel(ConnectionPrepareArgsSchema, async (args, ctx) =>
+    ConnectionConfirmationSchema.parse(
+      await requireConnectionManager(ctx.deps.connectionManager).prepareAction(args),
+    ),
+  ),
   [CHANNELS.connectionList]: defineChannel(NoArgs, async (_args, ctx) => {
     const manager = requireConnectionManager(ctx.deps.connectionManager);
     const records = await manager.listConnections();
@@ -43,7 +51,7 @@ export const connectionChannels: Readonly<Record<string, ChannelDefinition>> = {
     return ConnectionDtoSchema.parse(manager.toDto(record));
   }),
 
-  [CHANNELS.connectionRemove]: defineChannel(ConnectionIdArgsSchema, async (args, ctx) => {
+  [CHANNELS.connectionRemove]: defineChannel(ConnectionConfirmedArgsSchema, async (args, ctx) => {
     const manager = requireConnectionManager(ctx.deps.connectionManager);
     const record = await manager.removeConnection(args);
     return ConnectionDtoSchema.parse(manager.toDto(record));
@@ -56,7 +64,7 @@ export const connectionChannels: Readonly<Record<string, ChannelDefinition>> = {
   }),
 
   [CHANNELS.connectionForgetCredentials]: defineChannel(
-    ConnectionIdArgsSchema,
+    ConnectionConfirmedArgsSchema,
     async (args, ctx) => {
       const manager = requireConnectionManager(ctx.deps.connectionManager);
       const record = await manager.forgetCredential(args);
@@ -70,16 +78,19 @@ export const connectionChannels: Readonly<Record<string, ChannelDefinition>> = {
     return ConnectionDtoSchema.parse(manager.toDto(record));
   }),
 
-  [CHANNELS.chatgptPlanReplaceAccount]: defineChannel(NoArgs, async (_args, ctx) => {
-    const manager = requireConnectionManager(ctx.deps.connectionManager);
-    await manager.replacePlanAccount();
-    if (ctx.deps.chatgptPlan !== undefined) {
-      return ChatGptPlanStatusSchema.parse(await ctx.deps.chatgptPlan.status());
-    }
-    return ChatGptPlanStatusSchema.parse({
-      state: 'signed-out',
-      reason: 'disconnected',
-      message: 'ChatGPT is not connected',
-    });
-  }),
+  [CHANNELS.chatgptPlanReplaceAccount]: defineChannel(
+    ConnectionConfirmedArgsSchema,
+    async (args, ctx) => {
+      const manager = requireConnectionManager(ctx.deps.connectionManager);
+      await manager.replacePlanAccount(args);
+      if (ctx.deps.chatgptPlan !== undefined) {
+        return ChatGptPlanStatusSchema.parse(await ctx.deps.chatgptPlan.status());
+      }
+      return ChatGptPlanStatusSchema.parse({
+        state: 'signed-out',
+        reason: 'disconnected',
+        message: CHATGPT_PLAN_MESSAGES.disconnected,
+      });
+    },
+  ),
 };

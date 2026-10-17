@@ -43,7 +43,10 @@ export function isValidCredentialName(name: string): boolean {
 }
 
 export function isValidBlobName(name: string): boolean {
-  return BLOB_NAMES.has(name) || OWNER_BLOB_PATTERN.test(name);
+  return (
+    !['__proto__', 'constructor', 'prototype'].includes(name) &&
+    (BLOB_NAMES.has(name) || OWNER_BLOB_PATTERN.test(name))
+  );
 }
 
 const KEY = /^[A-Za-z0-9_.:-]{16,4096}$/;

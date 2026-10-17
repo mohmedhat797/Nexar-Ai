@@ -41,6 +41,7 @@ export interface ProviderInventoryOptions {
   readonly onChange: () => Promise<void>;
   readonly clock?: () => Date;
   readonly ttlMs?: number;
+  readonly acquire?: (identity: ProviderRuntimeIdentity) => Promise<{ release(): void }>;
 }
 const MAX_CACHE_BYTES = 256 * 1024;
 
@@ -178,7 +179,14 @@ export class ProviderInventoryService {
     if (this.disposed) return Promise.resolve(this.row(sourceId));
     const trackedSource: InventorySource = {
       fetch: (signal) => {
-        const work = Promise.resolve().then(() => definition.source.fetch(signal));
+        const work = Promise.resolve().then(async () => {
+          const lease = await this.options.acquire?.(definition.identity);
+          try {
+            return await definition.source.fetch(signal);
+          } finally {
+            lease?.release();
+          }
+        });
         this.sourceJobs.add(work);
         void work.then(
           () => this.sourceJobs.delete(work),
@@ -253,6 +261,22 @@ export class ProviderInventoryService {
     this.inventories.invalidate(this.definition(sourceId).identity);
     this.jobs.delete(sourceId);
     void this.changed();
+  }
+
+  invalidateConnection(connectionId: string): void {
+    for (const definition of this.definitions.values())
+      if (definition.identity.connectionId === connectionId) this.invalidate(definition.sourceId);
+  }
+
+  rebindConnection(sourceId: InventorySourceId, connectionId: string): void {
+    const definition = this.definition(sourceId);
+    if (definition.identity.connectionId === connectionId) return;
+    this.invalidate(sourceId);
+    this.definitions.set(sourceId, {
+      ...definition,
+      identity: { ...definition.identity, connectionId },
+    });
+    this.invalidate(sourceId);
   }
 
   rejectModel(sourceId: InventorySourceId): void {

@@ -23,6 +23,7 @@ export const CHANNELS = {
   chatgptPlanDisconnect: 'providers:chatgptPlanDisconnect',
   chatgptPlanReplaceAccount: 'providers:chatgptPlanReplaceAccount',
   connectionList: 'providers:connectionList',
+  connectionPrepare: 'providers:connectionPrepareAction',
   connectionAdd: 'providers:connectionAdd',
   connectionDisable: 'providers:connectionDisable',
   connectionEnable: 'providers:connectionEnable',

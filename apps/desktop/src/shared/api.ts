@@ -21,12 +21,18 @@ import type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js'
 export type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 import type {
   ConnectionAddArgs,
+  ConnectionPrepareArgs,
+  ConnectionConfirmation,
+  ConnectionConfirmedArgs,
   ConnectionDto,
   ConnectionIdArgs,
   ConnectionRotateArgs,
 } from './connections.js';
 export type {
   ConnectionAddArgs,
+  ConnectionPrepareArgs,
+  ConnectionConfirmation,
+  ConnectionConfirmedArgs,
   ConnectionDto,
   ConnectionIdArgs,
   ConnectionRotateArgs,
@@ -526,14 +532,19 @@ export interface NexarApi {
   /** Re-probes DeepSeek Harness now (otherwise the status is cached for a minute). */
   refreshCowork(): Promise<BridgeResult<CoworkStatusDto>>;
   listConnections(): Promise<BridgeResult<readonly ConnectionDto[]>>;
+  prepareConnectionAction(
+    args: ConnectionPrepareArgs,
+  ): Promise<BridgeResult<ConnectionConfirmation>>;
   addConnection(args: ConnectionAddArgs): Promise<BridgeResult<ConnectionDto>>;
   disableConnection(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
   enableConnection(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
-  removeConnection(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
+  removeConnection(args: ConnectionConfirmedArgs): Promise<BridgeResult<ConnectionDto>>;
   restoreConnection(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
-  forgetConnectionCredentials(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
+  forgetConnectionCredentials(args: ConnectionConfirmedArgs): Promise<BridgeResult<ConnectionDto>>;
   rotateConnectionKey(args: ConnectionRotateArgs): Promise<BridgeResult<ConnectionDto>>;
-  replaceChatGptPlanAccount(): Promise<BridgeResult<ChatGptPlanStatus>>;
+  replaceChatGptPlanAccount(
+    args: ConnectionConfirmedArgs,
+  ): Promise<BridgeResult<ChatGptPlanStatus>>;
   /** Subscribes to task progress; returns the unsubscribe function. */
   onTaskEvent(callback: (event: TaskEvent) => void): () => void;
   /** Subscribes to Operating Session changes; returns the unsubscribe function. */

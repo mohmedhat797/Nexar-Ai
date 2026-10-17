@@ -14,6 +14,7 @@ import { NoArgs, defineChannel, type CallContext, type ChannelDefinition } from 
 import type { ConfigStore, RawConfig } from './config-store.js';
 import type { DesktopKeyStore } from './desktop-key-store.js';
 import type { EngineHost } from './engine-host.js';
+import type { ConnectionManager } from './connection-manager.js';
 
 export interface ClipboardPort {
   readText(): Promise<string> | string;
@@ -32,6 +33,7 @@ export class ProviderService {
       readonly config: ConfigStore;
       readonly engine: EngineHost;
       readonly checkKey?: (provider: ApiProviderId) => Promise<ProviderKeyCheck>;
+      readonly authority?: ConnectionManager;
     },
   ) {}
 
@@ -39,6 +41,10 @@ export class ProviderService {
     return this.safe(() =>
       Promise.resolve(ProviderListSchema.parse(API_PROVIDER_IDS.map((p) => this.row(p)))),
     );
+  }
+  invalidate(provider: string): void {
+    if (API_PROVIDER_IDS.includes(provider as ApiProviderId))
+      this.checks.delete(provider as ApiProviderId);
   }
 
   saveFromClipboard(provider: ApiProviderId): Promise<ProviderRow> {
@@ -51,7 +57,9 @@ export class ProviderService {
           'The clipboard does not contain a supported API key',
         );
       }
-      await this.deps.keys.save(this.name(provider), key);
+      if (this.deps.authority !== undefined)
+        await this.deps.authority.enterBuiltinApiCredential(provider, key);
+      else await this.deps.keys.save(this.name(provider), key);
       this.checks.delete(provider);
       try {
         await this.configure(provider);
@@ -65,6 +73,8 @@ export class ProviderService {
 
   remove(provider: ApiProviderId): Promise<ProviderRow> {
     return this.serialized(async () => {
+      if (this.deps.authority !== undefined)
+        throw new NexarError('POLICY_REJECTED', 'Use the confirmed connection Forget action');
       await this.deps.keys.remove(this.name(provider));
       this.checks.delete(provider);
       // Keep explicit keystore references: a removed key must never fall back to the environment.
@@ -78,12 +88,15 @@ export class ProviderService {
       const row = this.row(provider);
       let status: ProviderRow['keyCheckStatus'] = 'unchecked';
       if (row.status === 'saved' && this.deps.checkKey !== undefined) {
+        const lease = await this.deps.authority?.acquireExecution(`${provider}.api`);
         try {
           status = ProviderRowSchema.shape.keyCheckStatus.parse(
             (await this.deps.checkKey(provider)).status,
           );
         } catch {
           status = 'unavailable';
+        } finally {
+          lease?.release();
         }
       }
       this.checks.set(provider, status);

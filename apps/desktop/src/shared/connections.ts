@@ -25,6 +25,27 @@ export const ConnectionIdArgsSchema = z.strictObject({
   connectionId: ConnectionIdSchema,
 });
 export type ConnectionIdArgs = z.infer<typeof ConnectionIdArgsSchema>;
+export const ConnectionActionSchema = z.enum(['remove', 'forget', 'replace']);
+export const ConnectionPrepareArgsSchema = z.strictObject({
+  connectionId: ConnectionIdSchema,
+  action: ConnectionActionSchema,
+});
+export type ConnectionPrepareArgs = z.infer<typeof ConnectionPrepareArgsSchema>;
+export const ConnectionConfirmationSchema = z.strictObject({
+  token: z.string().uuid(),
+  connectionId: ConnectionIdSchema,
+  action: ConnectionActionSchema,
+  label: z.string().min(1).max(128),
+  affectedPins: z.array(z.string().max(300)).max(256),
+  expiresAt: z.string().datetime(),
+});
+export type ConnectionConfirmation = z.infer<typeof ConnectionConfirmationSchema>;
+export const ConnectionConfirmedArgsSchema = z.strictObject({
+  connectionId: ConnectionIdSchema,
+  confirmation: z.string().uuid(),
+  confirmationName: z.string().max(128).optional(),
+});
+export type ConnectionConfirmedArgs = z.infer<typeof ConnectionConfirmedArgsSchema>;
 
 export const ConnectionRotateArgsSchema = z.strictObject({
   connectionId: ConnectionIdSchema,
@@ -63,6 +84,7 @@ export const ConnectionDtoSchema = z.strictObject({
   ] as const),
   lifecycleState: z.enum(['ACTIVE', 'DISABLED', 'TOMBSTONED'] as const),
   hasCredential: z.boolean(),
+  permanentlyRetired: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

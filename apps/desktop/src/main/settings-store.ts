@@ -418,9 +418,10 @@ export class SettingsStore {
         orchestrationRaw = Object.hasOwn(file, 'orchestration') ? orchestration : undefined;
         chatgptPlanRaw = Object.hasOwn(file, 'chatgptPlan') ? chatgptPlan : undefined;
         connectionsRaw = Object.hasOwn(file, 'connections') ? connections : undefined;
-      }
-    } catch {
-      // Missing or unreadable: defaults.
+      } else connectionsRaw = null;
+    } catch (error) {
+      // Appearance may default, but existing unreadable authority must never resurrect identities.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') connectionsRaw = null;
     }
     this.current = {
       appearance,
