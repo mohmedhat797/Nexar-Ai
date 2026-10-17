@@ -61,6 +61,11 @@ export interface PersistentConnectionRecord extends ConnectionDefinition {
   readonly lifecycleState: ConnectionLifecycleState;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /** Evidence of an explicit owner continuity action; never a credential or account subject. */
+  readonly assertion?:
+    { readonly type: 'same-account'; readonly at: string; readonly source: 'owner' } | undefined;
+  /** Replacement retirement is permanent; ordinary owner removal remains reversible. */
+  readonly retirement?: 'replaced' | undefined;
 }
 
 /** Settings schema container for connections and tombstones. */

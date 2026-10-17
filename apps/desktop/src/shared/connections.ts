@@ -12,7 +12,7 @@ export const ConnectionAddArgsSchema = z.strictObject({
     .min(1)
     .max(64)
     .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
-  label: z.string().min(1).max(128),
+  label: z.string().trim().min(1).max(128),
   apiKey: z
     .string()
     .min(16)
@@ -28,6 +28,7 @@ export type ConnectionIdArgs = z.infer<typeof ConnectionIdArgsSchema>;
 
 export const ConnectionRotateArgsSchema = z.strictObject({
   connectionId: ConnectionIdSchema,
+  sameAccount: z.literal(true),
   apiKey: z
     .string()
     .min(16)

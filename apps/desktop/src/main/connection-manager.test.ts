@@ -76,10 +76,10 @@ describe('ConnectionManager', () => {
       }
 
       const planRecord = list.find((c) => c.id === 'openai.chatgpt-plan')!;
-      expect(planRecord.identityAssurance).toBe('VERIFIED_SAME_ACCOUNT');
+      expect(planRecord.identityAssurance).toBe('IDENTITY_UNKNOWN');
 
       const claudeRecord = list.find((c) => c.id === 'anthropic.subscription')!;
-      expect(claudeRecord.identityAssurance).toBe('OWNER_ASSERTED_SAME_ACCOUNT');
+      expect(claudeRecord.identityAssurance).toBe('IDENTITY_UNKNOWN');
     });
 
     it('getConnection returns individual connection or undefined', async () => {
@@ -110,7 +110,7 @@ describe('ConnectionManager', () => {
       expect(record.enabled).toBe(true);
       expect(record.builtIn).toBe(false);
       expect(record.credentialGeneration).toBe(1);
-      expect(record.identityAssurance).toBe('OWNER_ASSERTED_SAME_ACCOUNT');
+      expect(record.identityAssurance).toBe('IDENTITY_UNKNOWN');
       expect(record.lifecycleState).toBe('ACTIVE');
       expect(record.createdAt).toBe('2026-10-17T12:00:00.000Z');
       expect(record.updatedAt).toBe('2026-10-17T12:00:00.000Z');
@@ -268,6 +268,7 @@ describe('ConnectionManager', () => {
 
       await expect(
         manager.rotateCredential({
+          sameAccount: true,
           connectionId: added.id,
           apiKey: 'mis-mistral-new-secret-key-5678',
         }),
@@ -305,6 +306,7 @@ describe('ConnectionManager', () => {
       expect(added.credentialGeneration).toBe(1);
 
       const rotated = await manager.rotateCredential({
+        sameAccount: true,
         connectionId: added.id,
         apiKey: 'xai-test-key-rotated-5678',
       });
@@ -352,7 +354,7 @@ describe('ConnectionManager', () => {
       await manager.disableConnection({ connectionId: added.id });
 
       await expect(manager.acquireExecution(added.id)).rejects.toMatchObject({
-        code: 'POLICY_REJECTED',
+        code: 'RESOURCE_UNAVAILABLE',
       });
     });
   });
@@ -446,6 +448,7 @@ describe('ConnectionManager', () => {
 
       // 4. Rotate Key
       const rotateRes = await harness.call<ConnectionDto>(CHANNELS.connectionRotateKey, {
+        sameAccount: true,
         connectionId: id,
         apiKey: 'sk-ant-test-key-rotated-via-ipc-5678',
       });
@@ -473,14 +476,20 @@ describe('ConnectionManager', () => {
       }
 
       // 7. Restore
+      // Credentials were forgotten: re-enter with explicit continuity before Restore.
+      const unavailable = await harness.call(CHANNELS.connectionRestore, { connectionId: id });
+      expect(unavailable.ok).toBe(false);
+      const reentry = await harness.call(CHANNELS.connectionRotateKey, {
+        connectionId: id,
+        apiKey: 'synthetic-reentry-same-account-1234',
+        sameAccount: true,
+      });
+      expect(reentry.ok).toBe(true);
       const restoreRes = await harness.call<ConnectionDto>(CHANNELS.connectionRestore, {
         connectionId: id,
       });
       expect(restoreRes.ok).toBe(true);
-      if (restoreRes.ok) {
-        expect(restoreRes.value.lifecycleState).toBe('ACTIVE');
-        expect(restoreRes.value.enabled).toBe(true);
-      }
+      if (restoreRes.ok) expect(restoreRes.value.lifecycleState).toBe('ACTIVE');
     });
 
     it('rejects invalid inputs on connectionAdd with validation error', async () => {

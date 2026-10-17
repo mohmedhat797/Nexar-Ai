@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { validConnections } from './connection-state.js';
 import { isAbsolute, win32 } from 'node:path';
 import { z } from 'zod';
 import {
@@ -231,13 +232,19 @@ const PersistentConnectionSchema = z.strictObject({
   lifecycleState: z.enum(['ACTIVE', 'DISABLED', 'TOMBSTONED']),
   createdAt: z.string(),
   updatedAt: z.string(),
+  assertion: z
+    .strictObject({ type: z.literal('same-account'), at: z.string(), source: z.literal('owner') })
+    .optional(),
+  retirement: z.literal('replaced').optional(),
 });
 
-const ConnectionsSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  connections: z.record(z.string(), PersistentConnectionSchema),
-  tombstones: z.array(z.string()),
-});
+const ConnectionsSchema = z
+  .strictObject({
+    schemaVersion: z.literal(1),
+    connections: z.record(z.string(), PersistentConnectionSchema),
+    tombstones: z.array(z.string()),
+  })
+  .refine(validConnections);
 
 export const DEFAULT_CONNECTIONS: ConnectionsSettings = {
   schemaVersion: 1,
@@ -434,11 +441,36 @@ export class SettingsStore {
   }
 
   private async write(next: Loaded): Promise<void> {
+    let existing: string | undefined;
     try {
-      const existing = await readFile(this.path, 'utf8');
+      existing = await readFile(this.path, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        throw new NexarError('CONFIGURATION_ERROR', 'Settings backup is unavailable');
+    }
+    if (existing !== undefined) {
+      let previous: unknown;
+      try {
+        previous = JSON.parse(existing);
+      } catch {
+        throw new NexarError(
+          'CONFIGURATION_ERROR',
+          'Damaged settings require recovery before writing',
+        );
+      }
+      if (
+        typeof previous !== 'object' ||
+        previous === null ||
+        Array.isArray(previous) ||
+        !parseConnections((previous as Record<string, unknown>)['connections']).valid
+      ) {
+        throw new NexarError(
+          'CONFIGURATION_ERROR',
+          'Damaged settings require recovery before writing',
+        );
+      }
+      // A failed required backup is an operation failure, never first-run success.
       await writeFileAtomic(`${this.path}.bak`, existing);
-    } catch {
-      // Missing or unreadable: no previous backup to take.
     }
     const section =
       next.codePlane.valid && next.codePlaneRaw === undefined
@@ -463,22 +495,27 @@ export class SettingsStore {
         : {
             connections: next.connections.valid ? next.connections.value : next.connectionsRaw,
           };
-    await writeFileAtomic(
-      this.path,
-      JSON.stringify(
-        {
-          ...next.appearance,
-          ...section,
-          ...coworkSection,
-          ...behaviorSection,
-          ...orchestrationSection,
-          ...(next.chatgptPlanRaw === undefined ? {} : { chatgptPlan: next.chatgptPlanRaw }),
-          ...connectionsSection,
-        },
-        null,
-        2,
-      ) + '\n',
-    );
+    try {
+      await writeFileAtomic(
+        this.path,
+        JSON.stringify(
+          {
+            ...next.appearance,
+            ...section,
+            ...coworkSection,
+            ...behaviorSection,
+            ...orchestrationSection,
+            ...(next.chatgptPlanRaw === undefined ? {} : { chatgptPlan: next.chatgptPlanRaw }),
+            ...connectionsSection,
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+    } catch (error) {
+      this.current = undefined;
+      throw error;
+    }
     this.current = next;
   }
 

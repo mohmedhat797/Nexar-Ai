@@ -74,6 +74,13 @@ export interface DesktopKeyStoreOptions {
   readonly platform?: NodeJS.Platform;
 }
 
+/** Main-only atomic encrypted-store mutation. Undefined value means deletion. */
+export interface CredentialChange {
+  readonly kind: 'key' | 'blob';
+  readonly name: string;
+  readonly value?: string;
+}
+
 interface Entry {
   readonly ciphertext: string;
   readonly lastFour: string;
@@ -270,6 +277,40 @@ export class DesktopKeyStore {
 
   async removeBlob(requestedName: string): Promise<void> {
     await this.delete(blobNameOf(requestedName));
+  }
+
+  /** Credentials and a reference-only recovery journal commit in the same guarded file replacement. */
+  async batch(changes: readonly CredentialChange[]): Promise<void> {
+    await this.serialized(async () => {
+      const loaded = this.load();
+      const entries = { ...loaded.document.entries };
+      for (const change of changes) {
+        const name = change.kind === 'key' ? nameOf(change.name) : blobNameOf(change.name);
+        if (change.value === undefined) {
+          delete entries[name];
+          continue;
+        }
+        if (!(change.kind === 'key' ? KEY : BLOB).test(change.value)) throw invalid();
+        if (!this.availability()) throw unavailable();
+        let encrypted: Buffer;
+        try {
+          encrypted = this.encryption.encryptString(change.value);
+        } catch {
+          throw unavailable();
+        }
+        if (
+          !Buffer.isBuffer(encrypted) ||
+          encrypted.length === 0 ||
+          encrypted.length > MAX_CIPHER_BYTES
+        )
+          throw unavailable();
+        entries[name] = {
+          ciphertext: encrypted.toString('base64'),
+          lastFour: change.kind === 'key' ? change.value.slice(-4) : BLOB_TAG,
+        };
+      }
+      await this.write({ ...loaded, document: { version: 1, entries } });
+    });
   }
 
   private async put(name: EntryName, secret: string, lastFour: string): Promise<void> {
