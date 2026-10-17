@@ -3,6 +3,7 @@ import {
   connectionOf,
   NexarError,
   type ResourceDescriptor,
+  type ResourceSnapshot,
   type PersistentConnectionRecord,
 } from '@nexar/contracts';
 import { catalogResourceId } from '@nexar/resource-registry';
@@ -76,10 +77,19 @@ export class ConnectionRuntime {
       validate: (descriptor) => this.manager.validateResource(descriptor),
     };
   }
+  /** Selection and preview must respect current authority even while registry probes settle. */
+  filterCandidates(snapshots: readonly ResourceSnapshot[]): readonly ResourceSnapshot[] {
+    return snapshots.filter((snapshot) => this.manager.isAvailable(snapshot.descriptor));
+  }
   /** Managed pins never silently select another account, even if their publication was removed. */
-  validatePin(id: string): void {
-    const descriptor = this.published.get(id) ?? this.known.get(id);
+  validatePin(id: string, current?: readonly ResourceDescriptor[]): void {
+    // Legacy built-in IDs also need authority checks, even before a catalog refresh has probed them.
+    const descriptor =
+      current?.find((resource) => resource.id === id) ??
+      this.published.get(id) ??
+      this.known.get(id);
     if (descriptor !== undefined) {
+      this.known.set(id, descriptor);
       this.manager.assertAvailable(descriptor);
       return;
     }

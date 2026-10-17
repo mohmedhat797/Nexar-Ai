@@ -424,9 +424,11 @@ async function start(): Promise<void> {
   );
   const controlGateway = new ControlModelGateway({
     admit: (descriptor) => connectionManager.acquireResource(descriptor),
-    validatePin: (id) => connectionRuntime.validatePin(id),
+    validatePin: (id) =>
+      connectionRuntime.validatePin(id, engine.composition().runtime.registry.list()),
     ports: controlPorts,
-    candidates: () => engine.composition().runtime.registry.snapshot(),
+    candidates: () =>
+      connectionRuntime.filterCandidates(engine.composition().runtime.registry.snapshot()),
     policy: {
       get name() {
         return engine.composition().runtime.policy.name;

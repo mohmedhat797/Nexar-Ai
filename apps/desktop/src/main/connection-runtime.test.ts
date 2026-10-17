@@ -7,10 +7,11 @@ import { NexarError, taskId, type ResourceDescriptor } from '@nexar/contracts';
 import { ControlModelGateway, IntelligenceBridge } from '@nexar/engine-gateway';
 import { createControlModelTurnPorts, engineAllocator } from '@nexar/host';
 import { catalogResourceId } from '@nexar/resource-registry';
-import type {
-  PiAssistantMessageLike,
-  PiModelsLike,
-  PiRequestOptionsLike,
+import {
+  piCatalogDiscoverySource,
+  type PiAssistantMessageLike,
+  type PiModelsLike,
+  type PiRequestOptionsLike,
 } from '@nexar/integration-pi';
 import { noopLogger } from '@nexar/telemetry';
 import type { ConnectionDto } from '../shared/connections.js';
@@ -145,10 +146,10 @@ beforeEach(async () => {
         validateResource: (d) => manager.validateResource(d),
       },
     ),
-    candidates: () => engine.composition().runtime.registry.snapshot(),
+    candidates: () => publisher.filterCandidates(engine.composition().runtime.registry.snapshot()),
     policy: engine.composition().runtime.policy,
     admit: (d) => manager.acquireResource(d),
-    validatePin: (id) => publisher.validatePin(id),
+    validatePin: (id) => publisher.validatePin(id, engine.composition().runtime.registry.list()),
     logger: noopLogger,
     clock: () => new Date(),
     newId: randomUUID,
@@ -197,6 +198,47 @@ function turn(id: string, signal = new AbortController().signal) {
 }
 
 describe('production persisted connection → registry → NRC → transport', () => {
+  it('validates legacy built-in pins against current authority without substituting another account', async () => {
+    await add('Account B', A);
+    await manager.enterBuiltinApiCredential('deepseek', B);
+    const connection = await manager.getConnection('deepseek.api');
+    if (!connection) throw Error('fixture');
+    const [legacy] = await piCatalogDiscoverySource({
+      providers: ['deepseek'],
+      connection,
+      credentialName: 'DEEPSEEK_API_KEY',
+      credentialSource: 'keystore',
+      listModels: () =>
+        Promise.resolve([
+          {
+            id: 'synthetic-model',
+            contextWindow: 32000,
+            maxTokens: 1000,
+            inputPerMillionTokens: 1,
+            outputPerMillionTokens: 1,
+          },
+        ]),
+    }).discover({ now: new Date(), signal: new AbortController().signal });
+    if (!legacy) throw Error('fixture');
+    expect(legacy.id).toBe('pi.deepseek.synthetic-model');
+    expect(() => publisher.validatePin(legacy.id, [legacy])).not.toThrow();
+    await manager.forgetCredential({ connectionId: 'deepseek.api' });
+    expect(() => publisher.validatePin(legacy.id, [legacy])).toThrow();
+    expect(() => new ConnectionRuntime(manager).validatePin(legacy.id, [legacy])).toThrow();
+    // A different eligible account remains available; the old pin still cannot redirect to it.
+    expect(gateway.preview('dsh', undefined)).toBeDefined();
+    expect(() => publisher.validatePin(legacy.id, [])).toThrow();
+    expect(seen).toHaveLength(0);
+  });
+  it('filters stale registry snapshots using current credential authority before NRC preview', async () => {
+    const a = await add('Account A', A),
+      r = await resource(a.id);
+    const stale = engine.composition().runtime.registry.snapshot();
+    expect(publisher.filterCandidates(stale).some((s) => s.descriptor.id === r.id)).toBe(true);
+    await manager.forgetCredential({ connectionId: a.id });
+    expect(publisher.filterCandidates(stale).some((s) => s.descriptor.id === r.id)).toBe(false);
+    expect(gateway.preview('dsh', undefined)).toBeUndefined();
+  });
   it('publishes two bridge-created accounts, routes their own keys, and preserves identity through lifecycle/restart', async () => {
     const a = await add('Account A', A),
       b = await add('Account B', B);
@@ -236,6 +278,9 @@ describe('production persisted connection → registry → NRC → transport', (
     await manager.disableConnection({ connectionId: a.id });
     await engine.snapshots(true);
     expect(() => begin(ar)).toThrow();
+    expect(
+      gateway.preview('dsh', { mode: 'pinned', resourceId: ar.id, fallback: 'auto' }),
+    ).toBeUndefined();
     const onlyB = begin(await resource(b.id));
     await turn(onlyB.controlDecisionId);
     gateway.end(onlyB.controlDecisionId);

@@ -144,9 +144,12 @@ export class ControlModelGateway {
     controlPolicy: ControlResourcePolicy | undefined,
   ): { readonly resourceId: string } | undefined {
     try {
+      const policy = controlPolicy ?? DEFAULT_CONTROL_RESOURCE_POLICY;
+      if (policy.mode === 'pinned' && typeof policy.resourceId === 'string')
+        this.options.validatePin?.(policy.resourceId);
       const decision = selectControl({
         engine,
-        policy: controlPolicy ?? DEFAULT_CONTROL_RESOURCE_POLICY,
+        policy,
         candidates: this.options.candidates(),
         routingPolicy: this.options.policy,
         ...(this.options.history === undefined ? {} : { history: this.options.history }),

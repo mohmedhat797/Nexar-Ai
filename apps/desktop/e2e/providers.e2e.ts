@@ -592,7 +592,17 @@ describe('Desktop Providers', () => {
         .poll(() => local.getByRole('button', { name: 'Refresh models' }).isEnabled(), POLL)
         .toBe(true);
     }
-    expect(await page.locator('input[type="password"], input[type="text"]').count()).toBe(0);
+    // Legacy provider cards stay clipboard-only; B′ adds a separate transient password form.
+    expect(
+      await page
+        .getByTestId('providers-list')
+        .locator('input[type="password"], input[type="text"]')
+        .count(),
+    ).toBe(0);
+    const connectionKey = page.getByLabel('Connection API key', { exact: true });
+    expect(await connectionKey.getAttribute('type')).toBe('password');
+    expect(await connectionKey.getAttribute('autocomplete')).toBe('new-password');
+    expect(await connectionKey.inputValue()).toBe('');
     expect(await page.getByTestId('providers-list').innerText()).toContain('Network: Not checked');
     const backend = await app.evaluate(({ safeStorage }) => ({
       available: safeStorage.isEncryptionAvailable(),
@@ -817,7 +827,18 @@ describe('Desktop Providers', () => {
             JSON.stringify(frame.args) === JSON.stringify([{}]),
         ),
       ).toBe(true);
-      expect(frames.some((frame) => frame.channel === CHANNELS.providersRemoveKey)).toBe(true);
+      // The renderer must use the confirmed connection action, never legacy raw key deletion.
+      expect(frames.some((frame) => frame.channel === CHANNELS.providersRemoveKey)).toBe(false);
+      const preparation = frames.find((frame) => frame.channel === CHANNELS.connectionPrepare);
+      expect(preparation?.args).toEqual([{ connectionId: 'deepseek.api', action: 'forget' }]);
+      const ticket = (preparation?.value as { value?: { token?: string } } | undefined)?.value
+        ?.token;
+      expect(ticket).toMatch(/^[0-9a-f-]{36}$/);
+      expect(
+        frames.find((frame) => frame.channel === CHANNELS.connectionForgetCredentials)?.args,
+      ).toEqual([
+        { connectionId: 'deepseek.api', confirmation: ticket, confirmationName: 'DeepSeek (API)' },
+      ]);
       expect(
         frames.some(
           (frame) =>

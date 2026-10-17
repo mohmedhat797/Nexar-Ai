@@ -243,8 +243,9 @@ export class DshCoworkService implements CoworkLane {
   private disposed = false;
   /** Delegated units per open grant, filled from bridge events (ids and enums only). */
   private readonly delegated = new Map<string, CoworkDelegation[]>();
-  /** The launch the last probe found ready: turns run exactly what was probed. */
+  /** The verified runtime launch; current control eligibility is checked separately. */
   private launch: DshLaunch | undefined;
+  private controlPolicy: ControlResourcePolicy | undefined;
 
   constructor(private readonly options: DshCoworkServiceOptions) {
     this.timings = { ...DEFAULT_DSH_COWORK_TIMINGS, ...options.timings };
@@ -253,10 +254,37 @@ export class DshCoworkService implements CoworkLane {
 
   // ---- status ---------------------------------------------------------------------------------
 
+  /** Runtime discovery may be cached; current NRC eligibility must never be cached with it. */
+  private currentStatus(): CoworkStatus | undefined {
+    const status = this.cached?.status;
+    if (
+      status !== undefined &&
+      this.launch !== undefined &&
+      this.controlPolicy !== undefined &&
+      (status.state === 'ready' ||
+        (status.state === 'configuration-missing' &&
+          status.reason === COWORK_REASONS['control-unavailable']))
+    ) {
+      return this.options.controlGateway.preview('dsh', this.controlPolicy) === undefined
+        ? {
+            ...status,
+            state: 'configuration-missing',
+            reason: COWORK_REASONS['control-unavailable'],
+          }
+        : this.fixed('ready', status.version);
+    }
+    return status;
+  }
+
   status(): Promise<CoworkStatus> {
     const cached = this.cached;
-    if (cached !== undefined && this.now() - cached.at < this.timings.cacheMs) {
-      return Promise.resolve(cached.status);
+    const status = this.currentStatus();
+    if (
+      cached !== undefined &&
+      status !== undefined &&
+      this.now() - cached.at < this.timings.cacheMs
+    ) {
+      return Promise.resolve(status);
     }
     return this.refresh();
   }
@@ -299,14 +327,14 @@ export class DshCoworkService implements CoworkLane {
       return false;
     }
     if (this.now() - cached.at >= this.timings.cacheMs) void this.refresh();
-    return cached.status.state === 'ready';
+    return this.currentStatus()?.state === 'ready';
   }
 
   /** The fixed reason the lane is unavailable, or `undefined` when it is ready. */
   reason(): string | undefined {
-    const cached = this.cached;
-    if (cached === undefined) return COWORK_REASONS.checking;
-    return cached.status.state === 'ready' ? undefined : cached.status.reason;
+    const status = this.currentStatus();
+    if (status === undefined) return COWORK_REASONS.checking;
+    return status.state === 'ready' ? undefined : status.reason;
   }
 
   /**
@@ -315,7 +343,7 @@ export class DshCoworkService implements CoworkLane {
    * runtime is not ready. `undefined` when the lane is ready or not yet probed.
    */
   fallbackReason(): string | undefined {
-    const status = this.cached?.status;
+    const status = this.currentStatus();
     if (status === undefined || status.state === 'ready' || status.state === 'checking') {
       return undefined;
     }
@@ -344,6 +372,7 @@ export class DshCoworkService implements CoworkLane {
     const orchestration = await settings.getOrchestration?.();
     if (orchestration?.valid === false) return undefined;
     const policy = orchestration?.value.cowork.controlResource ?? DEFAULT_CONTROL_RESOURCE_POLICY;
+    this.controlPolicy = policy;
     // Resource states are probed once (never paid calls) so selection does not see unknown as down.
     await this.options.engine.snapshots(false).catch(() => undefined);
     const preview = controlGateway.preview('dsh', policy);
@@ -427,6 +456,7 @@ export class DshCoworkService implements CoworkLane {
     // Ready also needs a control resource the owner's policy can pin (a preview, never a paid call).
     if ((await this.gatewayChoice()) === undefined) {
       return {
+        launch,
         status: {
           state: 'configuration-missing',
           reason: COWORK_REASONS['control-unavailable'],
