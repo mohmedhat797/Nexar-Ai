@@ -1,13 +1,13 @@
 # NXR-070 — Final Architecture Approval Brief
 
-**Verdict: NXR070_FINAL_ARCHITECTURE_PACKAGE_READY_FOR_APPROVAL.**
+**Verdict: ADR029_ACCEPTED_AND_RECORDED.**
 
-The package is internally consistent after corrections C1–C5 and clarifications K1–K2. ADR-029 is **not** approved and remains Proposed. Implementation has not started.
+The architecture package has been formally accepted by owner decision on 2026-10-17. Implementation of NXR-070A′ (PR #42) and UI-01 (PR #43) completed; NXR-070B′ authorized for implementation; Upstream Intelligence Manager (UI-02..04) deferred (`UPSTREAM_INTELLIGENCE_FOUNDATION_ACCEPTED_FURTHER_DEVELOPMENT_DEFERRED`).
 
 - **Baseline (verified 2026-10-17):**
   - accepted ADR-030 baseline `6ea56f99d758bc18698c1fa5770b399a283fe6ad` (Unified DSH Runtime `@deepseek-ai/dsh@0.2.0-rc.2`, WSL2/Bubblewrap Cowork, Linux kernel Coding sandbox, Project Memory);
   - NXR-070R research reports (Document A, B, C) reconciled.
-- **Closure:** [corrections closure report](NXR070_Final_Corrections_Closure_Report.md).
+- **Closure:** [corrections closure report](NXR070_Final_Corrections_Closure_Report.md); [Owner Decisions 2026-10-17](NXR070_Owner_Decisions_2026-10-17.md).
 
 ## 1. What changed from Codex's original design
 

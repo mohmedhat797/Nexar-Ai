@@ -1,6 +1,6 @@
-# NXR-070 — Execution Plan (Reconciled, PROPOSED)
+# NXR-070 — Execution Plan (Reconciled, Accepted)
 
-Estimates are qualified assumptions for the ADR-009 workflow: Opus architects and reviews, Sonnet implements, one "dispatch" per brief. They are not guarantees. Nothing here is authorized until OD-1 is approved. Corrections C1–C5 and clarifications K1–K2 are reflected throughout ([closure report](NXR070_Final_Corrections_Closure_Report.md)).
+The architecture and execution plan were formally ratified by owner decision on 2026-10-17. Corrections C1–C5, clarifications K1–K2, and owner decisions OD-1 through OD-15 and R-DEC-01 through R-DEC-06 are reflected throughout ([Owner Decisions](NXR070_Owner_Decisions_2026-10-17.md)). Step 0 (docs) is accepted; Step 1 (A′) is complete in PR #42; UI-01 is complete in PR #43; Step 2 (B′) is authorized for active implementation; Upstream Intelligence Manager (UI-02..04) is deferred (`UPSTREAM_INTELLIGENCE_FOUNDATION_ACCEPTED_FURTHER_DEVELOPMENT_DEFERRED`).
 
 ## 1. Sequence and dependencies
 

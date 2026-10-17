@@ -1,6 +1,6 @@
-# NXR-070 — Security Threat Model (Reconciled, PROPOSED)
+# NXR-070 — Security Threat Model (Reconciled, Accepted)
 
-- **Scope:** [ADR-029 reconciled](../../adr/029-connection-scoped-resources-and-canonical-continuity.md) and its [blueprint](NXR070_Implementation_Blueprint_Reconciled.md), with corrections C1–C5 and clarifications K1–K2 ([closure report](NXR070_Final_Corrections_Closure_Report.md)).
+- **Scope:** [ADR-029 reconciled](../../adr/029-connection-scoped-resources-and-canonical-continuity.md) (Accepted — 2026-10-17) and its [blueprint](NXR070_Implementation_Blueprint_Reconciled.md), with corrections C1–C5, clarifications K1–K2 ([closure report](NXR070_Final_Corrections_Closure_Report.md)), and owner decisions OD-1..15 ([Owner Decisions](NXR070_Owner_Decisions_2026-10-17.md)).
 - **Supersedes:** the audit-stage [threat model](audit/NXR070_Security_Threat_Model.md). This document maps its T-01…T-18 into R-01…R-15.
 - **Baseline:** accepted ADR-030 baseline `6ea56f99d758bc18698c1fa5770b399a283fe6ad`, every security control stays in force and none is weakened, including:
   - renderer sandbox and zod IPC;

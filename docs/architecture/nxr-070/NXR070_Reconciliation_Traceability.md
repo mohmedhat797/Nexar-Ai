@@ -4,43 +4,43 @@ Chain: original proposal (Codex research `b843d04`) → finding ([register](audi
 
 ## Decisions D1–D18
 
-| Original                    | Finding               | Amendment / correction           | Reconciled requirement     | Test                    | Owner decision                                                                                 |
-| --------------------------- | --------------------- | -------------------------------- | -------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------- |
-| D1 Nexar ownership          | — (confirmed correct) | ADR §4                           | REQ-30                     | TST-30                  | OD-1 (pending)                                                                                 |
-| D2 Instance identity        | F-01, F-03, O-1       | A, C, C4, **K2**; ADR §4.1, §4.3 | REQ-01, 03, 05, 37, 39, 47 | TST-01, 03, 05, 43, 57  | OD-1, OD-8, OD-15 (pending)                                                                    |
-| D3 Driver composition       | F-03                  | C; ADR §4.7                      | REQ-31                     | TST-31                  | OD-1 (pending)                                                                                 |
-| D4 Environment binding      | F-04, F-05            | D, C1; ADR §4.2                  | REQ-02, 07, 20             | TST-02, 07, 20          | OD-9, OD-5 (pending)                                                                           |
-| D5 Id aliases               | F-11, O-1             | D; ADR §4.1                      | REQ-01, 04, 06             | TST-01, 04, 06          | OD-1 (pending)                                                                                 |
-| D6 Inventory authority      | —                     | ADR-028 retained                 | REQ-11                     | TST-11                  | OD-1 (pending)                                                                                 |
-| D7 ACP worker               | F-08, F-19            | D; ADR §4.9                      | REQ-31                     | TST-31                  | OD-2 (pending)                                                                                 |
-| D8 Permissions              | F-02                  | B; invariant B3                  | REQ-30                     | TST-30                  | OD-1 (pending)                                                                                 |
-| D9 Sessions/handoff         | F-07, F-21            | D, C2, C5, **K1**; ADR §4.6      | REQ-24–27, 32–35, 40–45    | TST-24–27, 32–40, 44–56 | OD-3 (confirmed); OD-13 (direction confirmed); OD-14 (conditionally accepted); OD-10 (pending) |
-| D10 Control pinning         | —                     | ADR §4.7; C3 in-flight rule      | REQ-30, 38                 | TST-30, 09, 42          | OD-8 (pending)                                                                                 |
-| D11 Telemetry authority     | F-09, F-14            | D; ADR §4.8                      | REQ-21                     | TST-21                  | OD-6 (confirmed)                                                                               |
-| D12 NRC ranking             | F-09                  | D; ADR §4.5                      | REQ-22                     | TST-22                  | OD-1 (pending), OD-11 (deferred)                                                               |
-| D13 Review diversity        | F-12, O-3, F-02       | D, C1, **K2**; ADR §4.5, B4      | REQ-20, 37                 | TST-20, 42              | OD-5 (pending)                                                                                 |
-| D14 MCP transport           | —                     | ADR §4.9                         | REQ-31                     | TST-31                  | AD-5 (existing)                                                                                |
-| D15 No third gateway        | F-08                  | ADR §4.7                         | REQ-31                     | TST-31                  | OD-1 (pending)                                                                                 |
-| D16 No secret/history reuse | F-18 (shadow home)    | ADR §4.4                         | REQ-08, 17                 | TST-08, 17              | AD-6 (rejected patterns)                                                                       |
-| D17 Patterns not source     | F-18                  | —                                | —                          | — (review gate)         | OD-1 (pending)                                                                                 |
-| D18 First slice             | F-11                  | D, C4; Blueprint §4 A′           | REQ-01–07                  | TST-01–07               | OD-1 (pending)                                                                                 |
+| Original                    | Finding               | Amendment / correction           | Reconciled requirement     | Test                    | Owner decision                                                                               |
+| --------------------------- | --------------------- | -------------------------------- | -------------------------- | ----------------------- | -------------------------------------------------------------------------------------------- |
+| D1 Nexar ownership          | — (confirmed correct) | ADR §4                           | REQ-30                     | TST-30                  | OD-1 (approved)                                                                              |
+| D2 Instance identity        | F-01, F-03, O-1       | A, C, C4, **K2**; ADR §4.1, §4.3 | REQ-01, 03, 05, 37, 39, 47 | TST-01, 03, 05, 43, 57  | OD-1, OD-8, OD-15 (approved)                                                                 |
+| D3 Driver composition       | F-03                  | C; ADR §4.7                      | REQ-31                     | TST-31                  | OD-1 (approved)                                                                              |
+| D4 Environment binding      | F-04, F-05            | D, C1; ADR §4.2                  | REQ-02, 07, 20             | TST-02, 07, 20          | OD-9, OD-5 (approved)                                                                        |
+| D5 Id aliases               | F-11, O-1             | D; ADR §4.1                      | REQ-01, 04, 06             | TST-01, 04, 06          | OD-1 (approved)                                                                              |
+| D6 Inventory authority      | —                     | ADR-028 retained                 | REQ-11                     | TST-11                  | OD-1 (approved)                                                                              |
+| D7 ACP worker               | F-08, F-19            | D; ADR §4.9                      | REQ-31                     | TST-31                  | OD-2 (approved, deferred)                                                                    |
+| D8 Permissions              | F-02                  | B; invariant B3                  | REQ-30                     | TST-30                  | OD-1 (approved)                                                                              |
+| D9 Sessions/handoff         | F-07, F-21            | D, C2, C5, **K1**; ADR §4.6      | REQ-24–27, 32–35, 40–45    | TST-24–27, 32–40, 44–56 | OD-3 (confirmed); OD-13 (approved); OD-14 (approved at architecture level); OD-10 (approved) |
+| D10 Control pinning         | —                     | ADR §4.7; C3 in-flight rule      | REQ-30, 38                 | TST-30, 09, 42          | OD-8 (approved)                                                                              |
+| D11 Telemetry authority     | F-09, F-14            | D; ADR §4.8                      | REQ-21                     | TST-21                  | OD-6 (confirmed)                                                                             |
+| D12 NRC ranking             | F-09                  | D; ADR §4.5                      | REQ-22                     | TST-22                  | OD-1 (approved), OD-11 (deferred)                                                            |
+| D13 Review diversity        | F-12, O-3, F-02       | D, C1, **K2**; ADR §4.5, B4      | REQ-20, 37                 | TST-20, 42              | OD-5 (approved)                                                                              |
+| D14 MCP transport           | —                     | ADR §4.9                         | REQ-31                     | TST-31                  | AD-5 (existing)                                                                              |
+| D15 No third gateway        | F-08                  | ADR §4.7                         | REQ-31                     | TST-31                  | OD-1 (approved)                                                                              |
+| D16 No secret/history reuse | F-18 (shadow home)    | ADR §4.4                         | REQ-08, 17                 | TST-08, 17              | AD-6 (rejected patterns)                                                                     |
+| D17 Patterns not source     | F-18                  | —                                | —                          | — (review gate)         | OD-1 (approved)                                                                              |
+| D18 First slice             | F-11                  | D, C4; Blueprint §4 A′           | REQ-01–07                  | TST-01–07               | OD-1 (approved)                                                                              |
 
 ## Units A–L
 
-| Original unit                         | Finding          | Reconciled unit                                | Requirements                         | Owner decision                         |
-| ------------------------------------- | ---------------- | ---------------------------------------------- | ------------------------------------ | -------------------------------------- |
-| 070A compatibility slice              | F-11             | A′                                             | REQ-01–07                            | OD-1, OD-9                             |
-| 070B instances                        | F-03, F-15       | B′                                             | REQ-03, 08–13, 15, 16, 36–39, 46, 47 | OD-4a (confirmed), OD-7/8/15 (pending) |
-| 070C runtime and environment bindings | F-04, F-05, F-06 | A′ (host keys), D′ (homes)                     | REQ-02, 07, 14, 17–19, 38            | OD-4b (confirmed), OD-9 (pending)      |
-| 070D inventory and capabilities       | F-06             | B′, D′ (per-connection inventory)              | REQ-08, 17                           | OD-4a/b                                |
-| 070E ACP worker                       | F-08             | deferred                                       | REQ-31                               | OD-2                                   |
-| 070F observations                     | F-14             | F′                                             | REQ-21                               | OD-6                                   |
-| 070G profiles                         | F-03, F-14       | merged into F′ and G′ (no new entity)          | REQ-21, 22                           | OD-1                                   |
-| 070H NRC v2                           | F-09, F-13       | C′ + G′                                        | REQ-20, 22, 37                       | OD-5, OD-11                            |
-| 070I settings UX                      | F-13, F-15       | H′ (minimal UI in B′)                          | REQ-15, 23                           | OD-7                                   |
-| 070J session handoff                  | F-07, F-21       | I′ (`context@3` + sidecar)                     | REQ-24–27, 32–35, 40–45              | OD-3, OD-10, OD-13, OD-14              |
-| 070K compatibility migration          | O-1, F-13        | removed (built-ins frozen; sessions unchanged) | REQ-06, 16, 40                       | OD-1, OD-14                            |
-| 070L acceptance                       | F-10, F-16       | J′                                             | Execution plan §5                    | OD-12                                  |
+| Original unit                         | Finding          | Reconciled unit                                | Requirements                         | Owner decision                                   |
+| ------------------------------------- | ---------------- | ---------------------------------------------- | ------------------------------------ | ------------------------------------------------ |
+| 070A compatibility slice              | F-11             | A′                                             | REQ-01–07                            | OD-1, OD-9 (approved; implemented in PR #42)     |
+| 070B instances                        | F-03, F-15       | B′                                             | REQ-03, 08–13, 15, 16, 36–39, 46, 47 | OD-4a (approved for 070B′), OD-7/8/15 (approved) |
+| 070C runtime and environment bindings | F-04, F-05, F-06 | A′ (host keys), D′ (homes)                     | REQ-02, 07, 14, 17–19, 38            | OD-4b (approved roadmap), OD-9 (approved)        |
+| 070D inventory and capabilities       | F-06             | B′, D′ (per-connection inventory)              | REQ-08, 17                           | OD-4a/b (approved)                               |
+| 070E ACP worker                       | F-08             | deferred                                       | REQ-31                               | OD-2 (approved, deferred)                        |
+| 070F observations                     | F-14             | F′                                             | REQ-21                               | OD-6 (confirmed)                                 |
+| 070G profiles                         | F-03, F-14       | merged into F′ and G′ (no new entity)          | REQ-21, 22                           | OD-1 (approved)                                  |
+| 070H NRC v2                           | F-09, F-13       | C′ + G′                                        | REQ-20, 22, 37                       | OD-5 (approved), OD-11 (deferred)                |
+| 070I settings UX                      | F-13, F-15       | H′ (minimal UI in B′)                          | REQ-15, 23                           | OD-7 (approved)                                  |
+| 070J session handoff                  | F-07, F-21       | I′ (`context@3` + sidecar)                     | REQ-24–27, 32–35, 40–45              | OD-3, OD-10, OD-13, OD-14 (approved)             |
+| 070K compatibility migration          | O-1, F-13        | removed (built-ins frozen; sessions unchanged) | REQ-06, 16, 40                       | OD-1, OD-14 (approved)                           |
+| 070L acceptance                       | F-10, F-16       | J′                                             | Execution plan §5                    | OD-12 (confirmed)                                |
 
 ## Entities
 

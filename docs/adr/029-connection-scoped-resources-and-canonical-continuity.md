@@ -1,12 +1,12 @@
 # ADR-029: Connection-Scoped Resources and Canonical Continuity (Resource Fabric v2, reconciled)
 
-- Status: **Proposed** (not adopted; owner approval pending)
-- Date: 2026-10-17 (reconciled with accepted ADR-030 baseline and NXR-070R upstream research; R01–R17 applied; corrections C1–C5 and clarifications K1–K2 preserved; see [reconciliation report](../architecture/nxr-070/NXR070R2_Final_Architecture_Reconciliation.md))
+- Status: **Accepted — 2026-10-17** (formally accepted by owner decision; OD-1 through OD-15 recorded)
+- Date: 2026-10-17 (accepted architecture; reconciled with accepted ADR-030 baseline and NXR-070R upstream research; R01–R17 applied; corrections C1–C5 and clarifications K1–K2 preserved; owner decisions OD-1 through OD-15 and R-DEC-01 through R-DEC-06 ratified)
 - Supersedes as a draft: `b843d04:docs/adr/029-resource-fabric-provider-runtime-v2.md` (Codex research, base `4c69d1c`)
 - Baseline: accepted ADR-030 baseline `6ea56f99d758bc18698c1fa5770b399a283fe6ad` (Unified DSH Runtime `@deepseek-ai/dsh@0.2.0-rc.2`, WSL2/Bubblewrap Cowork isolation, Linux kernel Coding sandbox, Project Memory)
 - Relationship: **amends ADR-028** §"Domain and ownership" and its deferral of multi-account UI (for the tiers below only); **refines ADR-027** §10 (review diversity) and **ADR-024** §10 (context policy); **harmonizes with accepted ADR-030** (single unified DSH agent runtime, WSL2/Bubblewrap Cowork, Linux kernel Coding, Project Memory ownership). ADR-024/027/028/030 remain authoritative for everything not amended here. ADR-014/015/016/018/019/020/021/022 are unchanged.
-- Implementation: **NOT STARTED.** Approval of this ADR does not authorize live login, allowance use or source reuse.
-- Companion documents: [Blueprint](../architecture/nxr-070/NXR070_Implementation_Blueprint_Reconciled.md), [Security](../architecture/nxr-070/NXR070_Security_Threat_Model_Reconciled.md), [Decision register](../architecture/nxr-070/NXR070_Architecture_Decision_Register.md), [Execution plan](../architecture/nxr-070/NXR070_Execution_Plan_Reconciled.md), [Traceability](../architecture/nxr-070/NXR070_Reconciliation_Traceability.md), [Approval brief](../architecture/nxr-070/NXR070_Final_Architecture_Approval_Brief.md), [Reconciliation](../architecture/nxr-070/NXR070R2_Final_Architecture_Reconciliation.md). Audit evidence: [Findings register](../architecture/nxr-070/audit/NXR070_Critical_Findings_Register.md).
+- Implementation: **PHASED IN PROGRESS.** NXR-070A′ (Connection Identity Compatibility Slice) implemented in PR #42; UI-01 (Upstream Intelligence Foundation) implemented in PR #43; NXR-070B′ (Multi-API-Key Connections & Credential Lifecycle) authorized for active implementation; Upstream Intelligence Manager (UI-02..04) deferred (`UPSTREAM_INTELLIGENCE_FOUNDATION_ACCEPTED_FURTHER_DEVELOPMENT_DEFERRED`). Approval does not authorize live login, allowance use or external source reuse.
+- Companion documents: [Blueprint](../architecture/nxr-070/NXR070_Implementation_Blueprint_Reconciled.md), [Security](../architecture/nxr-070/NXR070_Security_Threat_Model_Reconciled.md), [Decision register](../architecture/nxr-070/NXR070_Architecture_Decision_Register.md), [Execution plan](../architecture/nxr-070/NXR070_Execution_Plan_Reconciled.md), [Traceability](../architecture/nxr-070/NXR070_Reconciliation_Traceability.md), [Approval brief](../architecture/nxr-070/NXR070_Final_Architecture_Approval_Brief.md), [Reconciliation](../architecture/nxr-070/NXR070R2_Final_Architecture_Reconciliation.md), [Owner Decisions 2026-10-17](../architecture/nxr-070/NXR070_Owner_Decisions_2026-10-17.md). Audit evidence: [Findings register](../architecture/nxr-070/audit/NXR070_Critical_Findings_Register.md).
 
 ## 1. Context
 
@@ -343,6 +343,27 @@ Records written before this change read as `legacy`. Records hold ids, counts an
 | switching the default to `@2`                        | importing external orchestrator or T3 runtime    |
 | T3 external read-only connector                      | floating or unverified DSH package replacement   |
 | DSH upgrade beyond `@deepseek-ai/dsh@0.2.0-rc.2`     | —                                                |
+
+### 4.10 Formally Recorded Owner Decisions (2026-10-17)
+
+On 2026-10-17, the repository owner reviewed and approved the reconciled Resource Fabric v2 architecture:
+
+- **OD-1 (ADR-029 Architecture): APPROVED.** ADR-029 is accepted as extending ADR-030. Reuses `ProviderConnection`, `ResourceConnection`, `ProviderRuntimeIdentity`, additive `ConnectionDefinition`, `ConnectionCredentialScope`, and `connectionKey`. No duplicate domain entities.
+- **OD-2 (Generic ACP Worker): DEFERRED.** Managed DSH ACP transport retained; new generic ACP work resource deferred.
+- **OD-3 (Context Continuity): CONFIRMED.** Existing `context@2` retained for current execution; future `context@3` approved; native session persistence deferred.
+- **OD-4 (Multi-Account Priority): CONFIRMED.** Tier 1 (Multiple API-key connections) approved for immediate NXR-070B′ implementation. Tier 2 (Codex `CODEX_HOME`) approved for NXR-070D′. Tier 3 (Concurrent ChatGPT plan) and Tier 4 (Multiple Claude subscriptions) remain evidence-gated by E-1 and E-2.
+- **OD-5 (Review Resource Diversity): APPROVED.** Dimensions: `resource` (default), `connection` (optional), `provider` (optional). Required unavailable dimension fails explicitly; host attribution metadata only; cross-host review deferred.
+- **OD-6 (Cost and Budget): CONFIRMED.** No monetary budget or billing enforcement.
+- **OD-7 (Connection Lifecycle): APPROVED.** Disable / Rotate / Remove / Forget / Replace / Delete-home semantics approved. Retired IDs tombstoned; active work protected.
+- **OD-8 (Immutable Account Binding): APPROVED.** One connection = one account identity. Four assurance levels: `VERIFIED_SAME_ACCOUNT`, `OWNER_ASSERTED_SAME_ACCOUNT`, `VERIFIED_DIFFERENT_ACCOUNT` (rejected without override), `IDENTITY_UNKNOWN` (requires explicit action).
+- **OD-9 (Host Identity): APPROVED.** Frozen to `desktop` and `plane`. Attribution only; no federation or cross-host allocation.
+- **OD-10 (Context Overflow): APPROVED.** Future `context@3` fails closed on overflow (`required-overflow`, `unclassified-overflow`). No automatic independent turn.
+- **OD-11 (Default Resource Intelligence): DEFERRED.** `resource-intelligence@2` default deferred until measured evidence.
+- **OD-12 (Live Authentication): OWNER-INITIATED PER ACTION.** No blanket authorization. Offline deterministic tests using mock credentials only.
+- **OD-13 (Optional Context): APPROVED.** Sole default optional category: owner-marked optional or explicitly superseded turns.
+- **OD-14 (Session Sidecar): APPROVED AT ARCHITECTURE LEVEL.** Future `session-context@1` sidecar written strictly by `FileSessionStore`.
+- **OD-15 (Plan Account Replacement): APPROVED.** Explicit sequential plan account replacement with tombstoning of retired connection. Concurrent plan support remains gated by E-1.
+- **R-DEC-01 through R-DEC-06:** Ratified (`context@3` identifier; storage boundaries; safe rollback without Project Memory deletion; UI-01 passive foundation retained with further updater development deferred [`UPSTREAM_INTELLIGENCE_FOUNDATION_ACCEPTED_FURTHER_DEVELOPMENT_DEFERRED`]; DSH pinned `@deepseek-ai/dsh@0.2.0-rc.2`; T3 Code reference only).
 
 ## 5. Reconciliation of draft decisions D1–D18
 

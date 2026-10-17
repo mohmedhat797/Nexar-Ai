@@ -1,9 +1,9 @@
-# NXR-070 — Implementation Blueprint (Reconciled, PROPOSED)
+# NXR-070 — Implementation Blueprint (Reconciled, Accepted)
 
-- **Governing ADR:** [ADR-029 reconciled](../../adr/029-connection-scoped-resources-and-canonical-continuity.md) (Proposed).
+- **Governing ADR:** [ADR-029 reconciled](../../adr/029-connection-scoped-resources-and-canonical-continuity.md) (Accepted — 2026-10-17).
 - **Baseline:** accepted ADR-030 baseline `6ea56f99d758bc18698c1fa5770b399a283fe6ad` (Unified DSH Runtime `@deepseek-ai/dsh@0.2.0-rc.2`, WSL2/Bubblewrap Cowork, Linux kernel Coding, Project Memory).
-- **Corrections:** C1–C5 and clarifications K1–K2 applied ([closure report](NXR070_Final_Corrections_Closure_Report.md)).
-- **Status:** implementation NOT authorized.
+- **Corrections:** C1–C5 and clarifications K1–K2 applied ([closure report](NXR070_Final_Corrections_Closure_Report.md)); owner decisions OD-1..15 ratified ([Owner Decisions](NXR070_Owner_Decisions_2026-10-17.md)).
+- **Status:** Architecture accepted. Phased implementation in progress: Unit A′ implemented (PR #42); UI-01 implemented (PR #43); Unit B′ authorized for active implementation; Upstream Intelligence Manager (UI-02..04) deferred.
 - **Identifiers:** requirements are `REQ-nn`, tests `TST-nn`, risks `R-nn` ([Security](NXR070_Security_Threat_Model_Reconciled.md)), decisions `OD-n` ([Register](NXR070_Architecture_Decision_Register.md)). Existing ids are kept. Added ids:
 
   | Round | Requirements | Tests     |
