@@ -14,6 +14,7 @@ import { catalogResourceId } from '@nexar/resource-registry';
 import { API_PROVIDER_IDS } from '../shared/providers.js';
 import type { CredentialChange, DesktopKeyStore } from './desktop-key-store.js';
 import type { SettingsStore } from './settings-store.js';
+import { hasRetainedPlanBinding } from './chatgpt-plan.js';
 import {
   defaultDefinition,
   ownerKeyName,
@@ -753,30 +754,11 @@ export class ConnectionManager {
     } catch {
       /* unavailable is not authenticated */
     }
-    if (assurance === 'VERIFIED_SAME_ACCOUNT') {
-      try {
-        const encoded =
-          r.credentialScope.kind === 'account'
-            ? this.deps.keyStore.readBlob(r.credentialScope.name + ':binding')
-            : undefined;
-        const binding =
-          encoded === undefined
-            ? undefined
-            : (JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
-                v?: unknown;
-                sub?: unknown;
-              });
-        if (
-          binding?.v !== 1 ||
-          typeof binding.sub !== 'string' ||
-          binding.sub.length === 0 ||
-          binding.sub.length > 256
-        )
-          assurance = 'IDENTITY_UNKNOWN';
-      } catch {
-        assurance = 'IDENTITY_UNKNOWN';
-      }
-    }
+    if (
+      assurance === 'VERIFIED_SAME_ACCOUNT' &&
+      (r.credentialScope.kind !== 'account' || !hasRetainedPlanBinding(this.deps.keyStore, r.id))
+    )
+      assurance = 'IDENTITY_UNKNOWN';
     return {
       id: r.id,
       provider: r.provider,

@@ -53,6 +53,24 @@ const name = (r: Awaited<ReturnType<typeof add>>) => {
   return r.credentialScope.name;
 };
 describe('connection authority accepted lifecycle and transaction behavior', () => {
+  it('reads legacy settings and preserves additive identity fields through unrelated settings writes and restart', async () => {
+    await settings.set({ theme: 'light' });
+    expect((await manager.currentPlan()).id).toBe('openai.chatgpt-plan');
+    const a = await add();
+    await manager.rotateCredential({ connectionId: a.id, apiKey: B, sameAccount: true });
+    const nextPlan = await manager.replacePlanAccount();
+    const before = await settings.getConnections();
+    expect(before.valid).toBe(true);
+    await settings.set({ theme: 'dark' });
+    const restarted = new SettingsStore(join(dir, 'settings.json'));
+    expect(await restarted.getConnections()).toEqual(before);
+    const rebuilt = new ConnectionManager({ settingsStore: restarted, keyStore: keys });
+    await rebuilt.initialize();
+    expect((await rebuilt.getConnection(a.id))?.assertion?.type).toBe('same-account');
+    expect((await rebuilt.getConnection('openai.chatgpt-plan'))?.retirement).toBe('replaced');
+    expect((await rebuilt.currentPlan()).id).toBe(nextPlan.id);
+    expect(keys.resolveSecret(name(a))).toBe(B);
+  });
   it('refuses malformed persisted bytes without reviving built-ins or overwriting evidence', async () => {
     await add();
     const invalid = '{synthetic-corrupt-primary';

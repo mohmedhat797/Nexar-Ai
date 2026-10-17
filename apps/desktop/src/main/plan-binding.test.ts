@@ -124,6 +124,11 @@ describe('Plan retained identity and sequential replacement with real fake-IdP v
     expect(manager.toDto(await manager.currentPlan()).identityAssurance).toBe(
       'VERIFIED_SAME_ACCOUNT',
     );
+    await keys.saveBlob(
+      'chatgpt-plan:binding',
+      Buffer.from(JSON.stringify({ v: 1, sub: '', unexpected: true })).toString('base64url'),
+    );
+    expect(manager.toDto(await manager.currentPlan()).identityAssurance).toBe('IDENTITY_UNKNOWN');
   });
   it('journals expired-token deletion while retaining the verified private binding', async () => {
     await service.connect();

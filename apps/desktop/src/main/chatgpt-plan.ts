@@ -54,6 +54,23 @@ const Stored = z.strictObject({
 type StoredConnection = z.output<typeof Stored>;
 const Binding = z.strictObject({ v: z.literal(1), sub: z.string().min(1).max(256) });
 
+/** Only a boolean leaves the private Plan binding authority, never the decoded subject. */
+export function hasRetainedPlanBinding(
+  keys: Pick<DesktopKeyStore, 'readBlob'>,
+  id: string,
+): boolean {
+  try {
+    const scope = planScopeName(id);
+    const encoded = scope === undefined ? undefined : keys.readBlob(scope + ':binding');
+    return (
+      encoded !== undefined &&
+      Binding.safeParse(JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'))).success
+    );
+  } catch {
+    return false;
+  }
+}
+
 export interface ChatGptPlanDeps {
   readonly keys: Pick<DesktopKeyStore, 'availability' | 'saveBlob' | 'readBlob' | 'removeBlob'>;
   readonly callback: Pick<SigninCallbackSupervisor, 'begin'>;
