@@ -1,5 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { NexarError, isNexarError, type Logger, type NexarErrorCode } from '@nexar/contracts';
+import {
+  NexarError,
+  connectionKey,
+  isNexarError,
+  type Logger,
+  type NexarErrorCode,
+} from '@nexar/contracts';
 import type { CodeRequest, CodeResult } from '@nexar/operating';
 import {
   MAX_REQUIRED_CONTEXT_CHARS,
@@ -116,6 +122,21 @@ export function stateFromReadiness(readiness: PlaneReadiness): PlaneStateDto {
     return 'engineering-unavailable';
   }
   return 'ready';
+}
+
+/** Pure attribution helper: qualifies a plane connection ID with machine 'plane'. */
+export function hostQualifyPlaneConnection(connectionId: string): string {
+  return connectionKey('plane', connectionId);
+}
+
+/** Pure attribution helper: qualifies a received plane resource DTO with machine 'plane'. */
+export function hostQualifyPlaneResource(
+  dto: PlaneResourceDto,
+): PlaneResourceDto & { readonly machine: 'plane' } {
+  return {
+    ...dto,
+    machine: 'plane',
+  };
 }
 
 /** A plane resource as the renderer sees it: the validated enums and ids, copied field by field. */

@@ -1,12 +1,12 @@
-import type { ProviderRuntimeIdentity } from '@nexar/contracts';
+import { BUILTIN_CONNECTIONS, type ProviderRuntimeIdentity } from '@nexar/contracts';
 import { inventoryResourceId } from '@nexar/resource-registry';
 
 export const PLAN_INVENTORY_IDENTITY: ProviderRuntimeIdentity = {
-  provider: 'openai',
-  connectionId: 'openai.chatgpt-plan',
+  provider: BUILTIN_CONNECTIONS['openai.chatgpt-plan'].provider,
+  connectionId: BUILTIN_CONNECTIONS['openai.chatgpt-plan'].id,
   runtimeId: 'pi',
   routeId: 'openai.responses.account',
-  machine: 'desktop',
+  machine: BUILTIN_CONNECTIONS['openai.chatgpt-plan'].machine,
 };
 
 /** Resolve old Desktop pins for this immutable route without rewriting the owner's raw settings. */

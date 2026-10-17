@@ -197,6 +197,7 @@ export interface PlaneResourceDto {
   readonly provider?: string;
   readonly method?: 'subscription' | 'api' | 'local' | 'custom';
   readonly support?: 'official' | 'experimental';
+  readonly machine?: 'plane';
   readonly auth: 'authenticated' | 'unauthenticated' | 'not-required' | 'unknown';
   readonly availability: 'available' | 'degraded' | 'unavailable' | 'unknown';
   readonly control: { readonly dsh: boolean };

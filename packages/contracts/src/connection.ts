@@ -1,5 +1,6 @@
 import type { Capability } from './capabilities.js';
 import type { ResourceDescriptor } from './resource.js';
+import type { SubscriptionRuntimeId } from './subscription.js';
 
 /** How a provider is reached (ADR-027 §3). */
 export type ConnectionMethod = 'subscription' | 'api' | 'local' | 'custom';
@@ -18,6 +19,193 @@ export interface ResourceConnection {
   readonly method: ConnectionMethod;
   readonly authClass: ConnectionAuthClass;
   readonly support: ConnectionSupport;
+}
+
+/** Safe credential scope reference: holds no secret value or key content. */
+export type ConnectionCredentialScope =
+  | { readonly kind: 'keystore'; readonly name: string }
+  | { readonly kind: 'account'; readonly name: string }
+  | {
+      readonly kind: 'native-home';
+      readonly runtimeId: SubscriptionRuntimeId;
+      readonly home: 'default' | 'private';
+    }
+  | { readonly kind: 'none' };
+
+/**
+ * Additive contract representing a connection definition across hosts.
+ * Extends ResourceConnection with host authority, label, and credential scope reference.
+ */
+export interface ConnectionDefinition extends ResourceConnection {
+  readonly machine: 'desktop' | 'plane';
+  readonly label: string;
+  readonly enabled: boolean;
+  readonly builtIn: boolean;
+  readonly credentialScope: ConnectionCredentialScope;
+}
+
+/** Supported host literals for connection isolation and attribution. */
+export type ConnectionHost = 'desktop' | 'plane';
+
+/**
+ * Pure connection key function combining host and connectionId.
+ * Host literals 'desktop' and 'plane' are preserved. Never throws on valid inputs.
+ */
+export function connectionKey(machine: ConnectionHost, connectionId: string): string {
+  if (machine !== 'desktop' && machine !== 'plane') {
+    throw new Error(`Invalid connection host: ${String(machine)}`);
+  }
+  if (!connectionId || typeof connectionId !== 'string' || connectionId.trim() !== connectionId) {
+    throw new Error('Invalid connectionId');
+  }
+  return `${machine}:${connectionId}`;
+}
+
+export type BuiltinConnectionId =
+  | 'anthropic.subscription'
+  | 'openai.subscription'
+  | 'google.subscription'
+  | 'deepseek.api'
+  | 'openai.chatgpt-plan';
+
+/** Built-in connection definitions reproducing accepted baselines exactly. Golden-tested. */
+export const BUILTIN_CONNECTIONS: Readonly<Record<BuiltinConnectionId, ConnectionDefinition>> =
+  Object.freeze({
+    'anthropic.subscription': Object.freeze({
+      id: 'anthropic.subscription',
+      provider: 'anthropic',
+      method: 'subscription',
+      authClass: 'vendor-native',
+      support: 'official',
+      machine: 'desktop',
+      label: 'Claude Code (subscription)',
+      enabled: true,
+      builtIn: true,
+      credentialScope: Object.freeze({
+        kind: 'native-home',
+        runtimeId: 'claude-code',
+        home: 'default',
+      }),
+    }),
+    'openai.subscription': Object.freeze({
+      id: 'openai.subscription',
+      provider: 'openai',
+      method: 'subscription',
+      authClass: 'vendor-native',
+      support: 'official',
+      machine: 'desktop',
+      label: 'Codex (subscription)',
+      enabled: true,
+      builtIn: true,
+      credentialScope: Object.freeze({
+        kind: 'native-home',
+        runtimeId: 'codex',
+        home: 'default',
+      }),
+    }),
+    'google.subscription': Object.freeze({
+      id: 'google.subscription',
+      provider: 'google',
+      method: 'subscription',
+      authClass: 'vendor-native',
+      support: 'experimental',
+      machine: 'desktop',
+      label: 'Antigravity (subscription)',
+      enabled: true,
+      builtIn: true,
+      credentialScope: Object.freeze({
+        kind: 'native-home',
+        runtimeId: 'antigravity',
+        home: 'default',
+      }),
+    }),
+    'deepseek.api': Object.freeze({
+      id: 'deepseek.api',
+      provider: 'deepseek',
+      method: 'api',
+      authClass: 'official-api',
+      support: 'official',
+      machine: 'desktop',
+      label: 'DeepSeek (API)',
+      enabled: true,
+      builtIn: true,
+      credentialScope: Object.freeze({
+        kind: 'keystore',
+        name: 'DEEPSEEK_API_KEY',
+      }),
+    }),
+    'openai.chatgpt-plan': Object.freeze({
+      id: 'openai.chatgpt-plan',
+      provider: 'openai',
+      method: 'subscription',
+      authClass: 'official-account',
+      support: 'official',
+      machine: 'desktop',
+      label: 'ChatGPT Plan',
+      enabled: true,
+      builtIn: true,
+      credentialScope: Object.freeze({
+        kind: 'account',
+        name: 'chatgpt-plan',
+      }),
+    }),
+  });
+
+const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
+const FAMILY_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+export interface GenerateConnectionIdOptions {
+  /** Optional deterministic RNG returning Uint8Array of requested byte length; defaults to crypto.getRandomValues. */
+  readonly rng?: (byteCount: number) => Uint8Array;
+  /** Existing active connection IDs to detect collisions against. */
+  readonly existingIds?: Iterable<string>;
+  /** Tombstoned connection IDs to prevent reuse. */
+  readonly tombstonedIds?: Iterable<string>;
+  /** Optional predicate to check if an ID is already taken. */
+  readonly isTaken?: (id: string) => boolean;
+  /** Maximum generation attempts before throwing; defaults to 10. */
+  readonly maxAttempts?: number;
+}
+
+/** Pure generator for owner-created connection IDs: <family>.c<10 base32>. */
+export function generateConnectionId(
+  family: string,
+  options: GenerateConnectionIdOptions = {},
+): string {
+  if (typeof family !== 'string' || !FAMILY_PATTERN.test(family)) {
+    throw new Error(`Invalid connection family: ${String(family)}`);
+  }
+  const maxAttempts = options.maxAttempts ?? 10;
+  if (maxAttempts < 1) {
+    throw new Error('maxAttempts must be at least 1');
+  }
+  const existingSet = new Set(options.existingIds);
+  const tombstonedSet = new Set(options.tombstonedIds);
+
+  const rng = options.rng ?? ((n: number) => globalThis.crypto.getRandomValues(new Uint8Array(n)));
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const bytes = rng(10);
+    if (bytes.length < 10) {
+      throw new Error('RNG provided fewer than 10 bytes');
+    }
+    let suffix = '';
+    for (let i = 0; i < 10; i++) {
+      suffix += BASE32_ALPHABET[bytes[i]! & 0x1f];
+    }
+    const candidate = `${family}.c${suffix}`;
+
+    if (Object.hasOwn(BUILTIN_CONNECTIONS, candidate)) continue;
+    if (existingSet.has(candidate)) continue;
+    if (tombstonedSet.has(candidate)) continue;
+    if (options.isTaken?.(candidate)) continue;
+
+    return candidate;
+  }
+
+  throw new Error(
+    `Failed to generate unique connection ID for family '${family}' after ${maxAttempts} attempts (collision exhaustion)`,
+  );
 }
 
 /** A provider connection as the owner sees it. No secrets, and no field that could hold one. */
@@ -67,35 +255,21 @@ function wellFormed(value: unknown): ResourceConnection | undefined {
   };
 }
 
+function toResourceConnection(def: ResourceConnection): ResourceConnection {
+  return {
+    id: def.id,
+    provider: def.provider,
+    method: def.method,
+    authClass: def.authClass,
+    support: def.support,
+  };
+}
+
 const NATIVE: Readonly<Record<string, ResourceConnection>> = {
-  'claude-code': {
-    id: 'anthropic.subscription',
-    provider: 'anthropic',
-    method: 'subscription',
-    authClass: 'vendor-native',
-    support: 'official',
-  },
-  codex: {
-    id: 'openai.subscription',
-    provider: 'openai',
-    method: 'subscription',
-    authClass: 'vendor-native',
-    support: 'official',
-  },
-  antigravity: {
-    id: 'google.subscription',
-    provider: 'google',
-    method: 'subscription',
-    authClass: 'vendor-native',
-    support: 'experimental',
-  },
-  'deepseek-harness': {
-    id: 'deepseek.api',
-    provider: 'deepseek',
-    method: 'api',
-    authClass: 'official-api',
-    support: 'official',
-  },
+  'claude-code': toResourceConnection(BUILTIN_CONNECTIONS['anthropic.subscription']),
+  codex: toResourceConnection(BUILTIN_CONNECTIONS['openai.subscription']),
+  antigravity: toResourceConnection(BUILTIN_CONNECTIONS['google.subscription']),
+  'deepseek-harness': toResourceConnection(BUILTIN_CONNECTIONS['deepseek.api']),
 };
 
 /**
