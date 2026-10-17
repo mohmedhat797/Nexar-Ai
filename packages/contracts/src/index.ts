@@ -19,4 +19,5 @@ export * from './routing.js';
 export * from './strategy.js';
 export * from './task.js';
 export * from './telemetry.js';
+export * from './upstream.js';
 export * from './version.js';
