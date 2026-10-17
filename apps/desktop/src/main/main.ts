@@ -25,6 +25,7 @@ import { boundedCoworkExecutor } from './cowork-executor.js';
 import { ConfigStore } from './config-store.js';
 import { createEngineHost, type EngineHost } from './engine-host.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
+import { ConnectionManager } from './connection-manager.js';
 import { ChatGptPlanService } from './chatgpt-plan.js';
 import { chatGptPlanInventoryDefinition } from './chatgpt-plan-resources.js';
 import { ProviderInventoryService } from './provider-inventory.js';
@@ -400,6 +401,13 @@ async function start(): Promise<void> {
     QUIT_CLEANUP_BOUND_MS,
   );
   void cowork.warm();
+  const connectionManager = new ConnectionManager({
+    settingsStore: settings,
+    keyStore: keys,
+    onChange: () => {
+      void engineRef.current?.reload().catch(() => undefined);
+    },
+  });
   const bridge = createBridge({
     engine,
     config,
@@ -407,6 +415,7 @@ async function start(): Promise<void> {
     providers,
     subscriptions,
     chatgptPlan,
+    connectionManager,
     providerInventory,
     localEndpoints: new LocalEndpointService(config, engine),
     logger,

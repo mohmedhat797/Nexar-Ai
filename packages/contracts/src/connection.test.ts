@@ -4,12 +4,15 @@ import {
   ENGINE_CONTROL_REQUIREMENTS,
   KNOWN_CAPABILITIES,
   adapterId,
+  canConnectionAdmit,
   connectionKey,
   connectionOf,
   generateConnectionId,
+  isConnectionTombstoned,
   isControlCompatible,
   resourceId,
   type ConnectionHost,
+  type PersistentConnectionRecord,
   type ResourceConnection,
   type ResourceDescriptor,
 } from './index.js';
@@ -401,5 +404,47 @@ describe('generateConnectionId (TST-04)', () => {
     expect(() => generateConnectionId('OpenAI')).toThrow('Invalid connection family');
     expect(() => generateConnectionId('openai ')).toThrow('Invalid connection family');
     expect(() => generateConnectionId('openai/api')).toThrow('Invalid connection family');
+  });
+});
+
+describe('canConnectionAdmit & isConnectionTombstoned (ADR-029 §4.3 / OD-7)', () => {
+  const baseRecord: PersistentConnectionRecord = {
+    id: 'anthropic.api.c1234567890',
+    provider: 'anthropic',
+    method: 'api',
+    authClass: 'official-api',
+    support: 'official',
+    machine: 'desktop',
+    label: 'Work Key',
+    enabled: true,
+    builtIn: false,
+    credentialScope: { kind: 'keystore', name: 'ANTHROPIC_API_KEY__C1234567890' },
+    credentialGeneration: 1,
+    identityAssurance: 'OWNER_ASSERTED_SAME_ACCOUNT',
+    lifecycleState: 'ACTIVE',
+    createdAt: '2026-10-17T00:00:00.000Z',
+    updatedAt: '2026-10-17T00:00:00.000Z',
+  };
+
+  it('admits units only when lifecycleState is ACTIVE and enabled is true', () => {
+    expect(canConnectionAdmit(baseRecord)).toBe(true);
+
+    expect(canConnectionAdmit({ ...baseRecord, enabled: false })).toBe(false);
+    expect(canConnectionAdmit({ ...baseRecord, lifecycleState: 'DISABLED' })).toBe(false);
+    expect(canConnectionAdmit({ ...baseRecord, lifecycleState: 'DISABLED', enabled: false })).toBe(
+      false,
+    );
+    expect(canConnectionAdmit({ ...baseRecord, lifecycleState: 'TOMBSTONED' })).toBe(false);
+    expect(
+      canConnectionAdmit({ ...baseRecord, lifecycleState: 'TOMBSTONED', enabled: false }),
+    ).toBe(false);
+  });
+
+  it('identifies tombstoned connection IDs correctly', () => {
+    const tombstones = ['deepseek.api.cold1', 'openai.api.cretired'];
+    expect(isConnectionTombstoned('deepseek.api.cold1', tombstones)).toBe(true);
+    expect(isConnectionTombstoned('openai.api.cretired', tombstones)).toBe(true);
+    expect(isConnectionTombstoned('anthropic.api.cactive', tombstones)).toBe(false);
+    expect(isConnectionTombstoned('openai.subscription', tombstones)).toBe(false);
   });
 });

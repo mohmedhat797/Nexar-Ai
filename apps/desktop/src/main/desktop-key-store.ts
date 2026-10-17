@@ -31,11 +31,21 @@ esolveSecret, so config cannot hand one to an adapter as a key.
  */
 export const blobNames = ['chatgpt-plan'] as const;
 
-type CredentialName = (typeof credentialNames)[number];
-type BlobName = (typeof blobNames)[number];
-type EntryName = CredentialName | BlobName;
+type EntryName = string;
 const NAMES: ReadonlySet<string> = new Set(credentialNames);
 const BLOB_NAMES: ReadonlySet<string> = new Set(blobNames);
+
+export const OWNER_KEY_PATTERN = /^[A-Z0-9_]+_API_KEY__C[A-Za-z0-9_-]+$/;
+export const OWNER_BLOB_PATTERN = /^[a-z0-9_.:-]{3,64}$/;
+
+export function isValidCredentialName(name: string): boolean {
+  return NAMES.has(name) || OWNER_KEY_PATTERN.test(name);
+}
+
+export function isValidBlobName(name: string): boolean {
+  return BLOB_NAMES.has(name) || OWNER_BLOB_PATTERN.test(name);
+}
+
 const KEY = /^[A-Za-z0-9_.:-]{16,4096}$/;
 const LAST_FOUR = /^[A-Za-z0-9_.:-]{4}$/;
 const BLOB = /^[A-Za-z0-9_-]{16,24576}$/;
@@ -93,14 +103,14 @@ function unavailable(): NexarError {
   return new NexarError('AUTH_REQUIRED', 'Desktop credential storage is unavailable');
 }
 
-function nameOf(name: string): CredentialName {
-  if (!NAMES.has(name)) throw invalid();
-  return name as CredentialName;
+function nameOf(name: string): string {
+  if (!isValidCredentialName(name)) throw invalid();
+  return name;
 }
 
-function blobNameOf(name: string): BlobName {
-  if (!BLOB_NAMES.has(name)) throw invalid();
-  return name as BlobName;
+function blobNameOf(name: string): string {
+  if (!isValidBlobName(name)) throw invalid();
+  return name;
 }
 
 function errno(error: unknown): string | undefined {
@@ -152,7 +162,7 @@ function parseDocument(text: string): Document {
   const entries: Document['entries'] = {};
   for (const [name, entry] of Object.entries(value['entries'])) {
     if (
-      !(NAMES.has(name) || BLOB_NAMES.has(name)) ||
+      !(isValidCredentialName(name) || isValidBlobName(name)) ||
       !object(entry) ||
       !exactKeys(entry, ['ciphertext', 'lastFour']) ||
       typeof entry['lastFour'] !== 'string' ||
@@ -161,7 +171,7 @@ function parseDocument(text: string): Document {
       throw unavailable();
     }
     decodeCipher(entry['ciphertext']);
-    entries[name as EntryName] = {
+    entries[name] = {
       ciphertext: entry['ciphertext'] as string,
       lastFour: entry['lastFour'],
     };

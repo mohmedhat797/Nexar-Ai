@@ -24,6 +24,7 @@ import { providerChannels } from './providers.js';
 import { subscriptionChannels } from './subscriptions.js';
 import { inventoryChannels } from './provider-inventory.js';
 import { localEndpointChannels } from './local-endpoints.js';
+import { connectionChannels } from './connection-channels.js';
 import { PROVIDER_ERROR_MESSAGE } from '../shared/providers.js';
 import { resourceChannels } from './resources.js';
 import { sessionChannels } from './sessions.js';
@@ -62,6 +63,7 @@ export function createBridge(deps: BridgeDeps): Bridge {
     ...subscriptionChannels,
     ...inventoryChannels,
     ...localEndpointChannels,
+    ...connectionChannels,
     ...resourceChannels,
     ...taskChannels,
     ...artifactChannels,

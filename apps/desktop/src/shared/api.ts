@@ -19,6 +19,18 @@ export type { InventoryRow, InventorySourceId } from './provider-inventory.js';
 export type { ChatGptPlanStatus } from './chatgpt-plan.js';
 import type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 export type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
+import type {
+  ConnectionAddArgs,
+  ConnectionDto,
+  ConnectionIdArgs,
+  ConnectionRotateArgs,
+} from './connections.js';
+export type {
+  ConnectionAddArgs,
+  ConnectionDto,
+  ConnectionIdArgs,
+  ConnectionRotateArgs,
+} from './connections.js';
 
 /** What every bridge call resolves to; errors carry a stable code and a safe message only. */
 export type BridgeResult<T> =
@@ -513,6 +525,15 @@ export interface NexarApi {
   coworkStatus(): Promise<BridgeResult<CoworkStatusDto>>;
   /** Re-probes DeepSeek Harness now (otherwise the status is cached for a minute). */
   refreshCowork(): Promise<BridgeResult<CoworkStatusDto>>;
+  listConnections(): Promise<BridgeResult<readonly ConnectionDto[]>>;
+  addConnection(args: ConnectionAddArgs): Promise<BridgeResult<ConnectionDto>>;
+  disableConnection(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
+  enableConnection(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
+  removeConnection(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
+  restoreConnection(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
+  forgetConnectionCredentials(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
+  rotateConnectionKey(args: ConnectionRotateArgs): Promise<BridgeResult<ConnectionDto>>;
+  replaceChatGptPlanAccount(): Promise<BridgeResult<ChatGptPlanStatus>>;
   /** Subscribes to task progress; returns the unsubscribe function. */
   onTaskEvent(callback: (event: TaskEvent) => void): () => void;
   /** Subscribes to Operating Session changes; returns the unsubscribe function. */

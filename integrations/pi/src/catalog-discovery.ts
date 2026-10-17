@@ -5,6 +5,7 @@ import type {
   DiscoveryCredentialSource,
   DiscoveryContext,
   DiscoverySource,
+  ResourceConnection,
   ResourceDescriptor,
 } from '@nexar/contracts';
 import { DEFAULT_ALLOWED_PROVIDERS, listCatalogModels } from './pi-models.js';
@@ -57,6 +58,10 @@ export interface PiCatalogDiscoveryOptions {
   readonly allowedProviders?: readonly string[];
   /** Test seam; default reads the static pi-ai catalog. */
   readonly listModels?: (provider: string) => Promise<readonly CatalogModel[]>;
+  /** Optional connection definition or identity reference (ADR-029). */
+  readonly connection?: ResourceConnection;
+  /** Optional credential name reference (e.g. owner key name in key store). */
+  readonly credentialName?: string;
 }
 
 function toDescriptor(
@@ -64,6 +69,8 @@ function toDescriptor(
   model: CatalogModel,
   id: string,
   credentialSource: DiscoveryCredentialSource,
+  credentialName?: string,
+  connection?: ResourceConnection,
 ): ResourceDescriptor {
   const free = model.inputPerMillionTokens === 0 && model.outputPerMillionTokens === 0;
   // A 0/0 catalog rate means free, plan-billed or unknown, and cannot be told apart.
@@ -75,12 +82,13 @@ function toDescriptor(
         inputPerMillionTokens: model.inputPerMillionTokens,
         outputPerMillionTokens: model.outputPerMillionTokens,
       };
+  const keyEnv = credentialName ?? PI_PROVIDER_CREDENTIAL_NAMES[provider] ?? '';
   const base = piModelResource({
     id,
     provider,
     model: model.id,
     // A reference to the variable's name only: its value is never read here.
-    apiKeyEnv: PI_PROVIDER_CREDENTIAL_NAMES[provider] as string,
+    apiKeyEnv: keyEnv,
     capabilities:
       model.contextWindow >= LONG_CONTEXT_TOKENS
         ? [...BASE_CAPABILITIES, 'long-context']
@@ -92,7 +100,7 @@ function toDescriptor(
       mode: 'api-key',
       credential: {
         source: credentialSource,
-        name: PI_PROVIDER_CREDENTIAL_NAMES[provider] as string,
+        name: keyEnv,
       },
     },
     cost,
@@ -100,7 +108,7 @@ function toDescriptor(
     metadata: {
       ...base.metadata,
       rates: 'catalog',
-      connection: {
+      connection: connection ?? {
         id: `${provider}.api`,
         provider,
         method: 'api',
@@ -138,10 +146,23 @@ export function piCatalogDiscoverySource(options: PiCatalogDiscoveryOptions): Di
         let count = 0;
         for (const model of models) {
           if (count >= maxModels) break;
-          const id = slugifyResourceId(`pi.${provider}.${model.id}`);
+          const resourceBase =
+            options.connection !== undefined && options.connection.id !== `${provider}.api`
+              ? `pi.${options.connection.id}.${model.id}`
+              : `pi.${provider}.${model.id}`;
+          const id = slugifyResourceId(resourceBase);
           if (id === undefined || seen.has(id)) continue;
           seen.add(id);
-          out.push(toDescriptor(provider, model, id, options.credentialSource ?? 'env'));
+          out.push(
+            toDescriptor(
+              provider,
+              model,
+              id,
+              options.credentialSource ?? 'env',
+              options.credentialName,
+              options.connection,
+            ),
+          );
           count += 1;
         }
       }

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   DEFAULT_CONTROL_RESOURCE_POLICY,
   NexarError,
+  type ConnectionsSettings,
   type ControlResourcePolicy,
 } from '@nexar/contracts';
 import { DENSITIES, MODES, THEMES, type DesktopSettings } from '../shared/api.js';
@@ -182,6 +183,78 @@ function parseChatGptPlan(raw: unknown): ChatGptPlanResult {
   return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
 }
 
+// ---- Connections (ADR-029) --------------------------------------------------------------------
+
+const CredentialScopeSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('keystore'),
+    name: z.string().min(1).max(128),
+  }),
+  z.strictObject({
+    kind: z.literal('account'),
+    name: z.string().min(1).max(128),
+  }),
+  z.strictObject({
+    kind: z.literal('native-home'),
+    runtimeId: z.enum(['claude-code', 'codex', 'antigravity']),
+    home: z.enum(['default', 'private']),
+  }),
+  z.strictObject({
+    kind: z.literal('none'),
+  }),
+]);
+
+const PersistentConnectionSchema = z.strictObject({
+  id: z.string().min(1).max(128),
+  provider: z.string().min(1).max(64),
+  method: z.enum(['subscription', 'api', 'local', 'custom']),
+  authClass: z.enum([
+    'vendor-native',
+    'official-api',
+    'official-account',
+    'experimental-client-compat',
+    'none',
+  ]),
+  support: z.enum(['official', 'experimental']),
+  machine: z.enum(['desktop', 'plane']),
+  label: z.string().min(1).max(128),
+  enabled: z.boolean(),
+  builtIn: z.boolean(),
+  credentialScope: CredentialScopeSchema,
+  credentialGeneration: z.number().int().nonnegative(),
+  identityAssurance: z.enum([
+    'VERIFIED_SAME_ACCOUNT',
+    'OWNER_ASSERTED_SAME_ACCOUNT',
+    'VERIFIED_DIFFERENT_ACCOUNT',
+    'IDENTITY_UNKNOWN',
+  ]),
+  lifecycleState: z.enum(['ACTIVE', 'DISABLED', 'TOMBSTONED']),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const ConnectionsSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  connections: z.record(z.string(), PersistentConnectionSchema),
+  tombstones: z.array(z.string()),
+});
+
+export const DEFAULT_CONNECTIONS: ConnectionsSettings = {
+  schemaVersion: 1,
+  connections: {},
+  tombstones: [],
+};
+
+/** A damaged `connections` section fails closed and is preserved verbatim. */
+export type ConnectionsConfigResult =
+  { readonly valid: true; readonly value: ConnectionsSettings } | { readonly valid: false };
+
+function parseConnections(raw: unknown): ConnectionsConfigResult {
+  if (raw === undefined) return { valid: true, value: DEFAULT_CONNECTIONS };
+  const parsed = ConnectionsSchema.safeParse(raw);
+  return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
+}
+
 // ---- AI behavior (NXR-053) --------------------------------------------------------------------
 
 const ResourceIdSchema = z
@@ -294,6 +367,8 @@ interface Loaded {
   /** Owner-edited; never written by Nexar, kept verbatim. */
   readonly chatgptPlanRaw: unknown;
   readonly chatgptPlan: ChatGptPlanResult;
+  readonly connectionsRaw: unknown;
+  readonly connections: ConnectionsConfigResult;
 }
 
 function parseCodePlane(raw: unknown): CodePlaneConfigResult {
@@ -322,13 +397,12 @@ export class SettingsStore {
     let behaviorRaw: unknown;
     let orchestrationRaw: unknown;
     let chatgptPlanRaw: unknown;
+    let connectionsRaw: unknown;
     try {
       const file = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
       if (typeof file === 'object' && file !== null && !Array.isArray(file)) {
-        const { codePlane, cowork, behavior, orchestration, chatgptPlan, ...rest } = file as Record<
-          string,
-          unknown
-        >;
+        const { codePlane, cowork, behavior, orchestration, chatgptPlan, connections, ...rest } =
+          file as Record<string, unknown>;
         const parsed = AppearanceSchema.safeParse(rest);
         if (parsed.success) appearance = parsed.data;
         codePlaneRaw = Object.hasOwn(file, 'codePlane') ? codePlane : undefined;
@@ -336,6 +410,7 @@ export class SettingsStore {
         behaviorRaw = Object.hasOwn(file, 'behavior') ? behavior : undefined;
         orchestrationRaw = Object.hasOwn(file, 'orchestration') ? orchestration : undefined;
         chatgptPlanRaw = Object.hasOwn(file, 'chatgptPlan') ? chatgptPlan : undefined;
+        connectionsRaw = Object.hasOwn(file, 'connections') ? connections : undefined;
       }
     } catch {
       // Missing or unreadable: defaults.
@@ -352,11 +427,19 @@ export class SettingsStore {
       orchestration: parseOrchestration(orchestrationRaw),
       chatgptPlanRaw,
       chatgptPlan: parseChatGptPlan(chatgptPlanRaw),
+      connectionsRaw,
+      connections: parseConnections(connectionsRaw),
     };
     return this.current;
   }
 
   private async write(next: Loaded): Promise<void> {
+    try {
+      const existing = await readFile(this.path, 'utf8');
+      await writeFileAtomic(`${this.path}.bak`, existing);
+    } catch {
+      // Missing or unreadable: no previous backup to take.
+    }
     const section =
       next.codePlane.valid && next.codePlaneRaw === undefined
         ? {}
@@ -374,6 +457,12 @@ export class SettingsStore {
               ? next.orchestration.value
               : next.orchestrationRaw,
           };
+    const connectionsSection =
+      next.connections.valid && next.connectionsRaw === undefined
+        ? {}
+        : {
+            connections: next.connections.valid ? next.connections.value : next.connectionsRaw,
+          };
     await writeFileAtomic(
       this.path,
       JSON.stringify(
@@ -384,6 +473,7 @@ export class SettingsStore {
           ...behaviorSection,
           ...orchestrationSection,
           ...(next.chatgptPlanRaw === undefined ? {} : { chatgptPlan: next.chatgptPlanRaw }),
+          ...connectionsSection,
         },
         null,
         2,
@@ -508,5 +598,31 @@ export class SettingsStore {
   /** Main-process only: the validated Cowork configuration. */
   async getCowork(): Promise<CoworkConfigResult> {
     return (await this.load()).cowork;
+  }
+
+  /** Main-process only: the validated connections configuration. */
+  async getConnections(): Promise<ConnectionsConfigResult> {
+    return (await this.load()).connections;
+  }
+
+  /** Saves connections settings. Refused while the section is damaged: guessing would overwrite it. */
+  saveConnections(config: ConnectionsSettings): Promise<ConnectionsSettings> {
+    return this.serialized(async () => {
+      const loaded = await this.load();
+      if (!loaded.connections.valid) {
+        throw new NexarError('CONFIGURATION_ERROR', 'The connections settings are not valid');
+      }
+      const parsed = ConnectionsSchema.safeParse(config);
+      if (!parsed.success) {
+        throw new NexarError('VALIDATION_ERROR', 'Invalid connections settings');
+      }
+      const value = parsed.data;
+      await this.write({
+        ...loaded,
+        connectionsRaw: value,
+        connections: { valid: true, value },
+      });
+      return value;
+    });
   }
 }
