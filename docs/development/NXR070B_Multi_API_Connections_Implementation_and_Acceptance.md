@@ -1,189 +1,75 @@
-# NEXAR AI — RESOURCE FABRIC V2
+# NXR-070B′ Multi-API Connections Implementation and Acceptance
 
-## NXR-070B′: MULTI-API-KEY CONNECTIONS IMPLEMENTATION & ACCEPTANCE REPORT
+**Date:** 2026-10-18  
+**Implementation:** FINAL_IMPL_PENDING  
+**Acceptance:** FINAL_CI_PENDING
 
-**Assigned AI:** Gemini Argon  
-**Role:** Principal Software Architect, Senior TypeScript Engineer, Security Reviewer & Release Integration Lead  
-**Date:** 2026-10-17  
-**Repository:** `mohmedhat797/Nexar-Ai`  
-**Milestone:** NXR-070B′ (Multi-API-Key Connections & Credential Isolation)  
-**Branch:** `feat/nxr-070b-multi-api-connections`  
-**Base Accepted Main Commit:** `6ea56f99d758bc18698c1fa5770b399a283fe6ad`  
-**Primary Agent Runtime:** Unified DeepSeek Harness (`@deepseek-ai/dsh@0.2.0-rc.2`)  
-**Accepted Production Architecture:** ADR-030 (Accepted)  
-**Accepted Resource Architecture:** ADR-029 (Accepted)
+This corrected report supersedes the original B′ implementation acceptance claims. Historical `pnpm check` success did not establish production wiring, execution admission, identity assurance, Windows packaging or complete lifecycle safety. The independent audit established those gaps; the remediation adds the missing production behavior and regression evidence.
 
----
+## Production implementation
 
-## 1. Executive Summary
+ConnectionManager is the shared connection mutation/admission authority, gated by Desktop's existing canonical writer lease. SettingsStore validates aggregate identity/lifecycle ownership. DesktopKeyStore retains its encryption, identity, ACL/link and atomic replacement protections while adding credential+journal batching.
 
-Milestone **NXR-070B′** implements the core infrastructure for multiple API-key connections per provider within the Nexar Resource Fabric v2. It provides:
+ConnectionRuntime consumes persistent owner definitions in actual Desktop composition. It uses the accepted `catalogResourceId` helper, publishes through the existing Registry, and preserves NRC filters, default policy and selection explanations. Each credential-bearing execution validates its selected resource's authoritative provider, host, scope and generation. No account/environment substitution is added.
 
-1. Strong, OS-enforced credential isolation for owner API keys in `DesktopKeyStore`.
-2. Atomic persistence and backup rollback for user connections in `SettingsStore`.
-3. Complete lifecycle state management (`ACTIVE`, `DISABLED`, `TOMBSTONED`) and active execution guards in `ConnectionManager`.
-4. Strict account assurance levels (`VERIFIED_SAME_ACCOUNT` vs `OWNER_ASSERTED_SAME_ACCOUNT`).
-5. Desktop IPC channels and Preload bridge endpoints for UI consumption.
-6. Multi-connection catalog discovery and resource qualification in `integrations/pi`.
-7. Comprehensive deterministic offline test suites and clean monorepo CI validation (`pnpm check`).
+Control leases span the whole decision across model requests. Direct, delegated, native probe/login and inventory operations hold their actual operation lifetimes. Disable refuses new admissions while existing authorized work drains. Rotate, Forget, Remove and Replace refuse prohibited bound work. Late inventory results cannot republish disabled/retired/rotated authority.
 
----
+API continuity is owner-asserted explicitly; it is never presented as provider-verified. Plan subjects stay inside the Plan module and encrypted private store. Ordinary Forget/Remove retain binding. Replace permanently retires the old identity, forgets its tokens/binding and allocates one new identity. Old resource IDs and sessions are never redirected.
 
-## 2. Architectural Design & Boundaries
+The minimum Providers UI implements Add/List/Rotate/Disable/Enable/Remove/Restore/Forget/Plan Replace. Sensitive confirmations are enforced by main-process tickets, not renderer state alone. API keys remain transient password input.
 
-### 2.1 Connection Identity & Lifecycle State Machine
+## Requirements traceability
 
-In accordance with ADR-029:
+The requirement wording below is abbreviated from the accepted reconciled blueprint; later-milestone portions are explicitly distinguished.
 
-- **Built-in Canonical Connections:** 5 immutable baseline connections (`deepseek.api`, `openai.chatgpt-plan`, `openai.subscription`, `anthropic.subscription`, `google.subscription`). Built-in connections cannot be removed or tombstoned.
-- **Owner Custom Connections:** Follow ID scheme `<provider>.api.c<suffix>` where suffix is a 10-character lowercase alphanumeric string (e.g., `anthropic.api.cpersonal01`).
-- **Lifecycle States:**
-  - `ACTIVE`: Available for task admission and execution.
-  - `DISABLED`: Temporarily disabled by the user; preserved in configuration, but ineligible for task admission.
-  - `TOMBSTONED`: Soft-deleted connection; explicitly recorded in `tombstones` array, prevented from being recreated accidentally, and eligible for restore.
-- **Credential Retention Principle:** When a connection is tombstoned/removed, its stored credential is **retained by default** in `DesktopKeyStore` to prevent accidental credential loss. Credential purging requires explicit invocation of `connectionForgetCredentials`.
+| Requirement / acceptance | B′ implementation and evidence                                                                                                                     | Limit                                                                                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| REQ-04 / TST-04          | Accepted materializer, same-model A/B IDs, stability through rotation/refresh/restart; catalog and runtime tests, existing A′ goldens              | Legacy IDs preserved                                                                                                                   |
+| REQ-08 / TST-08          | Real Engine/NRC/Gateway/Pi transport receives only selected A/B credential; forged scope rejection                                                 | Native multi-home extension belongs to D′                                                                                              |
+| REQ-09, REQ-38 / TST-09  | Control/direct/delegated/refresh/native activity lease tests; deterministic mutation/admission barriers                                            | External vendor processes outside Nexar cannot be assumed immutable                                                                    |
+| REQ-10 / TST-10          | Fake IdP verifies same/different/invalid identity; binding stays private                                                                           | No live provider login                                                                                                                 |
+| REQ-11 / TST-11          | Disable drain, refused new admission, stale-refresh discard and explicit pin failure                                                               | Disable is not cancellation                                                                                                            |
+| REQ-12 / TST-12          | Active Remove refused; idle tombstone retains credentials; Restore retains identity                                                                | Permanent replacement cannot Restore                                                                                                   |
+| REQ-13 / TST-13          | Active Forget refused; only selected credential deleted; assertion/private comparison on re-entry                                                  | Local deletion is not provider revocation                                                                                              |
+| REQ-15 / TST-15          | Strict existing-ID IPC, fixed errors, host-bound confirmations, fuzz/path/scope/subject/oversize/replay tests                                      | Existing trusted-window restriction retained                                                                                           |
+| REQ-16 / TST-16          | Additive settings, strict semantic validation, backup/fault tests, corruption preserved and authority blocked                                      | Stricter whole-authority refusal for unreadable primary; no automatic backup restoration or pre-remediation writable-profile downgrade |
+| REQ-36 / TST-41          | Honest default/native unknown; explicit owner assertion; private verified Plan binding evidence                                                    | Credential presence does not imply authentication/reachability                                                                         |
+| REQ-37 / TST-41,42,57    | Immutable identity and same-account re-entry; new key on Replace; history/pins retained                                                            | Review-dimension execution in C′/F′ is not implemented here                                                                            |
+| REQ-39 / TST-43          | Serialized matching-RNG Add/Add, restart, tombstones, Restore and permanent retirement                                                             | Retired identities are not garbage-collected or reused                                                                                 |
+| REQ-46 / TST-58          | Encrypted private binding retained across Forget/ordinary Remove; deleted only by Replace                                                          | No subject in DTO/settings/session/telemetry                                                                                           |
+| REQ-47 / TST-57          | Confirmed sequential replacement, active/sign-in/refresh refusal, deletion/settings fault recovery, new opaque ID, old retirement, one active Plan | Concurrent multi-Plan remains deferred                                                                                                 |
 
-### 2.2 Credential Isolation in `DesktopKeyStore`
+## End-to-end acceptance matrix
 
-To prevent cross-account credential leakage and collision:
+| Capability               | Implementation                                      | Runtime Integration                                  | Regression Tests                                                 | Status                    |
+| ------------------------ | --------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- | ------------------------- |
+| Multi API Connections    | Persistent validated owner records                  | Desktop publisher → Registry/NRC                     | Actual bridge A/B and Desktop restart                            | CAPABILITY_STATUS_PENDING |
+| Credential Isolation     | Authoritative scope validation                      | Pi transport A/B/new B                               | Cross-scope/provider/host/generation negatives                   | CAPABILITY_STATUS_PENDING |
+| Connection Identity      | Accepted ID allocator/materializer                  | Host-qualified descriptors                           | Collision, rotation, refresh, restart, golden IDs                | CAPABILITY_STATUS_PENDING |
+| Account Assurance        | Explicit assertion/private Plan evidence            | Main/DTO/UI                                          | Same/different/invalid/missing binding                           | CAPABILITY_STATUS_PENDING |
+| Serialized Mutations     | Whole transaction queue                             | Same admission authority                             | Deterministic concurrent barriers                                | CAPABILITY_STATUS_PENDING |
+| Recoverable Transactions | Guarded KeyStore journal + settings                 | Restart before admission                             | Encryption/write/backup/rename/ack/deletion/replay faults        | CAPABILITY_STATUS_PENDING |
+| Execution Leases         | Decision and actual operation lifetime              | Gateway, adapters, delegation, probes, auth, refresh | Held transport and cleanup cases                                 | CAPABILITY_STATUS_PENDING |
+| Lifecycle Enforcement    | Legal state machine                                 | Publication, pins and admission                      | Remove→Disable→Enable, missing credentials, Restore, retired IDs | CAPABILITY_STATUS_PENDING |
+| Plan Replacement         | Private binding and permanent sequential retirement | Real Plan service and callback fixtures              | Fake IdP, failure/restart, Desktop replacement                   | CAPABILITY_STATUS_PENDING |
+| Resource Publication     | Persistent source definitions                       | Actual Desktop EngineHost                            | Runtime and Desktop A/B resource listing                         | CAPABILITY_STATUS_PENDING |
+| NRC Selection            | Existing hard filters/policy preserved              | Actual selection / allocator                         | Control/direct/delegated execution                               | CAPABILITY_STATUS_PENDING |
+| Model Execution          | Connection-bound reference resolution               | Actual Pi adapters/ports                             | Synthetic provider transport; real fixture DSH separately        | CAPABILITY_STATUS_PENDING |
+| Desktop UI               | Existing Providers management                       | Actual preload/main/persistence                      | Source and packaged lifecycle/confirmation tests                 | CAPABILITY_STATUS_PENDING |
+| Windows Acceptance       | Established Full Local CI                           | Real Windows build26300                              | Final source-bound CI report                                     | PLATFORM_STATUS_PENDING   |
+| WSL2 Security            | Existing mandatory boundary retained                | Actual WSL transport and Bubblewrap                  | Real kernel and DSH fixtures                                     | PLATFORM_STATUS_PENDING   |
+| Packaged Desktop E2E     | Supported packaged harness                          | Bundled DSH, no external entry                       | Final packaged suite                                             | PLATFORM_STATUS_PENDING   |
 
-- **Canonical Provider Keys:** `<PROVIDER>_API_KEY` (e.g., `ANTHROPIC_API_KEY`).
-- **Owner Connection Keys:** `<PROVIDER>_API_KEY__C<SUFFIX>` (e.g., `ANTHROPIC_API_KEY__CWORKTEAM12`).
-- **Owner Blob Names:** `<PROVIDER>__C<SUFFIX>` (e.g., `OPENAI__CPROTEAM01`).
-- Key names and blob names are strictly validated using regex `^[A-Z0-9_]{1,64}__C[A-Z0-9]{1,32}$`. Any malformed or unauthorized key names are rejected with validation errors.
-- Secrets are encrypted using Electron's `safeStorage` backend (DPAPI on Windows, Keychain on macOS, libsecret on Linux) with secure private file ACLs.
+## Executed results
 
-### 2.3 Atomic Configuration Persistence with `.bak` Backup
+FINAL_ACCEPTANCE_SUMMARY
 
-In `SettingsStore`:
+For commands, raw reports, environment, installer identity, exact source/tree and publication state, see [the owner handover](NXR070B_Final_Owner_Handover.md). See also the [finding matrix](NXR070B_Findings_Closure_Matrix.md), [runtime proof](NXR070B_Runtime_Integration_Verification.md) and [security/persistence report](NXR070B_Security_and_Persistence_Acceptance.md).
 
-- When writing connection configurations, the existing file is first copied to `<filepath>.bak`.
-- The new configuration is written to `<filepath>.tmp.<random>` and atomically renamed to `<filepath>`.
-- If parsing fails during load, `SettingsStore` reports validation failures cleanly without corrupting the store.
+## Boundaries and remaining acceptance
 
-### 2.4 Active Execution Protection
+DSH remains `@deepseek-ai/dsh@0.2.0-rc.2`; accepted ADRs and dependency pins are unchanged. No second controller/harness, future review policy, native multi-home support, T3 integration or active updater was introduced. Session/Project Memory writers and schemas are unchanged.
 
-In `ConnectionManager`:
+Synthetic tests establish transport/account isolation without real credentials or paid inference. They do not establish live provider readiness. Corrupt authority intentionally requires controlled reconciliation. Rollback must retain the hardened authority and current stores; an older unsafe binary must not open an upgraded writable profile.
 
-- Active tasks acquire a lease (`acquireLease(connectionId)`) before running.
-- In-flight execution prevents lifecycle mutations: attempting to disable, remove, forget credentials, or rotate keys on a connection with active leases throws `POLICY_REJECTED` (`ExecutionInFlightError`).
-- Releasing all leases allows pending lifecycle operations to proceed safely.
-
----
-
-## 3. Implementation Details by Subsystem
-
-### 3.1 `@nexar/contracts` (`packages/contracts/src/connection.ts`)
-
-- **Types & Enums:**
-  - `ConnectionLifecycleState = 'ACTIVE' | 'DISABLED' | 'TOMBSTONED'`
-  - `ConnectionIdentityAssurance = 'VERIFIED_SAME_ACCOUNT' | 'OWNER_ASSERTED_SAME_ACCOUNT' | 'UNVERIFIED_THIRD_PARTY' | 'OFFICIAL_ORGANIZATION'`
-  - `PersistentConnectionRecord`: Full serializable representation including `id`, `provider`, `method`, `authClass`, `support`, `machine`, `label`, `enabled`, `builtIn`, `credentialGeneration`, `credentialScope`, `identityAssurance`, `lifecycleState`, `createdAt`, `updatedAt`.
-  - `ConnectionsSettings`: Schema containing `connections: Record<string, PersistentConnectionRecord>` and `tombstones: string[]`.
-- **Pure Helpers:**
-  - `canConnectionAdmit(record)`: Returns `true` iff `record.enabled === true && record.lifecycleState === 'ACTIVE'`.
-  - `isConnectionTombstoned(record, tombstones)`: Checks tombstone status.
-
-### 3.2 `DesktopKeyStore` (`apps/desktop/src/main/desktop-key-store.ts`)
-
-- Added pattern matchers:
-  - `OWNER_KEY_PATTERN = /^([A-Z0-9_]{1,64})__C([A-Z0-9]{1,32})$/`
-  - `OWNER_BLOB_PATTERN = /^([A-Za-z0-9_-]{1,64})__C([A-Z0-9]{1,32})$/`
-- Added helper functions:
-  - `isValidCredentialName(name)`
-  - `isValidBlobName(name)`
-- Updated `nameOf()` and `blobNameOf()` to accept owner connection suffixes.
-- Updated `parseDocument()` to safely retain valid owner keys and blobs.
-
-### 3.3 `SettingsStore` (`apps/desktop/src/main/settings-store.ts`)
-
-- Added Zod schemas:
-  - `PersistentConnectionRecordSchema`
-  - `ConnectionsSchema`
-- Added methods:
-  - `getConnections(): Promise<ConnectionsConfigResult>`
-  - `saveConnections(settings: ConnectionsSettings): Promise<void>`
-- Enhanced `write()` with automatic `.bak` backup creation prior to atomic temporary write and rename.
-
-### 3.4 Safe IPC Contracts & Preload Bridge (`apps/desktop/src/shared/`, `preload/`)
-
-- Created `apps/desktop/src/shared/connections.ts` defining input and output DTO schemas:
-  - `ConnectionDto`: Safe UI-facing projection (strips secret values, exposes `hasCredential`, `lifecycleState`, etc.).
-  - `ConnectionIdSchema`, `ConnectionAddArgsSchema`, `ConnectionRotateKeyArgsSchema`, etc.
-- Added IPC channels to `apps/desktop/src/shared/channels.ts`:
-  - `connectionList`, `connectionAdd`, `connectionDisable`, `connectionEnable`, `connectionRemove`, `connectionRestore`, `connectionForgetCredentials`, `connectionRotateKey`, `chatgptPlanReplaceAccount`.
-- Registered type-safe IPC invocations on `window.nexar` via `apps/desktop/src/preload/preload.ts` and `apps/desktop/src/shared/api.ts`.
-
-### 3.5 `ConnectionManager` (`apps/desktop/src/main/connection-manager.ts`)
-
-- Instantiated on desktop startup with `SettingsStore` and `DesktopKeyStore`.
-- Implements:
-  - `listConnections()`: Merges built-ins and custom connections, applying tombstone filtering and keystore presence checks.
-  - `getConnection(id)`: Fetches individual record.
-  - `addApiConnection(args)`: Validates provider, generates ID `provider.api.c<suffix>`, creates owner key `PROVIDER_API_KEY__C<SUFFIX>`, stores encrypted secret in `DesktopKeyStore`, and saves record with `OWNER_ASSERTED_SAME_ACCOUNT` assurance.
-  - `disableConnection({ connectionId })`: Verifies no active leases, transitions to `DISABLED`, sets `enabled: false`.
-  - `enableConnection({ connectionId })`: Transitions from `DISABLED` to `ACTIVE`, sets `enabled: true`.
-  - `removeConnection({ connectionId })`: Verifies not built-in and no active leases, transitions to `TOMBSTONED`, adds ID to `tombstones` list. Retains credentials in KeyStore.
-  - `restoreConnection({ connectionId })`: Removes ID from `tombstones`, transitions to `ACTIVE`, sets `enabled: true`.
-  - `forgetCredential({ connectionId })`: Verifies no active leases, purges underlying key from KeyStore.
-  - `rotateCredential({ connectionId, apiKey })`: Verifies no active leases, overwrites key in KeyStore, increments `credentialGeneration`.
-  - `replaceChatGptPlanAccount({ idToken, accessToken, accountId })`: Validates token format, stores blob, updates ChatGPT plan binding with `VERIFIED_SAME_ACCOUNT` assurance.
-  - Lease tracking (`acquireLease`, `releaseLease`, `activeLeasesCount`).
-
-### 3.6 IPC Bridge Handlers (`apps/desktop/src/main/connection-channels.ts`)
-
-- Implemented handlers with Zod schema validation and structured error handling (`VALIDATION_ERROR`, `POLICY_REJECTED`).
-- Wired into desktop bridge in `apps/desktop/src/main/bridge.ts` and `apps/desktop/src/main/channel.ts`.
-
-### 3.7 `integrations/pi` Multi-Connection Support (`integrations/pi/src/catalog-discovery.ts`)
-
-- Added optional `connection` and `credentialName` configuration to `piCatalogDiscoverySource`.
-- Default connection: outputs canonical resource IDs `pi.<provider>.<model>` and default key `PROVIDER_API_KEY`.
-- Owner connection: outputs connection-qualified resource IDs `pi.<connection.id>.<model>` and owner key `PROVIDER_API_KEY__C<SUFFIX>`, preventing any resource ID collision between multiple accounts on the same provider.
-
----
-
-## 4. Verification & Testing Evidence
-
-### 4.1 Unit & Integration Test Summary
-
-| Test File                                          | Tests Passed |  Tests Skipped  | Duration  | Key Validations                                                    |
-| :------------------------------------------------- | :----------: | :-------------: | :-------: | :----------------------------------------------------------------- |
-| `packages/contracts/src/connection.test.ts`        |    **33**    |        0        |   12ms    | Lifecycle admission rules, tombstone checks, schema validation.    |
-| `apps/desktop/src/main/desktop-key-store.test.ts`  |    **52**    | 2 (OS-specific) |   2.4s    | Owner key/blob name validation, parse retention, encryption, ACLs. |
-| `apps/desktop/src/main/connection-manager.test.ts` |    **19**    |        0        |   449ms   | Full lifecycle CRUD, lease guards, tombstone restore, IPC bridge.  |
-| `integrations/pi/src/multi-connection.test.ts`     |    **3**     |        0        |    7ms    | Multi-connection discovery, ID qualification, credential scoping.  |
-| **Total Focused Milestone Tests**                  |   **107**    |      **2**      | **~2.9s** | **100% Pass**                                                      |
-
-### 4.2 Full Repository CI Gate (`pnpm check`)
-
-Executed full verification across monorepo:
-
-1. `pnpm format:check` — **PASSED** (all files Prettier compliant).
-2. `pnpm lint` — **PASSED** (ESLint 0 errors, 0 warnings).
-3. `pnpm check:boundaries` — **PASSED** (1056 tracked files validated).
-4. `pnpm typecheck` — **PASSED** (Root, Test tsconfig, and Desktop Renderer tsconfig all 0 errors).
-5. `pnpm test` — **PASSED** (**220 test files passed, 0 failed, 4,398 tests passed**, 178 live/bwrap skipped).
-6. `pnpm build` — **PASSED** (CLI relay, Desktop main, preload, bridge-relay, control-gateway, signin-callback, and Vite renderer bundled).
-
----
-
-## 5. Security & Isolation Compliance
-
-- **No Secret Bleed:** Secret API keys never escape to IPC DTOs, logs, or plain settings files.
-- **Strict Key Naming Boundaries:** KeyStore limits custom keys to `<PROVIDER>_API_KEY__C<SUFFIX>` pattern, preventing arbitrary secret injection.
-- **Lease Protection:** In-flight tasks cannot have their credentials rotated or deleted beneath them.
-- **Tombstone Preservation:** Soft-deleted connections cannot be silently resurrected or collided with.
-- **OS Namespace Isolation Intact:** Cowork continues to run exclusively in WSL2/Bubblewrap; Coding retains sandboxing.
-- **DSH Pinned:** Primary agent runtime remains strictly `@deepseek-ai/dsh@0.2.0-rc.2`.
-
----
-
-## 6. Acceptance Verdict
-
-```
-MILESTONE_NXR_070B_IMPLEMENTATION_VERIFIED
-CREDENTIAL_ISOLATION_AND_LIFECYCLE_ACCEPTED
-FULL_CI_GATE_PASSED
-READY_FOR_PR_CREATION_AND_OWNER_HANDOVER
-```
+FINAL_VERDICTS
