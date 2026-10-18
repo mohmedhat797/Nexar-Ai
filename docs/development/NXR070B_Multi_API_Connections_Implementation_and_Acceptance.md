@@ -1,8 +1,10 @@
 # NXR-070B′ Multi-API Connections Implementation and Acceptance
 
-**Date:** 2026-10-18  
-**Implementation:** FINAL_IMPL_PENDING  
-**Acceptance:** FINAL_CI_PENDING
+**Date:** 2026-10-18
+
+**Implementation:** `96f8b6a16562e308cc0502d7fc577b563fcb4153`
+
+**Acceptance:** Windows Full Local CI PASS; hosted execution/owner acceptance outstanding
 
 This corrected report supersedes the original B′ implementation acceptance claims. Historical `pnpm check` success did not establish production wiring, execution admission, identity assurance, Windows packaging or complete lifecycle safety. The independent audit established those gaps; the remediation adds the missing production behavior and regression evidence.
 
@@ -41,28 +43,36 @@ The requirement wording below is abbreviated from the accepted reconciled bluepr
 
 ## End-to-end acceptance matrix
 
-| Capability               | Implementation                                      | Runtime Integration                                  | Regression Tests                                                 | Status                    |
-| ------------------------ | --------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- | ------------------------- |
-| Multi API Connections    | Persistent validated owner records                  | Desktop publisher → Registry/NRC                     | Actual bridge A/B and Desktop restart                            | CAPABILITY_STATUS_PENDING |
-| Credential Isolation     | Authoritative scope validation                      | Pi transport A/B/new B                               | Cross-scope/provider/host/generation negatives                   | CAPABILITY_STATUS_PENDING |
-| Connection Identity      | Accepted ID allocator/materializer                  | Host-qualified descriptors                           | Collision, rotation, refresh, restart, golden IDs                | CAPABILITY_STATUS_PENDING |
-| Account Assurance        | Explicit assertion/private Plan evidence            | Main/DTO/UI                                          | Same/different/invalid/missing binding                           | CAPABILITY_STATUS_PENDING |
-| Serialized Mutations     | Whole transaction queue                             | Same admission authority                             | Deterministic concurrent barriers                                | CAPABILITY_STATUS_PENDING |
-| Recoverable Transactions | Guarded KeyStore journal + settings                 | Restart before admission                             | Encryption/write/backup/rename/ack/deletion/replay faults        | CAPABILITY_STATUS_PENDING |
-| Execution Leases         | Decision and actual operation lifetime              | Gateway, adapters, delegation, probes, auth, refresh | Held transport and cleanup cases                                 | CAPABILITY_STATUS_PENDING |
-| Lifecycle Enforcement    | Legal state machine                                 | Publication, pins and admission                      | Remove→Disable→Enable, missing credentials, Restore, retired IDs | CAPABILITY_STATUS_PENDING |
-| Plan Replacement         | Private binding and permanent sequential retirement | Real Plan service and callback fixtures              | Fake IdP, failure/restart, Desktop replacement                   | CAPABILITY_STATUS_PENDING |
-| Resource Publication     | Persistent source definitions                       | Actual Desktop EngineHost                            | Runtime and Desktop A/B resource listing                         | CAPABILITY_STATUS_PENDING |
-| NRC Selection            | Existing hard filters/policy preserved              | Actual selection / allocator                         | Control/direct/delegated execution                               | CAPABILITY_STATUS_PENDING |
-| Model Execution          | Connection-bound reference resolution               | Actual Pi adapters/ports                             | Synthetic provider transport; real fixture DSH separately        | CAPABILITY_STATUS_PENDING |
-| Desktop UI               | Existing Providers management                       | Actual preload/main/persistence                      | Source and packaged lifecycle/confirmation tests                 | CAPABILITY_STATUS_PENDING |
-| Windows Acceptance       | Established Full Local CI                           | Real Windows build26300                              | Final source-bound CI report                                     | PLATFORM_STATUS_PENDING   |
-| WSL2 Security            | Existing mandatory boundary retained                | Actual WSL transport and Bubblewrap                  | Real kernel and DSH fixtures                                     | PLATFORM_STATUS_PENDING   |
-| Packaged Desktop E2E     | Supported packaged harness                          | Bundled DSH, no external entry                       | Final packaged suite                                             | PLATFORM_STATUS_PENDING   |
+| Capability               | Implementation                                      | Runtime Integration                                  | Regression Tests                                                 | Status |
+| ------------------------ | --------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- | ------ |
+| Multi API Connections    | Persistent validated owner records                  | Desktop publisher → Registry/NRC                     | Actual bridge A/B and Desktop restart                            | PASS   |
+| Credential Isolation     | Authoritative scope validation                      | Pi transport A/B/new B                               | Cross-scope/provider/host/generation negatives                   | PASS   |
+| Connection Identity      | Accepted ID allocator/materializer                  | Host-qualified descriptors                           | Collision, rotation, refresh, restart, golden IDs                | PASS   |
+| Account Assurance        | Explicit assertion/private Plan evidence            | Main/DTO/UI                                          | Same/different/invalid/missing binding                           | PASS   |
+| Serialized Mutations     | Whole transaction queue                             | Same admission authority                             | Deterministic concurrent barriers                                | PASS   |
+| Recoverable Transactions | Guarded KeyStore journal + settings                 | Restart before admission                             | Encryption/write/backup/rename/ack/deletion/replay faults        | PASS   |
+| Execution Leases         | Decision and actual operation lifetime              | Gateway, adapters, delegation, probes, auth, refresh | Held transport and cleanup cases                                 | PASS   |
+| Lifecycle Enforcement    | Legal state machine                                 | Publication, pins and admission                      | Remove→Disable→Enable, missing credentials, Restore, retired IDs | PASS   |
+| Plan Replacement         | Private binding and permanent sequential retirement | Real Plan service and callback fixtures              | Fake IdP, failure/restart, Desktop replacement                   | PASS   |
+| Resource Publication     | Persistent source definitions                       | Actual Desktop EngineHost                            | Runtime and Desktop A/B resource listing                         | PASS   |
+| NRC Selection            | Existing hard filters/policy preserved              | Actual selection / allocator                         | Control/direct/delegated execution                               | PASS   |
+| Model Execution          | Connection-bound reference resolution               | Actual Pi adapters/ports                             | Synthetic provider transport; real fixture DSH separately        | PASS   |
+| Desktop UI               | Existing Providers management                       | Actual preload/main/persistence                      | Source and packaged lifecycle/confirmation tests                 | PASS   |
+| Windows Acceptance       | Established Full Local CI                           | Real Windows build26300                              | Final source-bound CI report                                     | PASS   |
+| WSL2 Security            | Existing mandatory boundary retained                | Actual WSL transport and Bubblewrap                  | Real kernel and DSH fixtures                                     | PASS   |
+| Packaged Desktop E2E     | Supported packaged harness                          | Bundled DSH, no external entry                       | Final packaged suite                                             | PASS   |
 
 ## Executed results
 
-FINAL_ACCEPTANCE_SUMMARY
+Windows Full Local CI returned `NEXAR_WINDOWS_FULL_PASS` on clean source `96f8b6a16562e308cc0502d7fc577b563fcb4153`, tree `cbd4d26018133bc6426f9cc7cd979cd5b3feed7c`, with 16/16 required stages passing in 1749.94s. The optional native Linux stage was BLOCKED on Windows and is not counted as passed. Raw report: `.nexar/ci/reports/report-2026-10-18T02-57-15-465Z.json`; SHA-256 `3df3cf845036b3607a61b01717074390d9c5f7076b0c38a3042bbdb9d6451c24`. Start/end source identity was stable and clean.
+
+Windows offline tests: **4,467 passed, 167 skipped, four pending, zero failed** (4,638 total; 245 files). Real DSH context: **3/3**; isolated Cowork Windows/WSL bridge acceptance: **8/8**; source Desktop: **27/27**; packaged Desktop: **27/27**. Skipped/pending cases are not counted as passes. The four pending Windows assertions are actual Linux Bubblewrap cases covered by the WSL run.
+
+The separate WSL checkout at `9dc1909619e41c6b3632179934abe0d696ea665d`, tree `b9c3203e6292b26b4bd06c9216a03157839ad139`, passed **4,609 tests, 29 skipped, zero failed** (4,638 total). Its production and test source is identical to the Windows revision: the only intervening change is `.gitleaks.toml`. Raw WSL report: `/home/nexar/src/nxr070b-remediation-20261018/.nexar/ci/remediation-wsl-control-final-tests.json`, SHA-256 `a924579dc50241a6c5f52c4a667b3435b82ccfd1e6326478de226e7e5e723693`. The real kernel gate also passed 15/15 assertions.
+
+The earlier Windows run at `9dc1909` retained a FAIL result because Gitleaks detected seven synthetic test fixtures. Their literal source values were inspected; exact path-and-value exceptions were added while retaining default rules and full-history scanning. The clean rerun above passed Gitleaks. Historical failed/incomplete runs remain evidence and are not relabelled PASS.
+
+Hosted CI is separate: the pre-publication run at `b6ffde9` failed before steps due to account billing/spending restrictions. Final remote identity and post-push hosted status are recorded in the publication receipt and PR description. No live vendor login, real key or paid inference was used.
 
 For commands, raw reports, environment, installer identity, exact source/tree and publication state, see [the owner handover](NXR070B_Final_Owner_Handover.md). See also the [finding matrix](NXR070B_Findings_Closure_Matrix.md), [runtime proof](NXR070B_Runtime_Integration_Verification.md) and [security/persistence report](NXR070B_Security_and_Persistence_Acceptance.md).
 
@@ -72,4 +82,12 @@ DSH remains `@deepseek-ai/dsh@0.2.0-rc.2`; accepted ADRs and dependency pins are
 
 Synthetic tests establish transport/account isolation without real credentials or paid inference. They do not establish live provider readiness. Corrupt authority intentionally requires controlled reconciliation. Rollback must retain the hardened authority and current stores; an older unsafe binary must not open an upgraded writable profile.
 
-FINAL_VERDICTS
+- Remediation: `NXR070B_REMEDIATION_ALL_FINDINGS_CLOSED`
+- Runtime integration: `NXR070B_RUNTIME_INTEGRATION_VERIFIED`
+- Credential security: `NXR070B_CREDENTIAL_ISOLATION_VERIFIED`
+- Persistence: `NXR070B_PERSISTENCE_AND_RECOVERY_VERIFIED`
+- Windows platform: `NXR070B_WINDOWS_PLATFORM_ACCEPTANCE_PASSED`
+- PR publication: verify the post-push receipt and current PR description; a local evidence commit is not proof of publication.
+- Overall at evidence preparation: `NXR070B_REMEDIATION_IMPLEMENTED_WITH_OUTSTANDING_GATES`
+
+These verdicts are bounded by the synthetic/fixture, persistence-fault and real Windows/WSL evidence above. Hosted execution and independent owner acceptance remain outstanding. They do not authorize merging.
