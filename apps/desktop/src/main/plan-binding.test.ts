@@ -4,6 +4,22 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { noopLogger } from '@nexar/telemetry';
 import {
+  adapterId,
+  resourceId,
+  taskId,
+  type PersistentConnectionRecord,
+  type ResourceDescriptor,
+  type StrategyLedger,
+  type WorkUnit,
+} from '@nexar/contracts';
+import { materializeInventory } from '@nexar/resource-registry';
+import {
+  allocateNext,
+  reviewIdentityOf,
+  DeterministicRoutingPolicy,
+  DEFAULT_TASK_KIND_RULES,
+} from '@nexar/resource-controller';
+import {
   createOpenAiAccountClient,
   type OpenAiAccountClient,
 } from '@nexar/integration-openai-account';
@@ -95,6 +111,114 @@ afterEach(async () => {
   });
 });
 describe('Plan retained identity and sequential replacement with real fake-IdP verification', () => {
+  it('TST-42 retains historical review identity across verified re-entry and permanent sequential replacement', async () => {
+    await service.connect();
+    const before = await manager.currentPlan();
+    const materialize = (plan: PersistentConnectionRecord): ResourceDescriptor => {
+      const template: ResourceDescriptor = {
+        id: resourceId('template-only'),
+        displayName: 'Plan',
+        kind: { type: 'model', provider: 'openai', model: 'synthetic', access: 'subscription' },
+        capabilities: ['text-generation', 'model-turn'],
+        runtime: { adapter: adapterId('fake'), locality: 'remote' },
+        auth: { mode: 'none' },
+        cost: { model: 'subscription' },
+        dataLocality: 'third-party',
+        metadata: {
+          connection: {
+            id: plan.id,
+            provider: plan.provider,
+            method: plan.method,
+            authClass: plan.authClass,
+            support: plan.support,
+          },
+          connectionHost: plan.machine,
+        },
+      };
+      return materializeInventory(
+        {
+          identity: {
+            provider: plan.provider,
+            connectionId: plan.id,
+            runtimeId: 'openai-account',
+            routeId: 'plan',
+            machine: plan.machine,
+          },
+          generation: plan.credentialGeneration,
+          status: 'fresh',
+          source: 'live-runtime',
+          auth: 'authenticated',
+          observedAt: new Date().toISOString(),
+          entries: [
+            {
+              selection: { kind: 'model', id: 'synthetic' },
+              displayName: 'Synthetic',
+              availability: 'available',
+              compatibility: 'model-turn',
+            },
+          ],
+        },
+        template,
+      )[0]!;
+    };
+    const descriptor = materialize(before);
+    const retained = reviewIdentityOf(descriptor);
+    const ledger: StrategyLedger = {
+      graphId: 'plan-history',
+      reviewDiversity: 'preferred',
+      reviewDimensions: { connection: 'required' },
+      spentUsd: 0,
+      allocations: [{ unitId: 'write', resourceId: descriptor.id, reviewIdentity: retained }],
+    };
+    const review: WorkUnit = {
+      unitId: 'review',
+      reviewOf: 'write',
+      task: {
+        id: taskId('review'),
+        kind: 'general',
+        requirements: { capabilities: ['text-generation'] },
+      },
+    };
+    const allocate = (d: ResourceDescriptor) =>
+      allocateNext({
+        ledger,
+        unit: review,
+        candidates: [
+          {
+            descriptor: d,
+            state: {
+              availability: 'available',
+              auth: 'authenticated',
+              observedAt: new Date().toISOString(),
+            },
+          },
+        ],
+        policy: new DeterministicRoutingPolicy({ taskKinds: DEFAULT_TASK_KIND_RULES }),
+        now: new Date(),
+      });
+    await manager.forgetCredential({ connectionId: before.id });
+    await service.connect();
+    expect(reviewIdentityOf(materialize(await manager.currentPlan()))).toEqual(retained);
+    expect(allocate(materialize(await manager.currentPlan())).decision).toMatchObject({
+      outcome: 'no-eligible-resource',
+      reasons: [{ code: 'strategy.diversity.connection.unavailable' }],
+    });
+    const replacement = await manager.replacePlanAccount();
+    fake.idClaims = { sub: 'synthetic-new-plan-account' };
+    await service.connect();
+    expect(replacement.id).not.toBe(before.id);
+    const next = materialize(await manager.currentPlan());
+    expect(next.id).not.toBe(descriptor.id);
+    expect(allocate(next).decision).toMatchObject({
+      outcome: 'selected',
+      selected: { resourceId: next.id },
+    });
+    expect(ledger.allocations[0]?.reviewIdentity).toEqual(retained);
+    expect((await manager.getConnection(before.id))?.retirement).toBe('replaced');
+    await expect(manager.restoreConnection({ connectionId: before.id })).rejects.toThrow();
+    expect(JSON.stringify(ledger)).not.toContain(FAKE_SUB);
+    expect(JSON.stringify(ledger)).not.toContain('synthetic-new-plan-account');
+  });
   it('re-enters an ordinarily removed Plan with the same account before explicit Restore, without reactivation', async () => {
     const plan = await manager.replacePlanAccount();
     await service.connect();

@@ -6,7 +6,13 @@ import {
   type ResourceStrategy,
   type WorkGraph,
 } from '@nexar/contracts';
-import { GOAL_MARKER, createHarness, silentLogger, type Harness } from './fixtures.testkit.js';
+import {
+  GOAL_MARKER,
+  createHarness,
+  editFile,
+  silentLogger,
+  type Harness,
+} from './fixtures.testkit.js';
 import { readEngineeringRecord, type EngineeringStrategist } from './index.js';
 
 const TASK = 'eng-0123456789ab';
@@ -87,6 +93,31 @@ function fakeStrategist(picks: Readonly<Record<string, string>>, fallbackReason?
 }
 
 /** Preferred ids each lane was created with, in call order. */
+function bindLaneConnections(x: Harness): void {
+  for (const id of ['impl', 'reviewer']) {
+    const descriptor = x.runtime.registry.get(resourceId(id))!;
+    const provider = id === 'impl' ? 'openai' : 'anthropic';
+    x.runtime.registry.unregister(descriptor.id);
+    x.runtime.registry.register(
+      {
+        ...descriptor,
+        kind: { type: 'agent', agent: 'fake', interface: 'cli', underlying: { provider } },
+        metadata: {
+          connection: {
+            id: `${provider}.api`,
+            provider,
+            method: 'api',
+            authClass: 'official-api',
+            support: 'official',
+          },
+          connectionHost: 'desktop',
+        },
+      },
+      { probe: () => x.adapter.probe() },
+    );
+  }
+}
+
 function spyPreferences(x: Harness): (readonly ResourceId[] | undefined)[] {
   const seen: (readonly ResourceId[] | undefined)[] = [];
   const original = x.runtime.nexar.createTask.bind(x.runtime.nexar);
@@ -98,6 +129,91 @@ function spyPreferences(x: Harness): (readonly ResourceId[] | undefined)[] {
 }
 
 describe('EngineeringExecution: strategy planning', () => {
+  // These complete lanes use the existing POSIX harvest script, as do runner/lane-engine acceptance.
+  it.skipIf(process.platform === 'win32')(
+    'carries explicit dimensions through the actual lane planner, dynamic NRC and execution-time revalidation',
+    async () => {
+      h = await createHarness({
+        newId: () => TASK,
+        approvalMode: 'deny-all',
+        engineering: { reviewDimensions: { connection: 'required', provider: 'preferred' } },
+      });
+      const x = h;
+      bindLaneConnections(x);
+      const allocate = vi.spyOn(x.runtime.controller, 'allocate');
+      const validate = vi.spyOn(x.runtime.controller, 'revalidate');
+      await x
+        .makeRunner({ strategist: x.runtime.controller })
+        .run({ projectId: 'demo', goal: 'Go.' });
+      expect(allocate.mock.calls.length, JSON.stringify(await record(x))).toBe(2);
+      expect(validate).toHaveBeenCalledTimes(2);
+      const [ledger, reviewer] = allocate.mock.calls[1]!;
+      expect(reviewer.reviewOf).toBe('feature:r0');
+      expect(ledger.allocations[0]?.reviewIdentity).toMatchObject({
+        connectionId: 'openai.api',
+        provider: 'openai',
+        host: 'desktop',
+      });
+      const rec = await record(x);
+      expect(rec.lanes.map((l) => l.resourceId)).toEqual(['impl', 'reviewer']);
+      expect(rec.lanes[1]?.reasonCodes).toContain('strategy.diversity.connection');
+      expect(rec.lanes[1]?.reasonCodes).toContain('strategy.diversity.provider');
+      expect(rec.lanes[1]?.outcome).toBe('succeeded');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'does not execute a reviewer or retry without the required dimension when the implementation account is the only remaining account',
+    async () => {
+      h = await createHarness({
+        newId: () => TASK,
+        approvalMode: 'deny-all',
+        engineering: { reviewDimensions: { connection: 'required' } },
+      });
+      const x = h;
+      bindLaneConnections(x);
+      x.adapter.queue('feature', (call) => {
+        editFile(call);
+        // The reviewer disappears after planning, while another model on the writer account remains.
+        const descriptor = x.runtime.registry.get(resourceId('reviewer'))!;
+        x.runtime.registry.unregister(descriptor.id);
+        x.runtime.registry.register(
+          {
+            ...descriptor,
+            metadata: {
+              connection: {
+                id: 'openai.api',
+                provider: 'openai',
+                method: 'api',
+                authClass: 'official-api',
+                support: 'official',
+              },
+              connectionHost: 'desktop',
+            },
+            kind: {
+              type: 'agent',
+              agent: 'fake',
+              interface: 'cli',
+              underlying: { provider: 'openai' },
+            },
+          },
+          { probe: () => x.adapter.probe() },
+        );
+        return 'implemented';
+      });
+      await x
+        .makeRunner({ strategist: x.runtime.controller })
+        .run({ projectId: 'demo', goal: 'Go.' });
+      expect(x.adapter.calls.map((call) => call.lane)).toEqual(['feature']);
+      const rec = await record(x);
+      expect(rec.lanes[1], JSON.stringify(rec)).toMatchObject({
+        outcome: 'failed',
+        errorCode: 'NO_ELIGIBLE_RESOURCE',
+        reasonCodes: ['strategy.diversity.connection.unavailable'],
+      });
+    },
+  );
+
   it('plans one unit per lane, chained, with the review lane reviewing the feature lane', async () => {
     const x = await harness();
     const { strategist, graphs } = fakeStrategist({ feature: 'impl', review: 'reviewer' });

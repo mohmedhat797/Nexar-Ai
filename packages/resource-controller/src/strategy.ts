@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   NexarError,
   connectionOf,
+  resolveReviewDimensions,
   isControlCompatible,
   valueOf,
   type CandidateAssessment,
@@ -21,7 +22,15 @@ import {
   type WorkUnit,
   type ResourceStrategy,
   type ResourceId,
+  type ReviewDimensions,
+  type ReviewDimension,
 } from '@nexar/contracts';
+import {
+  REVIEW_DIMENSIONS,
+  distinctReviewIdentity,
+  reviewContextFor,
+  reviewIdentityOf,
+} from './review-diversity.js';
 
 /** Identity of the plan-level planner (ADR-027 §10). */
 export const STRATEGY_POLICY = { name: 'strategy', version: '1' } as const;
@@ -106,7 +115,7 @@ function resolveSettings(settings: StrategySettings | undefined): ResolvedSettin
 }
 
 /** Short hash of the resolved settings, written with a fixed key order. */
-function configIdOf(s: ResolvedSettings): string {
+function configIdOf(s: ResolvedSettings, dimensions?: ReviewDimensions): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -116,19 +125,24 @@ function configIdOf(s: ResolvedSettings): string {
         balancePenalty: s.balancePenalty,
         experimentalPenalty: s.experimentalPenalty,
         basicCheapBonus: s.basicCheapBonus,
+        ...(dimensions === undefined ? {} : { reviewDimensions: dimensions }),
       }),
     )
     .digest('hex')
     .slice(0, 12);
 }
 
-function stampOf(policy: RoutingPolicy, settings: ResolvedSettings): StrategyPolicyStamp {
+function stampOf(
+  policy: RoutingPolicy,
+  settings: ResolvedSettings,
+  dimensions?: ReviewDimensions,
+): StrategyPolicyStamp {
   const base: PolicyStamp = {
     name: policy.name,
     version: policy.version,
     ...(policy.configId === undefined ? {} : { configId: policy.configId }),
   };
-  return { ...STRATEGY_POLICY, configId: configIdOf(settings), base };
+  return { ...STRATEGY_POLICY, configId: configIdOf(settings, dimensions), base };
 }
 
 function validNow(now: Date): string {
@@ -262,6 +276,10 @@ function decideUnit(
     unit.reviewOf === undefined
       ? undefined
       : ledger.allocations.find((a) => a.unitId === unit.reviewOf)?.resourceId;
+  const review = reviewContextFor(unit, ledger);
+  const activeReview = review !== undefined && unit.reviewOf !== undefined;
+  const diversityRejected = new Set<ReviewDimension>();
+  const diversitySatisfied = new Set<ReviewDimension>();
   const remaining = ledger.budgetUsd === undefined ? undefined : ledger.budgetUsd - ledger.spentUsd;
 
   const rejected: CandidateAssessment[] = [];
@@ -285,7 +303,7 @@ function decideUnit(
     if (experimental && !settings.allowExperimental) {
       rejects.push(rejectReason('strategy.experimental', 'experimental connection not allowed'));
     }
-    if (ledger.reviewDiversity === 'required' && reviewed !== undefined) {
+    if (review === undefined && ledger.reviewDiversity === 'required' && reviewed !== undefined) {
       if (assessment.resourceId === reviewed) {
         rejects.push(
           rejectReason(
@@ -305,6 +323,33 @@ function decideUnit(
         ),
       );
     }
+    const identity = activeReview ? reviewIdentityOf(descriptor) : undefined;
+    if (rejects.length === 0 && activeReview && identity !== undefined) {
+      if (
+        review.reviewed?.host !== undefined &&
+        identity.host !== undefined &&
+        review.reviewed.host !== identity.host
+      ) {
+        rejects.push(
+          rejectReason('strategy.review.host', 'review execution cannot cross host boundaries'),
+        );
+      } else {
+        for (const dimension of REVIEW_DIMENSIONS) {
+          if (review.dimensions[dimension] !== 'required') continue;
+          const result = distinctReviewIdentity(dimension, review.reviewed, identity);
+          if (result === 'distinct') diversitySatisfied.add(dimension);
+          if (result !== 'distinct') {
+            diversityRejected.add(dimension);
+            rejects.push(
+              rejectReason(
+                `strategy.diversity.${dimension}`,
+                `required: ${result} identity; independence not established; candidate host=${identity.host ?? 'unknown'}; reviewed host=${review.reviewed?.host ?? 'unknown'}`,
+              ),
+            );
+          }
+        }
+      }
+    }
     if (rejects.length > 0) {
       rejected.push({
         ...assessment,
@@ -316,7 +361,11 @@ function decideUnit(
     }
 
     const added: { factor: ScoreFactor; reason: RouteReason }[] = [];
-    if (ledger.reviewDiversity === 'preferred' && reviewed === assessment.resourceId) {
+    if (
+      review === undefined &&
+      ledger.reviewDiversity === 'preferred' &&
+      reviewed === assessment.resourceId
+    ) {
       if (settings.diversityPenalty > 0) {
         added.push(
           planFactor(
@@ -325,6 +374,26 @@ function decideUnit(
             'same resource as reviewed unit',
           ),
         );
+      }
+    }
+    const dimensionReasons: RouteReason[] = [];
+    if (activeReview && identity !== undefined) {
+      for (const dimension of REVIEW_DIMENSIONS) {
+        const mode = review.dimensions[dimension];
+        if (mode === undefined) continue;
+        const result = distinctReviewIdentity(dimension, review.reviewed, identity);
+        const code = `strategy.diversity.${dimension}`;
+        const detail = `${mode}: ${result} identity; ${result === 'distinct' ? 'independence established' : 'independence not established'}; candidate host=${identity.host ?? 'unknown'}; reviewed host=${review.reviewed?.host ?? 'unknown'}`;
+        if (mode === 'preferred' && result !== 'distinct' && settings.diversityPenalty > 0) {
+          const factor = planFactor(code, -settings.diversityPenalty, detail);
+          added.push(factor);
+        } else {
+          dimensionReasons.push({
+            code,
+            effect: result === 'distinct' ? 'supports' : 'neutral',
+            message: detail,
+          });
+        }
       }
     }
     const prior = ledger.allocations.filter((a) => a.resourceId === assessment.resourceId).length;
@@ -351,7 +420,7 @@ function decideUnit(
     eligible.push({
       ...assessment,
       score: round6(assessment.score + added.reduce((s, a) => s + a.factor.contribution, 0)),
-      reasons: [...assessment.reasons, ...added.map((a) => a.reason)],
+      reasons: [...assessment.reasons, ...added.map((a) => a.reason), ...dimensionReasons],
       factors: [...(assessment.factors ?? []), ...added.map((a) => a.factor)],
     });
   }
@@ -380,9 +449,18 @@ function decideUnit(
 
   const [selected, ...alternatives] = eligible;
   if (selected === undefined) {
+    const violated = REVIEW_DIMENSIONS.filter((d) => diversityRejected.has(d));
+    const impossible = violated.filter((d) => !diversitySatisfied.has(d));
+    const reasons = (impossible.length === 0 ? violated : impossible).map((d) =>
+      rejectReason(
+        `strategy.diversity.${d}.unavailable`,
+        `no eligible allocation satisfies all required review dimensions (${d})`,
+      ),
+    );
     return {
       decision: {
         outcome: 'no-eligible-resource',
+        ...(reasons.length === 0 ? {} : { reasons }),
         taskId: unit.task.id,
         rejected,
         policy: stamp,
@@ -404,6 +482,9 @@ function decideUnit(
     allocation: {
       unitId: unit.unitId,
       resourceId: selected.resourceId,
+      ...(review === undefined
+        ? {}
+        : { reviewIdentity: reviewIdentityOf(snapshots.get(selected.resourceId)!.descriptor) }),
       ...(estimatedCostUsd === undefined ? {} : { estimatedCostUsd }),
     },
   };
@@ -428,20 +509,27 @@ function advance(
 export function planStrategy(input: PlanStrategyInput): ResourceStrategy {
   const { graph } = input;
   const settings = resolveSettings(input.settings);
-  const stamp = stampOf(input.policy, settings);
+  const dimensions = resolveReviewDimensions(graph.reviewDimensions, graph.reviewDiversity);
+  const stamp = stampOf(input.policy, settings, dimensions);
   const decidedAt = validNow(input.now);
   let ledger: StrategyLedger = {
     graphId: graph.graphId,
     allocations: [],
     spentUsd: 0,
     ...(graph.budgetUsd === undefined ? {} : { budgetUsd: graph.budgetUsd }),
-    reviewDiversity: graph.reviewDiversity ?? 'preferred',
+    reviewDiversity: dimensions?.resource ?? graph.reviewDiversity ?? 'preferred',
+    ...(dimensions === undefined ? {} : { reviewDimensions: dimensions }),
   };
   const units: UnitStrategy[] = [];
   for (const unit of planningOrder(graph)) {
+    const reviewContext = reviewContextFor(unit, ledger);
     const outcome = decideUnit(unit, ledger, input, settings, stamp);
     ledger = advance(ledger, outcome.allocation);
-    units.push({ unitId: unit.unitId, decision: outcome.decision });
+    units.push({
+      unitId: unit.unitId,
+      decision: outcome.decision,
+      ...(reviewContext === undefined ? {} : { reviewContext }),
+    });
   }
   return { graphId: graph.graphId, policy: stamp, units, decidedAt };
 }
@@ -450,6 +538,7 @@ export function planStrategy(input: PlanStrategyInput): ResourceStrategy {
 export function allocateNext(input: AllocateNextInput): {
   decision: RouteDecision;
   ledger: StrategyLedger;
+  strategy?: UnitStrategy;
 } {
   const { ledger, unit } = input;
   validBudget(ledger.budgetUsd);
@@ -457,8 +546,23 @@ export function allocateNext(input: AllocateNextInput): {
     throw invalid(`Work unit "${unit.unitId}" is already allocated`);
   }
   const settings = resolveSettings(input.settings);
-  const outcome = decideUnit(unit, ledger, input, settings, stampOf(input.policy, settings));
-  return { decision: outcome.decision, ledger: advance(ledger, outcome.allocation) };
+  const dimensions = resolveReviewDimensions(ledger.reviewDimensions, ledger.reviewDiversity);
+  const current = dimensions === undefined ? ledger : { ...ledger, reviewDimensions: dimensions };
+  const reviewContext = reviewContextFor(unit, current);
+  const outcome = decideUnit(
+    unit,
+    current,
+    input,
+    settings,
+    stampOf(input.policy, settings, dimensions),
+  );
+  return {
+    decision: outcome.decision,
+    ledger: advance(current, outcome.allocation),
+    ...(reviewContext === undefined
+      ? {}
+      : { strategy: { unitId: unit.unitId, decision: outcome.decision, reviewContext } }),
+  };
 }
 
 /**
@@ -472,12 +576,28 @@ export function revalidate(input: RevalidateInput): {
 } {
   const { planned, unit } = input;
   const settings = resolveSettings(input.settings);
-  const stamp = stampOf(input.policy, settings);
+  const review = planned.reviewContext;
+  if (review !== undefined && (planned.unitId !== unit.unitId || review.reviewOf !== unit.reviewOf))
+    throw invalid('Review context does not match the planned unit');
+  const dimensions = resolveReviewDimensions(review?.dimensions);
+  if (review !== undefined && dimensions === undefined)
+    throw invalid('Review context requires explicit dimensions');
+  const stamp = stampOf(input.policy, settings, dimensions);
   const empty: StrategyLedger = {
     graphId: planned.unitId,
-    allocations: [],
+    allocations:
+      review?.reviewOf === undefined || review.reviewed === undefined
+        ? []
+        : [
+            {
+              unitId: review.reviewOf,
+              resourceId: review.reviewed.resourceId,
+              reviewIdentity: review.reviewed,
+            },
+          ],
     spentUsd: 0,
-    reviewDiversity: 'preferred',
+    reviewDiversity: dimensions?.resource ?? 'preferred',
+    ...(dimensions === undefined ? {} : { reviewDimensions: dimensions }),
   };
   const { decision: current } = decideUnit(unit, empty, input, settings, stamp);
 
@@ -516,6 +636,9 @@ export function revalidate(input: RevalidateInput): {
     return {
       decision: {
         outcome: 'no-eligible-resource',
+        ...(current.outcome === 'no-eligible-resource' && current.reasons !== undefined
+          ? { reasons: current.reasons }
+          : {}),
         taskId: unit.task.id,
         rejected,
         policy: stamp,

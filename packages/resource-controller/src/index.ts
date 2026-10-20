@@ -9,3 +9,4 @@ export * from './intelligence-settings.js';
 export * from './quota.js';
 export * from './size.js';
 export * from './strategy.js';
+export { reviewIdentityOf, reviewContextFor, retainedReviewIdentity } from './review-diversity.js';

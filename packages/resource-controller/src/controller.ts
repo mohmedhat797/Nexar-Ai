@@ -19,11 +19,12 @@ import {
   type StrategyPolicyStamp,
   type WorkGraph,
   type WorkUnit,
+  type UnitStrategy,
 } from '@nexar/contracts';
 import type { ResourceRegistry } from '@nexar/resource-registry';
 import { isFallbackRoutingPolicy } from './fallback.js';
 import { estimateTaskSize, laneRoleOf } from './size.js';
-import { allocateNext, planStrategy, type StrategySettings } from './strategy.js';
+import { allocateNext, planStrategy, revalidate, type StrategySettings } from './strategy.js';
 
 /** Plans resources for a whole work graph (ADR-027 §10). */
 export interface ResourceStrategist {
@@ -33,7 +34,7 @@ export interface ResourceStrategist {
     ledger: StrategyLedger,
     unit: WorkUnit,
     settings?: StrategySettings,
-  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger }>;
+  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger; strategy?: UnitStrategy }>;
 }
 
 /** Supplies quota observations per resource (ADR-020 §4); read outside the policy. */
@@ -128,7 +129,7 @@ export class ResourceController implements ResourceRouter, ResourceStrategist {
     ledger: StrategyLedger,
     unit: WorkUnit,
     settings?: StrategySettings,
-  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger }> {
+  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger; strategy?: UnitStrategy }> {
     const now = this.clock();
     const { candidates, history } = await this.gather(now);
     const input = {
@@ -169,7 +170,52 @@ export class ResourceController implements ResourceRouter, ResourceStrategist {
     }
   }
 
-  /** Refresh-or-snapshot, quotas and history: the inputs shared by `route()` and `planStrategy()`. */
+  /** Execution-time validation uses the same registry, policy and hard filters as allocation. */
+  async revalidate(
+    planned: UnitStrategy,
+    unit: WorkUnit,
+    settings?: StrategySettings,
+  ): Promise<RouteDecision> {
+    const now = this.clock();
+    const { candidates, history } = await this.gather(now);
+    const input = {
+      planned,
+      unit,
+      candidates,
+      now,
+      ...(history === undefined ? {} : { history }),
+      ...(settings === undefined ? {} : { settings }),
+    };
+    try {
+      return revalidate({ ...input, policy: this.policy }).decision;
+    } catch (error) {
+      if (!isFallbackRoutingPolicy(this.policy)) throw error;
+      const policy = this.policy;
+      const fallback = {
+        from: `${policy.name}@${policy.version}`,
+        reason: error instanceof NexarError ? error.code : 'INTERNAL_ERROR',
+      };
+      this.logger?.warn('routing policy failed; using deterministic fallback', { ...fallback });
+      const decision = revalidate({
+        ...input,
+        policy: {
+          name: 'deterministic',
+          version: '1',
+          ...(policy.configId === undefined ? {} : { configId: policy.configId }),
+          evaluate: (i) => policy.evaluateFallback(i),
+        },
+      }).decision;
+      const stamp = decision.policy as StrategyPolicyStamp;
+      const nextStamp: StrategyPolicyStamp = {
+        ...stamp,
+        fallback,
+        base: { ...stamp.base, fallback },
+      };
+      return { ...decision, policy: nextStamp };
+    }
+  }
+
+  /** Refresh-or-snapshot, quotas and history: the inputs shared by routing and strategy. */
   private async gather(now: Date): Promise<{
     candidates: readonly ResourceSnapshot[];
     history: RoutingHistory | undefined;
@@ -293,6 +339,9 @@ export function requireSelected(decision: RouteDecision): SelectedDecision {
   throw new NexarError('NO_ELIGIBLE_RESOURCE', `No eligible resource for task ${decision.taskId}`, {
     details: {
       taskId: decision.taskId,
+      ...(decision.reasons === undefined
+        ? {}
+        : { reasonCodes: decision.reasons.map((r) => r.code) }),
       rejected: decision.rejected.map((r) => ({
         resourceId: r.resourceId,
         reasonCodes: r.reasons.filter((x) => x.effect === 'rejects').map((x) => x.code),
@@ -333,6 +382,8 @@ export function explainRouteDecision(
 
   if (decision.outcome === 'no-eligible-resource') {
     lines.push(`No eligible resource for task ${decision.taskId}`);
+    for (const reason of decision.reasons ?? [])
+      lines.push(`  - ${reason.code}: ${reason.message}`);
     if (decision.policy.fallback !== undefined) lines.push(fallbackLine(decision.policy));
     rejectedLines();
     return lines.join('\n');

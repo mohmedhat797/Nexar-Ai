@@ -4,7 +4,7 @@ import { NexarError } from './errors.js';
 import type { NexarErrorCode } from './errors.js';
 import type { Measured } from './measured.js';
 import type { ResourceDescriptor } from './resource.js';
-import type { QualityClass } from './strategy.js';
+import type { QualityClass, ReviewDimensions } from './strategy.js';
 import type { TaskKind } from './task.js';
 
 /** A tool call requested by the model; the engine executes it, never Nexar. */
@@ -241,10 +241,13 @@ export interface IntelligenceResult {
   readonly decisionId?: string;
   readonly resourceId?: string;
   readonly errorCode?: NexarErrorCode;
+  readonly reasonCodes?: readonly string[];
 }
 
 /** The turn-scoped identity of an engine (ADR-015) as data; minted by Nexar, never by a request. */
 export interface BridgeGrant {
+  /** Host-selected constraints only; never accepted from an IntelligenceRequest. */
+  readonly reviewDimensions?: ReviewDimensions;
   readonly grantId: string;
   readonly sessionId: string;
   readonly turnId: string;

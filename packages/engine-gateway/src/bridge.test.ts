@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   NexarError,
+  resourceId,
   estimated,
   isNexarError,
   measured,
@@ -146,6 +147,57 @@ const rejection = (fn: () => unknown): string | undefined => {
 };
 
 describe('IntelligenceBridge', () => {
+  it('uses the actual completed allocation identity when execution fell back before a C′ review', async () => {
+    let first = true;
+    const { bridge, calls } = setup({
+      grant: { reviewDimensions: { resource: 'required' } },
+      executor: (input) => {
+        const id = first ? 'b' : input.requirements.preferredResourceIds![0]!;
+        first = false;
+        return Promise.resolve({
+          ...execution(id),
+          reviewIdentity: { resourceId: resourceId(id) },
+        });
+      },
+    });
+    const write = bridge.submit('g1', request({ unitId: 'write' }));
+    await settled(bridge, write.jobId);
+    const review = bridge.submit('g1', request({ unitId: 'review', reviewOf: 'write' }));
+    expect((await settled(bridge, review.jobId)).result.outcome).toBe('succeeded');
+    expect(calls[1]?.input.strategy?.planned.reviewContext?.reviewed).toEqual({ resourceId: 'b' });
+    expect(calls[1]?.input.requirements.preferredResourceIds).toEqual(['a']);
+    bridge.close('g1');
+  });
+
+  it('cancels a reviewer waiting for completion without allocating or consuming an extra delegation unit', async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const unitLimit = new DelegationUnitLimit(2, grant);
+    const { bridge, calls, allocatedCapabilities } = setup({
+      grant: { maxUnits: 2, reviewDimensions: { resource: 'required' } },
+      unitLimit,
+      executor: async () => {
+        await gate;
+        return { ...execution('a'), reviewIdentity: { resourceId: resourceId('a') } };
+      },
+    });
+    const write = bridge.submit('g1', request({ unitId: 'write' }));
+    const review = bridge.submit('g1', request({ unitId: 'review', reviewOf: 'write' }));
+    bridge.cancel('g1', review.jobId);
+    expect((await settled(bridge, review.jobId)).result).toMatchObject({
+      outcome: 'cancelled',
+      errorCode: 'EXECUTION_CANCELLED',
+    });
+    expect(rejection(() => bridge.submit('g1', request({ unitId: 'extra' })))).toBe('unit-limit');
+    finish();
+    await settled(bridge, write.jobId);
+    expect(calls).toHaveLength(1);
+    expect(allocatedCapabilities).toHaveLength(1);
+    bridge.close('g1');
+  });
+
   it('preserves the unrestricted sixteen-unit Cowork ceiling', async () => {
     const unitLimit = new DelegationUnitLimit(16, grant);
     const { bridge, calls } = setup({ grant: { maxUnits: 16 }, unitLimit });
