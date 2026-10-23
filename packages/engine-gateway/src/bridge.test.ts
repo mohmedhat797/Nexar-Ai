@@ -75,6 +75,7 @@ interface SetupOptions {
   readonly maxJobsPerGrant?: number;
   readonly grant?: Partial<BridgeGrant>;
   readonly unitLimit?: DelegationUnitLimit;
+  readonly holdAllocation?: (unitId: string) => Promise<void>;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -101,7 +102,9 @@ function setup(options: SetupOptions = {}) {
       if (allocated.decision.outcome === 'selected') {
         reasonCodes[unit.unitId] = allocated.decision.selected.reasons.map((r) => r.code);
       }
-      return Promise.resolve(allocated);
+      return options.holdAllocation === undefined
+        ? Promise.resolve(allocated)
+        : options.holdAllocation(unit.unitId).then(() => allocated);
     },
   };
   const logger: Logger = { ...silent, info: (msg, fields) => logged.push({ msg, fields }) };
@@ -147,6 +150,63 @@ const rejection = (fn: () => unknown): string | undefined => {
 };
 
 describe('IntelligenceBridge', () => {
+  it('preserves actual identity settlement across an unrelated in-flight allocation', async () => {
+    const barrier = () => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => {
+        resolve = r;
+      });
+      return { promise, resolve };
+    };
+    const writerEntered = barrier(),
+      writerFinish = barrier(),
+      allocationEntered = barrier(),
+      allocationFinish = barrier();
+    const { bridge, calls } = setup({
+      grant: { reviewDimensions: { resource: 'required' } },
+      holdAllocation: async (id) => {
+        if (id === 'other') {
+          allocationEntered.resolve();
+          await allocationFinish.promise;
+        }
+      },
+      executor: async (input) => {
+        const writer = input.metadata['unitId'] === 'write';
+        if (writer) {
+          writerEntered.resolve();
+          await writerFinish.promise;
+        }
+        const id = writer ? 'b' : input.requirements.preferredResourceIds![0]!;
+        return {
+          ...execution(id, measured(writer ? 0.25 : 0)),
+          reviewIdentity: { resourceId: resourceId(id) },
+        };
+      },
+    });
+    try {
+      const writer = bridge.submit('g1', request({ unitId: 'write' }));
+      await writerEntered.promise;
+      const other = bridge.submit('g1', request({ unitId: 'other' }));
+      await allocationEntered.promise;
+      writerFinish.resolve();
+      // Drain the already queued settlement microtasks without timing-based sleeps.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      allocationFinish.resolve();
+      await settled(bridge, writer.jobId);
+      await settled(bridge, other.jobId);
+      expect(bridge.accounting('g1').spentUsd).toBe(0.25);
+      const review = bridge.submit('g1', request({ unitId: 'review', reviewOf: 'write' }));
+      expect((await settled(bridge, review.jobId)).result.outcome).toBe('succeeded');
+      const call = calls.find((c) => c.input.metadata['unitId'] === 'review');
+      expect(call?.input.strategy?.planned.reviewContext?.reviewed).toEqual({ resourceId: 'b' });
+      expect(call?.input.requirements.preferredResourceIds).toEqual(['a']);
+    } finally {
+      writerFinish.resolve();
+      allocationFinish.resolve();
+      bridge.close('g1');
+    }
+  });
+
   it('uses the actual completed allocation identity when execution fell back before a C′ review', async () => {
     let first = true;
     const { bridge, calls } = setup({

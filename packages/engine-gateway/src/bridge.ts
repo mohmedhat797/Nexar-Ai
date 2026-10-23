@@ -529,17 +529,41 @@ export class IntelligenceBridge {
           ? {}
           : { qualityClass: request.requirements.qualityClass }),
       };
+      const ledger = state.ledger;
       const allocated = await this.options.allocator.allocate(
-        state.ledger,
+        ledger,
         unit,
         this.options.strategySettings,
       );
-      state.ledger = allocated.ledger;
-      if (state.ledger.reviewDimensions !== undefined && allocated.strategy === undefined)
-        throw new NexarError(
-          'CONFIGURATION_ERROR',
-          'Review allocation requires retained strategy context',
+      if (ledger.reviewDimensions === undefined) {
+        state.ledger = allocated.ledger;
+      } else {
+        if (
+          allocated.strategy?.reviewContext === undefined ||
+          allocated.ledger.reviewDimensions === undefined
+        )
+          throw new NexarError(
+            'CONFIGURATION_ERROR',
+            'Review allocation requires retained strategy context',
+          );
+        // Allocation is asynchronous. Other admitted executions may settle while it observes the
+        // Registry. Publish its new allocation without overwriting their actual identity/cost.
+        // This is a synchronous reconciliation of the existing ledger, not a second authority.
+        const prior = new Map(ledger.allocations.map((a) => [a.unitId, a]));
+        const settled = new Map(
+          state.ledger.allocations
+            .filter((a) => prior.get(a.unitId) !== a)
+            .map((a) => [a.unitId, a]),
         );
+        state.ledger = {
+          ...allocated.ledger,
+          reviewDimensions: ledger.reviewDimensions,
+          allocations: allocated.ledger.allocations.map((a) => settled.get(a.unitId) ?? a),
+          spentUsd: round6(
+            Math.max(0, allocated.ledger.spentUsd + state.ledger.spentUsd - ledger.spentUsd),
+          ),
+        };
+      }
       return {
         decision: allocated.decision,
         ...(allocated.strategy === undefined
