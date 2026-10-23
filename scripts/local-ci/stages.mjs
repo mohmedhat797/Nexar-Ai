@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { delimiter, dirname, join } from 'node:path';
 import { redactSecrets, spawnSubprocess } from './process-util.mjs';
 
+// Connection lifecycle coverage now uses three independent profiles instead of one combined
+// scenario. Allow the extra cold starts in the suite envelope; individual test limits stay intact.
+const DESKTOP_E2E_TIMEOUT_MS = 900_000;
+
 /**
  * Extracts Vitest test statistics from command stdout/stderr.
  */
@@ -444,7 +448,7 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
       id: 'desktop-e2e-source',
       name: 'Desktop E2E (source build with NEXAR_DSH_ENTRY)',
       command: [pnpmCmd, 'desktop:e2e'],
-      timeoutMs: 600_000,
+      timeoutMs: DESKTOP_E2E_TIMEOUT_MS,
       required: true,
       env: childEnv,
     });
@@ -528,11 +532,11 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
         return spawnSubprocess(pnpmCmd, ['desktop:e2e'], {
           cwd: repoRoot,
           env: packagedEnv,
-          timeoutMs: 600_000,
+          timeoutMs: DESKTOP_E2E_TIMEOUT_MS,
           signal: ctx.signal,
         });
       },
-      timeoutMs: 600_000,
+      timeoutMs: DESKTOP_E2E_TIMEOUT_MS,
       required: true,
     });
   } else if (isLinux) {

@@ -69,6 +69,9 @@ describe('Local CI acceptance security regressions', () => {
     expect(sourceIdentityMatches(clean, clean)).toBe(true);
     expect(sourceIdentityMatches(clean, { ...clean, commit: 'c'.repeat(40) })).toBe(false);
     expect(sourceIdentityMatches(clean, dirty)).toBe(false);
+    expect(
+      sourceIdentityMatches({ ...clean, tree: 'a'.repeat(40) }, { ...clean, tree: 'b'.repeat(40) }),
+    ).toBe(false);
     expect(sourceIdentityMatches(dirty, { ...dirty, dirtyFingerprint: 'd'.repeat(64) })).toBe(
       false,
     );
@@ -223,6 +226,32 @@ describe('Local CI acceptance security regressions', () => {
     const result = await runPreflight(platform, { mode: 'full', allowNodeMismatch: true });
     expect(result.ok).toBe(false);
     expect(result.checks.find((c) => c.name === 'node-version')?.status).toBe('FAIL');
+  });
+
+  it('refuses Full acceptance from dirty or unidentified source', async () => {
+    const platform = {
+      repoRoot: process.cwd(),
+      git: { commit: 'a'.repeat(40), tree: 'b'.repeat(40), isDirty: true },
+      node: { isMatched: true },
+      pnpm: { isMatched: true },
+      dsh: { lockMatches: true },
+      gitleaks: { available: true, isMatched: true },
+    } as unknown as PlatformInfo;
+    const dirty = await runPreflight(platform, { mode: 'full' });
+    expect(dirty.ok).toBe(false);
+    expect(dirty.checks.find((c) => c.name === 'git-clean')?.status).toBe('FAIL');
+    const unknown = await runPreflight(
+      { ...platform, git: { ...platform.git, isDirty: false, tree: 'unknown' } },
+      { mode: 'full' },
+    );
+    expect(unknown.ok).toBe(false);
+    expect(unknown.checks.find((c) => c.name === 'git-clean')?.status).toBe('FAIL');
+    const clean = await runPreflight(
+      { ...platform, git: { ...platform.git, isDirty: false } },
+      { mode: 'full' },
+    );
+    expect(clean.ok).toBe(true);
+    expect(clean.checks.find((c) => c.name === 'git-clean')?.status).toBe('PASS');
   });
 
   it('keeps WSL validation distinct from native Ubuntu acceptance', () => {

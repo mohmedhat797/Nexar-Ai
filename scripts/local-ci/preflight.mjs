@@ -13,6 +13,25 @@ export async function runPreflight(platformInfo, options = {}) {
   const diagnostics = [];
   let allPassed = true;
 
+  if (mode === 'full') {
+    const git = platformInfo.git;
+    const clean = Boolean(
+      git &&
+      /^[a-f0-9]{40}$/.test(git.commit) &&
+      /^[a-f0-9]{40}$/.test(git.tree || '') &&
+      !git.isDirty &&
+      !git.error,
+    );
+    checks.push({
+      name: 'git-clean',
+      status: clean ? 'PASS' : 'FAIL',
+      message: clean
+        ? 'Full acceptance starts from a clean, identified commit and tree'
+        : 'Full acceptance requires a clean checkout with a verified commit and tree',
+    });
+    if (!clean) allPassed = false;
+  }
+
   // 1. Node.js version check
   const nodeInfo = platformInfo.node;
   if (nodeInfo.isMatched) {
