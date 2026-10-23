@@ -30,6 +30,7 @@ import {
 } from '@nexar/integration-openai-account/testing';
 import { ChatGptPlanService } from './chatgpt-plan.js';
 import { ConnectionManager } from './connection-manager.js';
+import { ConnectionRuntime } from './connection-runtime.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
 import { SettingsStore } from './settings-store.js';
 import { SigninCallbackSupervisor } from './signin-callback-child.js';
@@ -121,7 +122,10 @@ describe('Plan retained identity and sequential replacement with real fake-IdP v
         kind: { type: 'model', provider: 'openai', model: 'synthetic', access: 'subscription' },
         capabilities: ['text-generation', 'model-turn'],
         runtime: { adapter: adapterId('fake'), locality: 'remote' },
-        auth: { mode: 'none' },
+        auth: {
+          mode: 'subscription',
+          credential: { source: 'connection', name: 'chatgpt-plan' },
+        },
         cost: { model: 'subscription' },
         dataLocality: 'third-party',
         metadata: {
@@ -133,6 +137,7 @@ describe('Plan retained identity and sequential replacement with real fake-IdP v
             support: plan.support,
           },
           connectionHost: plan.machine,
+          connectionGeneration: plan.credentialGeneration,
         },
       };
       return materializeInventory(
@@ -198,17 +203,29 @@ describe('Plan retained identity and sequential replacement with real fake-IdP v
       });
     await manager.forgetCredential({ connectionId: before.id });
     await service.connect();
-    expect(reviewIdentityOf(materialize(await manager.currentPlan()))).toEqual(retained);
-    expect(allocate(materialize(await manager.currentPlan())).decision).toMatchObject({
+    const reentered = materialize(await manager.currentPlan());
+    expect(reviewIdentityOf(reentered)).toEqual(retained);
+    expect(allocate(reentered).decision).toMatchObject({
       outcome: 'no-eligible-resource',
       reasons: [{ code: 'strategy.diversity.connection.unavailable' }],
     });
+    const pins = new ConnectionRuntime(manager);
+    expect(() => pins.validatePin(reentered.id, [reentered])).not.toThrow();
     const replacement = await manager.replacePlanAccount();
     fake.idClaims = { sub: 'synthetic-new-plan-account' };
     await service.connect();
     expect(replacement.id).not.toBe(before.id);
     const next = materialize(await manager.currentPlan());
     expect(next.id).not.toBe(descriptor.id);
+    // Both a retained descriptor and a fresh authority must refuse the historical pin.
+    expect(() => pins.validatePin(reentered.id, [reentered, next])).toThrow();
+    expect(() => new ConnectionRuntime(manager).validatePin(reentered.id, [next])).toThrowError(
+      expect.objectContaining({
+        code: 'RESOURCE_UNAVAILABLE',
+        details: { reason: 'pin.connection-removed' },
+      }),
+    );
+    expect(() => pins.validatePin(next.id, [next])).not.toThrow();
     expect(allocate(next).decision).toMatchObject({
       outcome: 'selected',
       selected: { resourceId: next.id },
