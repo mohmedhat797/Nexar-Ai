@@ -10,6 +10,7 @@ import {
 } from 'playwright-core';
 import { defaultConfig } from '@nexar/core';
 import { expect, onTestFailed } from 'vitest';
+import { finishProcess } from './process-lifecycle.js';
 
 /*
  * Launch helpers shared by the Code-lane scenarios: the same robustness as the main desktop
@@ -172,32 +173,29 @@ export async function createHarness(): Promise<Harness> {
       await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 60_000 });
       return { app, page };
     } catch (error) {
-      app.process().kill();
-      apps.splice(apps.indexOf(app), 1);
-      process.stderr.write(
-        `desktop e2e launch failed; app output:\n${output.join('').slice(-8000)}\n`,
-      );
+      try {
+        await close(app);
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'E2E launch and cleanup failed', {
+          cause: cleanupError,
+        });
+      } finally {
+        process.stderr.write(
+          `desktop e2e launch failed; app output:\n${output.join('').slice(-8000)}\n`,
+        );
+      }
       throw error;
     }
   };
 
   const close: Harness['close'] = async (app) => {
+    if (!apps.includes(app)) return;
     const child = app.process();
-    // Bounded like `dispose`: an app that will not close is ended below instead of hanging the test.
-    const closed = await Promise.race([
-      app.close().then(
-        () => true,
-        () => true,
-      ),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), 20_000)),
-    ]);
-    if (!closed) process.stderr.write('desktop e2e: app.close() did not finish within 20 s\n');
-    apps.splice(apps.indexOf(app), 1);
-    const deadline = Date.now() + 20_000;
-    while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    if (child.exitCode === null && child.signalCode === null) child.kill();
+    const result = await finishProcess(child, () => app.close());
+    if (process.env['NEXAR_E2E_PHASE_TRACE'] === '1')
+      process.stderr.write(`desktop e2e exit ${JSON.stringify({ pid: child.pid, ...result })}\n`);
+    const index = apps.indexOf(app);
+    if (index >= 0) apps.splice(index, 1);
   };
 
   return {
@@ -207,19 +205,17 @@ export async function createHarness(): Promise<Harness> {
     launch,
     close,
     dispose: async () => {
-      // An app that will not close must not hang teardown: give it 15 s, then end its process.
-      await Promise.all(
-        apps.map((a) => {
-          // Take the process handle first: it is unavailable once the app connection closes.
-          const child = a.process();
-          return Promise.race([
-            a.close().catch(() => undefined),
-            new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
-          ]).then(() => {
-            if (child.exitCode === null && child.signalCode === null) child.kill();
-          });
-        }),
-      );
+      // A failed exit retains its profile and process handle for diagnosis; never race rm/relaunch.
+      const failures: unknown[] = [];
+      for (const app of [...apps]) {
+        try {
+          await close(app);
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length > 0)
+        throw new AggregateError(failures, 'E2E cleanup incomplete; profiles retained');
       await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };
