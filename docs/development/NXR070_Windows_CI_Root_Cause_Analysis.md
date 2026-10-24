@@ -1,5 +1,7 @@
 # NXR-070B′/C′ — Windows CI Root-Cause Analysis
 
+> Latest disposition: C′80e70a60 Full Windows **FAIL** at packaged private-state startup (28/29). Earlier PASS results below are preserved history; the final-current-source section at the end is authoritative.
+
 Execution: 2026-10-23–24, Africa/Cairo. Engineer: OpenAI Codex.
 
 ## Current conclusion
@@ -69,7 +71,7 @@ Raw report SHA256: `d46a1227013c09831dbfc890fb5516720842234c6316f4673aa5c123c041
 
 Incomplete artifacts were preserved under `package-2887939-timeout` and were not accepted. The package envelope was adjusted to25 minutes, retaining every identity/runtime/helper and packaged-E2E check. At that point, a complete subsequent invocation was required to verify the calibration.
 
-The subsequent immutable C′ invocation at `1c584208c8580ef3d9ba94e510fb30c58d88796d` completed packaging in940.851 s and all16 required stages in2556.04 s: `report-2026-10-24T01-29-48-293Z.json`, SHA256 `4b159a579ec24caf96eaadd0070fe37c47c5c612eddf717b466f171bc48dc9e4`, **NEXAR_WINDOWS_FULL_PASS**. Source E2E passed29/29 in498.598 s, packaged29/29 in451.143 s. Source connection phases took35.214/27.850/20.076 s;35 graceful owned-process exits were recorded with no forced exit. This verifies the corrected candidate's aggregate acceptance, without claiming package duration variance or the historical timeout's exact blocked operation has been eliminated.
+The subsequent immutable C′ invocation at `1c584208c8580ef3d9ba94e510fb30c58d88796d` completed packaging in940.851 s and all16 required stages in2556.04 s: `report-2026-10-24T01-29-48-293Z.json`, SHA256 `4b159a579ec24caf96eaadd0070fe37c47c5c612eddf717b466f171bc48dc9e4`, **NEXAR_WINDOWS_FULL_PASS**. Source E2E passed 29/29 in498.598 s, packaged29/29 in451.143 s. Source connection phases took35.214/27.850/20.076 s;35 graceful owned-process exits were recorded with no forced exit. This verifies the corrected candidate's aggregate acceptance, without claiming package duration variance or the historical timeout's exact blocked operation has been eliminated.
 
 ### Retained Windows event evidence
 
@@ -95,14 +97,44 @@ Full-mode preflight now requires a clean identified commit/tree, and completion 
 
 ## Subsequent standalone B′ SOW failure
 
-After the owner enabled the archive-copy command, B′'s existing installer and offline JSON were preserved with matching original hashes. A new Full invocation at clean `aa803793f5b4ec0ff2105b5f19b86f3a0bdb01c3`, tree `87667a254d6a2c42d02a78e07d9322e9b8c6fd97`, failed with28/29 source E2E cases passed. Unlike the original connection-management failure, this was the first Cowork SOW turn: `running` at its60-second completion-poll deadline, within a separate240-second case budget. The77.897-second case duration includes setup; the source stage lasted626.789seconds.
+After the owner enabled the archive-copy command, B′'s existing installer and offline JSON were preserved with matching original hashes. A new Full invocation at clean `aa803793f5b4ec0ff2105b5f19b86f3a0bdb01c3`, tree `87667a254d6a2c42d02a78e07d9322e9b8c6fd97`, failed with28/29 source E2E cases passed. Unlike the original connection-management failure, this was the first Cowork SOW turn: `running` at its60-second completion-poll deadline, within a separate240-second case budget. The77.897-second case duration includes setup; the source stage lasted626.789 seconds.
 
-B′ raw report `.nexar/ci/reports/report-2026-10-24T12-16-11-600Z.json`, SHA256 `303560463f7493e9a18c7ddcce5d35b681c75c500ee7c74fb4e51de952911b3b`; source start/end were clean and identical. Offline4478/167skipped/4pending/0failed, real DSH3/3 and the isolated Cowork stage8/8 passed before source E2E. Packaging, packaged E2E and Gitleaks were not run after the mandatory failure. Its stage log and timestamped host snapshots remain preserved. This is an actual aggregate FAIL and is not replaced by the earlier C′PASS.
+B′ raw report `.nexar/ci/reports/report-2026-10-24T12-16-11-600Z.json`, SHA256 `303560463f7493e9a18c7ddcce5d35b681c75c500ee7c74fb4e51de952911b3b`; source start/end were clean and identical. Offline4478/167 skipped/4 pending/0 failed, real DSH3/3 and the isolated Cowork stage8/8 passed before source E2E. Packaging, packaged E2E and Gitleaks were not run after the mandatory failure. Its stage log and timestamped host snapshots remain preserved. This is an actual aggregate FAIL and is not replaced by the earlier C′PASS.
 
-A single focused diagnostic invocation then passed the same unforced SOW in11.098seconds, with5 unrelated cases filtered out. This did not reproduce or explain the failure. Inspection found that failure teardown removed session/delegation state after printing startup output, while a mutable shared output buffer could misattribute late output across launches. Test-infrastructure corrections now retain failed fixtures after still closing their processes, isolate each launch's output and capture bounded, content-free SOW progress. No completion timeout, production behavior, runtime pin or sandbox policy was changed.
+A single focused diagnostic invocation then passed the same unforced SOW in11.098 seconds, with5 unrelated cases filtered out. This did not reproduce or explain the failure. Inspection found that failure teardown removed session/delegation state after printing startup output, while a mutable shared output buffer could misattribute late output across launches. Test-infrastructure corrections now retain failed fixtures after still closing their processes, isolate each launch's output and capture bounded, content-free SOW progress. No completion timeout, production behavior, runtime pin or sandbox policy was changed.
 
 The diagnostic corrections have deterministic behavior regressions: old behavior with only dependency-injection test seams gives1 passed/2 failed; corrected behavior gives3 passed. Separate controlled early/completed-turn failures verify actual Electron cleanup, retained evidence and prompt/argument absence from emitted progress; their expected failures are not acceptance passes. Full evidence is in B′'s `docs/development/NXR070B_SOW_Failure_Investigation.md`. The delayed/stalled step behind the actual SOW failure remains unknown; later validation must preserve that distinction.
 
-The later B′ invocation at clean06e55f36/tree20b53990fb585e99ab4ed94001c72f4275b33a38 returned **NEXAR_WINDOWS_FULL_PASS**, all16 required stages, source29/29 and packaged29/29. Raw report `report-2026-10-24T13-20-25-499Z.json`, SHA256 `1cb1fea82daf65dad360cc25ae1ca7aca6b707b25916cb45c544d9524325b16c`. Its serial WSL full suite passed4623, skipped30 and had0 failed/pending. The final harness corpus has4 cases: a subsequent launch-rejection edge produced3 passed/1 failed with late failure registration and4 passed with registration before launch. These are diagnostic corrections and repeatability observations, not attribution of the earlier SOW stall.
+The later B′ invocation at clean06e55f36/tree20b53990fb585e99ab4ed94001c72f4275b33a38 returned **NEXAR_WINDOWS_FULL_PASS**, all16 required stages, source29/29 and packaged29/29. Raw report `report-2026-10-24T13-20-25-499Z.json`, SHA256 `1cb1fea82daf65dad360cc25ae1ca7aca6b707b25916cb45c544d9524325b16c`. Its serial WSL full suite passed 4623, skipped 30 and had0 failed/pending. The final harness corpus has4 cases: a subsequent launch-rejection edge produced3 passed/1 failed with late failure registration and4 passed with registration before launch. These are diagnostic corrections and repeatability observations, not attribution of the earlier SOW stall.
 
 **Open:** historical ACL cause, attribution of the intermittent Plan setup failure, and the standalone B′ SOW stall mechanism. Passing repetitions cannot manufacture missing failure-time evidence.
+
+## Final current-source failure — packaged restart, 2026-10-24
+
+The later diagnostic-source candidate is `80e70a60f2bd5c109c4a424002ea6af8bcd9b54e`, tree `9aa95dd150bff75aef1d0737520a5b61b6e9ee7d`. Its complete invocation returned **NEXAR_WINDOWS_FULL_FAIL** after3067.65 seconds. Start/end identities were clean and identical. Raw report `.nexar/ci/reports/report-2026-10-24T17-24-16-812Z.json`, SHA256 `0115e7c77e8ac5f71491efcb5fa1c4b9c4f57500cb9e17a3be649dbe0136155b`.
+
+Fourteen required stages passed. Source Desktop passed 29/29; packaging passed 1236.24 seconds. Packaged Desktop passed 28/29 and failed `apps/desktop/e2e/cowork-isolated.e2e.ts:116`: restart after two successful real isolated Cowork turns and awaited close. ElectronPID27372 failed private-state initialization with `{"category":"timeout","phase":"startup","elapsedMs":15025}`. Gitleaks and the additional Linux-only stage were **SKIPPED** after the required failure, not passed.
+
+### Confirmed observation and limits
+
+The guard's synchronous Windows PowerShell child exceeded its15000 ms deadline without a captured `nexar-state-guard:ready` marker. That marker is emitted/flushed before state path resolution, identity checks, tree enumeration and ACL mutation (`apps/desktop/src/main/private-state.ts:39`, `:243`, `:377`). Missing captured readiness is not proof that script execution never began. This is not evidence of an ACL-policy rejection, credential leak, DSH failure or Bubblewrap bypass. No timeout or ACL expectation was changed.
+
+The corrected harness retained `C:/Users/Mohamed Medhat/AppData/Local/Temp/nexar-e2e-code-XTwXjj/isolated-draft`. Its state marker was created18:10:05.189Z, before the failing restart. At later read-only inspection the root's access rules remained protected; that does not reconstruct the complete ACL at failure time.
+
+Existing Windows PowerShell Operational metadata showsPID20248 event40961 at epoch1792865443860 and53504 at1792865451428, with no40962 or engine400 in the inspected18:09:30Z–18:11:10Z window. **Its parent relationship toElectron27372 was not established**, so these events remain circumstantial. Selected metadata is preserved in `.nexar/ci/bc-c-packaged-startup-observation-80e70a6.json`; full original event logging was not enabled or modified. An attempted metadata export was blocked by lean-ctx's Set-Content allowlist; the selected observation was written through the existing patch tool instead, without changing permissions.
+
+A separate read-only reviewer found no concrete malformed invocation: absolute executable, NoProfile/NonInteractive, UTF-16LE encoded command, shell:false, explicit environment and bounded output. It recommended numeric childPID correlation rather than a timeout increase or retry. This review is not independent owner acceptance.
+
+### Exact unresolved next step
+
+Capture only numeric subprocessPID and correlate it with parentElectronPID, process creation time and existing PowerShell startup events; do not capture command arguments, environment, encoded script, private paths or credentials. Establish what prevents readiness, reproduce that mechanism deterministically, then make the smallest verified correction on B′ if shared production behavior changes and propagate it normally to C′. No such production correction is claimed here. The historical ACL-marker cause, historical Plan attribution and first B′ SOW stall mechanism also remain unproven. Later passing repetitions do not close them.
+
+The same-source supplemental WSL full suite subsequently passed 4682/30 skipped/0 failed/0 pending; this does not convert the failed Windows aggregate into a PASS.
+
+## Supplemental startup measurement and final check
+
+After the Windows failure and all other heavy suites completed, a bounded diagnostic invoked the unchanged native guard on four fresh and four repeated synthetic directories using pinned Node 22.23.3: `node --experimental-transform-types .nexar/ci/native-startup-probe-80e70a6.mjs`. All eight calls exited0 with readiness captured,475–1,427 ms; none exceeded the production 15,000 ms deadline. Only the diagnostic observation bound was 60,000 ms. Numeric child and parent PIDs and start/end times were retained; no arguments, environment, script payload, credentials or private subjects were logged. Fixture roots remain preserved.
+
+This is a **Node-parent measurement, not Electron or packaged acceptance**. It did not reproduce the delay and supplies no evidence for raising the production deadline. Production source, native guard deadline and ACL policy remain unchanged. Raw log SHA256 `07b1b02da7c2eb0cf123ce71df1dc254dc680d71e7fa4b5bd8f20e086f677124`; diagnostic script SHA256 `a00eca36e712e632482fbf5be3499389e860286985ab6411b93aba8dc5c19705`.
+
+The final repository `pnpm check` completed successfully:4539 passed,169 skipped,4 pending,0 failed;232 files passed/17 skipped,226.00s test duration; format/lint/boundaries/typecheck/build passed. Log `.nexar/ci/bc-c-pnpm-check-final-publication-80e70a6.log`, SHA256 `50635445e67959ff5b432a16cb5e4a305f51ba6e619039cbffc8ad875ccca282`. Subsequent publication edits are documentation only and receive formatting/diff checks. This check and diagnostic do not replace the failed aggregate Windows gate.

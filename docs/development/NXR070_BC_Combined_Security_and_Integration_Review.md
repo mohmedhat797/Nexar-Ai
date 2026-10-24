@@ -1,5 +1,7 @@
 # NXR-070B′/C′ — Combined Security and Integration Review
 
+> Latest disposition: C′80e70a60 Full Windows **FAIL** at packaged private-state startup (28/29). Earlier PASS results below are preserved history; the final-current-source section at the end is authoritative.
+
 Date: 2026-10-24. Engineer: OpenAI Codex. Final acceptance evidence is recorded separately in the stabilization report.
 
 ## Scope and dependency integrity
@@ -61,6 +63,18 @@ The separate read-only review agent checked B′/C′ authority/settlement paths
 
 No new confirmed credential-scope, immutable-binding, required-diversity or execution-admission bypass was found in the inspected source. This is a focused review with executed regressions, not proof that every possible vulnerability is excluded.
 
-Latest standalone B′ source06e55f36 completed all16 required Windows stages and its serial WSL full suite. B′actual counts are runtime9, Plan9 and Gateway31, versus C′12/10/34 at its previously tested source. The new harness corpus has4 cases. Source/packaged B′Desktop each passed29/29. The four Windows pending Bubblewrap cases passed on B′WSL; live-provider tests remained skipped. The propagated diagnostic changes affect only test infrastructure and documentation; no new production authority, routing, credential, session, memory or isolation behavior was introduced. Final C′acceptance remains pending.
+Latest standalone B′ source06e55f36 completed all16 required Windows stages and its serial WSL full suite. B′actual counts are runtime9, Plan9 and Gateway31, versus C′12/10/34 at its previously tested source. The new harness corpus has4 cases. Source/packaged B′Desktop each passed 29/29. The four Windows pending Bubblewrap cases passed on B′WSL; live-provider tests remained skipped. The propagated diagnostic changes affect only test infrastructure and documentation; no new production authority, routing, credential, session, memory or isolation behavior was introduced. Final C′acceptance remains pending.
 
 **INDEPENDENT_OWNER_REVIEW_PENDING.** Root-cause and platform gates remain separate from source-review findings.
+
+## Final current-source disposition
+
+C′80e70a60/tree9aa95dd1 has no production delta from the previously tested C′1c584208 across packages, Desktop source, integrations or CI scripts. The additional change consists of diagnostic E2E fixtures, deterministic harness tests and documentation/evidence. Separate read-only review found no actionable issue or secret serialization in that delta; no owner acceptance is inferred.
+
+The final Windows offline corpus passed 4539/169 skipped/4 pending/0 failed. Source E2E29/29 and real DSH/WSL gates passed. Same-source WSL full passed 4682/30 skipped/0 failed/0 pending. Existing connection→inventory→Registry→NRC→lease→authoritative credential→synthetic transport/accounting tests passed, as did the43 review-dimension cases, legacy fixture, bridge settlement and B′ lifecycle/Plan regressions. No real provider credential, sign-in or paid inference was used.
+
+However, final packaged E2E failed 28/29: the isolated Cowork restart after two successful turns hit a native private-state PowerShell startup timeout without captured readiness after15025 ms. The guard failed closed. This does not establish an ACL-policy defect or isolation escape, and does not establish the underlying startup-delay cause. The failed fixture is retained; numeric parent/child correlation remains missing. Raw report `report-2026-10-24T17-24-16-812Z.json` SHA256 `0115e7c77e8ac5f71491efcb5fa1c4b9c4f57500cb9e17a3be649dbe0136155b` preserves the failure. The later independent Linux result cannot make it a WindowsPASS.
+
+Classify the startup reliability failure as **P2, acceptance-blocking**, with no observed credential/permission breach. Historical ACL failure attribution, Plan attribution and B′SOW stall cause remain unresolved observations. Their P2 reliability disposition is not a reduction of any original F01–F13 security severity. No additional production workaround, repeated automatic retry, ACL relaxation or timeout increase was introduced.
+
+**Combined integration remains incomplete** because the final packaged Cowork restart gate failed. B′ security invariants and C′ diversity are verified within the executed synthetic/offline/isolated-runtime corpus, not as a universal proof of safety. Canonical FileSessionStore, ProjectMemoryStore, NRC authority, Permission Broker, monotonic delegation, stable connection/resource identities, DSH pin and WSL/Bubblewrap policy remain unchanged by this diagnostic delta. No new findings in those boundaries were identified by this focused review. Independent owner acceptance remains pending.
