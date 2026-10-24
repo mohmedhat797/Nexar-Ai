@@ -2,7 +2,12 @@ import { EventEmitter } from 'node:events';
 import { access, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createHarness, type Harness } from '../apps/desktop/e2e/harness.js';
+import {
+  createHarness,
+  stateProcessObservation,
+  type Harness,
+} from '../apps/desktop/e2e/harness.js';
+import { STATE_GUARD_TRACE_EVENT } from '../apps/desktop/src/main/private-state-process.js';
 
 const launches: unknown[] = [];
 type Application = Awaited<ReturnType<NonNullable<Parameters<typeof createHarness>[1]>>>;
@@ -42,6 +47,31 @@ afterEach(async () => {
 });
 
 describe('Desktop E2E fixture diagnostics and cleanup', () => {
+  it('attributes Windows startup to the Electron main child rather than its shell launcher', async () => {
+    const { app } = fakeApp();
+    const observations = [
+      { event: 'request', parentPid: 456 },
+      { event: 'result', parentPid: 456, childPid: 789 },
+    ];
+    const inspected = Object.assign(app, {
+      evaluate: (_expression: unknown, eventName?: unknown) =>
+        Promise.resolve(
+          eventName === STATE_GUARD_TRACE_EVENT
+            ? observations
+            : {
+                pid: 456,
+                parentPid: 123,
+                createdAtEpochMs: 1792860000000,
+                nodeVersion: '24.21.0',
+                electronVersion: '44.5.1',
+              },
+        ),
+    });
+    await expect(stateProcessObservation(inspected as unknown as Application)).resolves.toEqual(
+      observations,
+    );
+  });
+
   it('removes a successful fixture only after its owned application exits', async () => {
     const harness = await createHarness(() => undefined, launchApplication);
     fixtures.push(harness);
