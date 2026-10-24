@@ -45,6 +45,8 @@ The callback correction preserves host/method/path/state validation and reserves
 
 ## Invariants retained
 
+The focused canonical-store check found no actionable proof of a late progress write restoring a terminal turn to running. `packages/sessions/src/store.ts:511` serializes the complete read–transition–write operation per session and rereads authoritative state inside that boundary. Task updates at `transitions.ts:272` preserve current turn state and require an open turn; completion at453 accepts running only and clears the active-turn reference. Operating progress at `packages/operating/src/service.ts:654` broadcasts without rewriting stored state. Earlier queued task writes settle before completion; later ones reread terminal state and are rejected. These paths remain unchanged. This narrows the SOW investigation; it does not establish its historical cause.
+
 - DSH is the sole primary harness, exactly 0.2.0-rc.2; NRC is the sole resource authority.
 - Permission Broker, routing hard filters, pins and monotonic delegation limits remain authoritative.
 - Existing WSL2/Bubblewrap Cowork and Coding boundaries remain; no security settings changed.
@@ -58,5 +60,7 @@ The callback correction preserves host/method/path/state validation and reserves
 The separate read-only review agent checked B′/C′ authority/settlement paths and stabilization changes. It found a P2 teardown issue in the first revision: one failed close prevented attempts on remaining owned apps. That issue was corrected and re-reviewed before acceptance. It also identified the callback completion-ordering defect, subsequently covered by deterministic regressions on B′.
 
 No new confirmed credential-scope, immutable-binding, required-diversity or execution-admission bypass was found in the inspected source. This is a focused review with executed regressions, not proof that every possible vulnerability is excluded.
+
+Latest standalone B′ source06e55f36 completed all16 required Windows stages and its serial WSL full suite. B′actual counts are runtime9, Plan9 and Gateway31, versus C′12/10/34 at its previously tested source. The new harness corpus has4 cases. Source/packaged B′Desktop each passed29/29. The four Windows pending Bubblewrap cases passed on B′WSL; live-provider tests remained skipped. The propagated diagnostic changes affect only test infrastructure and documentation; no new production authority, routing, credential, session, memory or isolation behavior was introduced. Final C′acceptance remains pending.
 
 **INDEPENDENT_OWNER_REVIEW_PENDING.** Root-cause and platform gates remain separate from source-review findings.
