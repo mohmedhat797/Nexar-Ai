@@ -7,6 +7,9 @@ import { redactSecrets, spawnSubprocess } from './process-util.mjs';
 // Connection lifecycle coverage now uses three independent profiles instead of one combined
 // scenario. Allow the extra cold starts in the suite envelope; individual test limits stay intact.
 const DESKTOP_E2E_TIMEOUT_MS = 900_000;
+// Includes pinned-runtime installation, NSIS payload compression and final block-map generation.
+// The 20-minute envelope expired during block-map generation after a complete installer was built.
+const WINDOWS_PACKAGE_TIMEOUT_MS = 1_500_000;
 
 /**
  * Extracts Vitest test statistics from command stdout/stderr.
@@ -461,11 +464,11 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
         return spawnSubprocess(pnpmCmd, ['desktop:package:win'], {
           cwd: repoRoot,
           env: childEnv,
-          timeoutMs: 1_200_000,
+          timeoutMs: WINDOWS_PACKAGE_TIMEOUT_MS,
           signal: ctx.signal,
         });
       },
-      timeoutMs: 1_200_000,
+      timeoutMs: WINDOWS_PACKAGE_TIMEOUT_MS,
       required: true,
       env: childEnv,
     });

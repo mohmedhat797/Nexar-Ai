@@ -1,10 +1,22 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFailed,
+  vi,
+} from 'vitest';
 import { noopLogger } from '@nexar/telemetry';
 import {
   adapterId,
+  isNexarError,
   resourceId,
   taskId,
   type PersistentConnectionRecord,
@@ -21,6 +33,7 @@ import {
 } from '@nexar/resource-controller';
 import {
   createOpenAiAccountClient,
+  accountFailureReason,
   type OpenAiAccountClient,
 } from '@nexar/integration-openai-account';
 import {
@@ -43,6 +56,31 @@ let kit: Awaited<ReturnType<typeof bundleSigninChild>>,
   manager: ConnectionManager,
   service: ChatGptPlanService,
   client: OpenAiAccountClient;
+let observations: Record<string, unknown>[] = [];
+async function observe<T>(phase: string, operation: () => Promise<T>): Promise<T> {
+  observations.push({ phase, outcome: 'start' });
+  try {
+    const result = await operation();
+    observations.push({ phase, outcome: 'success' });
+    return result;
+  } catch (error) {
+    const cause = error instanceof Error ? error.cause : undefined;
+    const code =
+      typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : undefined;
+    const network =
+      typeof code === 'string' &&
+      ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'UND_ERR_SOCKET'].includes(code)
+        ? code
+        : undefined;
+    observations.push({
+      phase,
+      outcome: 'error',
+      reason:
+        accountFailureReason(error) ?? (isNexarError(error) ? error.code : (network ?? 'unknown')),
+    });
+    throw error;
+  }
+}
 const barrier = () => {
   let resolve!: () => void;
   const promise = new Promise<void>((r) => {
@@ -57,6 +95,11 @@ afterAll(async () => {
   await rm(kit.dir, { recursive: true, force: true });
 });
 beforeEach(async () => {
+  observations = [];
+  const events = observations;
+  onTestFailed(() => {
+    process.stderr.write(`Plan fixture phases ${JSON.stringify(events)}\n`);
+  });
   dir = await mkdtemp(join(tmpdir(), 'nexar-plan-binding-'));
   fake = await startFakeAuthServer();
   const values = new Map<string, string>();
@@ -83,17 +126,49 @@ beforeEach(async () => {
     keyStore: keys,
   });
   await manager.initialize();
-  client = createOpenAiAccountClient({ issuer: fake.issuer, timeoutMs: 3000 });
+  const realClient = createOpenAiAccountClient({ issuer: fake.issuer, timeoutMs: 3000 });
+  client = {
+    ...realClient,
+    exchangeCode: (input) => observe('exchange', () => realClient.exchangeCode(input)),
+    refresh: (input) => observe('refresh', () => realClient.refresh(input)),
+    verifyIdToken: (input) => observe('verify', () => realClient.verifyIdToken(input)),
+  };
   service = make();
 });
 function make(custom = client): ChatGptPlanService {
+  const supervisor = new SigninCallbackSupervisor({
+    launch: kit.launch,
+    spawn: ((command: string, args: readonly string[], options: SpawnOptions) => {
+      const child = nodeSpawn(command, [...args], options);
+      child.once('exit', (code, signal) =>
+        observations.push({ phase: 'callback-exit', code, signal }),
+      );
+      return child;
+    }) as unknown as typeof nodeSpawn,
+  });
   return new ChatGptPlanService({
     keys,
     authority: manager,
     client: custom,
-    callback: new SigninCallbackSupervisor({ launch: kit.launch }),
+    callback: {
+      begin: async (state, signal) => {
+        const session = await observe('callback-start', () => supervisor.begin(state, signal));
+        return {
+          ...session,
+          result: session.result.then((result) => {
+            observations.push({
+              phase: 'callback-result',
+              outcome: 'error' in result ? result.error : 'authorized',
+            });
+            return result;
+          }),
+        };
+      },
+    },
     openExternal: async (url) => {
-      await fetch(url);
+      await observe('browser', async () => {
+        await fetch(url);
+      });
     },
     installationId: () => Promise.resolve('00000000-0000-4000-8000-000000000001'),
     logger: noopLogger,
