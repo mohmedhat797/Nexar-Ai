@@ -103,15 +103,24 @@ export interface Harness {
   readonly dispose: () => Promise<void>;
 }
 
-export async function createHarness(): Promise<Harness> {
+export async function createHarness(
+  registerFailure: (callback: () => void) => void = onTestFailed,
+  launchApplication: typeof electron.launch = (options) => electron.launch(options),
+): Promise<Harness> {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'nexar-e2e-code-')));
   const projectDir = join(base, 'code-project');
   await mkdir(projectDir, { recursive: true });
   await writeFile(join(projectDir, 'readme-seed.txt'), 'seeded file content\n');
   const apps: ElectronApplication[] = [];
-  let output: string[] = [];
+  let failed = false;
 
   const launch: Harness['launch'] = async (userData, extraEnv = {}) => {
+    const output: string[] = [];
+    // Launch can reject before it returns an owned process handle; retain its seeded evidence too.
+    registerFailure(() => {
+      failed = true;
+      process.stderr.write(`desktop e2e failed; app output:\n${output.join('').slice(-8000)}\n`);
+    });
     await seedE2EConfig(userData);
     const env = Object.fromEntries(
       Object.entries(process.env).filter(
@@ -139,7 +148,7 @@ export async function createHarness(): Promise<Harness> {
       delete env['NEXAR_WORKFLOWS_DIR'];
       delete env['NEXAR_ENGINEERING_PLANS_DIR'];
     }
-    const app = await electron.launch({
+    const app = await launchApplication({
       ...(EXECUTABLE ? { executablePath: EXECUTABLE } : {}),
       args: [
         ...(EXECUTABLE ? [] : [MAIN]),
@@ -153,19 +162,12 @@ export async function createHarness(): Promise<Harness> {
       env,
     });
     apps.push(app);
-    output = [];
     const capture = (chunk: Buffer): void => {
       output.push(chunk.toString());
       if (output.length > 200) output.shift();
     };
     app.process().stdout?.on('data', capture);
     app.process().stderr?.on('data', capture);
-    // A step without its own timeout (close, evaluate) only surfaces as the test timeout: print
-    // this launch's startup trace and output so the failing run says where the app stopped.
-    const launched = output;
-    onTestFailed(() => {
-      process.stderr.write(`desktop e2e failed; app output:\n${launched.join('').slice(-8000)}\n`);
-    });
     try {
       // Cold starts run under antivirus scanning on CI runners: a packaged or source build can take
       // well over 30 s before its first window (Windows: engine-config alone has taken 15 s).
@@ -216,6 +218,10 @@ export async function createHarness(): Promise<Harness> {
       }
       if (failures.length > 0)
         throw new AggregateError(failures, 'E2E cleanup incomplete; profiles retained');
+      if (failed) {
+        process.stderr.write(`desktop e2e failed fixture retained: ${base}\n`);
+        return;
+      }
       await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };

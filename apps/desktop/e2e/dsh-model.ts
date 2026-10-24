@@ -11,7 +11,10 @@ import type { AddressInfo } from 'node:net';
 export interface ModelRequestInfo {
   readonly tools: boolean;
   /** The role of the last message of the history. */
-  readonly last: string;
+  readonly last: 'user' | 'assistant' | 'system' | 'tool' | 'developer' | 'unknown';
+  readonly at: number;
+  /** Only fixed progress codes, never model inputs or delegated text. */
+  readonly state?: 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'unknown';
 }
 
 export interface FakeModel {
@@ -247,9 +250,30 @@ export async function startModel(
         messages: Message[];
         tools?: { function?: { name?: string } }[];
       };
-      const last = body.messages.at(-1)?.role ?? '';
+      const role = body.messages.at(-1)?.role;
+      const last =
+        role === 'user' ||
+        role === 'assistant' ||
+        role === 'system' ||
+        role === 'tool' ||
+        role === 'developer'
+          ? role
+          : 'unknown';
       const offered = body.tools !== undefined;
-      completions.push({ tools: offered, last });
+      const progress =
+        offered && last === 'tool' ? jsonOf(body.messages.at(-1)?.content) : undefined;
+      const candidateState = progress?.['state'];
+      const state =
+        candidateState === undefined
+          ? undefined
+          : candidateState === 'pending' ||
+              candidateState === 'running' ||
+              candidateState === 'done' ||
+              candidateState === 'failed' ||
+              candidateState === 'cancelled'
+            ? candidateState
+            : 'unknown';
+      completions.push({ tools: offered, last, at: Date.now(), ...(state ? { state } : {}) });
       const respond = (action: Action | undefined): void => {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         if (action !== undefined && 'call' in action) {
