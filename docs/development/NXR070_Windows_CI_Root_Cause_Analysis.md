@@ -43,11 +43,41 @@ Four concurrent independent fresh-root processes passed their selected cases (5.
 
 Native foreign-owner manipulation, every abnormal-termination interleaving and cleanup-during-startup were not demonstrated. Existing synthetic tool tests cover invalid-owner, timeout and unavailable-tool outcomes; native tests retain hard-link/junction and parent-ACL checks. No Windows identities or security settings were changed.
 
+### Requested startup/security scenario coverage
+
+| Scenario                             | Actual evidence and limit                                                                                  |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Fresh initialization                 | Native fresh-root case passes; parent ACL unchanged and inherited private file checked                     |
+| Repeated initialization              | Native stale-marker/reused-root case rechecks current ACLs                                                 |
+| Concurrent startup                   | Four independent-root processes pass; same-root concurrent startup is NOT VERIFIED                         |
+| Clean shutdown/restart               | Desktop connection profile restart passes; not a dedicated native ACL crash/restart campaign               |
+| Abnormal termination/restart         | Synthetic child termination is tested; exhaustive private-state crash recovery is NOT VERIFIED             |
+| Directory already exists             | Native reused-root and unrelated-nonempty-root refusal cases pass                                          |
+| Marker already exists / stale marker | Native stale-marker case passes without trusting marker as current authorization                           |
+| Inherited permissive ACL             | Native explicit/inherited broad child grant removal passes, preserving content                             |
+| Invalid owner                        | Synthetic tool-boundary fail-closed case passes; native foreign-owner mutation NOT PERFORMED               |
+| Symlink/junction attack              | Native root/nested/ancestor junction and hard-link refusal cases pass                                      |
+| Temporary directory reuse            | Native reused-root case passes; unrelated owner profile never used                                         |
+| Cleanup during startup               | Actual process-exit cleanup contract tested separately; every ACL initialization interleaving NOT VERIFIED |
+| Normal non-elevated execution        | Current recorded Windows token is not elevated; complete candidate acceptance ran in this context          |
+
+No timeout, expected permission assertion or production ACL behavior was weakened to obtain these passes.
+
 ## Package deadline
 
 Raw report SHA256: `d46a1227013c09831dbfc890fb5516720842234c6316f4673aa5c123c041d748`. Package log `logs/1792787352794-desktop-package-win.log` reaches NSIS creation and “building block map.” The322,186,257-byte installer existed, but the package return/receipt had not completed before the20-minute deadline. Compressor progress, normal priority and artifact timestamps were observed; see `bc-package-observation-notes.md`. They do not establish antivirus or disk contention.
 
-Incomplete artifacts were preserved under `package-2887939-timeout` and were not accepted. The package envelope is now25 minutes, retaining every identity/runtime/helper and packaged-E2E check. A complete subsequent invocation is required to verify that calibration.
+Incomplete artifacts were preserved under `package-2887939-timeout` and were not accepted. The package envelope was adjusted to25 minutes, retaining every identity/runtime/helper and packaged-E2E check. At that point, a complete subsequent invocation was required to verify the calibration.
+
+The subsequent immutable C′ invocation at `1c584208c8580ef3d9ba94e510fb30c58d88796d` completed packaging in940.851 s and all16 required stages in2556.04 s: `report-2026-10-24T01-29-48-293Z.json`, SHA256 `4b159a579ec24caf96eaadd0070fe37c47c5c612eddf717b466f171bc48dc9e4`, **NEXAR_WINDOWS_FULL_PASS**. Source E2E passed29/29 in498.598 s, packaged29/29 in451.143 s. Source connection phases took35.214/27.850/20.076 s;35 graceful owned-process exits were recorded with no forced exit. This verifies the corrected candidate's aggregate acceptance, without claiming package duration variance or the historical timeout's exact blocked operation has been eliminated.
+
+### Retained Windows event evidence
+
+The read-only, filtered metadata query `bc-historical-event-metadata.json` searched the Windows PowerShell and Application Error channels between2026-10-23T12:56:35Z and12:57:25Z. It returned no matching retained records. The oldest retained PowerShell record was2026-10-24T02:07:41.2859454Z, later than the failure. Thus this query cannot reconstruct the historical PowerShell exit/timeout cause; absence of a retained match is not evidence that no fault occurred. No event policy was changed and no unrelated event contents were printed.
+
+### Reproduction limits
+
+The deterministic callback barrier reproduced the pre-fix defect (three failures), and the clean-source acceptance test reproduced the missing preflight check. Process-lifecycle tests establish actual exit-observation and fail-closed cleanup semantics. The original ACL failure did not reproduce; its new tests improve diagnostic fidelity and preserve security rather than proving an unknown cause corrected. The combined E2E diagnostic demonstrated insufficient timing margin, not a proven historical stale lease or orphan. Synthetic cleanup/race tests therefore do not retroactively establish those as historical causes.
 
 ## Plan callback ordering
 

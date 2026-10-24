@@ -1,5 +1,7 @@
 # NXR-070C′ — Final Owner Handover
 
+> Historical milestone record. The2026-10-24 combined stabilization package supersedes platform/publication status below: [current owner handover](NXR070_BC_Final_Owner_Handover.md), [Windows acceptance](NXR070_Windows_Acceptance_Stabilization.md) and [integration readiness](NXR070_BC_Final_Integration_Readiness.md). Historical failures remain failures; this notice does not rewrite their source identity.
+
 Date: 2026-10-23 (Africa/Cairo). Engineer: OpenAI Codex.
 
 C′ remains a Draft PR awaiting independent owner acceptance. Local platform acceptance and hosted infrastructure status are separate gates.

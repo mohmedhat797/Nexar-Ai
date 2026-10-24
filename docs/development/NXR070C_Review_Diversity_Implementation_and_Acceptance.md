@@ -1,5 +1,7 @@
 # NXR-070C′ — Review Diversity: Implementation and Acceptance
 
+> Historical milestone record. Later source-bound acceptance and remaining root-cause limitations are in [Windows stabilization](NXR070_Windows_Acceptance_Stabilization.md) and [current readiness](NXR070_BC_Final_Integration_Readiness.md). The results below retain their original revision and are not relabeled as final-source evidence.
+
 Date: 2026-10-23 (Africa/Cairo). Engineer: OpenAI Codex.
 
 Acceptance is source-bound. The completed gate record, raw evidence identities and remaining limitations are recorded below and in the source-controlled acceptance summary.

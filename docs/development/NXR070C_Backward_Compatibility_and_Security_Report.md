@@ -1,5 +1,7 @@
 # NXR-070C′ — Backward Compatibility and Security
 
+> Historical milestone record. See the later [combined security review](NXR070_BC_Combined_Security_and_Integration_Review.md) and [current readiness](NXR070_BC_Final_Integration_Readiness.md) for source-bound regression results and pending independent owner acceptance. Original results below remain tied to their original source.
+
 Date: 2026-10-23. Implementation 1d059206f1fdbc7e2fb31a402f0673f9be07bd17; tree a9c6d4be72c7726aa85cd077fb99b2ca570b95c1. The acceptance appendix and evidence summary distinguish local platform results from hosted CI.
 
 ## Legacy strategy@1 evidence

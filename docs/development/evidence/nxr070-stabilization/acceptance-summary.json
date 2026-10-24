@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-10-24",
+  "repository": "mohmedhat797/Nexar-Ai",
+  "main": "41b918bf3c32cfd47301f7551a7280368fc3c8ec",
+  "b": {
+    "initialPublishedHead": "18c7cd01412a8c2b138ec99baf98751699ae169e",
+    "callbackFix": "f1482e692947f72a035c6ff2146f424b5581a41c",
+    "sharedInfrastructureSource": "aa803793f5b4ec0ff2105b5f19b86f3a0bdb01c3",
+    "sharedInfrastructureTree": "87667a254d6a2c42d02a78e07d9322e9b8c6fd97",
+    "offlineCheck": {
+      "command": "pnpm check",
+      "log": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/bc-b-pnpm-check-shared-infra.log",
+      "sha256": "1c5caf78d967c7ed60134a1817d032581359e18c1b3848db50f185775e248c18",
+      "passed": 4478,
+      "failed": 0,
+      "skipped": 167,
+      "pending": 4,
+      "status": "PASS"
+    },
+    "standaloneFullStatus": "OUTSTANDING_ARTIFACT_PRESERVATION_BLOCKED",
+    "interruptedAttempt": "Stopped after dependency stage before tests; no aggregate result and no PASS claim",
+    "interruptedAttemptLog": ".nexar/ci/bc-b-windows-full-final.log",
+    "interruptedAttemptLogSha256": "422f87010a6b687152b0f40d6b77e35aadc903e37b5205a713ec4e11a9a40e8a"
+  },
+  "c": {
+    "initialPublishedHead": "4c69766e546950bfbbdacb504034d9a010967ea7",
+    "testedCommit": "1c584208c8580ef3d9ba94e510fb30c58d88796d",
+    "testedTree": "ec47d9ff4db3eed7fdde870c1a2b60773fa5225b",
+    "workspace": "D:/Nexar-Ai-main/.nexar/nxr070c",
+    "publicationCheck": {
+      "command": "pnpm check",
+      "log": ".nexar/ci/bc-c-pnpm-check-publication.log",
+      "sha256": "90b1987dee9898dab698014f94fdba3e89d6751b4e2a28eb8043e1a8b8a7cb19",
+      "passed": 4535,
+      "failed": 0,
+      "skipped": 169,
+      "pending": 4,
+      "pendingCountNote": "Four known Bubblewrap cases account for the remaining4708 total; terse console does not print a separate pending count",
+      "durationSeconds": 212.39,
+      "codeAndTestsEquivalentTo": "1c584208c8580ef3d9ba94e510fb30c58d88796d",
+      "documentationAndMergePending": true,
+      "isCleanSourceFullInvocation": false
+    },
+    "fullWindows": {
+      "command": "pnpm ci:local:full --node-bin=D:/Nexar-Ai-nxr070/.nexar/research-toolchain/node-v22.23.3-win-x64/node.exe --gitleaks-bin=D:/Nexar-Ai-main/.nexar/gitleaks-8.28.0/gitleaks.exe --dsh-dir=D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/dsh-runtime",
+      "report": ".nexar/ci/reports/report-2026-10-24T01-29-48-293Z.json",
+      "sha256": "4b159a579ec24caf96eaadd0070fe37c47c5c612eddf717b466f171bc48dc9e4",
+      "result": "NEXAR_WINDOWS_FULL_PASS",
+      "durationSeconds": 2556.04,
+      "startClean": true,
+      "endClean": true,
+      "sourceStable": true,
+      "requiredStagesPassed": 16,
+      "requiredStagesFailed": 0,
+      "optionalLinuxOnlyStage": "BLOCKED_REQUIRED_FALSE",
+      "offline": { "passed": 4535, "failed": 0, "skipped": 169, "pending": 4 },
+      "aggregateStageMetrics": {
+        "passed": 4604,
+        "failed": 0,
+        "skipped": 169,
+        "pending": 4,
+        "total": 4777
+      },
+      "sourceDesktop": { "passed": 29, "failed": 0, "skipped": 0, "pending": 0 },
+      "packagedDesktop": { "passed": 29, "failed": 0, "skipped": 0, "pending": 0 },
+      "realDshContext": { "passed": 3, "failed": 0 },
+      "wslGateWindows": { "passed": 8, "failed": 0 },
+      "wslGateLinux": { "passed": 15, "failed": 0, "skipped": 0 },
+      "gitleaks": "PASS_NO_LEAKS_308_COMMITS"
+    },
+    "wslFull": {
+      "repository": "/home/nexar/src/nxr070c-20261021",
+      "report": ".nexar/ci/bc-wsl-final-full.json",
+      "sha256": "89a90ff621afd1139d9f5729ebf360f1d69ab3cfbee8910b3f3525500408ce9e",
+      "command": "pnpm exec vitest run --maxWorkers=1 --reporter=json --outputFile=.nexar/ci/bc-wsl-final-full.json",
+      "passed": 4678,
+      "failed": 0,
+      "skipped": 30,
+      "pending": 0,
+      "sourceStableAndClean": true,
+      "nativeUbuntuAcceptance": false
+    },
+    "installer": {
+      "path": "release/desktop/Nexar-0.1.0-windows-x64-setup.exe",
+      "sha256": "d69ae5298e92adc24f0c602f64263ce108e4efc7956986d2117a6f758480c945",
+      "sizeBytes": 322186813,
+      "signed": false,
+      "sidecarMatches": true,
+      "packagedE2ETarget": "Same-build win-unpacked",
+      "cleanComputerNsisInstallVerified": false
+    }
+  },
+  "environment": {
+    "windows": "11 Pro 10.0.26300 x64",
+    "node": "22.23.3",
+    "pnpm": "10.33.0",
+    "dsh": "0.2.0-rc.2",
+    "gitleaks": "8.28.0",
+    "wslKernel": "6.18.33.2-microsoft-standard-WSL2",
+    "logicalCpus": 20,
+    "ramGiB": 15.73,
+    "overlappingHeavySuites": false,
+    "realCredentialsUsed": false,
+    "paidInferenceUsed": false
+  },
+  "hostedCi": {
+    "status": "HOSTED_CI_INFRASTRUCTURE_BLOCKED",
+    "bRun": 40054239874,
+    "cRun": 40054248363,
+    "jobsInspected": 6,
+    "executedSteps": 0,
+    "annotation": "The job was not started because an Actions budget is preventing further use.",
+    "inspectedBHead": "f1482e692947f72a035c6ff2146f424b5581a41c",
+    "inspectedCHead": "1c584208c8580ef3d9ba94e510fb30c58d88796d"
+  },
+  "open": [
+    "Historical ACL failure mechanism remains unproven",
+    "Historical Plan setup failure attribution remains unproven",
+    "Separate B aggregate acceptance and final publication verification outstanding",
+    "Independent owner acceptance pending"
+  ],
+  "overall": "NXR070_BC_STABILIZATION_PARTIALLY_COMPLETE"
+}

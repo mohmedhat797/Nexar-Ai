@@ -1,5 +1,7 @@
 # NXR-070C′ — Review Diversity Test Matrix
 
+> Historical matrix at the revision below. The same corpus was rerun during [combined stabilization](NXR070_Windows_Acceptance_Stabilization.md); [current readiness](NXR070_BC_Final_Integration_Readiness.md) records later acceptance and outstanding gates. No old FAIL or skip is converted into a PASS.
+
 Date: 2026-10-23. Acceptance is bound to the implementation commit and tree below.
 
 Implementation: 1d059206f1fdbc7e2fb31a402f0673f9be07bd17. Tree: a9c6d4be72c7726aa85cd077fb99b2ca570b95c1. Windows x64 10.0.26300 and WSL2 nexar-plane used Node 22.23.3 / pnpm 10.33.0; DSH remained 0.2.0-rc.2.

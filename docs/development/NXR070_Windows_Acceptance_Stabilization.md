@@ -59,7 +59,51 @@ Skipped and pending tests are never counted as passes. Historical failed reports
 
 ## Final-source acceptance
 
-**PENDING_SOURCE_BINDING:** B′ correction commit, C′ propagation, complete final-source Windows Full CI, packaged E2E, Gitleaks and supplemental serial WSL suite have not yet been recorded here. This section must be updated with actual report identities before publication.
+C′ completed a second, independent aggregate invocation: **NEXAR_WINDOWS_FULL_PASS**. Source `1c584208c8580ef3d9ba94e510fb30c58d88796d`, tree `ec47d9ff4db3eed7fdde870c1a2b60773fa5225b`; both start and end were clean, with matching commit/tree and sourceStable=true. Raw report `.nexar/ci/reports/report-2026-10-24T01-29-48-293Z.json`, SHA256 `4b159a579ec24caf96eaadd0070fe37c47c5c612eddf717b466f171bc48dc9e4`; console `bc-windows-full-final-candidate.log`. Total duration2556.04 s. All16 required stages passed in this one invocation.
+
+| Required gate                                                         | Observed result                                                  |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Frozen dependencies, managed DSH, format, lint, boundaries, typecheck | PASS                                                             |
+| Offline Windows tests                                                 | 4,535 passed,169 skipped,4 pending,0 failed;4708 total;310.975 s |
+| Build, CLI resources and CLI run                                      | PASS                                                             |
+| Real DSH context                                                      | 3/3 passed;25.784 s                                              |
+| Windows-to-WSL acceptance                                             | 8/8 passed                                                       |
+| WSL ACP/Bubblewrap/kernel acceptance                                  | 15/15 passed, no skips; combined WSL stage58.927 s               |
+| Source Desktop E2E                                                    | 29/29 passed;498.598 s                                           |
+| Windows packaging                                                     | PASS;940.851 s                                                   |
+| Packaged Desktop E2E                                                  | 29/29 passed;451.143 s                                           |
+| Gitleaks                                                              | PASS;308 commits, approximately10.78 MB, no leaks;2.111 s        |
+
+The additional Linux-only stage is recorded **BLOCKED, required:false**, rather than passed or skipped. Mandatory WSL kernel coverage passed separately above. The native Windows private-state file passed19 tests, with2 POSIX cases skipped;8 of the19 are actual native ACL cases and11 are tool/boundary cases. Source E2E recorded35 graceful owned-process exits and zero forced exits. These observations do not establish universal descendant-process cleanup or the historical ACL cause.
+
+Offline JSON archive `bc-offline-final-candidate.json`: SHA256 `67af044e5ffa98d4de212e5b73b1a9a2c6bf4c9327bda1a0f24b118b7e4c5dbb`. Windows WSL gate archive `bc-final-cowork-wsl.json`: SHA256 `9cbf28255933e1c5f5e830ecb9ec5da4b0a9fc0823a9db126cb069b400a8c90e`.
+
+### Installer and helper identity
+
+The same-build NSIS artifact `release/desktop/Nexar-0.1.0-windows-x64-setup.exe` is322,186,813 bytes, SHA256 `d69ae5298e92adc24f0c602f64263ce108e4efc7956986d2117a6f758480c945`; its sidecar matches. It is **NotSigned**. Packaged E2E used that build's win-unpacked output, not an installed NSIS copy on a clean computer.
+
+Source-built helpers match packaged `.asar.unpacked/dist/main` byte-for-byte:
+
+| Helper                                        | SHA256                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------ |
+| bridge-relay                                  | `61559e1d832bfc1698d3e1b044420f743b2252e0e95dfc8c539f8157c43a1312` |
+| control-gateway                               | `26b415e24ee9ef3d42e6bd77a019af1a3422c1d600bd76d8fb1e4c86f8370207` |
+| signin-callback                               | `517b141153204e7c1cbae41b98c4f8bc0624de6a61d8a9814efbcfaf8b8d5bfa` |
+| Managed and bundled DSH lib/bin.js,0.2.0-rc.2 | `1a03dee18683483ff6a1b27b2a1e650230da6bcca9a0f55f7d81b3308c3f307f` |
+
+### Supplemental serial WSL full suite
+
+At the same clean C′ commit/tree, `/home/nexar/src/nxr070c-20261021` completed frozen offline install, TypeScript build and `pnpm exec vitest run --maxWorkers=1 --reporter=json --outputFile=.nexar/ci/bc-wsl-final-full.json`. Node22.23.3, pnpm10.33.0, kernel6.18.33.2-microsoft-standard-WSL2, distro nexar-plane. **4,678 passed,30 skipped,0 failed,0 pending;4708 total.** Raw JSON SHA256 `89a90ff621afd1139d9f5729ebf360f1d69ab3cfbee8910b3f3525500408ce9e`; Windows launcher console `bc-wsl-final-full-console-stdin.log`. All four Windows pending Bubblewrap cases passed here. All five live-provider test files remained skipped. An earlier launcher quoting failure stopped before tests and remains preserved in `bc-wsl-final-full-console.log`; it is not a test pass.
+
+### Separate B′ source
+
+B′ callback correction `f1482e692947f72a035c6ff2146f424b5581a41c` is present in the tested C′ revision. The same11 shared acceptance-infrastructure files were then backported byte-for-byte to B′, without C′ feature code, in `aa803793f5b4ec0ff2105b5f19b86f3a0bdb01c3`, tree `87667a254d6a2c42d02a78e07d9322e9b8c6fd97`. Its `pnpm check` passed4,478 tests,167 skipped,4 pending,0 failed, followed by build. Separate B′ Full CI evidence remains pending; the combined C′ run is not relabeled as a standalone B′ run.
+
+B′ check log `bc-b-pnpm-check-shared-infra.log` SHA256 `1c5caf78d967c7ed60134a1817d032581359e18c1b3848db50f185775e248c18`. The interrupted B′ Full launcher log `bc-b-windows-full-final.log`, SHA256 `422f87010a6b687152b0f40d6b77e35aadc903e37b5205a713ec4e11a9a40e8a`, stops after dependency verification. The test stages never ran; no aggregate report or PASS is claimed. Its name does not imply acceptance. Any later invocation must use a new log path to preserve this attempt.
+
+### Publication regression check
+
+After reconciling B′'s shared-infrastructure ancestry into C′ with `--no-commit`, `pnpm check` again passed format, lint, boundaries, typecheck, the complete offline suite and build. `bc-c-pnpm-check-publication.log`, SHA256 `90b1987dee9898dab698014f94fdba3e89d6751b4e2a28eb8043e1a8b8a7cb19`:231 files passed/17 skipped;4,535 tests passed/169 skipped/0 failed,4708 total,212.39 s. The four known Bubblewrap pending cases account for the remaining total; the terse Vitest console does not separately print their count. This check ran with pending documentation/merge changes. Production and test files were byte-identical to clean Full-tested `1c584208`; it is supplemental repeated regression evidence, not another clean-source aggregate Full run. Only documentation was finalized afterwards.
 
 ## Coverage limits
 

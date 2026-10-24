@@ -4,7 +4,7 @@ Date: 2026-10-24. Engineer: OpenAI Codex. Final acceptance evidence is recorded 
 
 ## Scope and dependency integrity
 
-Starting ancestry: main `41b918b` → B′ `18c7cd0` → C′ `4c69766`. C′ stabilization commits `2bdf80a` and `2887939` concern Desktop test isolation, process cleanup, diagnostics and CI identity. A subsequent shared production callback correction belongs to B′ and must be propagated non-destructively to C′. No main merge, force-push, runtime upgrade or architecture-status change is authorized.
+Starting ancestry: main `41b918b` → B′ `18c7cd0` → C′ `4c69766`. C′ stabilization commits `2bdf80a` and `2887939` concern Desktop test isolation, process cleanup, diagnostics and CI identity. The production callback correction belongs to B′ commit `f1482e6`; C′ received it through non-destructive merge `b618fbe`. C′ acceptance source is `1c584208c8580ef3d9ba94e510fb30c58d88796d`. The identical11 shared infrastructure files were subsequently backported to B′ commit `aa803793f5b4ec0ff2105b5f19b86f3a0bdb01c3`, without C′ feature code. No main merge, force-push, runtime upgrade or architecture-status change occurred.
 
 ## Actual execution path
 
@@ -19,7 +19,13 @@ Starting ancestry: main `41b918b` → B′ `18c7cd0` → C′ `4c69766`. C′ st
 
 First clean combined-source offline report: `2887939`, tree `b08e7ed316e04271dccbea7d154293c9aa9ff8ed`; `.nexar/ci/bc-offline-full-stabilization.json`, SHA256 `527a1388b6af11f9e62dfa31676220787c7ea755f04237c6bf1f84198487805f`:4,531 passed, 169 skipped, 4 pending, 0 failed. This predates the callback correction and is not final-source acceptance.
 
-Relevant passed files there: authority 21, manager 19, consent 5, runtime 12, Plan 10, diversity 43, legacy golden corpus1, Gateway bridge 34, lifecycle 5 and private-state 19 (2 POSIX skipped). Later-source results must be read from the final acceptance manifest.
+The final clean C′ aggregate report `report-2026-10-24T01-29-48-293Z.json` passed all16 required stages at `1c584208`, tree `ec47d9ff4db3eed7fdde870c1a2b60773fa5225b`. Offline:4,535 passed,169 skipped,4 pending,0 failed. Relevant passed files: authority21, manager19, consent5, runtime12, Plan10, diversity43, legacy golden corpus1, Gateway bridge34, lifecycle5, callback-server10 and private-state19 (2 POSIX skipped). Private-state includes8 actual native ACL tests and11 tool/boundary tests. Supplemental same-source serial WSL full suite:4,678 passed,30 skipped,0 failed,0 pending. Full report identity, exact commands, installer/helpers and hashes are in [Windows acceptance](NXR070_Windows_Acceptance_Stabilization.md).
+
+### Final call-graph review anchors
+
+`apps/desktop/src/main/connection-manager.ts:668` validates resource/provider/host/scope/generation; its serialized admission at736 shares the mutation authority. `packages/host/src/inventory-guard.ts:45` retains an execution lease and releases it in finally; lines34–42 retain the probe/refresh lease. Private Plan subject comparison remains in `apps/desktop/src/main/chatgpt-plan.ts:456`; permanent retirement remains in ConnectionManager608. These source anchors must be read alongside the tests, rather than treating a descriptor or a stored connection as proof of execution. The12 connection-runtime tests use actual persisted connection publication, Registry/NRC and synthetic transport, demonstrating A/B credential separation and lifecycle invalidation without paid inference.
+
+B′ manager, KeyStore, SettingsStore, Plan service and callback production blobs at `f1482e6` match tested C′ `1c584208` exactly. Registry materialization differs only in its input type (ConnectionDefinition to the relevant id/machine/builtIn Pick), leaving the canonical ID body unchanged. Stabilization adds no second account, routing or credential authority.
 
 ## Review Diversity and settlement
 
