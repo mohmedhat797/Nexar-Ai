@@ -1,17 +1,17 @@
-import { request } from 'node:http';
+import { request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCallbackServer, type CallbackOutcome } from './index.js';
 
 const STATE = 'state-sentinel-1';
 const servers: ReturnType<typeof createCallbackServer>[] = [];
 
-async function start(): Promise<{ port: number; outcomes: CallbackOutcome[] }> {
+async function start(): Promise<{ port: number; outcomes: CallbackOutcome[]; server: Server }> {
   const outcomes: CallbackOutcome[] = [];
   const server = createCallbackServer({ state: STATE, onOutcome: (o) => outcomes.push(o) });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return { port: (server.address() as AddressInfo).port, outcomes };
+  return { port: (server.address() as AddressInfo).port, outcomes, server };
 }
 
 afterEach(async () => {
@@ -52,7 +52,104 @@ function get(
   });
 }
 
+function holdFirstEnd(server: Server) {
+  let entered!: () => void;
+  const held = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let release: () => void = () => undefined;
+  let abort: () => void = () => undefined;
+  let first = true;
+  server.prependListener('request', (_request, response) => {
+    if (!first) return;
+    first = false;
+    const end = response.end.bind(response);
+    abort = () => {
+      release = () => undefined;
+      response.destroy();
+    };
+    vi.spyOn(response, 'end').mockImplementation((...args) => {
+      release = () => {
+        end(...args);
+      };
+      entered();
+      return response;
+    });
+  });
+  return {
+    held,
+    abort: () => abort(),
+    release: () => {
+      const finish = release;
+      release = () => undefined;
+      finish();
+    },
+  };
+}
+
 describe('callback server', () => {
+  it('does not publish an authorized outcome when HTTP closes before completion', async () => {
+    const { port, outcomes, server } = await start();
+    const gate = holdFirstEnd(server);
+    const response = get(port, `/callback?code=first&state=${STATE}&client_id=oaiapp_a`).then(
+      () => 'response',
+      () => 'closed',
+    );
+    try {
+      await gate.held;
+      gate.abort();
+      expect(await response).toBe('closed');
+      expect(outcomes).toEqual([]);
+    } finally {
+      gate.release();
+      await response;
+    }
+  });
+
+  it.each(['authorized', 'denied'] as const)(
+    'drains HTTP before publishing the %s outcome',
+    async (kind) => {
+      const { port, outcomes, server } = await start();
+      const gate = holdFirstEnd(server);
+      const path =
+        kind === 'authorized'
+          ? `/callback?code=first&state=${STATE}&client_id=oaiapp_a`
+          : `/callback?error=access_denied&state=${STATE}`;
+      const response = get(port, path);
+      try {
+        await gate.held;
+        expect(outcomes).toEqual([]);
+        gate.release();
+        expect((await response).status).toBe(kind === 'authorized' ? 200 : 400);
+        expect(outcomes).toEqual(
+          kind === 'authorized' ? [{ code: 'first', clientId: 'oaiapp_a' }] : [{ error: 'denied' }],
+        );
+      } finally {
+        gate.release();
+        await response;
+      }
+    },
+  );
+
+  it('reserves the first callback while its HTTP response is still draining', async () => {
+    const { port, outcomes, server } = await start();
+    const gate = holdFirstEnd(server);
+    const first = get(port, `/callback?code=first&state=${STATE}&client_id=oaiapp_a`);
+    try {
+      await gate.held;
+      expect(
+        (await get(port, `/callback?code=second&state=${STATE}&client_id=oaiapp_b`)).status,
+      ).toBe(200);
+      expect(outcomes).toEqual([]);
+      gate.release();
+      await first;
+      expect(outcomes).toEqual([{ code: 'first', clientId: 'oaiapp_a' }]);
+    } finally {
+      gate.release();
+      await first;
+    }
+  });
+
   it('returns the code and issued client id for the right state', async () => {
     const { port, outcomes } = await start();
     const res = await get(port, `/callback?code=code-1&state=${STATE}&client_id=oaiapp_abc`);
