@@ -39,6 +39,13 @@ export function getGitInfo(cwd = REPO_ROOT) {
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
 
+    const tree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], {
+      cwd,
+      env: gitEnv,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+
     let branch = 'unknown';
     try {
       branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
@@ -95,6 +102,7 @@ export function getGitInfo(cwd = REPO_ROOT) {
 
     return {
       commit,
+      tree,
       branch,
       isDirty,
       dirtyFingerprint,
@@ -103,6 +111,7 @@ export function getGitInfo(cwd = REPO_ROOT) {
   } catch (err) {
     return {
       commit: 'unknown',
+      tree: 'unknown',
       branch: 'unknown',
       isDirty: false,
       dirtyFingerprint: null,

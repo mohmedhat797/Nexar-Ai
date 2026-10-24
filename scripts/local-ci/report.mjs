@@ -263,6 +263,7 @@ export function sourceIdentityMatches(before, after) {
     after &&
     /^[a-f0-9]{40}$/.test(before.commit) &&
     before.commit === after.commit &&
+    before.tree === after.tree &&
     before.isDirty === after.isDirty &&
     (!before.isDirty ||
       (/^[a-f0-9]{64}$/.test(before.dirtyFingerprint || '') &&

@@ -357,8 +357,12 @@ describe.skipIf(process.platform !== 'win32')('native Windows state ACLs', () =>
     );
     // Native Windows startup must finish before the first promise yield allows Electron to
     // create runtime files in the root. This checks the real tool rather than the test seam.
-    expect(existsSync(join(state, '.nexar-desktop-state'))).toBe(true);
-    expect(await secured).toBeUndefined();
+    const synchronousMarker = existsSync(join(state, '.nexar-desktop-state'));
+    const outcome = await secured;
+    if (outcome instanceof PrivateStateError)
+      process.stderr.write(`private state diagnostic ${JSON.stringify(outcome.diagnostic)}\n`);
+    expect(outcome).toBeUndefined();
+    expect(synchronousMarker).toBe(true);
     expectPrivate(await snapshot(state), true);
     const file = join(state, 'nexar.config.json');
     await writeFile(file, '{}', { mode: 0o600 });
@@ -367,6 +371,23 @@ describe.skipIf(process.platform !== 'win32')('native Windows state ACLs', () =>
     await ensurePrivateStateDirectory(state);
     expectPrivate(await snapshot(file), false);
     expect(descriptorHash(await snapshot(parent))).toBe(before);
+  }, 30_000);
+
+  it('rechecks a stale marker and reused directory without trusting its ACL', async () => {
+    const parent = await fixture();
+    const state = join(parent, 'state');
+    await mkdir(state);
+    await writeFile(join(state, 'nexar.config.json'), '{"version":1}');
+    // A marker is a recognition aid, never evidence that the current ACL is still private.
+    await writeFile(join(state, '.nexar-desktop-state'), 'stale');
+    await addBroadExplicitGrant(state);
+    expect((await snapshot(state)).rules.some((rule) => rule.principal === 'other')).toBe(true);
+    await ensurePrivateStateDirectory(state);
+    expectPrivate(await snapshot(state), true);
+    expectPrivate(await snapshot(join(state, '.nexar-desktop-state')), false);
+    await ensurePrivateStateDirectory(state);
+    expectPrivate(await snapshot(state), true);
+    expect(await readFile(join(state, 'nexar.config.json'), 'utf8')).toBe('{"version":1}');
   }, 30_000);
 
   it('removes explicit broad child grants as well as inherited grants, preserving content', async () => {
