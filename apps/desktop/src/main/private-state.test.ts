@@ -17,6 +17,7 @@ import { join, win32 } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ensurePrivateStateDirectory, PrivateStateError } from './private-state.js';
+import { runWindowsStateProcess, type WindowsStateProcessEvent } from './private-state-process.js';
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -32,6 +33,60 @@ afterEach(async () => {
 });
 
 describe('state guard tool boundary', () => {
+  it('preserves safe native process correlation when startup fails', async () => {
+    const state = process.platform === 'win32' ? join(await fixture(), 'state') : 'C:\\state';
+    const secret = 'synthetic-secret-not-allowed-in-startup-diagnostics';
+    const error = await ensurePrivateStateDirectory(state, {
+      platform: 'win32',
+      systemRoot: 'C:\\Windows',
+      runWindows: (command, args, options) => {
+        runWindowsStateProcess(command, args, options, {
+          spawn: () => ({
+            pid: 42,
+            status: null,
+            signal: 'SIGTERM',
+            stdout: Buffer.from(secret),
+            error: { code: 'ETIMEDOUT', message: secret },
+          }),
+        });
+        return Promise.resolve();
+      },
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(PrivateStateError);
+    expect((error as PrivateStateError).diagnostic).toMatchObject({
+      category: 'timeout',
+      phase: 'startup',
+      process: {
+        parentPid: process.pid,
+        childPid: 42,
+        childCreated: true,
+        readinessCaptured: false,
+        termination: 'timeout',
+        timeoutMs: 15000,
+      },
+    });
+    expect(JSON.stringify((error as PrivateStateError).diagnostic)).not.toContain(secret);
+  });
+
+  it('does not serialize process-like properties on an unrelated injected exception', async () => {
+    const state = process.platform === 'win32' ? join(await fixture(), 'state') : 'C:\\state';
+    const secret = 'synthetic-foreign-process-property';
+    const error = await ensurePrivateStateDirectory(state, {
+      platform: 'win32',
+      systemRoot: 'C:\\Windows',
+      runWindows: () =>
+        Promise.reject(
+          Object.assign(new Error(secret), {
+            code: 'ENOENT',
+            process: { private: secret },
+          }),
+        ),
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(PrivateStateError);
+    expect((error as PrivateStateError).diagnostic).not.toHaveProperty('process');
+    expect(JSON.stringify((error as PrivateStateError).diagnostic)).not.toContain(secret);
+  });
+
   it('uses a fixed encoded script, an absolute system executable and path data only', async () => {
     const runWindows = vi.fn(() => Promise.resolve());
     const path = String.raw`C:\state\owner's %PATH% & $secret مرحبا`;
@@ -351,7 +406,10 @@ describe.skipIf(process.platform !== 'win32')('native Windows state ACLs', () =>
     const parent = await fixture();
     const before = descriptorHash(await snapshot(parent));
     const state = join(parent, "state owner's %PATH% & مرحبا");
-    const secured = ensurePrivateStateDirectory(state).then(
+    const events: WindowsStateProcessEvent[] = [];
+    const secured = ensurePrivateStateDirectory(state, {
+      onProcessTrace: (event) => events.push(event),
+    }).then(
       () => undefined,
       (error: unknown) => error,
     );
@@ -363,14 +421,43 @@ describe.skipIf(process.platform !== 'win32')('native Windows state ACLs', () =>
       process.stderr.write(`private state diagnostic ${JSON.stringify(outcome.diagnostic)}\n`);
     expect(outcome).toBeUndefined();
     expect(synchronousMarker).toBe(true);
+    const result = events.find((event) => event.event === 'result');
+    expect(result).toMatchObject({
+      parentPid: process.pid,
+      childCreated: true,
+      readinessCaptured: true,
+      exitCode: 0,
+      timeoutMs: 15000,
+      termination: 'exited',
+    });
+    if (result?.event !== 'result') throw new Error('Missing native process observation');
+    expect(result.childPid).not.toBe(process.pid);
+    expect(result.scriptPhases.map((phase) => phase.phase)).toEqual([
+      'ready',
+      'tree-checked',
+      'acl-verified',
+      'complete',
+    ]);
+    expect(result.scriptPhases.every((phase) => phase.childPid === result.childPid)).toBe(true);
+    expect(
+      result.scriptPhases.every((phase) => Number.isFinite(Date.parse(phase.childCreatedAtUtc))),
+    ).toBe(true);
     expectPrivate(await snapshot(state), true);
     const file = join(state, 'nexar.config.json');
     await writeFile(file, '{}', { mode: 0o600 });
     expectPrivate(await snapshot(file), false, false);
     // The next startup normalizes the new file: user-owned, protected, explicit private grants.
-    await ensurePrivateStateDirectory(state);
+    await ensurePrivateStateDirectory(state, { onProcessTrace: (event) => events.push(event) });
     expectPrivate(await snapshot(file), false);
     expect(descriptorHash(await snapshot(parent))).toBe(before);
+    if (process.env['NEXAR_E2E_STATE_PROCESS_TRACE'] === '1') {
+      process.stdout.write(
+        `node startup matrix ${JSON.stringify({
+          fresh: events.slice(0, 2),
+          reused: events.slice(2, 4),
+        })}\n`,
+      );
+    }
   }, 30_000);
 
   it('rechecks a stale marker and reused directory without trusting its ACL', async () => {
