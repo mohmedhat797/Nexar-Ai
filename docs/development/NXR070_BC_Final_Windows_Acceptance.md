@@ -1,6 +1,6 @@
 # B′/C′ Windows acceptance — targeted startup investigation
 
-Execution date: 25 October 2026. This report preserves failed invocations and separates aggregate acceptance from supplemental evidence. Final publication identity is recorded in the ignored publication receipt after commits and remote verification.
+Execution period: 25–26 October 2026 (Africa/Cairo); raw timestamps are UTC. This report preserves failed invocations and separates aggregate acceptance from supplemental evidence. Final publication identity is recorded in the ignored publication receipt after commits and remote verification.
 
 ## Toolchain and platform
 
@@ -71,4 +71,65 @@ These tests launch `win-unpacked` with disposable profiles. A clean-machine NSIS
 
 ## Final-source acceptance status
 
-Final corrected-source Full Windows and WSL results are pending execution at this report checkpoint. Historical and supplemental passes above do not satisfy that gate. The final owner handover and publication receipt must list the executed final results and any remaining unexecuted gates before owner review.
+The final corrected C′ implementation **passed Windows Full CI in one complete invocation**. B′'s latest standalone aggregate **failed at pinned runtime installation**. These outcomes remain separate.
+
+| Branch/source                                 | Tree                                       | Raw Full report                        | Outcome                                                                                           | SHA256                                                             |
+| --------------------------------------------- | ------------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| B′ `ca8a603b442fe65750990f1f6f9671f42d7e20bc` | `204034739826e87c095807831c51844abfb18390` | `report-2026-10-25T19-32-29-858Z.json` | FAIL, installer 180,829 ms, exit 124; one required stage passed and later required stages skipped | `5b119937c082b1a38ec774c50b84913c7efcfe5416d797a10d2a50a6e5e4e977` |
+| C′ `315a029e96390422bf0ab2c05080fab2b0bd8656` | `a3b14a052c446ee79305281ac9b717dd9a66ac11` | `report-2026-10-25T19-36-40-909Z.json` | `NEXAR_WINDOWS_FULL_PASS`, all 16 required stages passed, 3,237.37 seconds                        | `a053d3fa7fb6dde15a6480ffb3079b32518c17de00d2ffe6dec4d3f88d97f196` |
+
+Both reports establish clean start/end and unchanged commit/tree. The current C′ installer completed in 104.23 seconds. This does not establish why B′ or earlier invocations exceeded 180 seconds. The Full entry was the literal `ci:local:full` script expansion under pinned Node, with `--mode=full --workers=2 --node-bin=<pinned Node> --gitleaks-bin=<pinned scanner> --dsh-dir=<source-specific disposable directory>`. The complete exact commands and stage logs are retained in the raw reports. No mandatory stage or deadline was changed.
+
+| C′ required gate               | Observed result                                      |
+| ------------------------------ | ---------------------------------------------------- |
+| Frozen dependency verification | PASS                                                 |
+| Pinned DSH installation        | PASS, 104.232 s                                      |
+| Formatting                     | PASS                                                 |
+| ESLint                         | PASS                                                 |
+| Boundaries                     | PASS                                                 |
+| Typecheck                      | PASS                                                 |
+| Offline tests                  | 4,570 passed; 169 skipped; four pending; zero failed |
+| Production build               | PASS                                                 |
+| CLI resource listing           | PASS                                                 |
+| CLI offline run                | PASS                                                 |
+| Real DSH context/compaction    | 3/3                                                  |
+| Windows-to-WSL Cowork          | 8/8; nested Linux kernel/ACP/sandbox corpus 15/15    |
+| Source Desktop E2E             | 33/33                                                |
+| Windows packaging              | PASS, 1,398.448 s                                    |
+| Packaged Desktop E2E           | 33/33, 462.397 s                                     |
+| Gitleaks                       | PASS, 317 commits scanned, no leaks found            |
+
+The separate optional native-Linux stage was `BLOCKED` on Windows. It was not counted as passed. Mandatory WSL kernel coverage ran inside the required Cowork gate and passed. Native Ubuntu acceptance is not claimed.
+
+The Windows parser's rolled-up total is 4,647 passed, zero failed, 169 skipped and four pending across its measured stages. The nested Linux 15/15 is separately retained and is not included in that parser's total. Offline duration was 464.147 seconds; source E2E duration was 400.949 seconds.
+
+### Supplemental WSL Full regressions
+
+Both used `pnpm exec vitest run --maxWorkers=1 --reporter=json --outputFile=<unique report>`, Linux Node 22.23.3, DSH rc.2 and the accepted toolchain. Live tests were disabled. The before/after manifests establish matching, clean, source-stable revisions. Heavy suites ran serially.
+
+| Source        | Result                                        | Raw report in the matching Windows worktree's `.nexar/ci/` | Report SHA256                                                      | Execution manifest SHA256                                          |
+| ------------- | --------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| B′ `ca8a603b` | 4,654 passed; 30 skipped; zero failed/pending | `electron-startup-b-wsl-full-ca8a603-20261026.json`        | `0f3700873f3becd7d2099aea2bc90f490ddc322c468a8d37c883f3377b567f89` | `393edf0597051d49d2e0a0e190c62f79b451ebb8981a2bd1c31d0359ef3d2588` |
+| C′ `315a029e` | 4,713 passed; 30 skipped; zero failed/pending | `electron-startup-c-wsl-full-315a029-20261026.json`        | `3197c4c9974ef3bbcfa30f47920197fc32ac169e1dae2cfb0305dfeea538609e` | `81041d196d4fbb1c9f969b2ca108d0da686135c4213ad117bca15a8e5b5d127c` |
+
+The retained C′ nested-kernel report is `electron-startup-c-kernel-315a029-20261026.json`, SHA256 `964dd7b1e0a8d60380fc48b5239917bd2c7ce90a3ab295a0cce155fdc037f663`, with all 15 assertions passed. An initial WSL launcher quoting error occurred before tests started; its console log was retained, and the corrected launcher streamed its program through stdin. It is not classified as a failed test suite.
+
+### Final package
+
+The current unsigned installer is `release/desktop/Nexar-0.1.0-windows-x64-setup.exe`, 322,190,637 bytes, SHA256 `35c2d64dec469f262df059ba7668eee2b1907875cd911de5b34fa0f203b5ba9a`. The report, sidecar and independent fresh hash agree. Its bundled manifest identifies `@deepseek-ai/dsh@0.2.0-rc.2`. Packaged E2E used that `win-unpacked` build and bundled runtime with disposable profiles. Clean-machine NSIS installation remains unexecuted.
+
+Forty distinct successful Electron/PowerShell pairs were recorded in each Full Desktop suite. Guard durations were 2,852–5,902 ms in source and 3,647–6,747 ms packaged, with readiness, four phases and exit zero for every recorded pair. This verifies observability and successful startup; it does not establish the original timeout's cause.
+
+The current source and package gates pass for C′, but target root-cause closure and B′ standalone aggregate acceptance remain outstanding. Supplemental B′ gates and final publication/hosted-check results are recorded in the final local publication receipt. No aggregate PASS is assembled from separate commands.
+
+### B′ current supplemental gates
+
+All three ran serially on clean, unchanged B′ `ca8a603b` with the matching WSL helper and the repository's existing rc.2 runtime cache. They are independent acceptance evidence and do not change the failed B′ Full result.
+
+| Gate                             | Result        | Duration  | Raw evidence                                                                                                                                                            | Execution manifest SHA256                                          |
+| -------------------------------- | ------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Source Desktop E2E               | 33/33         | 636.798 s | `electron-startup-b-source-ca8a603-20261026.vitest.json`, SHA256 `68bf5799c1d183605bf2dc4c522360b3e83b80902dcebf62803fa9a7b5fc7451`                                     | `ed1d222e2f83a773b69e0b905e0751c8fc243866a46879a2877ba63eef32e53b` |
+| Real DSH context                 | 3/3           | 37.277 s  | `electron-startup-b-context-ca8a603-20261026.vitest.json`, SHA256 `fc6a1d234ca0c591c73ce1d002125f9b0b964004f5249c3d851591b9ef6fd19c`                                    | `2e1ae1cc1ea814362791eaa303e76de4fa5e0555d5dfca7048d73c70d3bb3e54` |
+| Windows-to-WSL and nested kernel | 8/8 and 15/15 | 62.235 s  | Windows raw SHA256 `06fe8a5c2ec39542a3683dde6f9c63494bea5bfd8a03b6593d0b9912fa06694b`; kernel SHA256 `bd6554e43bf3a73f9255e407573779feab72c2ad767dbb88a35387ce530c68ca` | `bdfd4cf73386c4761c7a5db8ba922b5c10aaf0c80fdc386f1e4b3bedc91d5768` |
+
+The kernel and Windows raw copies are `electron-startup-b-kernel-ca8a603-20261026.json` and `electron-startup-b-cowork-wsl-ca8a603-20261026.json`. The isolation execution manifest is `electron-startup-b-wsl-gate-ca8a603-20261026.execution.json`. All reside in B′'s `.nexar/ci/`.

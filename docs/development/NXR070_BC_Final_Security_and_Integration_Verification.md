@@ -1,6 +1,6 @@
 # B′/C′ final security and integration verification
 
-Execution date: 25 October 2026. This report covers the startup investigation and the combined connection-management/review-diversity implementation. It is an engineering verification record, not independent owner acceptance.
+Execution period: 25–26 October 2026 (Africa/Cairo); raw timestamps are UTC. This report covers the startup investigation and the combined connection-management/review-diversity implementation. It is an engineering verification record, not independent owner acceptance.
 
 ## Security conclusion
 
@@ -37,6 +37,8 @@ E2E teardown now distinguishes the shell launcher from the actual Electron main 
 - Test profiles and synthetic credentials are disposable. The owner's installed profile, real credentials and provider accounts were not used.
 
 ## Review and limitations
+
+Current execution evidence: C′ `315a029e` passed all 16 required Windows gates in one clean/stable Full run, including 4,570 offline passes, DSH context 3/3, Windows-to-WSL 8/8 plus nested kernel 15/15, source Desktop 33/33 and packaged Desktop 33/33. Full WSL runs passed B′ 4,654/30 skipped and C′ 4,713/30 skipped, with zero failed or pending assertions and unchanged source. The 15 nested Linux assertions are additional to the Windows report's rolled-up 4,647 passes; they are not silently added to that parser's total. B′'s latest standalone Windows aggregate failed at installation and is not promoted to PASS by this evidence.
 
 The separate reviewer verified these source anchors on the corrective baseline:
 

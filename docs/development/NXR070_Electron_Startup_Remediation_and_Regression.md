@@ -1,6 +1,6 @@
 # Electron startup remediation and regression evidence
 
-Audit and execution date: 25 October 2026. Milestones: NXR-070B′ and NXR-070C′.
+Execution period: 25–26 October 2026 (Africa/Cairo); raw timestamps are UTC. Milestones: NXR-070B′ and NXR-070C′.
 
 ## Conclusion
 
@@ -30,6 +30,8 @@ Synchronous execution imposes an explicit measurement limit: exact live spawn ca
 | OAuth timing measurement    | A wall-clock bound included fixture startup and process-tree cleanup, obscuring the response boundary.                | Observe the complete fixed synthetic OAuth line at the existing spawn seam and retain the four-second signal-to-rejection assertion.                                           | Setup and response durations are recorded separately. No production adapter timeout or authentication behavior changed.          |
 
 ## Packaged verification
+
+The synthetic startup readiness wait changed from five to ten seconds; the existing whole-case budget remains twenty seconds. The OAuth response bound remains four seconds, measured from receipt of the complete fixed signal through rejection, including process-tree cleanup and disposal. Only startup is recorded separately. These fixture windows are not the production guard or CI installer deadlines. A readiness failure still fails the test and now always drains the owned execution; the longer setup wait is not presented as a causal fix for the historical delay.
 
 The predetermined two-attempt campaign exercised Node fresh/reused state, source fresh/restart, packaged fresh/restart, packaged restart without Cowork, and packaged restart after two isolated synthetic Cowork turns. All planned rows completed successfully. The exact Cowork scenario included project setup, two actual isolated turns and a final restart.
 

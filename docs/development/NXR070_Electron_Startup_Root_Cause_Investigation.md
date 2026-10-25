@@ -1,6 +1,6 @@
 # NXR-070 — Electron startup root-cause investigation
 
-Execution date: 25 October 2026. Repository: `mohmedhat797/Nexar-Ai`.
+Execution period: 25–26 October 2026 (Africa/Cairo). Raw timestamps are UTC. Repository: `mohmedhat797/Nexar-Ai`.
 
 **Verdict: `NXR070_ELECTRON_STARTUP_ROOT_CAUSE_UNRESOLVED`.** The bounded actual Electron campaign did not reproduce the historical timeout. Safe process correlation and demonstrated fixture corrections were implemented, but no production delay mechanism was established. The original failed acceptance remains a failure.
 
@@ -22,7 +22,7 @@ Original reports, logs, the retained disposable profile and package evidence rem
 
 The production path remains packaged Electron main → synchronous private-state initialization → absolute Windows PowerShell executable → readiness emission → tree/identity/ACL validation → successful private-state completion. The guard completes before the first promise yield. The invocation retains NoProfile, NonInteractive, UTF-16LE encoded command, explicit minimal environment, `shell:false`, a 16 KiB output bound and the 15,000 ms security deadline.
 
-The former synchronous API did not expose the child PID to the caller. The implementation now uses the same synchronous native spawning facility through `spawnSync` so the caller can retain the numeric native child PID. This is an observability change, not evidence that the old API caused the historical timeout.
+The previous Nexar wrapper did not retain and correlate the child PID. `execFileSync` failure objects can expose a PID; successful calls return output rather than a process result. The implementation now uses the synchronous native spawn result through `spawnSync` to retain numeric child identity on successful and failed attempts. This is an observability change, not evidence that the old API caused the historical timeout.
 
 Allowlisted diagnostics record actual parent/child identity, monotonic elapsed time, separate wall-clock correlation and fixed script phases. The script includes its own process birth time and flushed readiness observation. Raw arguments, encoded script, environment, private paths, credentials, account subjects, prompts, responses, sessions and memory contents are excluded. No machine-wide auditing or unrestricted process tracing was enabled.
 
@@ -80,6 +80,8 @@ C′'s later trace-enabled repository check also timed out in the complete conne
 Detailed corrections, regression hashes and limits are in `NXR070_Electron_Startup_Remediation_and_Regression.md`. Current complete-run outcomes are in `NXR070_BC_Final_Windows_Acceptance.md`; individual passing stages are never combined into a synthetic aggregate PASS.
 
 ## Remaining decision and exit criterion
+
+The final C′ source `315a029e96390422bf0ab2c05080fab2b0bd8656`, tree `a3b14a052c446ee79305281ac9b717dd9a66ac11`, subsequently passed all 16 required Windows Full CI gates in one clean, source-stable invocation. Report SHA256: `a053d3fa7fb6dde15a6480ffb3079b32518c17de00d2ffe6dec4d3f88d97f196`. Source and packaged E2E each passed 33/33. Each suite retained 40 distinct successful Electron/PowerShell pairs; observed guard durations were 2,852–5,902 ms in source and 3,647–6,747 ms packaged. The full WSL regressions also passed on both frozen revisions. These are source-bound acceptance facts, not proof of the historical delay mechanism. B′'s latest standalone Full run still failed at runtime installation before later gates executed.
 
 The historical delay cannot honestly be assigned to “before spawn,” “child initialization,” “readiness delivery,” or “after readiness” using the evidence that exists. The required classification is inconclusive.
 

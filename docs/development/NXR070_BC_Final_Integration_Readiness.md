@@ -1,57 +1,81 @@
-# NXR-070B′/C′ — Final Integration Readiness
+# NXR-070B′/C′ — Final integration readiness
 
-Date: 2026-10-24. Engineer: OpenAI Codex.
+Execution period: 25–26 October 2026 (Africa/Cairo). Raw timestamps are UTC.
 
 ## Decision
 
-**Integration remains blocked.** B′ has a standalone clean-source Windows Full PASS. The later C′80e70a60 aggregate **FAILED** packaged Desktop restart28/29 after a15025 ms private-state PowerShell startup timeout. Earlier C′1c584208Full PASS is historical. Current C′WSL full passed; it does not replace Windows acceptance. Startup-delay root cause, historical ACL attribution, Plan attribution and first B′SOW stall mechanism remain unresolved.
+**Integration remains blocked.** C′ passed all 16 required Windows Full CI stages on the final implementation source, and both milestones passed their full WSL regressions. The historical packaged guard delay remains causally unresolved. B′'s latest standalone aggregate failed at runtime installation. Neither an isolated pass nor C′'s aggregate rewrites that B′ failure.
+
+The engineering changes are reviewable: safe native-process attribution, correct owned-main/profile teardown and demonstrated fixture corrections. No production delay workaround, guard retry, production timeout increase, ACL relaxation or routing change was introduced. The synthetic fixture readiness wait changed from five to ten seconds, with the existing twenty-second case budget and four-second signal-to-rejection bound retained; that response bound includes cleanup. The owner-authorized criterion requiring a proven startup failure mechanism has not been met.
+
+## Frozen implementation identities
+
+| Item                          | Identity                                   |
+| ----------------------------- | ------------------------------------------ |
+| Accepted main at verification | `41b918bf3c32cfd47301f7551a7280368fc3c8ec` |
+| B′ tested implementation      | `ca8a603b442fe65750990f1f6f9671f42d7e20bc` |
+| B′ tree                       | `204034739826e87c095807831c51844abfb18390` |
+| C′ tested implementation      | `315a029e96390422bf0ab2c05080fab2b0bd8656` |
+| C′ tree                       | `a3b14a052c446ee79305281ac9b717dd9a66ac11` |
+
+C′ includes B′ by normal merges. Publication adds documentation/evidence only after the tested source. Final remote SHAs, the exact documentation-only delta, Draft/base verification and latest hosted results are recorded in the local `.nexar/ci/NXR070_Electron_Startup_Publication_Receipt_20261026.md`. No merge is authorized by this report.
 
 ## Gate matrix
 
-| Gate                   | B′                                                                   | C′                                                               | Evidence                                                         | Status                                    |
-| ---------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------- |
-| Contracts              | Immutable identity/credential contracts retained                     | Additive dimensions retained                                     | Complete offline corpus                                          | Verified within executed corpus           |
-| Credential security    | Authority21; consent5; runtime9; Plan9 passed                        | Runtime12; Plan10; authoritative host resolution passed          | B06 and C80 offline JSON                                         | Verified within synthetic execution scope |
-| Connection lifecycle   | Manager19; recoverable persistence and retirement regressions passed | B′ guarantees preserved; historical comparison identity retained | Manager/authority/lifecycle/Plan corpus                          | Verified within executed corpus           |
-| Resource Registry      | Canonical IDs and stale refresh guards retained                      | Production connection/provider metadata consumed                 | Inventory guard3; runtime corpus                                 | Verified                                  |
-| NRC routing            | Existing filters, pins, leases and credential selection retained     | Required diversity remains a hard constraint                     | Routing/selection/gateway corpus                                 | Verified within executed corpus           |
-| Review Diversity       | Foundation only                                                      | Dimensions43; legacy1; bridge34 pass                             | C80 offline JSON                                                 | Verified                                  |
-| Legacy compatibility   | Historical built-in identities retained                              | Legacy policy/strategy/goldens pass                              | Existing golden corpus                                           | Verified within executed corpus           |
-| Windows Full CI        | PASS at06e55f36                                                      | **FAIL at80e70a60**                                              | Reports13:20:25.499Z and17:24:16.812Z                            | **Blocking**                              |
-| Desktop Source E2E     | 29/29                                                                | 29/29                                                            | Own branch Full reports                                          | Passed                                    |
-| Packaged Desktop E2E   | 29/29                                                                | **28/29, restart startup timeout**                               | C packaged log1792865203584                                      | **Blocking**                              |
-| WSL isolation          | Windows8 and Linux gate; supplemental4623/30/0/0                     | Windows8 and Linux gate; supplemental4682/30/0/0                 | Same-source Windows and WSL reports                              | Passed; WSL2, not native Ubuntu           |
-| Gitleaks               | Full invocation passed                                               | Final aggregate skipped after required failure                   | Supplemental publication scan recorded in receipt                | No fabricated aggregatePASS               |
-| Hosted CI              | Last published head budget-blocked                                   | Last published head budget-blocked                               | Actual annotations; rechecked after final publication in receipt | External infrastructure limitation        |
-| Independent acceptance | Pending                                                              | Pending                                                          | Separate source review is not owner acceptance                   | **Blocking**                              |
+| Gate                   | B′                                                                               | C′                                                                                                   | Evidence                                                           | Verdict                                    |
+| ---------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------ |
+| Connection identity    | Offline and WSL regressions pass                                                 | Full/offline and WSL regressions pass                                                                | ConnectionManager unchanged; connection-runtime integration corpus | Preserved                                  |
+| Credential isolation   | Synthetic execution and scope negatives pass                                     | Same production authority verified in combined source                                                | Host scope validation and execution leases                         | Preserved                                  |
+| Lifecycle              | Current offline/WSL corpus passes                                                | Current Full corpus passes                                                                           | Serialized admission/mutation and Plan retirement tests            | Preserved                                  |
+| NRC integration        | Persisted connection → Registry → NRC → synthetic transport tested               | Same path plus C′ allocator/revalidation tested                                                      | `connection-runtime.test.ts`; engine and gateway tests             | Verified within offline transport scope    |
+| Review Diversity       | Prerequisite connection identity retained                                        | Resource/connection/provider modes, unavailable reasons, retained identity and settlement tests pass | Strategy, core engine and bridge corpus                            | C′ verified                                |
+| Windows startup        | Guard policy preserved; bounded diagnostics pass                                 | 40 correlated successful source launches and 40 packaged launches in Full run                        | Safe native traces and focused campaign                            | Historical delay unresolved                |
+| Private-state security | Owner/ACL/link/fail-closed assertions preserved                                  | Same guard passed current Full tests and E2E                                                         | `private-state*.test.ts`; startup E2E                              | Preserved; no causal timeout fix claimed   |
+| Source E2E             | 33/33 supplemental, clean/stable source                                          | 33/33 in aggregate                                                                                   | Full report and supplemental manifest                              | C′ PASS; B′ separate evidence              |
+| Packaged E2E           | Previous B′ baseline 29/29; current standalone aggregate did not reach this gate | 33/33 on current package                                                                             | Source-bound Full reports                                          | B′ current standalone coverage outstanding |
+| Windows Full CI        | FAIL at installer 180,829 ms; later gates skipped                                | `NEXAR_WINDOWS_FULL_PASS`, 16/16 required                                                            | Reports listed below                                               | Separate outcomes                          |
+| WSL isolation          | Full WSL 4,654/30 skipped; Windows 8/8 + kernel 15/15                            | Full WSL: 4,713 passed/30 skipped; Windows 8/8 + nested kernel 15/15                                 | Raw JSON and clean source manifests                                | WSL2 verified; native Ubuntu not claimed   |
+| Gitleaks               | B′ commits included in C′ full-history scan                                      | PASS on tested source; final publication scan in receipt                                             | 317-commit Full scan, redacted                                     | No leaks found in executed scan            |
+| Hosted CI              | Published baseline jobs were budget-blocked before steps                         | Same historical infrastructure restriction                                                           | Fresh final-head job/annotation evidence belongs to receipt        | No hosted PASS claimed                     |
+| Independent review     | Separate read-only source review completed                                       | Source and Full evidence independently checked                                                       | Focused review findings addressed                                  | Independent owner acceptance pending       |
 
-Numbers written passed/skipped/failed/pending use that exact order for WSL full rows. Four Windowspending Bubblewrap cases passed under WSL; all five live-provider files remained skipped. Source and packaged acceptance use disposable profiles and synthetic model transports with real pinnedDSH/WSL boundaries; no paid provider inference or personal sign-in.
+The optional native-Linux stage was blocked on Windows and was not counted as passed. Mandatory Linux kernel coverage executed through the required WSL gate. Native Ubuntu is deferred under the Windows-first scope.
 
-## Evidence identities
+## Source-bound acceptance records
 
-- B′tested source: `06e55f36f66c27b24d524e699d06246094c4617a`, tree `20b53990fb585e99ab4ed94001c72f4275b33a38`. Full PASS3292.49s, report `.nexar/ci/reports/report-2026-10-24T13-20-25-499Z.json` in B′ worktree, SHA256 `1cb1fea82daf65dad360cc25ae1ca7aca6b707b25916cb45c544d9524325b16c`. Offline4482 passed/167 skipped/4 pending/0 failed; WSL full4623/30/0/0.
-- C′latest test source: `80e70a60f2bd5c109c4a424002ea6af8bcd9b54e`, tree `9aa95dd150bff75aef1d0737520a5b61b6e9ee7d`. Full FAIL3067.65s, report `.nexar/ci/reports/report-2026-10-24T17-24-16-812Z.json`, SHA256 `0115e7c77e8ac5f71491efcb5fa1c4b9c4f57500cb9e17a3be649dbe0136155b`. Fourteen required PASS, packaged FAIL, required Gitleaks SKIPPED, extra nonrequired Linux SKIPPED. Start/end clean and identical.
-- C′same-source WSL full: `/home/nexar/src/nxr070c-20261021/.nexar/ci/bc-c-wsl-full-80e70a6.json`, SHA256 `217b5a151c5124eaf79472a2a6b164092d6069a07fb45c481e9fdcd7be09482e`.
-- C′earlier source1c584208Full PASS2556.04s and WSL4678/30/0/0 remain preserved historical evidence. No later result is relabeled with that source.
-- Publication may add documentation only. Literal final remote SHAs, hosted annotations, final scan and docs-only comparison are recorded in `.nexar/ci/NXR070_BC_Publication_Receipt.md`, avoiding self-referential commit identity.
+| Observation          | Raw report                                                       | SHA256                                                             |
+| -------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------ |
+| B′ latest Full FAIL  | B′ `.nexar/ci/reports/report-2026-10-25T19-32-29-858Z.json`      | `5b119937c082b1a38ec774c50b84913c7efcfe5416d797a10d2a50a6e5e4e977` |
+| C′ current Full PASS | C′ `.nexar/ci/reports/report-2026-10-25T19-36-40-909Z.json`      | `a053d3fa7fb6dde15a6480ffb3079b32518c17de00d2ffe6dec4d3f88d97f196` |
+| B′ full WSL PASS     | B′ `.nexar/ci/electron-startup-b-wsl-full-ca8a603-20261026.json` | `0f3700873f3becd7d2099aea2bc90f490ddc322c468a8d37c883f3377b567f89` |
+| C′ full WSL PASS     | C′ `.nexar/ci/electron-startup-c-wsl-full-315a029-20261026.json` | `3197c4c9974ef3bbcfa30f47920197fc32ac169e1dae2cfb0305dfeea538609e` |
 
-## Ownership and integration recommendation
+Current C′ Windows totals: offline 4,570 passed/169 skipped/four pending, DSH context 3/3, Windows-to-WSL 8/8, source 33/33 and packaged 33/33. The nested Linux corpus passed 15/15 separately from the Windows parser's rolled-up total. Pending/skipped tests are not passes.
 
-PR44 targetsmain; PR45 remains stacked on `feat/nxr-070b-multi-api-connections`. B06 is an ancestor of C80 via a normal merge. Preserve sequential B′thenC′ integration only after required acceptance; do not merge either now. Neither passing C′tests nor this review retrospectively accepts B′.
+The current unsigned installer SHA256 is `35c2d64dec469f262df059ba7668eee2b1907875cd911de5b34fa0f203b5ba9a` (322,190,637 bytes). Packaged E2E launched `win-unpacked` with disposable profiles; clean-machine NSIS installation was not executed.
 
-The shared private-state startup observation must be investigated with numeric child/parent process correlation and a demonstrated mechanism before correction. If shared production code changes, apply it to B′ and propagate it normally to C′, then rerun source-bound acceptance. Do not raise the native guard deadline, relax ACL assertions, retry automatically or run Full repeatedly merely to get green.
+## Remaining blockers and owner action
 
-No applicable main required-check rule was established by inspected rules/protection queries; budget-blocked Actions are not a proven branch-protection configuration. They remain external non-passing checks. The owner controls the Actions budget and independent acceptance; engineering/root-cause and Draft restrictions already block integration.
+| Issue                                                               | Classification                                                       | Impact                                                            | Required next evidence                                                                                       |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Historical private-state startup delay                              | P2 reliability, acceptance-blocking under the explicit task criteria | Fail-closed startup may prevent use; no evidence of an ACL bypass | Correlated failing process observation or deterministic mechanism, justified correction and regression proof |
+| Pinned runtime installation intermittently exceeds the Full gate    | P2 local acceptance/reliability observation; cause unproven          | B′ current aggregate cannot complete                              | Controlled causal investigation and a complete successful B′ invocation without changing required gates      |
+| Hosted jobs stopped by budget restrictions on prior published heads | External infrastructure blocker                                      | No hosted code validation from those jobs                         | Final-head job/annotation check and owner restoration of Actions capacity if still blocked                   |
+| Independent owner acceptance                                        | Governance gate                                                      | Draft milestones cannot be integrated                             | Separate owner-requested acceptance of B′ followed by C′                                                     |
+
+The branches retain their intended ancestry for eventual sequential integration, but they are **not recommended for merge now**. Do not merge #44 or #45, mark them Ready automatically, start NXR-070D′, change accepted ADRs, or activate upstream monitoring. GitHub's main-branch metadata reports protection disabled and no required status checks; the repository rulesets endpoint returned an empty list. Thus hosted failures are an unmet validation requirement under the owner's instructions, rather than an enforced status-check rule reported by this configuration. Draft status and the explicit owner acceptance criteria still prohibit integration. No repository policy was changed.
 
 ## Exact verdicts
 
-- `NXR070_WINDOWS_FULL_CI_STILL_UNSTABLE` — latest C′Full failed; B′Full and earlier C′Full passed.
-- `NXR070_WINDOWS_FAILURE_ROOT_CAUSES_PARTIALLY_RESOLVED` — confirmed fixture/callback/runner fixes exist; current startup delay and historical attribution gaps remain.
-- `NXR070B_SECURITY_INVARIANTS_VERIFIED` — within the executed synthetic/offline and isolated-runtime corpus; not universal security certification.
-- `NXR070C_REVIEW_DIVERSITY_VERIFIED` — executed strategy, controller, bridge and identity regressions passed.
-- `NXR070_BC_COMBINED_INTEGRATION_INCOMPLETE` — final packaged Cowork restart gate failed.
-- `HOSTED_CI_INFRASTRUCTURE_BLOCKED` — actual latest verified annotations; literal post-publication runs are in the receipt.
-- `NXR070_BC_MERGE_BLOCKED_BY_OUTSTANDING_GATES`.
-- **`NXR070_BC_STABILIZATION_PARTIALLY_COMPLETE`**.
+- `NXR070_ELECTRON_STARTUP_ROOT_CAUSE_UNRESOLVED`
+- `NXR070_ELECTRON_STARTUP_REMEDIATION_INCOMPLETE`
+- `NXR070_WINDOWS_FULL_CI_STILL_UNSTABLE`
+- `NXR070B_SECURITY_INVARIANTS_PRESERVED`
+- `NXR070C_REVIEW_DIVERSITY_VERIFIED`
+- `NXR070_BC_COMBINED_INTEGRATION_VERIFIED` — synthetic connection-bound execution plus real DSH/isolation scope; no live-provider acceptance implied.
+- `INDEPENDENT_OWNER_REVIEW_PENDING`
+- `NXR070_BC_MERGE_BLOCKED_BY_OUTSTANDING_GATES`
 
-`INDEPENDENT_OWNER_REVIEW_PENDING`. No merge or Ready transition is authorized by this report.
+The Windows stability verdict reflects the unresolved historical mechanism and latest B′ aggregate failure; it does not negate C′'s actual Full PASS. The final hosted-CI verdict is source- and time-specific and is recorded after publication in the receipt.
+
+**Overall: `NXR070_BC_STABILIZATION_PARTIALLY_COMPLETE`.**
