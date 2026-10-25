@@ -26,7 +26,15 @@ function fakeApp() {
     child,
     app: {
       process: () => child,
-      evaluate: () => Promise.resolve({ pid: 456, parentPid: 123, createdAtEpochMs: 1234 }),
+      evaluate: (_expression: unknown, eventName?: unknown) =>
+        Promise.resolve(
+          eventName === STATE_GUARD_TRACE_EVENT
+            ? [
+                { event: 'request', parentPid: 456 },
+                { event: 'result', parentPid: 456, childPid: 789 },
+              ]
+            : { pid: 456, parentPid: 123, createdAtEpochMs: 1234 },
+        ),
       firstWindow: () => Promise.resolve({ waitForSelector: () => Promise.resolve(undefined) }),
       close: vi.fn(() => {
         child.exitCode = 0;
@@ -39,6 +47,8 @@ function fakeApp() {
 
 const fixtures: Harness[] = [];
 beforeEach(() => {
+  // Exercise the same trace-enabled branch as Full Local CI, independent of ambient flags.
+  vi.stubEnv('NEXAR_E2E_STATE_PROCESS_TRACE', '1');
   vi.spyOn(process, 'kill').mockImplementation(() => {
     throw Object.assign(new Error('Synthetic exited process'), { code: 'ESRCH' });
   });
@@ -50,6 +60,7 @@ afterEach(async () => {
   }
   launches.length = 0;
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('Desktop E2E fixture diagnostics and cleanup', () => {
