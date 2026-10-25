@@ -1,7 +1,7 @@
 import { EventEmitter, once } from 'node:events';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { finishProcess } from '../apps/desktop/e2e/process-lifecycle.js';
+import { finishProcess, waitForMainProcessExit } from '../apps/desktop/e2e/process-lifecycle.js';
 
 function processFixture() {
   const child = Object.assign(new EventEmitter(), {
@@ -97,5 +97,61 @@ describe('Desktop E2E process ownership', () => {
     expect(await finishProcess(fixture.child, close, { terminate })).toEqual({ forced: false });
     expect(close).not.toHaveBeenCalled();
     expect(terminate).not.toHaveBeenCalled();
+  });
+
+  it('verifies the real main process after a Windows launcher has already exited', async () => {
+    const fixture = processFixture();
+    fixture.exit();
+    const close = vi.fn(() => Promise.resolve());
+    const verifyExit = vi.fn(() => Promise.resolve());
+    expect(await finishProcess(fixture.child, close, { verifyExit })).toEqual({ forced: false });
+    expect(close).toHaveBeenCalledOnce();
+    expect(verifyExit).toHaveBeenCalledOnce();
+  });
+
+  it('refuses cleanup when the launcher exited but main-process exit is unverified', async () => {
+    const fixture = processFixture();
+    fixture.exit();
+    const verifyExit = () =>
+      Promise.reject(new Error('Main process still present; profile retained'));
+    await expect(
+      finishProcess(fixture.child, () => Promise.resolve(), { verifyExit }),
+    ).rejects.toThrow('Main process still present; profile retained');
+  });
+
+  it('waits for main PID absence without sending a termination signal', async () => {
+    vi.useFakeTimers();
+    const probe = vi.spyOn(process, 'kill').mockReturnValue(true);
+    let settled = false;
+    const waiting = waitForMainProcessExit({ pid: 456, createdAtEpochMs: 1234 }).then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(25);
+    expect(settled).toBe(false);
+    probe.mockImplementation(() => {
+      throw Object.assign(new Error('Synthetic missing process'), { code: 'ESRCH' });
+    });
+    await vi.advanceTimersByTimeAsync(25);
+    await waiting;
+    expect(probe.mock.calls.every((args) => args[0] === 456 && args[1] === 0)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    probe.mockRestore();
+  });
+
+  it('fails closed for a live or reused main PID and for an unqueryable PID', async () => {
+    vi.useFakeTimers();
+    const probe = vi.spyOn(process, 'kill').mockReturnValue(true);
+    const waiting = waitForMainProcessExit({ pid: 456 }).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await waiting).toMatchObject({
+      message: 'E2E main process remains present; profile retained',
+    });
+    probe.mockImplementation(() => {
+      throw Object.assign(new Error('Synthetic denied probe'), { code: 'EPERM' });
+    });
+    await expect(waitForMainProcessExit({ pid: 456 })).rejects.toThrow('could not be verified');
+    await expect(waitForMainProcessExit({ pid: 0 })).rejects.toThrow('identity unavailable');
+    expect(vi.getTimerCount()).toBe(0);
+    probe.mockRestore();
   });
 });

@@ -10,7 +10,7 @@ import {
 } from 'playwright-core';
 import { defaultConfig } from '@nexar/core';
 import { expect, onTestFailed } from 'vitest';
-import { finishProcess } from './process-lifecycle.js';
+import { finishProcess, waitForMainProcessExit } from './process-lifecycle.js';
 import {
   STATE_GUARD_TRACE_EVENT,
   type WindowsStateProcessEvent,
@@ -157,9 +157,20 @@ export async function createHarness(
   await mkdir(projectDir, { recursive: true });
   await writeFile(join(projectDir, 'readme-seed.txt'), 'seeded file content\n');
   const apps: ElectronApplication[] = [];
+  const identities = new WeakMap<
+    ElectronApplication,
+    Awaited<ReturnType<typeof mainProcessIdentity>>
+  >();
+  const profiles = new Map<ElectronApplication, string>();
+  const reservedProfiles = new Set<string>();
   let failed = false;
 
   const launch: Harness['launch'] = async (userData, extraEnv = {}) => {
+    if (reservedProfiles.has(userData))
+      throw new Error('E2E profile still owned by an application; restart refused');
+    // Reserve before seeding or awaiting the launcher. Failed/unknown launches do not
+    // authorize a retry against potentially still-owned state within this fixture.
+    reservedProfiles.add(userData);
     const output: string[] = [];
     // Launch can reject before it returns an owned process handle; retain its seeded evidence too.
     registerFailure(() => {
@@ -207,6 +218,7 @@ export async function createHarness(
       env,
     });
     apps.push(app);
+    profiles.set(app, userData);
     const capture = (chunk: Buffer): void => {
       output.push(chunk.toString());
       if (output.length > 200) output.shift();
@@ -214,6 +226,7 @@ export async function createHarness(
     app.process().stdout?.on('data', capture);
     app.process().stderr?.on('data', capture);
     try {
+      identities.set(app, await mainProcessIdentity(app));
       if (process.platform === 'win32' && process.env['NEXAR_E2E_STATE_PROCESS_TRACE'] === '1') {
         const events = await stateProcessObservation(app);
         process.stdout.write(`desktop e2e state process ${JSON.stringify(events)}\n`);
@@ -242,11 +255,23 @@ export async function createHarness(
   const close: Harness['close'] = async (app) => {
     if (!apps.includes(app)) return;
     const child = app.process();
-    const result = await finishProcess(child, () => app.close());
+    const identity = identities.get(app);
+    const result = await finishProcess(child, () => app.close(), {
+      verifyExit: () => {
+        if (!identity)
+          return Promise.reject(
+            new Error('E2E main process identity unavailable; profile retained'),
+          );
+        return waitForMainProcessExit(identity);
+      },
+    });
     if (process.env['NEXAR_E2E_PHASE_TRACE'] === '1')
       process.stderr.write(`desktop e2e exit ${JSON.stringify({ pid: child.pid, ...result })}\n`);
     const index = apps.indexOf(app);
     if (index >= 0) apps.splice(index, 1);
+    const userData = profiles.get(app);
+    if (userData !== undefined) reservedProfiles.delete(userData);
+    profiles.delete(app);
   };
 
   return {
