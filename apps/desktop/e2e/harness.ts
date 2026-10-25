@@ -11,6 +11,10 @@ import {
 import { defaultConfig } from '@nexar/core';
 import { expect, onTestFailed } from 'vitest';
 import { finishProcess } from './process-lifecycle.js';
+import {
+  STATE_GUARD_TRACE_EVENT,
+  type WindowsStateProcessEvent,
+} from '../src/main/private-state-process.js';
 
 /*
  * Launch helpers shared by the Code-lane scenarios: the same robustness as the main desktop
@@ -43,6 +47,47 @@ export const hasText = (locator: Locator, needle: string): Promise<void> =>
   expect.poll(() => text(locator).catch(() => ''), POLL).toContain(needle);
 export const isVisible = (locator: Locator): Promise<void> =>
   expect.poll(() => locator.isVisible().catch(() => false), POLL).toBe(true);
+
+/** Read only the test-gated main-process metadata, after early launch stderr was consumed. */
+export async function mainProcessIdentity(app: ElectronApplication) {
+  const identity = await app.evaluate(({ app: main }) => {
+    const metric = main.getAppMetrics().find((item) => item.pid === process.pid);
+    return {
+      pid: process.pid,
+      parentPid: process.ppid,
+      createdAtEpochMs: metric?.creationTime,
+      nodeVersion: process.versions.node,
+      electronVersion: process.versions.electron,
+      uvVersion: process.versions.uv,
+    };
+  });
+  const launcherPid = app.process().pid;
+  // Playwright 1.63 launches through a shell on Windows: its ChildProcess PID is the
+  // launcher, not necessarily Electron's PID. Verify the direct parent link, not equality.
+  expect(Number.isInteger(identity.pid) && identity.pid > 0).toBe(true);
+  expect([identity.pid, identity.parentPid]).toContain(launcherPid);
+  return { ...identity, launcherPid };
+}
+
+export async function stateProcessObservation(
+  app: ElectronApplication,
+): Promise<WindowsStateProcessEvent[]> {
+  const events = (await app.evaluate(({ app: main }, eventName) => {
+    let observations: unknown;
+    const delivered = main.emit(eventName, (value: unknown) => {
+      observations = value;
+    });
+    if (!delivered) throw new Error('Startup process observation unavailable');
+    return observations;
+  }, STATE_GUARD_TRACE_EVENT)) as WindowsStateProcessEvent[];
+  expect(events).toHaveLength(2);
+  const identity = await mainProcessIdentity(app);
+  expect(events.every((event) => event.parentPid === identity.pid)).toBe(true);
+  expect(events.map((event) => event.event)).toEqual(['request', 'result']);
+  if (process.env['NEXAR_E2E_STATE_PROCESS_TRACE'] === '1')
+    process.stdout.write(`desktop e2e process identity ${JSON.stringify(identity)}\n`);
+  return events;
+}
 
 /** Native runtimes a developer may have signed in on PATH: E2E must never route to them. */
 const REAL_RUNTIMES = ['claude-code', 'codex', 'antigravity', 'deepseek-harness'];
@@ -169,6 +214,10 @@ export async function createHarness(
     app.process().stdout?.on('data', capture);
     app.process().stderr?.on('data', capture);
     try {
+      if (process.platform === 'win32' && process.env['NEXAR_E2E_STATE_PROCESS_TRACE'] === '1') {
+        const events = await stateProcessObservation(app);
+        process.stdout.write(`desktop e2e state process ${JSON.stringify(events)}\n`);
+      }
       // Cold starts run under antivirus scanning on CI runners: a packaged or source build can take
       // well over 30 s before its first window (Windows: engine-config alone has taken 15 s).
       const page = await app.firstWindow({ timeout: 90_000 });

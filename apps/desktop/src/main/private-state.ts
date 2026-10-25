@@ -1,18 +1,21 @@
-import { execFileSync } from 'node:child_process';
 import { lstatSync, readdirSync } from 'node:fs';
 import { chmod, lstat, mkdir } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve, win32 } from 'node:path';
+import { performance } from 'node:perf_hooks';
+import {
+  runWindowsStateProcess,
+  STATE_GUARD_PHASE,
+  STATE_GUARD_READY,
+  WindowsStateProcessError,
+  type WindowsStateProcessEvent,
+  type WindowsStateProcessResult,
+  type WindowsStateToolOptions,
+} from './private-state-process.js';
 const FAILURE = 'Cannot secure the Desktop state directory';
-const READY = 'nexar-state-guard:ready';
+const READY = STATE_GUARD_READY;
 
-interface WindowsOptions {
-  readonly env: Record<string, string>;
-  readonly windowsHide: true;
-  readonly shell: false;
-  readonly timeout: number;
-  readonly maxBuffer: number;
-}
+type WindowsOptions = WindowsStateToolOptions;
 
 /** Dependency seams for testing tool failures without changing the host's system directory. */
 export interface PrivateStateOptions {
@@ -20,6 +23,8 @@ export interface PrivateStateOptions {
   readonly forbiddenPaths?: readonly string[];
   readonly platform?: NodeJS.Platform;
   readonly systemRoot?: string;
+  /** Safe allowlisted metadata only. Native initialization remains synchronous. */
+  readonly onProcessTrace?: (event: WindowsStateProcessEvent) => void;
   readonly runWindows?: (
     command: string,
     args: readonly string[],
@@ -38,6 +43,24 @@ $PSModuleAutoLoadingPreference = 'None'
 try {
   [Console]::Out.WriteLine('${READY}')
   [Console]::Out.Flush()
+  $guardReadyAt = [System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ',
+    [System.Globalization.CultureInfo]::InvariantCulture)
+  $guardClock = [System.Diagnostics.Stopwatch]::StartNew()
+  $guardProcess = [System.Diagnostics.Process]::GetCurrentProcess()
+  $guardCreatedAt = $guardProcess.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ',
+    [System.Globalization.CultureInfo]::InvariantCulture)
+  $guardProcess.Dispose()
+  function Write-GuardPhase([string] $phase) {
+    $at = [System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ',
+      [System.Globalization.CultureInfo]::InvariantCulture)
+    $pidText = $PID.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+    $duration = $guardClock.ElapsedMilliseconds.ToString(
+      [System.Globalization.CultureInfo]::InvariantCulture)
+    [Console]::Out.WriteLine(('${STATE_GUARD_PHASE}|{0}|{1}|{2}|{3}|{4}|{5}' -f
+      $phase, $pidText, $guardCreatedAt, $guardReadyAt, $at, $duration))
+    [Console]::Out.Flush()
+  }
+  Write-GuardPhase 'ready'
   $path = [System.IO.Path]::GetFullPath($env:NEXAR_PRIVATE_STATE_PATH)
   $reserved = @([System.IO.Path]::GetPathRoot($path), [System.IO.Path]::GetTempPath())
   foreach ($folder in @('UserProfile', 'ApplicationData', 'LocalApplicationData', 'Desktop', 'MyDocuments')) {
@@ -185,17 +208,20 @@ try {
       foreach ($child in $item.GetFileSystemInfos()) { $pending.Push($child) }
     }
   }
+  Write-GuardPhase 'tree-checked'
   foreach ($item in $items) {
     [void] (Assert-Owned $item)
     $item.SetAccessControl((Private-Security ($item -is [System.IO.DirectoryInfo])))
     Assert-Private $item
   }
+  Write-GuardPhase 'acl-verified'
   if (-not [System.IO.File]::Exists($marker)) {
     # The root is already private: the marker inherits its restricted grants from creation.
     $stream = [System.IO.File]::Open($marker, [System.IO.FileMode]::CreateNew,
       [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
     $stream.Dispose()
   }
+  Write-GuardPhase 'complete'
   exit 0
 } catch {
   # A fixed category code only: never the message, path or account in the exception.
@@ -227,10 +253,11 @@ const EXIT_CATEGORIES: Readonly<Record<number, string>> = {
 /** Safe failure metadata: a fixed category, phase, exit code and duration. Never paths or output. */
 export interface PrivateStateDiagnostic {
   readonly category: string;
-  /** `preflight` runs before the tool; `startup` failed before the script ran; `execution` after. */
+  /** `startup` means no readiness was captured, not proof the script never executed. */
   readonly phase: 'preflight' | 'startup' | 'execution';
   readonly exitCode?: number;
   readonly elapsedMs?: number;
+  readonly process?: WindowsStateProcessResult;
 }
 
 export class PrivateStateError extends Error {
@@ -241,7 +268,14 @@ export class PrivateStateError extends Error {
 }
 
 function toolDiagnostic(error: unknown, elapsedMs: number): PrivateStateDiagnostic {
-  const failure = (typeof error === 'object' && error !== null ? error : {}) as {
+  const observed = error instanceof WindowsStateProcessError ? error.result : undefined;
+  const failure = (
+    error instanceof WindowsStateProcessError
+      ? { code: error.nativeCode, status: error.result.exitCode, signal: error.result.signal }
+      : typeof error === 'object' && error !== null
+        ? error
+        : {}
+  ) as {
     readonly code?: unknown;
     readonly status?: unknown;
     readonly signal?: unknown;
@@ -249,22 +283,27 @@ function toolDiagnostic(error: unknown, elapsedMs: number): PrivateStateDiagnost
   };
   const stdout = failure.stdout;
   const started =
-    (typeof stdout === 'string' || Buffer.isBuffer(stdout)) && String(stdout).includes(READY);
+    observed?.readinessCaptured ??
+    ((typeof stdout === 'string' || Buffer.isBuffer(stdout)) && String(stdout).includes(READY));
   const phase = started ? 'execution' : 'startup';
-  if (failure.code === 'ETIMEDOUT') return { category: 'timeout', phase, elapsedMs };
-  if (failure.code === 'ENOENT') return { category: 'tool-unavailable', phase, elapsedMs };
+  const timing = {
+    elapsedMs: observed?.elapsedMs ?? Math.round(elapsedMs),
+    ...(observed ? { process: observed } : {}),
+  };
+  if (failure.code === 'ETIMEDOUT') return { category: 'timeout', phase, ...timing };
+  if (failure.code === 'ENOENT') return { category: 'tool-unavailable', phase, ...timing };
   if (typeof failure.status === 'number') {
     return {
       category: EXIT_CATEGORIES[failure.status] ?? 'tool-error',
       phase,
       exitCode: failure.status,
-      elapsedMs,
+      ...timing,
     };
   }
   return {
     category: typeof failure.signal === 'string' ? 'killed' : 'tool-error',
     phase,
-    elapsedMs,
+    ...timing,
   };
 }
 
@@ -379,11 +418,13 @@ export async function ensurePrivateStateDirectory(
       ((command, args, toolOptions) => {
         // Complete native Windows creation/normalization before yielding to Electron's
         // readiness event: Chromium otherwise creates unrecognized first-run cache files.
-        // stdout carries only the fixed readiness marker; stderr is discarded unread.
-        execFileSync(command, [...args], { ...toolOptions, stdio: ['ignore', 'pipe', 'ignore'] });
+        // stdout carries only fixed markers and parsed numeric/time metadata; never forward it.
+        runWindowsStateProcess(command, args, toolOptions, {
+          ...(options.onProcessTrace ? { onEvent: options.onProcessTrace } : {}),
+        });
         return Promise.resolve();
       });
-    const started = Date.now();
+    const started = performance.now();
     try {
       await runWindows(
         win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
@@ -402,7 +443,7 @@ export async function ensurePrivateStateDirectory(
         },
       );
     } catch (error) {
-      throw new PrivateStateError(toolDiagnostic(error, Date.now() - started));
+      throw new PrivateStateError(toolDiagnostic(error, performance.now() - started));
     }
   } catch (error) {
     // Never include subprocess output, account identifiers, paths or a sensitive cause.

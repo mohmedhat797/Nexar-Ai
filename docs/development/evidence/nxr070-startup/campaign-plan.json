@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "status": "PREDECLARED_BEFORE_RUNTIME_CAMPAIGN",
+  "baselineB": "06e55f36f66c27b24d524e699d06246094c4617a",
+  "baselineC": "c7eba797f1a523102a03a8945b5df41e1f6b5d14",
+  "historicalFailedImplementation": "80e70a60f2bd5c109c4a424002ea6af8bcd9b54e",
+  "nativeGuardDeadlineMs": 15000,
+  "parallelHeavySuites": false,
+  "attemptsPerRow": 2,
+  "rows": [
+    "node-parent-fresh",
+    "node-parent-reused",
+    "electron-source-fresh",
+    "electron-source-restart",
+    "electron-packaged-fresh",
+    "electron-packaged-restart",
+    "electron-packaged-after-two-isolated-cowork-turns",
+    "electron-packaged-restart-without-cowork"
+  ],
+  "attemptRules": [
+    "Fresh/restart row pairs may share one disposable profile within a declared pair.",
+    "Both packaged-after-Cowork attempts run two synthetic real-DSH/WSL turns and restart.",
+    "The separate without-Cowork pair performs normal startup/close/restart without work.",
+    "Preserve every result, including diagnostic or application failures.",
+    "No automatic retry and no additional attempts merely to obtain a PASS.",
+    "Record frozen source and package hash for runtime attempts; mark unavailable timestamps explicitly.",
+    "Original uninstrumented package comparison, if performed, is limited to two extra target-scenario attempts and labeled separately."
+  ],
+  "supplementalControlledCoverage": [
+    "Deterministic native spawn failure, timeout, signal, output bound, nonzero early exit and monotonic-clock tests.",
+    "Actual Windows fresh/repeated private-state ACL validation and synchronous pre-yield assertion.",
+    "Actual packaged fail-closed malformed-state startup and owned cleanup where supported.",
+    "Interrupted-startup or child cancellation evidence must state whether it uses a synthetic child or the real application."
+  ],
+  "rootCauseClosure": "Requires a demonstrated failure mechanism and a correction supported by evidence; a passing campaign or Full CI alone is insufficient.",
+  "nonGoals": [
+    "Native guard timeout increase",
+    "Automatic retry",
+    "ACL policy change",
+    "Real credentials",
+    "Paid inference",
+    "DSH upgrade",
+    "Merge",
+    "NXR-070D"
+  ]
+}

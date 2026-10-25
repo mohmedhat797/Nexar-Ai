@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
@@ -49,6 +50,7 @@ import {
   type PlaneLauncher,
 } from './plane-connection.js';
 import { ensurePrivateStateDirectory, PrivateStateError } from './private-state.js';
+import { STATE_GUARD_TRACE_EVENT, type WindowsStateProcessEvent } from './private-state-process.js';
 import { SettingsStore } from './settings-store.js';
 import { holdQuitUntil } from './shutdown.js';
 import { newTask } from './tasks.js';
@@ -106,8 +108,28 @@ const traceStartup =
 
 async function start(): Promise<void> {
   const userData = app.getPath('userData');
+  const processObservations: WindowsStateProcessEvent[] = [];
+  if (process.env['NEXAR_DESKTOP_STARTUP_TRACE'] === '1') {
+    // Playwright attaches after early stderr can already have been consumed. Trusted main-only
+    // inspection can read these two metadata records; no renderer or new IPC endpoint is exposed.
+    EventEmitter.prototype.on.call(app, STATE_GUARD_TRACE_EVENT, (respond: unknown) => {
+      if (typeof respond === 'function') {
+        const observer = respond as (events: readonly WindowsStateProcessEvent[]) => void;
+        observer([...processObservations]);
+      }
+    });
+  }
   traceStartup('begin');
-  await ensurePrivateStateDirectory(userData, { forbiddenPaths: [app.getPath('appData')] });
+  await ensurePrivateStateDirectory(userData, {
+    forbiddenPaths: [app.getPath('appData')],
+    onProcessTrace: (event: WindowsStateProcessEvent): void => {
+      if (process.env['NEXAR_DESKTOP_STARTUP_TRACE'] === '1') {
+        processObservations.push(event);
+        if (processObservations.length > 2) processObservations.shift();
+        process.stderr.write(`nexar-state-guard:process ${JSON.stringify(event)}\n`);
+      }
+    },
+  });
   traceStartup('state-guard');
   await app.whenReady();
   traceStartup('ready');
@@ -586,7 +608,7 @@ app.on('window-all-closed', () => {
 
 start().catch((error: unknown) => {
   // Startup failures (a broken config, say) are reported without paths or stacks; a state
-  // guard failure adds only its fixed category, phase, exit code and duration.
+  // guard failure adds only its fixed category and allowlisted process metadata, never output.
   const name = error instanceof Error ? error.name : 'unknown error';
   const detail = error instanceof PrivateStateError ? ` ${JSON.stringify(error.diagnostic)}` : '';
   process.stderr.write(`nexar-desktop: startup failed: ${name}${detail}\n`);
