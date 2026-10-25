@@ -346,18 +346,21 @@ describe('execute: sandboxed run', () => {
 
   it('allows only one running agy per adapter; a second call is retryable RESOURCE_UNAVAILABLE', async () => {
     h = harness({ mode: 'hang' });
-    const ac = new AbortController();
-    const first = sandboxedRun(h, ac.signal);
-    await waitFor(() => (h?.invocations().length ? true : undefined));
+    const instance = h;
+    await withCancelledExecution(instance, async ({ cancel, run }) => {
+      await waitFor(() => (instance.invocations().length ? true : undefined));
 
-    const { launcher, ctx } = sandboxed(h);
-    const err = await rejection(h.adapter.execute({ task: task(), resource: optedIn() }, ctx));
-    expect(err.code).toBe('RESOURCE_UNAVAILABLE');
-    expect(err.retryable).toBe(true);
-    expect(launcher.prepared.count).toBe(0);
+      const { launcher, ctx } = sandboxed(instance);
+      const err = await rejection(
+        instance.adapter.execute({ task: task(), resource: optedIn() }, ctx),
+      );
+      expect(err.code).toBe('RESOURCE_UNAVAILABLE');
+      expect(err.retryable).toBe(true);
+      expect(launcher.prepared.count).toBe(0);
 
-    ac.abort();
-    expect((await rejection(first)).code).toBe('EXECUTION_CANCELLED');
+      cancel();
+      expect((await run).code).toBe('EXECUTION_CANCELLED');
+    });
     // The slot is free again once the first run has finished.
     const { ctx: ctx3 } = sandboxed(h);
     const again = await rejection(
@@ -366,11 +369,6 @@ describe('execute: sandboxed run', () => {
     expect(again.code).toBe('EXECUTION_TIMEOUT');
   });
 });
-
-function sandboxedRun(harnessInstance: Harness, signal: AbortSignal): Promise<unknown> {
-  const { ctx } = sandboxed(harnessInstance, signal);
-  return harnessInstance.adapter.execute({ task: task(), resource: optedIn() }, ctx);
-}
 
 describe('execute: failures', () => {
   it('result status ERROR -> PROVIDER_ERROR with the error text', async () => {

@@ -54,13 +54,16 @@ beforeEach(() => {
   });
 });
 afterEach(async () => {
-  for (const harness of fixtures.splice(0)) {
-    await harness.dispose();
-    await rm(harness.base, { recursive: true, force: true });
+  try {
+    for (const harness of fixtures.splice(0)) {
+      await harness.dispose();
+      await rm(harness.base, { recursive: true, force: true });
+    }
+  } finally {
+    launches.length = 0;
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   }
-  launches.length = 0;
-  vi.restoreAllMocks();
-  vi.unstubAllEnvs();
 });
 
 describe('Desktop E2E fixture diagnostics and cleanup', () => {
