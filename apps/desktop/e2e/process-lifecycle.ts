@@ -37,6 +37,33 @@ async function terminateTree(child: ChildProcess): Promise<void> {
   }
 }
 
+/**
+ * A Windows shell's exit is not proof that its Electron child exited. Observe absence
+ * of the main PID obtained from that application before reusing its profile. Signal 0
+ * never terminates a process; even PID reuse fails closed rather than killing a stranger.
+ */
+export async function waitForMainProcessExit(identity: {
+  readonly pid: number;
+  readonly createdAtEpochMs?: number | undefined;
+}): Promise<void> {
+  if (!Number.isSafeInteger(identity.pid) || identity.pid <= 0)
+    throw new Error('E2E main process identity unavailable; profile retained');
+  const deadline = performance.now() + 5_000;
+  for (;;) {
+    try {
+      process.kill(identity.pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return;
+      throw new Error('E2E main process exit could not be verified; profile retained', {
+        cause: error,
+      });
+    }
+    if (performance.now() >= deadline)
+      throw new Error('E2E main process remains present; profile retained');
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 /** Profile reuse/removal is allowed only after the owned child has actually exited. */
 export async function finishProcess(
   child: ChildProcess,
@@ -45,18 +72,29 @@ export async function finishProcess(
     readonly graceMs?: number;
     readonly killMs?: number;
     readonly terminate?: (child: ChildProcess) => Promise<void>;
+    readonly verifyExit?: () => Promise<void>;
   } = {},
 ): Promise<{ forced: boolean }> {
-  if (exited(child)) return { forced: false };
+  const finish = async (forced: boolean) => {
+    await options.verifyExit?.();
+    return { forced };
+  };
+  if (exited(child)) {
+    if (options.verifyExit)
+      void Promise.resolve()
+        .then(close)
+        .catch(() => undefined);
+    return finish(false);
+  }
   const closed = waitForExit(child, options.graceMs ?? 20_000);
   // Electron's connection can close before its OS process. Neither a resolved nor rejected
   // protocol close substitutes for the process-exit observation above.
   void Promise.resolve()
     .then(close)
     .catch(() => undefined);
-  if (await closed) return { forced: false };
+  if (await closed) return finish(false);
   await (options.terminate ?? terminateTree)(child);
   if (!(await waitForExit(child, options.killMs ?? 5_000)))
     throw new Error('E2E process did not exit; profile retained');
-  return { forced: true };
+  return finish(true);
 }

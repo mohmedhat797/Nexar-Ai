@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { access, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createHarness,
   stateProcessObservation,
@@ -26,6 +26,7 @@ function fakeApp() {
     child,
     app: {
       process: () => child,
+      evaluate: () => Promise.resolve({ pid: 456, parentPid: 123, createdAtEpochMs: 1234 }),
       firstWindow: () => Promise.resolve({ waitForSelector: () => Promise.resolve(undefined) }),
       close: vi.fn(() => {
         child.exitCode = 0;
@@ -37,6 +38,11 @@ function fakeApp() {
 }
 
 const fixtures: Harness[] = [];
+beforeEach(() => {
+  vi.spyOn(process, 'kill').mockImplementation(() => {
+    throw Object.assign(new Error('Synthetic exited process'), { code: 'ESRCH' });
+  });
+});
 afterEach(async () => {
   for (const harness of fixtures.splice(0)) {
     await harness.dispose();
@@ -81,6 +87,72 @@ describe('Desktop E2E fixture diagnostics and cleanup', () => {
     await harness.dispose();
     expect(child.exitCode).toBe(0);
     await expect(access(harness.base)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('closes and checks the real main after its Windows launcher has exited', async () => {
+    const harness = await createHarness(() => undefined, launchApplication);
+    fixtures.push(harness);
+    const { app, child } = fakeApp();
+    launches.push(app);
+    await harness.launch(harness.newUserData('launcher-exited'));
+    child.exitCode = 0;
+    await harness.close(app as unknown as Application);
+    expect(app.close).toHaveBeenCalledOnce();
+    expect(vi.spyOn(process, 'kill')).toHaveBeenCalledWith(456, 0);
+  });
+
+  it('refuses another launch until the existing application releases its profile', async () => {
+    const harness = await createHarness(() => undefined, launchApplication);
+    fixtures.push(harness);
+    const { app } = fakeApp();
+    launches.push(app);
+    const userData = harness.newUserData('owned');
+    await harness.launch(userData);
+    await expect(harness.launch(userData)).rejects.toThrow('profile still owned');
+    expect(launches).toHaveLength(0);
+  });
+
+  it('reserves profile ownership before a concurrent launcher can pass admission', async () => {
+    const { app } = fakeApp();
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const launcher = vi.fn(() => barrier.then(() => app as unknown as Application));
+    const harness = await createHarness(() => undefined, launcher);
+    fixtures.push(harness);
+    const userData = harness.newUserData('pending-launch');
+    const first = harness.launch(userData);
+    const second = harness.launch(userData).catch((error: unknown) => error);
+    release();
+    await first;
+    expect(await second).toMatchObject({
+      message: 'E2E profile still owned by an application; restart refused',
+    });
+    expect(launcher).toHaveBeenCalledOnce();
+  });
+
+  it('retains ownership and state when the launcher exits before a still-live main', async () => {
+    const harness = await createHarness(() => undefined, launchApplication);
+    fixtures.push(harness);
+    const { app, child } = fakeApp();
+    launches.push(app);
+    const userData = harness.newUserData('main-still-live');
+    await harness.launch(userData);
+    child.exitCode = 0;
+    vi.useFakeTimers();
+    vi.spyOn(process, 'kill').mockReturnValue(true);
+    const closing = harness.close(app as unknown as Application).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await closing).toMatchObject({
+      message: 'E2E main process remains present; profile retained',
+    });
+    await expect(access(userData)).resolves.toBeUndefined();
+    await expect(harness.launch(userData)).rejects.toThrow('profile still owned');
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('Synthetic exited process'), { code: 'ESRCH' });
+    });
+    vi.useRealTimers();
   });
 
   it('retains failed fixture state while still closing its owned application', async () => {
