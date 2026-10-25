@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { adapterId, isNexarError } from '@nexar/contracts';
 import type { NexarError } from '@nexar/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -421,13 +422,34 @@ describe('execute: failures', () => {
   });
 
   it('an interactive OAuth attempt -> AUTH_REQUIRED, and the process group is killed', async () => {
-    h = harness({ mode: 'oauth' });
+    let signalAt: number | undefined;
+    const requestedAt = performance.now();
+    const observeSpawn = ((...args: Parameters<typeof spawn>) => {
+      const child = spawn(...args);
+      let pending = '';
+      const observe = (chunk: Buffer) => {
+        pending = (pending + chunk.toString('utf8')).slice(-1024);
+        if (pending.includes('Print mode: triggering interactive OAuth\n'))
+          signalAt ??= performance.now();
+      };
+      child.stderr?.on('data', observe);
+      child.once('close', () => child.stderr?.removeListener('data', observe));
+      return child;
+    }) as typeof spawn;
+    h = harness({ mode: 'oauth' }, {}, { spawnImpl: observeSpawn });
     const { launcher, ctx } = sandboxed(h);
-    const started = Date.now();
     const err = await rejection(h.adapter.execute({ task: task(), resource: optedIn() }, ctx));
+    const settledAt = performance.now();
     expect(err.code).toBe('AUTH_REQUIRED');
     expect(err.message).toContain("sign in with 'agy' yourself");
-    expect(Date.now() - started).toBeLessThan(4000);
+    if (signalAt === undefined) throw new Error('Expected the complete fake OAuth signal');
+    expect(settledAt - signalAt).toBeLessThan(4000);
+    process.stdout.write(
+      `antigravity fixture phases ${JSON.stringify({
+        requestToSignalMs: Math.round(signalAt - requestedAt),
+        signalToRejectionMs: Math.round(settledAt - signalAt),
+      })}\n`,
+    );
     const pid = readPid(h);
     expect(Number.isNaN(pid)).toBe(false);
     await waitFor(() => (isAlive(pid) ? undefined : true));
@@ -460,14 +482,67 @@ describe('execute: failures', () => {
 /** The grandchild pid the fake wrote, or NaN before it exists. */
 function readPid(harnessInstance: Harness): number {
   try {
-    return Number(readFileSync(harnessInstance.pidfile, 'utf8'));
+    const value = Number(readFileSync(harnessInstance.pidfile, 'utf8').trim());
+    return Number.isSafeInteger(value) && value > 0 ? value : Number.NaN;
   } catch {
     return Number.NaN;
   }
 }
 
+/** Always stop an owned hanging execution, including when fixture readiness fails. */
+async function withCancelledExecution<T>(
+  instance: Harness,
+  body: (execution: {
+    cancel: () => void;
+    run: Promise<NexarError>;
+    launcher: ReturnType<typeof fakeLauncher>;
+  }) => Promise<T>,
+): Promise<T> {
+  const ac = new AbortController();
+  const { launcher, ctx } = sandboxed(instance, ac.signal);
+  const run = rejection(instance.adapter.execute({ task: task(), resource: optedIn() }, ctx));
+  let outcome: { ok: true; value: T } | { ok: false; error: unknown };
+  try {
+    outcome = { ok: true, value: await body({ cancel: () => ac.abort(), run, launcher }) };
+  } catch (error) {
+    outcome = { ok: false, error };
+  }
+  ac.abort();
+  try {
+    await run;
+  } catch (cleanupError) {
+    if (!outcome.ok)
+      throw new AggregateError(
+        [outcome.error, cleanupError],
+        'Fixture failure and cancellation failed',
+        {
+          cause: cleanupError,
+        },
+      );
+    throw cleanupError;
+  }
+  if (!outcome.ok) throw outcome.error;
+  return outcome.value;
+}
+
+describe('fake runtime PID readiness', () => {
+  it.each(['', ' ', '0', '-1', 'NaN', '1.5', '9007199254740992'])(
+    'does not treat invalid PID text %j as readiness',
+    (value) => {
+      h = harness();
+      writeFileSync(h.pidfile, value);
+      expect(readPid(h)).toBeNaN();
+    },
+  );
+  it('accepts a published positive integer PID', () => {
+    h = harness();
+    writeFileSync(h.pidfile, '12345');
+    expect(readPid(h)).toBe(12345);
+  });
+});
+
 // Each case spawns the fake runtime and its grandchild, kills the tree with taskkill (bounded at
-// 5 s on Windows) and waits up to 5 s each for the grandchild to appear and to die: the suite's
+// 5 s on Windows), allows 10 s for fake-runtime startup and 5 s to observe process death: the suite's
 // own bounds exceed the 5 s default on a loaded Windows runner. Assertions are unchanged.
 describe(
   'execute: timeout and abort kill the process group and dispose',
@@ -488,15 +563,37 @@ describe(
     it('abort -> EXECUTION_CANCELLED, grandchild dies, launch disposed', async () => {
       const hh = harness({ mode: 'hang' });
       h = hh;
-      const ac = new AbortController();
-      const { launcher, ctx } = sandboxed(hh, ac.signal);
-      const run = rejection(hh.adapter.execute({ task: task(), resource: optedIn() }, ctx));
-      await waitFor(() => (Number.isNaN(readPid(hh)) ? undefined : true));
-      const pid = readPid(hh);
-      ac.abort();
-      expect((await run).code).toBe('EXECUTION_CANCELLED');
-      expect(launcher.disposed.count).toBe(1);
-      await waitFor(() => (isAlive(pid) ? undefined : true));
+      await withCancelledExecution(hh, async ({ cancel, run, launcher }) => {
+        await waitFor(() => (Number.isNaN(readPid(hh)) ? undefined : true), 10_000);
+        const pid = readPid(hh);
+        const parent = hh.invocations()[0]?.pid ?? 0;
+        expect(parent).toBeGreaterThan(0);
+        cancel();
+        expect((await run).code).toBe('EXECUTION_CANCELLED');
+        expect(launcher.disposed.count).toBe(1);
+        await waitFor(() => (isAlive(pid) || isAlive(parent) ? undefined : true));
+      });
+    });
+
+    it('a fixture readiness error still cancels execution and observes owned tree exit', async () => {
+      const hh = harness({ mode: 'hang' });
+      h = hh;
+      let pid = Number.NaN;
+      let parent = Number.NaN;
+      let disposed: { count: number } | undefined;
+      await expect(
+        withCancelledExecution(hh, async ({ launcher }) => {
+          await waitFor(() => (Number.isNaN(readPid(hh)) ? undefined : true), 10_000);
+          pid = readPid(hh);
+          parent = hh.invocations()[0]?.pid ?? Number.NaN;
+          disposed = launcher.disposed;
+          throw new Error('Synthetic fixture readiness failure');
+        }),
+      ).rejects.toThrow('Synthetic fixture readiness failure');
+      expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+      expect(Number.isSafeInteger(parent) && parent > 0).toBe(true);
+      expect(disposed?.count).toBe(1);
+      await waitFor(() => (isAlive(pid) || isAlive(parent) ? undefined : true));
     });
   },
 );

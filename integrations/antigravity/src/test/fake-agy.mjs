@@ -9,7 +9,7 @@
 //   --fake-models-empty    `models` prints nothing and exits 0
 //   --fake-pidfile=FILE    hang/oauth modes write their grandchild's pid here
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 
 const flags = {};
 const argv = [];
@@ -61,7 +61,11 @@ function spawnGrandchild() {
   const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
     stdio: 'ignore',
   });
-  if (flags.pidfile) writeFileSync(flags.pidfile, String(grandchild.pid));
+  if (flags.pidfile) {
+    const staged = `${flags.pidfile}.${process.pid}.tmp`;
+    writeFileSync(staged, String(grandchild.pid));
+    renameSync(staged, flags.pidfile);
+  }
 }
 
 record();
