@@ -26,6 +26,7 @@ export function spawnSubprocess(
     signal?: AbortSignal | null;
     onStdout?: ((data: string) => void) | null;
     onStderr?: ((data: string) => void) | null;
+    onSpawn?: ((pid: number) => void) | null;
     windowsHide?: boolean;
   },
 ): Promise<SubprocessResult>;

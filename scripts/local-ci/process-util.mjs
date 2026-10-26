@@ -77,6 +77,7 @@ export async function spawnSubprocess(command, args = [], options = {}) {
     signal = null,
     onStdout = null,
     onStderr = null,
+    onSpawn = null,
     windowsHide = true,
   } = options;
 
@@ -128,6 +129,10 @@ export async function spawnSubprocess(command, args = [], options = {}) {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
       windowsHide,
+    });
+
+    child.once('spawn', () => {
+      if (onSpawn) onSpawn(child.pid);
     });
 
     const cleanup = () => {
