@@ -19,6 +19,14 @@ The Phase A staged installer is inherited through the normal B′→C′ merge. 
 
 Tests retain historical version observations and synthetic installer fixtures where they describe rc.2. Active current-version fixtures change deliberately. New tests cover private shared-agent-home isolation, an isolated Linux acceptance runtime, preservation of explicit legacy model options, and actual managed ACP execution over persisted owner connections and the production Registry/NRC/Gateway/credential resolver.
 
+## SDK compatibility follow-up
+
+Final call-graph review also inspected the retained ordinary-task SDK path in `adapter.ts`, which uses `renderPatchOverlay` rather than the ACP profile renderer. The published rc.3 SDK application inherits `dsh-base`, including the new tool/backend rows. The SDK overlay now disables those two rows too. Its deterministic regression failed before the correction and passed afterward; existing exact SDK overlay expectations change only for these explicitly disallowed new surfaces.
+
+A new opt-in `sdk.real.test.ts` executes the actual managed SDK against an explicit synthetic provider at `127.0.0.1`, with a private instruction home and a non-secret fixture credential. It verifies model execution, credential delivery, absence of the new working-directory tool and secret-free adapter logs. The first execution timed out at initialization after 60 seconds; a subsequent diagnostic execution passed and offered 24 tools. The diagnostic added no startup correction, so the initial delay is unresolved. Bounded additional attempts and final acceptance are recorded separately; successful reruns are not root-cause closure.
+
+The first Full Windows attempt at `3fa15d4` was deliberately interrupted during stage 4 after this SDK overlay gap was confirmed. It passed dependency verification, runtime installation (141.72 seconds) and formatting, but emitted no aggregate PASS. A complete invocation on the corrected source is still required. The stable managed runtime lives under `.nexar/dsh-runtime`; Desktop's generated `dist` is intentionally cleared by its build and is unsuitable for the persistent acceptance runtime.
+
 ## Runtime and ownership
 
 Nexar still initiates a fresh ACP session per turn. DSH's internal private session files remain runtime-local and do not replace FileSessionStore. No resume API or plugin storage migration is enabled. ProjectMemoryStore, Permission Broker, immutable connection identity, host credential resolution, review diversity, delegation limits and sandbox authority are unchanged.

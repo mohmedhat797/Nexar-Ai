@@ -28,6 +28,22 @@ The new real ACP test uses normal persisted connection creation and inventory pu
 
 Earlier attempts of that new test failed on fixture task/session ID wiring and were retained as failures. The corrected test uses production task creation and canonical session/turn ID factories. These attempts are not RED/GREEN evidence of a production routing defect.
 
+## Subsequent source-bound evidence
+
+Implementation `3fa15d4860fe38a52574f6dfa5b8eee8e0507e77`, tree `1177bc61772c0c4281af8d4460cdca4d50239faf`, passed complete `pnpm check` before commit: 4,593 passed, 181 skipped, four pending, zero failed; 285,992 ms. Source stayed at that staged tree. Log SHA256 `2d3322b7abc48e5fe1b87cb6f5a5b6fecbd46ccbc6e989aeb9890c6d4ce49aa0`.
+
+Matching isolated Linux source was promoted non-destructively to that same clean commit/tree, retaining the precommit snapshot in a stash. The actual Windows-to-WSL corpus passed all five tests: model/permission/draft round trip, read-only denial, cancellation, concurrent input isolation and disconnected-helper recovery. Log SHA256 `9cfd44cfe044e0eee8b5a3962b80df6c59fec4cbf2cbc697600e3f50f431f586`. Early helper fixture errors were preserved and corrected; they were not DSH production failures.
+
+The disposable canonical-state rollback reader preserved identical connection, credential, Resource ID, completed session and memory identities through old→new→old code. A separate actual ACP campaign passed 3/3 tests on rc.2, 3/3 on rc.3 and 3/3 after restoring rc.2. Evidence directories: `dsh-rc3-state-rollback-20261027` and `dsh-rc3-runtime-rollback-stable-20261027`. The earlier incomplete runtime campaign stopped before rc.3 execution because a generated build directory was cleaned; it remains incomplete, not PASS.
+
+The first Windows Full invocation at `3fa15d4` was **interrupted by engineering**, exit 130, during ESLint after discovering an SDK overlay compatibility gap. It passed the first three stages, including rc.3 installation in 141.72 seconds. Raw log SHA256 `7d9865c42143504fbb87dccfcbb246b5487d1085940dc2156771d0df11981d8f`. There is no aggregate PASS for that invocation. The SDK correction and its new actual-runtime test require updated acceptance.
+
+## SDK follow-up
+
+The SDK overlay regression failed before blocking the new shared-base rows and passed after correction. The real SDK fixture first failed to answer initialization within its 60-second test deadline (`dsh-rc3-real-sdk-first-20261027`, log SHA256 `4eb1fe6229fcb0bce6782d3dac8666b932a70e1abd85172a07cfe9a0844a7a60`). A diagnostic attempt then passed in 12,341 ms with no stderr and 24 offered tools. Temporary instrumentation was removed. Two predefined additional attempts passed in 5,921 ms and 4,839 ms, with log SHA256 values `bdf0b4e170e17000c877bbe9995fd70f20d1e4b67314898b157e77578a01b9bb` and `fe190f5fe4a7c7ca3aea737c6e74b753c61d451fd53e05f0b709fb29db439355`.
+
+The wire protocol, explicit synthetic credential route and disabled new tool were exercised successfully. The original timing failure remains causally unresolved; these later passes are not a reliability correction. No production deadline, automatic retry or security policy was changed.
+
 ## Required outstanding gates
 
 Real rc.3 ACP context/compaction, actual connection-bound execution and lifecycle protection, full offline check, source Desktop E2E, packaged runtime identity and E2E, one complete Windows Full CI, isolated WSL2 sandbox regressions, secret scanning, bounded repeatability, disposable rollback, Draft PR publication and independent owner acceptance remain pending until their executed evidence is appended.

@@ -25,6 +25,14 @@ The root tarball SRI is `sha512-H+E9HLnHf7fJqzen84Z9Bq8ggb5xbrcbyhZjXTJLE9NabHr3
 
 Raw metadata, release bodies, untruncated source tree and 20 Git-blob-verified source snapshots are preserved under the canonical workspace's `.nexar/ci/dsh-upstream-metadata-20261027/` and `.nexar/ci/dsh-compatibility-source-rc3-20261027/`. The actual tarball receipt is in the candidate's `.nexar/ci/dsh-rc3-published-artifact-20261027.json`.
 
+## Dependency advisory evidence
+
+The executed npm audits are **not clean**: rc.2 has 15 affected package/metavulnerability records (7 high, 8 moderate), while rc.3 has 196 (189 high, 7 moderate). Those counts are not independent vulnerability counts. rc.3's six underlying GHSA IDs are also in rc.2's eleven, but rc.3 introduces numerous nested Zod 4.4.3 copies despite its hoisted 4.6.7 version. Unchanged advisory IDs do not establish unchanged attack exposure.
+
+Remaining dependencies include the [Zod collection availability advisory](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5), [MCP HTTP/OAuth redirect advisory](https://github.com/advisories/GHSA-6prh-2h8m-c8cw), [nested fflate advisory](https://github.com/advisories/GHSA-px8p-9vwx-vf98) and Undici advisories recorded in raw evidence. Nexar's fixed stdio MCP boundary excludes the cited HTTP/OAuth path; that does not establish every other bundled sink unreachable. Availability exposure in active nested Zod modules and optional document utilities needs explicit disposition. No dependency override, audit-fix operation or security exception was introduced. Integration must not be represented as unconditionally security-clean.
+
+Raw installed-runtime audits and the normalized comparison are retained in the candidate's `.nexar/ci/dsh-runtime-audit-comparison-20261027.json`; raw SHA256 values are `bb94c1bc864d13774b0a6832314e5bbc67b098f401c1fd0e1f6b628331aa5f64` (rc.2) and `c8ff555ebe16070079b47572971dbe450ab03ff39e81e624fc7ed34dfcd43482` (rc.3). Both actual npm audit commands exited 1; successful evidence capture is not an audit PASS.
+
 ## Architectural and acceptance limits
 
 This is a version exception under the [ADR-030 amendment](../adr/030-version-amendment-dsh-021-rc3.md), not a runtime redesign. NRC, credentials, canonical sessions, Project Memory, permissions, C′ diversity, private-state ACLs and sandboxing retain their authorities. Read-only upstream source review and successful installation alone do not verify these runtime contracts. Final executed evidence and remaining gates must be read in the acceptance report.

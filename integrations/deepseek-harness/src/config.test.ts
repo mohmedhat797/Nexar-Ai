@@ -82,11 +82,16 @@ describe('buildDshEnv', () => {
 });
 
 describe('renderPatchOverlay', () => {
+  it('does not activate the new upstream working-directory or web backend in the SDK profile', () => {
+    const overlay = renderPatchOverlay();
+    expect(overlay).toContain('- id: tool-working-directory\n  disabled: true');
+    expect(overlay).toContain('- id: web-deepseek-api\n  disabled: true');
+  });
   it('always disables session-log-deepseek', () => {
-    expect(renderPatchOverlay()).toBe('- id: session-log-deepseek\n  disabled: true\n');
-    expect(renderPatchOverlay({ piAiProviders: {} })).toBe(
-      '- id: session-log-deepseek\n  disabled: true\n',
-    );
+    const expected =
+      '- id: session-log-deepseek\n  disabled: true\n- id: tool-working-directory\n  disabled: true\n- id: web-deepseek-api\n  disabled: true\n';
+    expect(renderPatchOverlay()).toBe(expected);
+    expect(renderPatchOverlay({ piAiProviders: {} })).toBe(expected);
   });
 
   it('renders llm-pi-ai providers', () => {
@@ -99,6 +104,10 @@ describe('renderPatchOverlay', () => {
     expect(text).toBe(
       [
         '- id: session-log-deepseek',
+        '  disabled: true',
+        '- id: tool-working-directory',
+        '  disabled: true',
+        '- id: web-deepseek-api',
         '  disabled: true',
         '- id: llm-pi-ai',
         '  config:',
