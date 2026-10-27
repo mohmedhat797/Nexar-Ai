@@ -89,7 +89,7 @@ describe('renderPatchOverlay', () => {
   });
   it('always disables session-log-deepseek', () => {
     const expected =
-      '- id: session-log-deepseek\n  disabled: true\n- id: tool-working-directory\n  disabled: true\n- id: web-deepseek-api\n  disabled: true\n';
+      '- id: session-log-deepseek\n  disabled: true\n- id: credentials\n  disabled: true\n- id: authorization\n  disabled: true\n- id: tool-working-directory\n  disabled: true\n- id: web-deepseek-api\n  disabled: true\n';
     expect(renderPatchOverlay()).toBe(expected);
     expect(renderPatchOverlay({ piAiProviders: {} })).toBe(expected);
   });
@@ -104,6 +104,10 @@ describe('renderPatchOverlay', () => {
     expect(text).toBe(
       [
         '- id: session-log-deepseek',
+        '  disabled: true',
+        '- id: credentials',
+        '  disabled: true',
+        '- id: authorization',
         '  disabled: true',
         '- id: tool-working-directory',
         '  disabled: true',

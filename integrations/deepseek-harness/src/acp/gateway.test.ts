@@ -52,6 +52,10 @@ describe('renderPatchOverlay: the nexar route', () => {
       [
         '- id: session-log-deepseek',
         '  disabled: true',
+        '- id: credentials',
+        '  disabled: true',
+        '- id: authorization',
+        '  disabled: true',
         '- id: tool-working-directory',
         '  disabled: true',
         '- id: web-deepseek-api',

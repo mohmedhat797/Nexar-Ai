@@ -54,6 +54,9 @@ export const CODING_PROFILE: DshProfile = {
 /** Rows every profile disables: no session log, telemetry, upstream account login or hosted search. */
 const COMMON_DISABLED_ROWS = [
   'session-log-deepseek',
+  // Match upstream headless credential semantics; Nexar owns storage and sign-in.
+  'credentials',
+  'authorization',
   'otel',
   'session-telemetry-otel',
   'llm-deepseek-account',

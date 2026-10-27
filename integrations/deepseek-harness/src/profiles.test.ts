@@ -11,6 +11,8 @@ import type { DshProfile } from './profiles.js';
 const BASE_URL = 'http://127.0.0.1:43111/v1';
 const PRIVACY_ROWS = [
   'session-log-deepseek',
+  'credentials',
+  'authorization',
   'otel',
   'session-telemetry-otel',
   'llm-deepseek-account',

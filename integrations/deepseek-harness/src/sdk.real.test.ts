@@ -65,9 +65,18 @@ describe.skipIf(entry === undefined)('managed DSH SDK compatibility', () => {
       );
       const home = join(dir, 'owned-home');
       await mkdir(home);
+      const stateDir = join(dir, 'state');
+      const runtimeHome = join(stateDir, 'home');
+      await mkdir(runtimeHome, { recursive: true, mode: 0o700 });
+      // An upstream saved credential must never replace Nexar's explicitly selected key.
+      await writeFile(
+        join(runtimeHome, '.credentials.yaml'),
+        'version: 1\nrefs:\n  SDK_FIXTURE_KEY: foreign-fixture\n',
+        { mode: 0o600 },
+      );
       const adapter = new DeepSeekHarnessExecutionAdapter({
         binary: { command: process.execPath, args: [entry!] },
-        stateDir: join(dir, 'state'),
+        stateDir,
         env: { PATH: process.env.PATH, HOME: home, SDK_FIXTURE_KEY: key },
         initializeTimeoutMs: 60000,
         defaultTimeoutMs: 90000,
