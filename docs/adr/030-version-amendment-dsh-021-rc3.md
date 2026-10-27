@@ -1,7 +1,7 @@
 # ADR-030 version amendment: owner-authorized DSH 0.2.1-rc.3 candidate
 
 - Authorization: project owner, 26 October 2026 (Africa/Cairo), NXR-070-BC Runtime Installation Reliability & Controlled DSH Upgrade assignment.
-- Status: exact target authorized; compatibility and platform acceptance in progress. This record does not grant integration approval.
+- Status: exact target implemented; source/WSL and disposable rollback verified; Windows Full failed during package installation. Dependency advisory disposition and independent owner acceptance remain outstanding. This record does not grant integration approval.
 - Previous approved runtime: `@deepseek-ai/dsh@0.2.0-rc.2`.
 - Authorized candidate: exactly `@deepseek-ai/dsh@0.2.1-rc.3`.
 - Architecture authority: [ADR-030](030-unified-dsh-first-agent-runtime.md), unchanged; [ADR-029](029-connection-scoped-resources-and-canonical-continuity.md), unchanged.

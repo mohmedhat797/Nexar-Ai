@@ -1,6 +1,6 @@
 # DSH 0.2.1-rc.3 compatibility assessment
 
-Date: 27 October 2026. Status: implementation and acceptance in progress; no production acceptance claim.
+Date: 27 October 2026. Status: exact upgrade implemented; source/WSL/rollback evidence collected; Windows aggregate acceptance failed. No production or merge approval.
 
 ## Official identity
 
@@ -33,7 +33,7 @@ Actual published rc.3 code loads `credentials-local` through the normal base pro
 
 The real managed SDK regression seeded a valid version1 store with a different synthetic key, while the adapter supplied the selected key through its normal environment builder. Before correction the local transport received the stored foreign key: one test failed in18261ms, log SHA256 `4aab74322e9aa36629c4fadf7ecdbe89162a21bfd52246f1402a6888b790cdd9`. Both Nexar SDK and ACP overlays now disable the upstream `credentials` and `authorization` rows, following the official headless mechanism. Nexar ConnectionManager, credential resolution and Permission Broker retain their authorities; no native store is deleted, migrated or made canonical.
 
-The same real SDK test passed after correction in4849ms, zero failed/skipped/pending, log SHA256 `1e1f7b6f3c316e9c7c0da371f54794e9bf1b902c9469e3dd33e07937dca72012`. Evidence prefixes: `.nexar/ci/dsh-rc3-sdk-valid-foreign-store-{red,green}-20261027`. The initial malformed fixture omitted the native store's required `version:1` and timed out during initialization; that retained failure is a fixture defect, not proof of credential substitution or an explanation of the earlier unrelated SDK timeout. No initialization deadline was increased. Full ACP/profile/security regression and final Windows/WSL acceptance remain separate evidence gates.
+The same real SDK test passed after correction in4849ms, zero failed/skipped/pending, log SHA256 `1e1f7b6f3c316e9c7c0da371f54794e9bf1b902c9469e3dd33e07937dca72012`. Evidence prefixes: `.nexar/ci/dsh-rc3-sdk-valid-foreign-store-{red,green}-20261027`. The initial malformed fixture omitted the native store's required `version:1` and timed out during initialization; that retained failure is a fixture defect, not proof of credential substitution or an explanation of the earlier unrelated SDK timeout. No initialization deadline was increased. Full ACP/profile/security regressions, WSL Full and disposable rollback have executed; Windows Full failed at packaging's nested installation. They remain distinct evidence gates.
 
 The executed npm audits are **not clean**: rc.2 has 15 affected package/metavulnerability records (7 high, 8 moderate), while rc.3 has 196 (189 high, 7 moderate). Those counts are not independent vulnerability counts. rc.3's six underlying GHSA IDs are also in rc.2's eleven, but rc.3 introduces numerous nested Zod 4.4.3 copies despite its hoisted 4.6.7 version. Unchanged advisory IDs do not establish unchanged attack exposure.
 
@@ -45,4 +45,10 @@ Raw installed-runtime audits and the normalized comparison are retained in the c
 
 This is a version exception under the [ADR-030 amendment](../adr/030-version-amendment-dsh-021-rc3.md), not a runtime redesign. NRC, credentials, canonical sessions, Project Memory, permissions, C′ diversity, private-state ACLs and sandboxing retain their authorities. Read-only upstream source review and successful installation alone do not verify these runtime contracts. Final executed evidence and remaining gates must be read in the acceptance report.
 
-The old rc.2 installer timeout's low-level cause and historical Electron guard timeout remain unresolved. The staged installer correction demonstrably preserves an existing valid runtime when acquisition fails; that separate correction does not prove either historical delay fixed. B′'s latest standalone Full CI failed later at packaged Cowork SOW, despite successful installation.
+The old rc.2 installer timeout's low-level cause and historical Electron guard timeout remain unresolved. The staged installer correction demonstrably preserves an existing valid runtime when acquisition fails; that separate correction does not prove either historical delay fixed. B′ subsequently passed standalone Windows Full on dc4d89b; the earlier packaged SOW failure remains a failure with an unresolved cause. The final rc.3 Full and bounded standalone package comparison failed in npm-ci at the unchanged 180-second deadline.
+
+## Final assessment and review scope
+
+Clean implementation a3f02b4e4ddce33ae81ec45c96e8d587842b37be / tree 79e0275a8164b1b0c5e9007b2993dee3579c4c58 passed source Desktop 33/33, WSL Full 4,751 passed/30 skipped and disposable canonical/runtime rollback. Current packaged E2E did not execute, so overall runtime compatibility is incomplete. Exact source-bound results and failed report identities are in [acceptance](NXR070_DSH_021_RC3_Acceptance.md).
+
+The implementation-agent review compared the final call graph and C′ Git blobs: connection/settings/key stores, Windows private-state, canonical sessions, Project Memory, NRC controller/strategy, Control Gateway and Permission Broker were byte-identical. Routing goldens remain unchanged. Both launch paths deny saved-credential substitution and the new capabilities. No renderer credential authority, account rebinding, native canonical-session takeover or sandbox change was introduced. This self-review is not independent approval and does not waive the dependency advisories above.

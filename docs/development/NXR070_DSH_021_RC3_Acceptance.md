@@ -1,61 +1,98 @@
 # DSH 0.2.1-rc.3 acceptance
 
-Date: 27 October 2026. **Acceptance in progress. No aggregate Windows, WSL, packaged or rollback PASS is claimed by this preliminary record.**
+Date: 27 October 2026. **Upgrade implementation exists; Windows aggregate acceptance FAILED. Keep Draft and do not integrate.** Successful source, WSL and rollback results do not replace the failed mandatory gate.
 
-Candidate branch: `feat/nxr-dsh-021-rc3-upgrade`, based on corrected C′ `f4c73bd6e62b35b4c28ac38531f536e41d6b22a7`. B′ remains on rc.2 `051000fedd7016efc52b0b34ed4b716d92497486`.
+## Source and environment
 
-## Evidence collected
+Implementation: a3f02b4e4ddce33ae81ec45c96e8d587842b37be; tree 79e0275a8164b1b0c5e9007b2993dee3579c4c58. Base: C′ 46aa3c22460fe278a7f784e9f954f559edda4ccb, normally including B′ ae8a46bc9e80d96d4014ecddc8be9661f73d92cc. Both feature branches retain rc.2 and remain separate Draft PRs. Main remains 41b918bf3c32cfd47301f7551a7280368fc3c8ec.
 
-Subsequent Phase A standalone B′ acceptance passed on clean `dc4d89b983573131036c28740a904c48c8594e3f` / tree `6b812182583437b760531652c940054aedfb64f1`: all16 mandatory Windows Full stages,4530offline passed/167skipped/four pending, realDSH3/3, WSL8/8, source33/33, packaged33/33, GitleaksPASS. Raw B′ report `report-2026-10-27T02-53-54-830Z.json`, SHA256 `e3ff80ce946bdf71315363885b680c9524d8080e555a73b7cdf0dfcb4d3592ef`. This is rc.2 evidence, not rc.3 acceptance, and does not close the historical delay mechanisms.
+The final Windows Full, WSL Full and standalone packaging comparison all recorded this exact clean implementation at start and end. Later report/publication commits must be compared against it; documentation-only changes are not claimed as a new Full CI run.
 
-The rc.3 Full attempt on clean `fe106fd9872a70aae5a78161f615539f8c684282` / tree `a59d46e08b3b472bb1521771484c52a145d70b73` **failed** at installation after180299ms. Report `report-2026-10-27T02-39-05-898Z.json`, SHA256 `7da65909f95aeb54b1bc04bb7512f739dca7e17aff8ad0436887a513e2895bbd`. Npm and version verification had completed by130384ms; both publication renames completed and recursive old-generation deletion was interrupted. The shared B′ correction retains previous generations outside the readiness path. It requires normal propagation and fresh rc.3 acceptance; later stage skips are not passes. The failed fixture's exact stale ownership file was archived and explicitly reconciled only after parent absence, stage absence, published identity and actual version verification. No product automatic stale-lock recovery was added; the partial old generation remains evidence.
+Windows 11 build 26300; Node 22.23.3, npm 10.9.9, pnpm 10.33.0, Electron 44.5.1, electron-builder 26.15.3, Gitleaks 8.28.0. Node is the preserved pinned executable below D:/Nexar-Ai-nxr070/.nexar/research-toolchain/node-v22.23.3-win-x64, not the default Node 24. No toolchain upgrade or global PATH change occurred.
 
-The additional real SDK credential-precedence regression and its actual RED/GREEN results are described in the compatibility assessment. A valid saved foreign key displaced the selected key before the overlays disabled native credential/sign-in services; corrected execution used the selected key. The malformed first fixture is retained separately. This changes production/test code beyond fe106fd and requires final acceptance on the resulting source.
+The isolated Windows managed runtime used by the final Full is C:/Nexar-Acceptance-Archive/20261027-rc3-disk-pressure/managed-rc3-full-capacity. Packaging independently installs its bundle below the repository's dist/dsh-runtime. Neither is an owner application profile. The isolated Linux checkout is /home/nexar/src/nxr-dsh-rc3-20261027, distro nexar-plane; global /opt/dsh remains rc.2.
 
-| Gate                                | Observed result                                                                                         | Raw evidence in candidate `.nexar/ci/`                                                                                          |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Published root tarball              | SHA512 matches npm; SHA256 `9a8f9493bfab8218215a8ca38ab8821e76dff63dc4fcb65841ef87c0aa277141`           | `dsh-rc3-published-artifact-20261027.json`                                                                                      |
-| Frozen workspace dependencies       | Offline install passed; root workspace lock unchanged                                                   | `dsh-rc3-root-dependencies-offline-20261027.log`                                                                                |
-| Runtime lock generation             | Exact rc.3, npm lock v3, published SRI; 153,928 ms                                                      | `dsh-rc3-lock-stage-20261027/generation.json`                                                                                   |
-| Actual managed install              | PASS, 98,656 ms, real installed version rc.3                                                            | `dsh-rc3-first-install-20261027.json` and `.log`; log SHA256 `86f250243075e730d4e5d2f8b575b3638148273ab9c1a17e93c6688581482f7c` |
-| Initial focused run                 | FAIL: new checkout lacked generated workspace exports; one overly specific validation-error expectation | `dsh-rc3-focused-initial-20261027.*`                                                                                            |
-| TypeScript build                    | PASS, 17,849 ms                                                                                         | `dsh-rc3-typecheck-initial-20261027.json`                                                                                       |
-| Shared agent home RED               | 0 passed, 2 failed before correction                                                                    | `dsh-rc3-agents-home-red-20261027.json`                                                                                         |
-| First home correction attempt       | 13 passed, 1 failed; exposed env-sourced credential overwrite not yet refused                           | `dsh-rc3-private-homes-green-20261027.json`                                                                                     |
-| Final focused home/input validation | 14 passed, 0 failed, 0 pending                                                                          | `dsh-rc3-private-homes-green-final-20261027.json`                                                                               |
+## Current Windows aggregate result
 
-Targeted tests above used Node 22.23.3 on Windows 11. They precede a committed candidate acceptance source and do not constitute clean-source Full CI. Later evidence must identify the exact implementation commit/tree, start/end clean status, toolchain, counts, stage results, report hashes and any changed source.
+Actual repository invocation: pinned Node scripts/local-ci/runner.mjs --mode=full --profile=windows --workers=2, with explicit --node-bin, --gitleaks-bin and --dsh-dir as recorded in the execution receipt. All repository stage definitions and deadlines were preserved, including the 180-second installer and 15-second private-state guard.
 
-## Focused runtime integration
+**NEXAR_WINDOWS_FULL_FAIL**, 11:18:47–11:47:26 UTC, 1,718,709 ms. Raw report: .nexar/ci/reports/report-2026-10-27T11-18-47-908Z.json, SHA256 **248a0576d52b642f5917b053b9fca17129ea5685c7a47bb34fe73450597e3f6b**. Recorder: dsh-rc3-windows-full-capacity-a3f02b4-20261027.execution.json. Aggregate log SHA256: c29e11720986c682c6c6256312b7cbee1411dacf3c616b28a0b6453880ae0baf.
 
-The pre-check focused corpus passed: **472 passed, 0 failed, 9 skipped**, 26 passed files and 4 skipped files, 57,017 ms. Evidence: `dsh-rc3-focused-precheck-20261027.*`; log SHA256 `c0b2af28b64ff1a21e3d6169dad2c67c2e2250710e4091b7005495d711cdf42a`. This includes the real rc.3 context corpus and actual two-connection ACP execution.
+| Required stage                            | Result                                               |
+| ----------------------------------------- | ---------------------------------------------------- |
+| Frozen dependencies                       | PASS                                                 |
+| Pinned managed installation               | PASS, 177.44 seconds                                 |
+| Formatting, lint, boundaries, typecheck   | PASS, each executed                                  |
+| Offline tests                             | 4,608 passed; zero failed; 169 skipped; four pending |
+| Production build                          | PASS                                                 |
+| Both CLI smoke commands                   | PASS                                                 |
+| Actual DSH context/compaction             | 3/3, zero failed/skipped/pending                     |
+| Windows-to-WSL Cowork and nested security | 8/8, zero failed/skipped/pending                     |
+| Source Desktop E2E                        | 33/33 across 11 files; 471.04 seconds                |
+| Windows package                           | FAIL during its nested npm-ci installation           |
+| Packaged Desktop E2E                      | SKIPPED after package failure                        |
+| Gitleaks in this aggregate                | SKIPPED after package failure                        |
 
-The new real ACP test uses normal persisted connection creation and inventory publication, not manually supplied owner descriptors. Synthetic transports observed A then B's own credential. An active B request refused rotation, Disable refused new admission while the authorized request drained, and the lease returned to zero. Captured ACP launch environments excluded the ambient provider key and both provider credential values; both runtime homes were private. The actual offered tool catalog excluded the newly disabled capabilities. This is actual managed-runtime integration with a synthetic provider, not live provider or OS sandbox acceptance.
+The optional native-Linux host stage was skipped after the preceding failure; it is not a Windows security PASS. The 16 mandatory stages did not all pass. The report's total 4,652 passing assertions includes separately repeated acceptance corpora; it is not a count of unique tests.
 
-Earlier attempts of that new test failed on fixture task/session ID wiring and were retained as failures. The corrected test uses production task creation and canonical session/turn ID factories. These attempts are not RED/GREEN evidence of a production routing defect.
+The offline JSON was preserved under dsh-rc3-windows-full-capacity-a3f02b4-20261027.offline-tests.json, SHA256 4c4a889a57c33804273e87438b8084e150ed069fd0a588851f17e22240eafe42. The four pending Windows assertions concern real Bubblewrap proxy/socket networking. Their Linux results below are separate executed evidence.
 
-## Subsequent source-bound evidence
+## Packaging timeout and bounded standalone comparison
 
-Implementation `3fa15d4860fe38a52574f6dfa5b8eee8e0507e77`, tree `1177bc61772c0c4281af8d4460cdca4d50239faf`, passed complete `pnpm check` before commit: 4,593 passed, 181 skipped, four pending, zero failed; 285,992 ms. Source stayed at that staged tree. Log SHA256 `2d3322b7abc48e5fe1b87cb6f5a5b6fecbd46ccbc6e989aeb9890c6d4ce49aa0`.
+At 11:44:25.537 UTC the package installer observed owned child PID 16256, parent PID 4788, generation a6525a2c-5034-4804-bf03-71615a646346. npm-ci timed out at elapsed 180,457 ms, exit 124. Entry validation, version probing and publication were not reached. The partial staging tree remains unavailable and retained.
 
-Matching isolated Linux source was promoted non-destructively to that same clean commit/tree, retaining the precommit snapshot in a stash. The actual Windows-to-WSL corpus passed all five tests: model/permission/draft round trip, read-only denial, cancellation, concurrent input isolation and disconnected-helper recovery. Log SHA256 `9cfd44cfe044e0eee8b5a3962b80df6c59fec4cbf2cbc697600e3f50f431f586`. Early helper fixture errors were preserved and corrected; they were not DSH production failures.
+The preserved npm debug record confirms Node 22.23.3/npm 10.9.9, 616 cache-hit records, no recorded HTTP fetches/cache misses or integrity errors, and no completion footer. The retained tree had 62,833 files / 728,863,181 bytes. These facts establish incomplete cache-backed materialization before timeout; they do **not** establish antivirus, disk latency, scheduling or another lower-level cause. No deadline increase, silent retry or acceptance of the partial tree was introduced.
 
-The disposable canonical-state rollback reader preserved identical connection, credential, Resource ID, completed session and memory identities through old→new→old code. A separate actual ACP campaign passed 3/3 tests on rc.2, 3/3 on rc.3 and 3/3 after restoring rc.2. Evidence directories: `dsh-rc3-state-rollback-20261027` and `dsh-rc3-runtime-rollback-stable-20261027`. The earlier incomplete runtime campaign stopped before rc.3 execution because a generated build directory was cleaned; it remains incomplete, not PASS.
+One predetermined standalone comparison then executed the existing package stage, packaged E2E if possible, and the independent secret-scan stage, serially. It also **failed** package installation at 180,563 ms (generation 0fb2431f-bac9-4292-af0f-aec698951796); packaged E2E was skipped. Gitleaks passed in 2,547 ms. This is not an aggregate Full PASS.
 
-The first Windows Full invocation at `3fa15d4` was **interrupted by engineering**, exit 130, during ESLint after discovering an SDK overlay compatibility gap. It passed the first three stages, including rc.3 installation in 141.72 seconds. Raw log SHA256 `7d9865c42143504fbb87dccfcbb246b5487d1085940dc2156771d0df11981d8f`. There is no aggregate PASS for that invocation. The SDK correction and its new actual-runtime test require updated acceptance.
+Standalone receipt: dsh-rc3-supplemental-package-a3f02b4-20261027.json, SHA256 d18ee264a18fc3afb5228da822fd8cf3c526d055d39bf66cf726625db7e10853. Package log SHA256 45b3044336638f981743927e99ac3221cfd5d24f569a3658a8ab961a3cb4fd3e; secret-scan log SHA256 81c39354a50997e74d09d7fec4004af647a240eab1555df774810606a91de8d3. No further identical retries are classified as remediation.
 
-## SDK follow-up
+## WSL2 full regression
 
-The SDK overlay regression failed before blocking the new shared-base rows and passed after correction. The real SDK fixture first failed to answer initialization within its 60-second test deadline (`dsh-rc3-real-sdk-first-20261027`, log SHA256 `4eb1fe6229fcb0bce6782d3dac8666b932a70e1abd85172a07cfe9a0844a7a60`). A diagnostic attempt then passed in 12,341 ms with no stderr and 24 offered tools. Temporary instrumentation was removed. Two predefined additional attempts passed in 5,921 ms and 4,839 ms, with log SHA256 values `bdf0b4e170e17000c877bbe9995fd70f20d1e4b67314898b157e77578a01b9bb` and `fe190f5fe4a7c7ca3aea737c6e74b753c61d451fd53e05f0b709fb29db439355`.
+Actual command: pnpm exec vitest run --maxWorkers=1 --reporter=default --reporter=json, using the isolated exact rc.3 entry and toolchain; live-provider flag removed. Node 22.23.3/pnpm 10.33.0; Linux 6.18.33.2-microsoft-standard-WSL2.
 
-The wire protocol, explicit synthetic credential route and disabled new tool were exercised successfully. The original timing failure remains causally unresolved; these later passes are not a reliability correction. No production deadline, automatic retry or security policy was changed.
+**4,751 passed, zero failed, 30 skipped, zero pending**, 254 files, 268,660 ms. All 12 real Bubblewrap integration assertions passed, including all four networking assertions pending on Windows. Source remained clean and unchanged.
 
-## Required outstanding gates
+Evidence prefix: dsh-rc3-wsl-full-a3f02b4-20261027. Execution JSON SHA256 9c659820e4d976192e4666109c7ba7bb9c5c0c275692385f1eb3d7a076795f9e; test JSON SHA256 3633a86e25ee73a2dd4491a56dbd4665ae426ad8b50a8afd66943f4623bf5c5a; log SHA256 13016f13a5a465c4d3e310a5cb2e55e742ae7da3435f7c3b98f38a66d16fc272. This is WSL2, not native Ubuntu or Linux Desktop acceptance.
 
-Real rc.3 ACP context/compaction, actual connection-bound execution and lifecycle protection, full offline check, source Desktop E2E, packaged runtime identity and E2E, one complete Windows Full CI, isolated WSL2 sandbox regressions, secret scanning, bounded repeatability, disposable rollback, Draft PR publication and independent owner acceptance remain pending until their executed evidence is appended.
+## Runtime, credential and compatibility regressions
 
-No live provider credentials, sign-in or paid inference is authorized. WSL2 is not native Ubuntu acceptance. `win-unpacked` E2E is not a clean-machine NSIS installation. Later successful runs must not relabel historical failures.
+Complete check before implementation commit: pnpm check, 4,595 passed, zero failed, 182 skipped, four pending; 367,997 ms. Log SHA256 e385ede6e7b6aee565b2d8aaefdf2596caeac7f6edd8f9d1ce3f134cf2fc11b6. Focused final corpus: 477 passed, zero failed, nine skipped, 72,394 ms; log SHA256 0a07815a3552d51e031500030f59ecc3510272c23aa73a12d51d072d8b2bc173.
 
-## Separate Phase A status
+The actual connection test creates persisted A/B connections through the real Desktop bridge, publishes their inventories through Registry/NRC, executes actual managed ACP with the production Gateway and ConnectionManager admission, and observes A/B credentials only at a synthetic provider transport. It checks active rotation refusal, Disable drain/new-admission denial, lease release, private runtime homes and an appropriately restricted tool catalog. Fixture ID-wiring failures were retained; they are not evidence of a production defect.
 
-The latest rc.2 B′ Full invocation at `754312a24b38fafd715c5ee093af72172764569f`/tree `e4aa52591dcf18c776e1bcf5c46f1d4d97b88583` failed at packaged Cowork SOW after installation passed in 90,168 ms. Report `report-2026-10-26T20-59-43-641Z.json`, SHA256 `3ec5b896001663902891ae5e1528e525598b6cc81ae3a4ebe8bf3e24cdc40014`, records 14 required passes, one required failure and one required skipped gate. Gitleaks was skipped, not passed. Source remained clean and stable. This candidate is authorized independently while Phase A acceptance remains incomplete.
+The actual SDK saved-credential regression produced RED: one failure in 18,261 ms, log SHA256 4aab74322e9aa36629c4fadf7ecdbe89162a21bfd52246f1402a6888b790cdd9. Before correction, a valid foreign native saved key displaced the selected key. GREEN after disabling upstream credentials and authorization: one pass in 4,849 ms, no skips/pending; log SHA256 1e1f7b6f3c316e9c7c0da371f54794e9bf1b902c9469e3dd33e07937dca72012. Both ACP and SDK overlays enforce the correction. The malformed initial native-store fixture and earlier unrelated SDK initialization timeout remain separately classified.
+
+New private agents-home isolation also has actual failing-before/passing-after evidence; final focused home/input validation passed 14/14. Existing routing goldens, required review diversity, ledger settlement, lifecycle/persistence, permissions and session/memory corpora passed in the complete suites. No golden fixture was regenerated to conceal a routing change.
+
+## Disposable rollback
+
+Canonical reader campaign: C′ rc.2 → candidate rc.3 → C′ rc.2. The same connection/resource IDs, credential association, connection digest, completed-session digest and Project Memory digest were preserved. Evidence dsh-rc3-state-rollback-final-20261027/result.json; SHA256 4c73102b70f703a9877c30e9601921304755aeb1811c645c705b96110964aa31.
+
+Separate actual ACP campaign: rc.2 before, rc.3, rc.2 after, each 3/3 passed, zero failed/skipped/pending; 84,408 / 97,822 / 24,414 ms. Evidence dsh-rc3-runtime-rollback-final-20261027/result.json; SHA256 308c1e824b5754ac8792cf5fd2f0f3e754d37aa62060d8ae53c3a3cadc90f86a.
+
+These use disposable state and private native runtime homes. They demonstrate canonical-state reader and runtime restoration compatibility, not universal downgrade of an arbitrary shared rc.3 native database. No real connection, credential, session or memory was migrated.
+
+## Historical failures remain failures
+
+| Source / run                                   | Actual outcome                                                                                                        |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 3fa15d4 first Full                             | Deliberately interrupted after discovery of SDK overlay gap; no aggregate verdict                                     |
+| fe106fd / report-2026-10-27T02-39-05-898Z.json | Installer timeout after publication while recursively deleting previous generation; subsequently corrected separately |
+| a3f02b4 / report-2026-10-27T09-54-14-935Z.json | FAIL: 7za reported insufficient disk space during NSIS packaging; later E2E/scan skipped                              |
+| a3f02b4 / report-2026-10-27T11-18-47-908Z.json | FAIL: nested npm-ci timed out; later packaged E2E/scan skipped                                                        |
+| a3f02b4 standalone comparison                  | FAIL: nested npm-ci timed out again; independent Gitleaks PASS                                                        |
+
+The ENOSPC report SHA256 is 64224652e3cc4fbd732c7b44541ca3d2e622979c01b7642f2e2348c63f82b417. Its source Desktop suite passed 33/33; generated unpacked CLI/lock/helper identity was verified supplementally, not accepted as an installer or packaged E2E result. Ten unique failed-build code/identity files were byte-verified and preserved on C before normal package cleanup. Earlier runtime/package reports and their hashes remain retained.
+
+Only explicitly identified inactive acceptance artifacts were relocated, after byte verification, to C:/Nexar-Acceptance-Archive/20261027-rc3-disk-pressure. The two runtime archives have per-file verification receipts; old B′/C′ installer paths are forwarded by receipts. Real profiles, worktrees, raw reports and the legacy pinned toolchain were preserved. No broad workspace cleanup occurred.
+
+## Separate Phase A and release blockers
+
+B′ standalone rc.2 Full passed on dc4d89b983573131036c28740a904c48c8594e3f/tree 6b812182583437b760531652c940054aedfb64f1: all 16 mandatory stages, offline 4,530 passed / 167 skipped / four pending, real DSH 3/3, WSL 8/8, source and packaged Desktop 33/33, Gitleaks PASS. Raw report SHA256 e3ff80ce946bdf71315363885b680c9524d8080e555a73b7cdf0dfcb4d3592ef. Final B′ ae8a46b adds documentation only. C′ 46aa3c2 passed its complete check; no new standalone rc.2 Full PASS is claimed for that merge.
+
+This does not close historical npm materialization, PowerShell startup, packaged SOW or initial unrelated SDK delay causes. The demonstrated destructive reinstall and post-publication deletion defects have separate corrections and regression evidence.
+
+The rc.3 installed dependency audit remains non-clean: 189 high/seven moderate package/metavulnerability records, not independent CVE counts. Nested Zod and other advisory reachability/risk disposition remains outstanding; exact-version authorization is not a security exception. See [compatibility](NXR070_DSH_021_RC3_Compatibility_Assessment.md).
+
+Current rc.3 package/installer identity, packaged restart/E2E and a complete passing Windows Full remain unverified. No current NSIS artifact hash or clean-machine installation PASS is claimed. No live provider credentials, account sign-in or paid inference was used. Hosted CI and independent owner acceptance are separate gates, recorded in the [handover](NXR070_DSH_Upgrade_Final_Owner_Handover.md).

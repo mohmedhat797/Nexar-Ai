@@ -156,3 +156,17 @@ The subsequent **single complete Windows Full invocation passed all16 mandatory 
 Unsigned installer:322183408bytes, SHA256 `0afb71285017ae6d366e9645b633a7c1e84a6a492de34bca3ec8d5b3a99c61ab`. Packaged testing used win-unpacked and a disposable profile; no clean-machine NSIS installation was performed. Prior installer/sidecars and fixed offline evidence were preserved byte-identically under `.nexar/ci/dsh-publication-retention-pre-full-20261027/` before this run.
 
 This establishes current standalone B′ Windows acceptance. It does not retrospectively fix the original npm delay, historical Electron guard timeout, or earlier packaged SOW stall. The publication-cleanup mechanism has a separate correction and deterministic RED/GREEN evidence; its real rc.3 warm-install verification remains in Phase B. Independent owner acceptance, hosted CI, and the separate upgrade remain distinct gates.
+
+## Isolated rc.3 final installation observations — 27 October 2026
+
+This append concerns the separately authorized upgrade branch, not a change to B′/C′'s rc.2 pin or historical acceptance. Implementation a3f02b4e4ddce33ae81ec45c96e8d587842b37be, tree 79e0275a8164b1b0c5e9007b2993dee3579c4c58 inherited the verified staged-publication and previous-generation-retention corrections normally through B′→C′.
+
+A warm managed rc.3 install completed in 155,740 ms; publication took 107 ms and ready was emitted while the previous generation was retained. Its later Full failed at NSIS disk capacity, not readiness deletion. That report remains FAIL (64224652e3cc4fbd732c7b44541ca3d2e622979c01b7642f2e2348c63f82b417).
+
+After verified relocation of specific inactive acceptance artifacts and use of a separate C-managed runtime, the next Full's managed installation passed in 177.44 seconds. Packaging then launched its independent fresh install on D and npm-ci timed out at 180,457 ms before entry/version/publication. Report-2026-10-27T11-18-47-908Z.json remains FAIL, SHA256 248a0576d52b642f5917b053b9fca17129ea5685c7a47bb34fe73450597e3f6b.
+
+Its owned npm child observation was PID16256, parent4788, generation a6525a2c-5034-4804-bf03-71615a646346. Retained npm evidence confirms Node22.23.3/npm10.9.9,616 cache-hit records, no recorded HTTP fetch/cache miss/integrity error, and no completion footer. The partial stage contained62,833 files/728,863,181 bytes. It was not published or accepted. These facts narrow the observed phase to incomplete cache-backed materialization; they do not prove a specific filesystem, antivirus, scheduler or network cause.
+
+One predetermined standalone package comparison reproduced npm-ci timeout at180,563ms, generation0fb2431f-bac9-4292-af0f-aec698951796. Its receipt SHA256 is d18ee264a18fc3afb5228da822fd8cf3c526d055d39bf66cf726625db7e10853. Packaged E2E was skipped; independent Gitleaks passed. No identical further retry, deadline increase, integrity shortcut or automatic partial-stage recovery was applied.
+
+The two earlier demonstrated safety defects remain corrected with their own regression evidence and B′'s rc.2 standalone Full PASS. The lower-level historical materialization delay remains unresolved and now also blocks rc.3 Windows packaging. The upgrade must not be treated as its cure. WSL Full and disposable rollback passed separately; see the [upgrade acceptance report](NXR070_DSH_021_RC3_Acceptance.md). No production acceptance or merge is authorized by these supplemental results.

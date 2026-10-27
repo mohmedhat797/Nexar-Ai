@@ -1,6 +1,6 @@
 # DSH 0.2.1-rc.3 implementation
 
-Date: 27 October 2026. Branch: `feat/nxr-dsh-021-rc3-upgrade`, based on C′ `f4c73bd6e62b35b4c28ac38531f536e41d6b22a7`. Implementation and acceptance remain in progress.
+Date: 27 October 2026. Branch: `feat/nxr-dsh-021-rc3-upgrade`, based on final C′ `46aa3c22460fe278a7f784e9f954f559edda4ccb`. Implementation is complete; Windows acceptance is blocked by reproduced installation timeouts.
 
 ## Pin and dependency boundary
 
@@ -27,7 +27,7 @@ A new opt-in `sdk.real.test.ts` executes the actual managed SDK against an expli
 
 The final test also seeds a valid version1 native credential store with a foreign synthetic key. Actual RED observed that key at the local transport; GREEN after disabling the native store/sign-in services observed the selected key. No native store is deleted or migrated. The first version of that extra fixture omitted its required schema version and failed initialization; it is preserved as a fixture failure, distinct from the valid-store substitution regression and the earlier unexplained initialization delay.
 
-The first Full Windows attempt at `3fa15d4` was deliberately interrupted during stage 4 after this SDK overlay gap was confirmed. It passed dependency verification, runtime installation (141.72 seconds) and formatting, but emitted no aggregate PASS. A complete invocation on the corrected source is still required. The stable managed runtime lives under `.nexar/dsh-runtime`; Desktop's generated `dist` is intentionally cleared by its build and is unsuitable for the persistent acceptance runtime.
+The first Full Windows attempt at `3fa15d4` was deliberately interrupted during stage 4 after this SDK overlay gap was confirmed. It passed dependency verification, runtime installation (141.72 seconds) and formatting, but emitted no aggregate PASS. Complete invocations on the corrected source were executed and failed, first at disk capacity and later at nested package installation. No aggregate PASS is claimed. Persistent acceptance runtimes are separate from Desktop's generated `dist`, which its build clears. The final Full used an isolated runtime on C; earlier D-managed runtimes and receipts are retained.
 
 ## Runtime and ownership
 
@@ -38,3 +38,54 @@ Nexar still initiates a fresh ACP session per turn. DSH's internal private sessi
 B′ and C′ retain rc.2 on their own branches and their existing managed/package artifacts. The candidate is independently installed and packaged. Rollback selects the old source, old exact lock and old runtime in disposable state; it does not restore settings backups, rewrite connection IDs, replace credentials, redirect pins, or import rc.3 native sessions. Demonstration results and any limitations must be recorded in the acceptance report before rollback is classified verified.
 
 The [version amendment](../adr/030-version-amendment-dsh-021-rc3.md) records the owner's narrow authorization. Final source/tree IDs, tests, platform results and publication belong in [acceptance](NXR070_DSH_021_RC3_Acceptance.md) and [handover](NXR070_DSH_Upgrade_Final_Owner_Handover.md).
+
+## Final source, files and verified limits
+
+Implementation a3f02b4e4ddce33ae81ec45c96e8d587842b37be, tree 79e0275a8164b1b0c5e9007b2993dee3579c4c58, normally includes C′ 46aa3c2 and B′ ae8a46b. The inherited installer retention correction is B′-owned and propagated normally, not hidden in upgrade-only code. Current result: source and WSL execution plus disposable rollback verified; package installation failed twice at npm-ci and packaged E2E is outstanding. The 180-second deadline and runtime integrity checks remain unchanged.
+
+The following exact paths differ from the final C′ base at the implementation revision. The large npm lock diff represents only the managed upstream dependency closure; no workspace lock upgrade occurred. This final report update also adds the machine-readable evidence index.
+
+- apps/desktop/src/main/connection-runtime.test.ts
+- apps/desktop/src/main/dsh-cowork-test-kit.ts
+- apps/desktop/src/main/dsh-cowork.test.ts
+- apps/desktop/src/main/wsl-cowork.real.test.ts
+- apps/desktop/src/main/wsl-cowork.test.ts
+- config/upstreams.json
+- docs/adr/030-version-amendment-dsh-021-rc3.md
+- docs/development/NXR070_DSH_021_RC3_Acceptance.md
+- docs/development/NXR070_DSH_021_RC3_Compatibility_Assessment.md
+- docs/development/NXR070_DSH_021_RC3_Implementation.md
+- docs/development/NXR070_DSH_Upgrade_Final_Owner_Handover.md
+- integrations/deepseek-harness/dsh-runtime.json
+- integrations/deepseek-harness/dsh-runtime.package-lock.json
+- integrations/deepseek-harness/src/acp/acp.test.ts
+- integrations/deepseek-harness/src/acp/gateway.test.ts
+- integrations/deepseek-harness/src/acp/launch.ts
+- integrations/deepseek-harness/src/acp/local.test.ts
+- integrations/deepseek-harness/src/acp/local.ts
+- integrations/deepseek-harness/src/acp/sandboxed.ts
+- integrations/deepseek-harness/src/adapter.test.ts
+- integrations/deepseek-harness/src/agents-home.test.ts
+- integrations/deepseek-harness/src/config.test.ts
+- integrations/deepseek-harness/src/env.ts
+- integrations/deepseek-harness/src/handshake.ts
+- integrations/deepseek-harness/src/overlay.ts
+- integrations/deepseek-harness/src/profiles.test.ts
+- integrations/deepseek-harness/src/profiles.ts
+- integrations/deepseek-harness/src/resource.ts
+- integrations/deepseek-harness/src/sdk.real.test.ts
+- integrations/deepseek-harness/src/test/fake-dsh.mjs
+- packages/contracts/src/upstream.test.ts
+- packages/contracts/src/upstream.ts
+- scripts/dsh-runtime/acceptance-env.d.mts
+- scripts/dsh-runtime/acceptance-env.mjs
+- scripts/local-ci/platform.mjs
+- scripts/local-ci/report.mjs
+- scripts/local-ci/stages.mjs
+- scripts/provision-wsl-cowork-helper.mjs
+- scripts/verify-cowork-wsl.mjs
+- tests/dsh-acceptance-env.test.ts
+- tests/local-ci-security.test.ts
+- tests/local-ci.test.ts
+
+Rollback actually passed against clean C′ rc.2 and clean candidate rc.3: same canonical state digests and three actual ACP context assertions at each old/new/old step. Sources, results and hashes are in [acceptance](NXR070_DSH_021_RC3_Acceptance.md). This does not certify arbitrary shared native-session storage rollback. Runtime/plugin/native session ownership is unchanged.
