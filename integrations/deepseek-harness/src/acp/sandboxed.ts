@@ -53,6 +53,7 @@ export async function runSandboxedCoworkSession(
       args: [...options.launch.args, '--profile', 'acp', '--patch', `${HOME}/${OVERLAY}`],
       env: {
         DSH_HOME: HOME,
+        DSH_AGENTS_HOME: `${HOME}/agents`,
         DSH_PERMISSION_MODE: 'read-only',
         DSH_TELEMETRY_DISABLED: '1',
         [NEXAR_CONTROL_TOKEN_ENV]: options.control.token,

@@ -76,7 +76,11 @@ export async function prepareAcpLaunch(
   await chmod(options.dshStateDir, 0o700);
 
   const gateway = isGatewayMode(options.gateway) ? options.gateway : undefined;
-  const env: Record<string, string> = { DSH_HOME: SANDBOX_DSH_HOME, DSH_TELEMETRY_DISABLED: '1' };
+  const env: Record<string, string> = {
+    DSH_HOME: SANDBOX_DSH_HOME,
+    DSH_AGENTS_HOME: `${SANDBOX_DSH_HOME}/agents`,
+    DSH_TELEMETRY_DISABLED: '1',
+  };
   if (gateway === undefined) {
     const variable = credentialVariable(options.resource);
     const credential = resolveOwnCredential(options.resource, options.sources);

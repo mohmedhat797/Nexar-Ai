@@ -11,7 +11,7 @@ const EXPECTED_HELLO = {
   protocol: 'nexar-cowork@1',
   protocolVersion: 1,
   helperVersion: '0.1.0-sec02.1',
-  version: '0.2.0-rc.2',
+  version: '0.2.1-rc.3',
   isolation: 'WSL2_BUBBLEWRAP',
   capabilities: ['stdio-rpc', 'gateway-socket', 'bridge-socket', 'flat-scratch'],
 };

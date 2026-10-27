@@ -6,7 +6,11 @@ import type { CredentialVariable, PiAiProviders } from './overlay.js';
 
 const BASE_ENV_NAMES = ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL', 'TMPDIR', 'TERM', 'NODE_OPTIONS'];
 /** Variables Nexar sets itself; a key store entry may never overwrite them. */
-const RESERVED_ENV_NAMES: ReadonlySet<string> = new Set([...BASE_ENV_NAMES, 'DSH_HOME']);
+const RESERVED_ENV_NAMES: ReadonlySet<string> = new Set([
+  ...BASE_ENV_NAMES,
+  'DSH_HOME',
+  'DSH_AGENTS_HOME',
+]);
 
 export interface DshEnvOptions {
   readonly stateDir: string;
@@ -32,9 +36,14 @@ export function credentialVariable(
   const { auth } = resource;
   if (auth.mode === 'none') return undefined;
   const { credential } = auth;
-  return credential.source === 'env' || credential.source === 'keystore'
-    ? { source: credential.source, name: credential.name }
-    : undefined;
+  if (credential.source !== 'env' && credential.source !== 'keystore') return undefined;
+  if (credential.name.toUpperCase() === 'DSH_AGENTS_HOME') {
+    throw new NexarError(
+      'CONFIGURATION_ERROR',
+      'Credential collides with the Nexar-owned agents home',
+    );
+  }
+  return { source: credential.source, name: credential.name };
 }
 
 /** The value for one credential variable; empty or absent keystore values count as not stored. */
@@ -95,7 +104,11 @@ export function buildBaseEnv(
   parentEnv: NodeJS.ProcessEnv,
   stateDir: string,
 ): Record<string, string> {
-  return { ...pick(parentEnv, BASE_ENV_NAMES), DSH_HOME: dshHome(stateDir) };
+  return {
+    ...pick(parentEnv, BASE_ENV_NAMES),
+    DSH_HOME: dshHome(stateDir),
+    DSH_AGENTS_HOME: join(dshHome(stateDir), 'agents'),
+  };
 }
 
 /**
@@ -120,6 +133,12 @@ export function buildDshEnv(
   const credentials: Record<string, string> = {};
   const seen = new Map<string, CredentialVariable['source']>();
   for (const variable of variables) {
+    if (variable.name.toUpperCase() === 'DSH_AGENTS_HOME') {
+      throw new NexarError(
+        'CONFIGURATION_ERROR',
+        'Credential collides with the Nexar-owned agents home',
+      );
+    }
     const previous = seen.get(variable.name);
     if (previous !== undefined && previous !== variable.source) {
       throw new NexarError(

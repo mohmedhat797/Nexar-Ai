@@ -166,7 +166,7 @@ export function inspectWindowsPackage(repoRoot, options = {}) {
         const manifest = JSON.parse(readFileSync(bundledDshManifestPath, 'utf8'));
         bundledDshExists = true;
         bundledDshVersion = manifest.version;
-        bundledDshMatches = manifest.version === '0.2.0-rc.2';
+        bundledDshMatches = manifest.version === '0.2.1-rc.3';
       } catch {
         // ignore
       }
@@ -522,7 +522,7 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
             signal: null,
             durationMs: 0,
             stdout: '',
-            stderr: `Bundled DSH runtime validation failed: expected 0.2.0-rc.2, found ${pkgInfo.bundledDshVersion ?? 'missing'}.`,
+            stderr: `Bundled DSH runtime validation failed: expected 0.2.1-rc.3, found ${pkgInfo.bundledDshVersion ?? 'missing'}.`,
             error: new Error('Bundled DSH runtime mismatch'),
           };
         }

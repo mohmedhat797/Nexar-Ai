@@ -58,6 +58,9 @@ const COMMON_DISABLED_ROWS = [
   'session-telemetry-otel',
   'llm-deepseek-account',
   'web-search-deepseek',
+  // The rc.3 shared base contains these surfaces; Nexar owns workspace changes and egress.
+  'web-deepseek-api',
+  'tool-working-directory',
 ] as const;
 /** Disabled only on the `nexar` route: the loop runs on Nexar's control route, not DSH's own key. */
 const NEXAR_ROUTE_DISABLED_ROWS = ['llm-deepseek'] as const;

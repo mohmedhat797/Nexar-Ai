@@ -346,7 +346,7 @@ export function getDshInfo() {
     'dsh-runtime.package-lock.json',
   );
 
-  let pin = { package: '@deepseek-ai/dsh', version: '0.2.0-rc.2' };
+  let pin = { package: '@deepseek-ai/dsh', version: '0.2.1-rc.3' };
   if (existsSync(pinPath)) {
     try {
       pin = JSON.parse(readFileSync(pinPath, 'utf8'));

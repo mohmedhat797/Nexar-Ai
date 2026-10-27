@@ -392,6 +392,7 @@ describe('DSH ACP in gateway mode', () => {
     expect(spec?.services).toEqual({ dir: join(t.dir, 'svc'), gateway: true, bridge: false });
     expect(spec?.env).toEqual({
       DSH_HOME: '/home/agent/.dsh',
+      DSH_AGENTS_HOME: '/home/agent/.dsh/agents',
       DSH_TELEMETRY_DISABLED: '1',
       NEXAR_CONTROL_TOKEN: TOKEN,
     });
@@ -533,6 +534,7 @@ describe('DSH ACP in gateway mode', () => {
     expect(spec?.services).toBeUndefined();
     expect(spec?.env).toEqual({
       DSH_HOME: '/home/agent/.dsh',
+      DSH_AGENTS_HOME: '/home/agent/.dsh/agents',
       DSH_TELEMETRY_DISABLED: '1',
       DEEPSEEK_API_KEY: DSH_KEY,
     });

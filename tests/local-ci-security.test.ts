@@ -258,11 +258,11 @@ describe('Local CI acceptance security regressions', () => {
     const git = { commit: 'a'.repeat(40), isDirty: false, dirtyFingerprint: null };
     const windows = {
       finalStatus: 'NEXAR_WINDOWS_FULL_PASS',
-      metadata: { git, os: { platform: 'win32', isWsl: false }, dsh: { version: '0.2.0-rc.2' } },
+      metadata: { git, os: { platform: 'win32', isWsl: false }, dsh: { version: '0.2.1-rc.3' } },
     };
     const linux = {
       finalStatus: 'NEXAR_LINUX_WSL2_PASS',
-      metadata: { git, os: { platform: 'linux', isWsl: true }, dsh: { version: '0.2.0-rc.2' } },
+      metadata: { git, os: { platform: 'linux', isWsl: true }, dsh: { version: '0.2.1-rc.3' } },
     };
     expect(aggregateCrossPlatformEvidence(windows, linux).verdict).toBe(
       'NEXAR_CROSS_PLATFORM_ACCEPTANCE_INCOMPLETE',

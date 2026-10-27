@@ -24,12 +24,13 @@ describe('buildDshEnv', () => {
     DSH_HOME: '/users/real/.dsh',
   };
 
-  it('passes only the allowlist, the resource credential and DSH_HOME', () => {
+  it('passes only the allowlist, the resource credential and private runtime homes', () => {
     const env = buildDshEnv(parent, deepseekHarnessResource(), { stateDir: '/state' });
     expect(Object.keys(env).sort()).toEqual(
       [
         'DEEPSEEK_API_KEY',
         'DSH_HOME',
+        'DSH_AGENTS_HOME',
         'HOME',
         'LANG',
         'LC_ALL',
@@ -58,7 +59,7 @@ describe('buildDshEnv', () => {
 
   it('copies only variables present in the parent env and omits unset NODE_OPTIONS', () => {
     const env = buildDshEnv({ PATH: '/bin' }, deepseekHarnessResource(), { stateDir: '/s' });
-    expect(Object.keys(env).sort()).toEqual(['DSH_HOME', 'PATH']);
+    expect(Object.keys(env).sort()).toEqual(['DSH_AGENTS_HOME', 'DSH_HOME', 'PATH']);
   });
 
   it('adds piAiProviders key variables, and only those', () => {
@@ -139,7 +140,7 @@ describe('parseRuntimeOptions', () => {
   it('applies defaults from the resource', () => {
     expect(parseRuntimeOptions(withOptions({}))).toEqual({
       provider: 'deepseek-official',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       patches: [],
     });
   });
@@ -181,7 +182,13 @@ describe('parseRuntimeOptions', () => {
     const resource = deepseekHarnessResource({
       runtime: { adapter: deepseekHarnessResource().runtime.adapter, locality: 'local' },
     });
-    expect(parseRuntimeOptions(resource).model).toBe('deepseek-v4-flash');
+    expect(parseRuntimeOptions(resource).model).toBe('deepseek-flash');
+  });
+
+  it('preserves an explicitly persisted legacy model instead of silently migrating it', () => {
+    expect(parseRuntimeOptions(withOptions({ model: 'deepseek-v4-flash' })).model).toBe(
+      'deepseek-v4-flash',
+    );
   });
 
   it.each([
@@ -285,7 +292,7 @@ describe('keystore credentials (env, overlay and options)', () => {
     ).toThrow(/both the environment and the key store/);
   });
 
-  it.each(['PATH', 'NODE_OPTIONS', 'DSH_HOME'])(
+  it.each(['PATH', 'NODE_OPTIONS', 'DSH_HOME', 'DSH_AGENTS_HOME'])(
     'refuses a keystore name that would overwrite %s',
     (name) => {
       const resource = deepseekHarnessResource({

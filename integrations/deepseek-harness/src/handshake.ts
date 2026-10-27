@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { buildBaseEnv } from './env.js';
 import { DEFAULT_PROVIDER } from './options.js';
+import { DSH_DEFAULT_MODEL } from './resource.js';
 import { initializeRuntime, launchRuntime, normalizeBinary } from './runtime-process.js';
 import type { BinarySpec, ServerInfo } from './runtime-process.js';
 
@@ -35,7 +36,7 @@ export async function handshake(options: HandshakeOptions = {}): Promise<ServerI
       {
         cwd,
         provider: options.provider ?? DEFAULT_PROVIDER,
-        model: options.model ?? 'deepseek-v4-flash',
+        model: options.model ?? DSH_DEFAULT_MODEL,
       },
       timeoutMs,
     );

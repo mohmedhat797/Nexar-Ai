@@ -87,7 +87,7 @@ describe('Nexar Local CI Orchestrator', () => {
         isMatched: false,
       },
       pnpm: { isMatched: true, installedVersion: '10.33.0', expectedVersion: '10.33.0' },
-      dsh: { lockMatches: true, package: '@deepseek-ai/dsh', pinnedVersion: '0.2.0-rc.2' },
+      dsh: { lockMatches: true, package: '@deepseek-ai/dsh', pinnedVersion: '0.2.1-rc.3' },
       gitleaks: {
         available: true,
         isMatched: true,
@@ -142,7 +142,7 @@ describe('Nexar Local CI Orchestrator', () => {
         pinnedMajor: '22',
       },
       pnpm: { isMatched: true, installedVersion: '10.33.0', expectedVersion: '10.33.0' },
-      dsh: { lockMatches: false, package: '@deepseek-ai/dsh', pinnedVersion: '0.2.0-rc.2' },
+      dsh: { lockMatches: false, package: '@deepseek-ai/dsh', pinnedVersion: '0.2.1-rc.3' },
       gitleaks: {
         available: true,
         isMatched: true,
@@ -195,7 +195,7 @@ describe('Nexar Local CI Orchestrator', () => {
             source: 'current',
           },
           pnpm: { installedVersion: '10.33.0', expectedVersion: '10.33.0' },
-          dsh: { package: '@deepseek-ai/dsh', pinnedVersion: '0.2.0-rc.2', lockMatches: true },
+          dsh: { package: '@deepseek-ai/dsh', pinnedVersion: '0.2.1-rc.3', lockMatches: true },
           gitleaks: { installedVersion: '8.28.0', execPath: 'gitleaks' },
         },
         preflightResult: {
@@ -677,7 +677,7 @@ describe('Nexar Local CI Orchestrator', () => {
           isDirty: false,
           dirtyFingerprint: null,
         },
-        dsh: { version: '0.2.0-rc.2' },
+        dsh: { version: '0.2.1-rc.3' },
       },
     };
     const linuxReport = {
@@ -689,7 +689,7 @@ describe('Nexar Local CI Orchestrator', () => {
           isDirty: false,
           dirtyFingerprint: null,
         },
-        dsh: { version: '0.2.0-rc.2' },
+        dsh: { version: '0.2.1-rc.3' },
       },
     };
 

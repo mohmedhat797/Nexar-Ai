@@ -15,6 +15,8 @@ const PRIVACY_ROWS = [
   'session-telemetry-otel',
   'llm-deepseek-account',
   'web-search-deepseek',
+  'web-deepseek-api',
+  'tool-working-directory',
 ];
 
 function render(profile: DshProfile, requiredContext?: string): string {
