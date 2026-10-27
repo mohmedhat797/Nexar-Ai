@@ -20,7 +20,7 @@ Phase B pins exactly @deepseek-ai/dsh@0.2.1-rc.3 on its own branch. Source execu
 | Upgrade implementation tree                                          | 79e0275a8164b1b0c5e9007b2993dee3579c4c58                      |
 | Upgrade branch/base                                                  | feat/nxr-dsh-021-rc3-upgrade → feat/nxr-070c-review-diversity |
 
-Normal merges preserve B′→C′→upgrade ancestry. No main change, merge, force-push, Ready transition or audit-history rewrite occurred. The upgrade Draft PR and final publication receipt will be recorded after this report commit is validated and pushed. This is currently a local handover, not a claim of completed publication.
+Normal merges preserve B′→C′→upgrade ancestry. No main change, merge, force-push, Ready transition or audit-history rewrite occurred. Upgrade [Draft PR #46](https://github.com/mohmedhat797/Nexar-Ai/pull/46) was created with base C′ and initial report HEAD cb78be90f0f0fab1e2173123b9dd51f68854f36e. That commit changes documentation/evidence only from the tested implementation. Final publication HEAD, remote/ancestry verification, final secret scan and current hosted evidence are recorded in the canonical workspace's .nexar/ci/NXR070_DSH_RC3_Final_Publication_Receipt_20261027.md. This avoids pretending a document can contain its own Git commit hash.
 
 ## Installation reliability
 
@@ -66,7 +66,7 @@ WSL2 is not native Ubuntu acceptance. Earlier win-unpacked identity inspection i
 
 Nexar's tested credential, identity, review, permission and sandbox boundaries remain preserved. That does not certify the bundled dependency closure as clean: rc.3 npm audit returned 189 high/seven moderate package/metavulnerability records. These are not independent vulnerabilities; nested Zod availability exposure and other bundled advisories need explicit reachability/risk disposition. No override, audit-fix or security exception was introduced.
 
-PR #44/#45 hosted runs 40482032663/40482043084 were infrastructure-blocked: three failed jobs each, zero executed steps, actual annotations citing the Actions budget. The upgrade's own current hosted status must be recorded after publication; it is not inferred from these older runs.
+PR #44/#45 hosted runs 40482032663/40482043084 were infrastructure-blocked: three failed jobs each, zero executed steps, actual annotations citing the Actions budget. The upgrade's initial [run 40537560834](https://github.com/mohmedhat797/Nexar-Ai/actions/runs/40537560834) at cb78be90 also has three failed jobs, zero executed steps and actual budget-prevented-start annotations: HOSTED_CI_INFRASTRUCTURE_BLOCKED. Authenticated receipt dsh-rc3-initial-publication-hosted-20261027.json has SHA256 324a4da2fb3edc0dc28acbee4f94913a46202919279e9cbcc8e6347be4c5b966. Later publication metadata is separately verified in the final receipt; no hosted PASS or protection bypass is claimed.
 
 Independent owner review remains pending. Self-review and test results do not grant acceptance. Existing historical PowerShell startup, npm materialization, packaged SOW and unrelated initial SDK timing observations retain unresolved causal status.
 
@@ -87,7 +87,11 @@ Separately disposition the bundled dependency advisory exposure and obtain indep
 | Windows                                                    | NXR070_DSH_RC3_WINDOWS_ACCEPTANCE_FAILED        |
 | WSL                                                        | NXR070_DSH_RC3_WSL_ACCEPTANCE_VERIFIED          |
 | Disposable rollback                                        | NXR070_DSH_RC3_ROLLBACK_VERIFIED                |
-| GitHub, before publication                                 | NXR070_DSH_RC3_PUBLICATION_INCOMPLETE           |
+| GitHub                                                     | NXR070_DSH_RC3_DRAFT_PR_PUBLISHED               |
 | Independent acceptance                                     | INDEPENDENT_OWNER_REVIEW_PENDING                |
 
 **NXR070_DSH_RC3_UPGRADE_IMPLEMENTED_WITH_OUTSTANDING_GATES**
+
+## Report-tree validation
+
+Before report commit cb78be90, complete pnpm check passed on unchanged staged tree 31763cf9b80ed3667063c98605ed74e48d7b2ba0: 4,595 passed, zero failed, 182 skipped and four pending; 493,815 ms. Log SHA256 d58cd370ba0babeb0f37f17f9c53f6ecbcbba117accac44e7f82abe6b3fdf4c6. This validates the report revision and unchanged code, not a new Windows Full. The publication-link update receives its own complete check before commit; its exact result is in the final publication receipt.

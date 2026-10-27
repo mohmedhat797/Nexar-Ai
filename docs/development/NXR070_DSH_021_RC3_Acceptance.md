@@ -96,3 +96,9 @@ This does not close historical npm materialization, PowerShell startup, packaged
 The rc.3 installed dependency audit remains non-clean: 189 high/seven moderate package/metavulnerability records, not independent CVE counts. Nested Zod and other advisory reachability/risk disposition remains outstanding; exact-version authorization is not a security exception. See [compatibility](NXR070_DSH_021_RC3_Compatibility_Assessment.md).
 
 Current rc.3 package/installer identity, packaged restart/E2E and a complete passing Windows Full remain unverified. No current NSIS artifact hash or clean-machine installation PASS is claimed. No live provider credentials, account sign-in or paid inference was used. Hosted CI and independent owner acceptance are separate gates, recorded in the [handover](NXR070_DSH_Upgrade_Final_Owner_Handover.md).
+
+## Publication and report-tree verification
+
+The upgrade is published as [Draft PR #46](https://github.com/mohmedhat797/Nexar-Ai/pull/46), base C′. Initial report commit cb78be90f0f0fab1e2173123b9dd51f68854f36e is documentation/evidence only after the tested implementation. Complete pnpm check on its staged tree 31763cf9b80ed3667063c98605ed74e48d7b2ba0 passed in493815ms; log SHA256 d58cd370ba0babeb0f37f17f9c53f6ecbcbba117accac44e7f82abe6b3fdf4c6. Neither this check nor publication changes the failed Windows acceptance result.
+
+Actual initial upgrade hosted run40537560834 atcb78be90 was infrastructure-blocked by the Actions budget: three failed jobs, zero executed steps, explicit failure annotations. Receipt dsh-rc3-initial-publication-hosted-20261027.json SHA256324a4da2fb3edc0dc28acbee4f94913a46202919279e9cbcc8e6347be4c5b966. The final publication receipt records the later exact remote SHA, final checks and latest inspected hosted run. All PRs remain Draft/unmerged and independent owner acceptance is pending.

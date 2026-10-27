@@ -134,11 +134,30 @@
     "securityPolicyRelaxed": false
   },
   "publication": {
-    "status": "PENDING",
+    "status": "DRAFT_PUBLISHED",
     "base": "feat/nxr-070c-review-diversity",
     "branch": "feat/nxr-dsh-021-rc3-upgrade",
     "draftRequired": true,
-    "mergeAuthorized": false
+    "mergeAuthorized": false,
+    "number": 46,
+    "url": "https://github.com/mohmedhat797/Nexar-Ai/pull/46",
+    "initialReportHead": "cb78be90f0f0fab1e2173123b9dd51f68854f36e",
+    "finalReceipt": ".nexar/ci/NXR070_DSH_RC3_Final_Publication_Receipt_20261027.md"
   },
-  "overall": "NXR070_DSH_RC3_UPGRADE_IMPLEMENTED_WITH_OUTSTANDING_GATES"
+  "overall": "NXR070_DSH_RC3_UPGRADE_IMPLEMENTED_WITH_OUTSTANDING_GATES",
+  "hosted": {
+    "classification": "HOSTED_CI_INFRASTRUCTURE_BLOCKED",
+    "run": 40537560834,
+    "head": "cb78be90f0f0fab1e2173123b9dd51f68854f36e",
+    "jobs": 3,
+    "executedSteps": 0,
+    "reason": "Actions budget prevented job startup",
+    "receiptSha256": "324a4da2fb3edc0dc28acbee4f94913a46202919279e9cbcc8e6347be4c5b966"
+  },
+  "reportCheck": {
+    "tree": "31763cf9b80ed3667063c98605ed74e48d7b2ba0",
+    "exitCode": 0,
+    "durationMs": 493815,
+    "logSha256": "d58cd370ba0babeb0f37f17f9c53f6ecbcbba117accac44e7f82abe6b3fdf4c6"
+  }
 }
