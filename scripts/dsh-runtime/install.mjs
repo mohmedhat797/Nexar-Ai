@@ -11,7 +11,6 @@ import {
   readdirSync,
   realpathSync,
   renameSync,
-  rmSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -212,15 +211,10 @@ export async function installDshRuntime({
         }
         throw error;
       }
-      // Only this exact generated sibling is cleaned recursively. Links/unknown target
-      // ownership were rejected before the move; no computed arbitrary path is deleted.
-      if (hadPrevious) {
-        try {
-          rmSync(previous, { recursive: true });
-        } catch {
-          emit('previous-generation-retained');
-        }
-      }
+      // Recursive removal can outlive the installation deadline after a verified runtime
+      // is already published. Retain the exact previous sibling for explicit maintenance
+      // and recovery; readiness must not depend on unbounded dependency-tree deletion.
+      if (hadPrevious) emit('previous-generation-retained');
     });
     published = runtimeEntry(dir, pin);
   } catch (error) {

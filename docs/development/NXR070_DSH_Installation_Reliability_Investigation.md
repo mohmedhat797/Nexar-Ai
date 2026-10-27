@@ -85,6 +85,16 @@ Two-rename publication can be interrupted between moves. In-process rename failu
 
 ## Acceptance status
 
+### Follow-up: verified publication blocked by old-generation deletion
+
+An isolated rc.3 upgrade Full invocation on `fe106fd9872a70aae5a78161f615539f8c684282`, tree `a59d46e08b3b472bb1521771484c52a145d70b73`, reproduced a **different, newly attributable** installer timeout. The aggregate report `report-2026-10-27T02-39-05-898Z.json` has SHA256 `7da65909f95aeb54b1bc04bb7512f739dca7e17aff8ad0436887a513e2895bbd`. Its installation stage timed out after 180,299 ms. Source stayed clean and unchanged.
+
+Npm completed and the real CLI version probe succeeded by elapsed 130,384 ms. Publication started, but no publication-complete event was emitted before termination. The generated stage disappeared, the target directory had the new generation's creation timestamp and contained the verified rc.3 entry, and the previous sibling was partially deleted: its top-level module count fell from 197 to 190 and its DSH manifest/entry were missing. The ownership file remained after termination. These observations establish both completed renames and an interrupted recursive deletion on the publication readiness path. The old generation's deletion, rather than package acquisition or version verification, prevented this invocation from reporting ready. They do **not** establish why individual Windows filesystem operations were slow, or explain the original historical rc.2 npm timeout.
+
+Because that publication code belongs to the shared B′ installer, its correction is made here and propagated through normal merges. The installer retains the exact previous sibling instead of synchronously recursively deleting it before readiness. Pin, npm integrity checks, staging, identity/version verification, exclusive admission, rename compensation, 180-second deadline and fail-closed lock behavior remain unchanged. No retry, cache trust shortcut or deadline increase is introduced. Retained generations consume disk space and require explicit, verified owner-controlled maintenance outside installation; there is no automatic garbage collector. Historical failed/partial generations remain evidence and must not be silently reused or deleted.
+
+The deterministic regression failed against the preceding implementation (16 passed, one failed: the previous generation was removed). It asserts a complete retained sentinel, a usable newly published runtime, a retention event, ready only after publication and release of the ownership lock. Raw RED evidence: B′ `.nexar/ci/dsh-publication-retention-red-20261027.*`, log SHA256 `db7d3dd15065d6f8910de72bbbfab9803cb0bdd3d8d2da9c048d1fdf85f8f6df`. Corrected GREEN: all 17 installer tests passed, zero failed/skipped/pending, Node22.23.3, 2265ms; `.nexar/ci/dsh-publication-retention-green-20261027.*`, log SHA256 `d77383b71bf8e261117b0a57ee960fdd39474ded192b872b9f6bbe3bf90ad513`. Subsequent source-bound acceptance remains separate; this regression does not simulate the Windows deletion latency or prove the original historical delay fixed.
+
 Implementation commit: `754312a24b38fafd715c5ee093af72172764569f`; tree `e4aa52591dcf18c776e1bcf5c46f1d4d97b88583`. Complete `pnpm check` passed before that commit:4518passed,178skipped,four pending, build passed; exact staged tree stable before/after. Log `.nexar/ci/dsh-phase-a-complete-check-initial-20261026.log`, SHA256 `024d94026b0b85c6cc23bdc382a2df812386aff7fd25db3a1dc30ed4c00864b6`.
 
 ### Standalone B′ Windows Full — actual failed aggregate
@@ -120,6 +130,29 @@ After Full CI ended, a tiny synthetic local npm tarball and deliberately incorre
 
 Raw result: `.nexar/ci/dsh-phase-a-integrity-negative-754312a-20261027/result.json`. This is distinct from unit simulations of npm failures. No registry network, real credentials, sign-in or paid provider request was required.
 
-**Phase A is acceptance-incomplete** because standalone B′ Windows Full did not pass. The demonstrated destructive-reinstall defect is corrected and verified; the original timeout's underlying delay and this packaged SOW stall remain unresolved. **Installation verdict: `NXR070_DSH_INSTALLATION_ROOT_CAUSE_UNRESOLVED`.**
+**At implementation754312a, Phase A was acceptance-incomplete** because standalone B′ Windows Full did not pass. That failed report remains a failure. The demonstrated destructive-reinstall defect is corrected and verified; the original timeout's underlying delay and that packaged SOW stall remain unresolved. **Installation verdict: `NXR070_DSH_INSTALLATION_ROOT_CAUSE_UNRESOLVED`.**
 
 Phase B must retain its own branch, exact rc.3 identity, compatibility/rollback evidence and Draft PR. Neither a successful rc.3 install nor C′'s historical Full PASS may be substituted for B′ standalone acceptance.
+
+### Corrected B′ standalone Windows acceptance
+
+Implementation `dc4d89b983573131036c28740a904c48c8594e3f`, tree `6b812182583437b760531652c940054aedfb64f1`, includes the previous-generation retention correction. Its complete `pnpm check` passed:4519passed,178skipped,four pending, zero failed;266707ms; log SHA256 `c49ad0d3d3c2779c3ad240b66e635a4831692b12ef38e7c4a9ca6a6f18d7e994`.
+
+The subsequent **single complete Windows Full invocation passed all16 mandatory stages**: `NEXAR_WINDOWS_FULL_PASS`,2462.20seconds,2026-10-27T02:53:54Z–03:34:59Z. The execution recorder confirms clean dc4d89b/6b812 at both boundaries with no source changes. Report `.nexar/ci/reports/report-2026-10-27T02-53-54-830Z.json`, SHA256 `e3ff80ce946bdf71315363885b680c9524d8080e555a73b7cdf0dfcb4d3592ef`; aggregate log SHA256 `8986252f5d0ca9b5902ad77cdeadc969be1632552df101fa2d63625268ba7f59`.
+
+| Gate                                           | Result in this invocation                                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Managed rc.2 installation                      | PASS82775ms; fresh isolated target                                                                                              |
+| Formatting/lint/boundaries/typecheck/build/CLI | PASS                                                                                                                            |
+| Offline tests                                  | 4530passed,167skipped,four pending, zero failed                                                                                 |
+| Real DSH context/compaction                    | 3/3 PASS                                                                                                                        |
+| Windows-to-WSL/kernel gates                    | 8/8 PASS; WSL fixture source754312a, whose CLI/execution sources are unchanged by dc4's installer/test/documentation-only delta |
+| Source Desktop E2E                             | 33/33 PASS419271ms                                                                                                              |
+| Windows packaging                              | PASS952601ms; actual bundled rc.2                                                                                               |
+| Packaged Desktop E2E                           | 33/33 PASS505491ms                                                                                                              |
+| Gitleaks                                       | PASS1769ms                                                                                                                      |
+| Optional native-Linux host stage               | BLOCKED on Windows; not a mandatory PASS and not native Ubuntu acceptance                                                       |
+
+Unsigned installer:322183408bytes, SHA256 `0afb71285017ae6d366e9645b633a7c1e84a6a492de34bca3ec8d5b3a99c61ab`. Packaged testing used win-unpacked and a disposable profile; no clean-machine NSIS installation was performed. Prior installer/sidecars and fixed offline evidence were preserved byte-identically under `.nexar/ci/dsh-publication-retention-pre-full-20261027/` before this run.
+
+This establishes current standalone B′ Windows acceptance. It does not retrospectively fix the original npm delay, historical Electron guard timeout, or earlier packaged SOW stall. The publication-cleanup mechanism has a separate correction and deterministic RED/GREEN evidence; its real rc.3 warm-install verification remains in Phase B. Independent owner acceptance, hosted CI, and the separate upgrade remain distinct gates.
