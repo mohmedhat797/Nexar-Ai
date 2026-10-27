@@ -95,6 +95,23 @@ afterEach(() => {
 });
 
 describe('Managed DSH installation publication and recovery', () => {
+  it('retains the replaced generation without recursive deletion on the readiness path', async () => {
+    const f = fixture();
+    f.previous();
+    const entry = await installDshRuntime(f);
+    expect(readFileSync(entry, 'utf8')).toBe('synthetic verified runtime');
+    const retained = readdirSync(f.root).filter((name) => name.startsWith('runtime.previous-'));
+    expect(retained).toHaveLength(1);
+    expect(readFileSync(join(f.root, retained[0]!, 'previous-sentinel'), 'utf8')).toBe(
+      'retain on failure',
+    );
+    expect(
+      f.records.filter((record) => record.event === 'previous-generation-retained'),
+    ).toHaveLength(1);
+    expect(f.records.at(-1)?.event).toBe('ready');
+    expect(existsSync(`${f.target}.install-lock`)).toBe(false);
+  });
+
   it('publishes fresh and repeated verified generations with stable entry identity', async () => {
     const f = fixture();
     const first = await installDshRuntime(f);
