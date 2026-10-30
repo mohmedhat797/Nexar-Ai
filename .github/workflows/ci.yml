@@ -88,7 +88,7 @@ jobs:
       - name: Desktop E2E (Electron under Xvfb)
         if: runner.os == 'Linux'
         env:
-          XDG_CURRENT_DESKTOP: GNOME
+          NEXAR_E2E_SECRET_SERVICE: '1'
         run: |
           dbus-run-session -- bash -euc '
             printf ci-throwaway | gnome-keyring-daemon --unlock --components=secrets > /dev/null
