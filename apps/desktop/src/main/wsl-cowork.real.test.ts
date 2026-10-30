@@ -34,7 +34,11 @@ afterEach(async () => {
   );
 });
 
-describe.skipIf(process.platform !== 'win32')('SEC02 Windows to actual WSL Cowork', () => {
+// GitHub-hosted runners have no provisioned plane. Everywhere else a missing plane stays a failure.
+const NO_PLANE =
+  process.platform !== 'win32' || process.env['RUNNER_ENVIRONMENT'] === 'github-hosted';
+
+describe.skipIf(NO_PLANE)('SEC02 Windows to actual WSL Cowork', () => {
   async function fixture(allow = true, hold = false, marker = 'SEC02-APPROVED-WINDOWS-INPUT') {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'sec02-windows-wsl-')));
     dirs.push(root);
