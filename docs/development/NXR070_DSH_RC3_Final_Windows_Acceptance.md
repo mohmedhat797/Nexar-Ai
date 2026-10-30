@@ -65,7 +65,7 @@ WSL Full on a Linux checkout of `ab1ddda`: **4,772 passed, 30 skipped, zero fail
 
 ## Remaining limitations
 
-- Hosted CI on GitHub has been blocked by the Actions budget and is not claimed as passing.
+- **Hosted CI is red.** Runs resumed on 30 October and run 41073887311 failed on hosted Windows (`wsl-cowork`, no WSL plane) and hosted Linux (`connections.e2e`, no OS keyring). Both are diagnosed as environmental and predate this work, but neither is fixed. See the [handover](NEXAR_Engineering_Stabilization_and_Storage_Optimization_Handover.md).
 - Independent owner review is pending; this is the implementing agent's own verification.
 - No clean-machine NSIS installation, and the NSIS payload was not independently extracted. See the [packaging report](NXR070_DSH_Verified_Runtime_Packaging_Architecture.md).
 - The package stage's 1,324 s leaves limited margin under the 1,500 s envelope, and one standalone run took 1,692 s.

@@ -4,7 +4,7 @@ Date: 30 October 2026. **Overall: NEXAR_ENGINEERING_COMPLETED_WITH_OUTSTANDING_G
 
 ## 1. Executive summary
 
-Windows Full now passes on exact source, including real packaging and packaged E2E. All six dependency advisories are corrected. The legacy directory is gone and about 23 GiB is recovered. Two gates remain, neither one code: your independent acceptance, and hosted CI, which the GitHub Actions budget has been blocking.
+Windows Full now passes on exact source, including real packaging and packaged E2E. All six dependency advisories are corrected. The legacy directory is gone and about 23 GiB is recovered. Two gates remain: your independent acceptance, and **hosted CI, which now runs and is red**. The three hosted failures are environmental and predate this work, but they are not fixed; see section 10.
 
 ## 2. Storage
 
@@ -59,15 +59,25 @@ Main is unchanged. There was no merge, force-push or history rewrite.
 | Item                       | Owner action or status                                                                                                    |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Independent acceptance     | **Yours.** This is the implementer's own verification                                                                     |
-| Hosted CI                  | Actions budget; not claimed as passing                                                                                    |
+| Hosted CI                  | **Red.** Runs resumed on 30 October; see the table below. Not claimed as passing                                          |
 | Package stage margin       | 910–1,692 s observed against a 1,500 s envelope; 1,324 s in the passing run. Can fail intermittently; envelope not raised |
 | Clean-machine NSIS install | Not performed; would risk your real installation on this machine                                                          |
 | Historical 180 s cause     | Correlated, not proven                                                                                                    |
 | Local branch `wip/v06`     | 36 unpushed commits; preserved, please decide                                                                             |
 
+Hosted run results, 30 October (runs 41073887311 on PR #46 and 41074704254 on the maintenance PR):
+
+| Job            | Failure                                      | Cause                                                                                                                                                                                            | Where it comes from                                                                              |
+| -------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| windows-latest | `wsl-cowork.real.test.ts`, 5 tests, both PRs | Requires the real `nexar-plane` WSL distro, which hosted runners lack; the test gates only on Windows                                                                                            | Predates this work: the maintenance PR is `main` plus tooling and fails identically              |
+| ubuntu-latest  | `connections.e2e.ts`, 4 tests, PR #46 only   | `safeStorage.isEncryptionAvailable()` is false under Xvfb, because hosted Linux has no OS keyring. Three tests assert this directly; the fourth's cause is inferred, as it fails with empty text | Test added on B′ (`0ce0f64`). No hosted run of it existed before, and this work did not touch it |
+| secret scan    | Gitleaks, 7 findings, maintenance PR only    | The all-refs scan sees test fixtures on B′, and `main`'s config lacks B′'s allowlist. Values were inspected only in masked form                                                                  | Should clear once B′ merges. The maintenance branch's own history scans clean                    |
+
+On PR #46, secret scan passes. None of these has been fixed or re-run with a fix, so these causes are diagnoses from logs, not confirmed by a green run.
+
 ## 11. Recommended next milestone
 
-Review and accept this stack, then address the package-stage margin by measuring NSIS compression. Only after that, merge B′→C′→upgrade in order.
+Fix hosted CI first: gate the WSL test on the plane being present, without weakening local Full, and give hosted Linux a keyring or a declared alternative. Then review and accept this stack, address the package-stage margin by measuring NSIS compression, and merge B′→C′→upgrade in order.
 
 ## Verdicts
 
