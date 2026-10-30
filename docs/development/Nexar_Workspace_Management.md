@@ -41,12 +41,12 @@ pinned runtime/toolchain binaries until their acceptance and offline requirement
 
 `scripts/maintenance/Invoke-NexarWorkspaceCleanup.ps1` supports:
 
-| Mode   | Effect |
-| ------ | ------ |
-| Audit  | Read-only registered-worktree inventory |
+| Mode   | Effect                                                                   |
+| ------ | ------------------------------------------------------------------------ |
+| Audit  | Read-only registered-worktree inventory                                  |
 | DryRun | Writes a private SHA/path/revision-bound manifest for an exact allowlist |
 | Apply  | Requires the reviewed manifest SHA-256 and revalidates all preconditions |
-| Verify | Checks Git connectivity and registered-worktree metadata |
+| Verify | Checks Git connectivity and registered-worktree metadata                 |
 
 The utility intentionally supports only the exact, audited retirement registry in its
 source. Extend that registry through code review after auditing a new candidate. It
@@ -76,6 +76,52 @@ Audit and Verify do not retire worktrees. Apply checks live open PRs through the
 authenticated GitHub CLI and fails closed if that lookup is unavailable. It cannot prove
 that an idle external agent has no hidden dependency; resolve such uncertainty before
 adding a path to the retirement registry.
+
+## Artifact cleanup utility
+
+`scripts/maintenance/Invoke-NexarArtifactCleanup.ps1` removes reproducible output and superseded
+DSH generations without touching any worktree. It has the same four modes, and DryRun takes an
+exact path list:
+
+```powershell
+$cleanup = '.\scripts\maintenance\Invoke-NexarArtifactCleanup.ps1'
+& $cleanup -Mode Audit | Where-Object Status -eq 'Eligible'
+& $cleanup -Mode DryRun -Paths $reviewedPaths -ManifestPath $manifest -WithInventory
+& $cleanup -Mode Apply -ManifestPath $manifest -ManifestSha256 $reviewedSha256
+& $cleanup -Mode Verify -ManifestPath $manifest
+```
+
+Only these shapes inside a registered worktree are eligible; everything else is refused:
+
+| Relative path                                             | Class               | Required proof                       |
+| --------------------------------------------------------- | ------------------- | ------------------------------------ |
+| `release/desktop/win-unpacked`                            | REPRODUCIBLE_BUILD  | Installer or its `.sha256` beside it |
+| `.nexar/ci/package-*/win-unpacked`                        | REPRODUCIBLE_BUILD  | Installer or its `.sha256` beside it |
+| `dist/desktop-staging`, `dist/dsh-runtime`                | REPRODUCIBLE_BUILD  | None; packaging regenerates them     |
+| `dist/dsh-runtime.{stage,promote}-<uuid>`                 | OBSOLETE_GENERATION | Runtime marker, no install lock      |
+| `.nexar/dsh-runtime.previous-<uuid>`                      | OBSOLETE_GENERATION | Runtime marker, no install lock      |
+| `.nexar/ci/dsh-*/node_modules`, `.nexar/ci/dsh-*/runtime` | OBSOLETE_GENERATION | Runtime marker                       |
+
+Installers, logs, reports, receipts, `.nexar/dsh-runtime` and all source stay. A failed stage is
+evidence until its failure has been recorded: inventories keep names, sizes and timestamps, and the
+retained installer identifies a removed `win-unpacked`. Apply never runs on a schedule.
+
+## Retention policy
+
+- **Toolchains:** `D:\Nexar-Toolchains` holds the pinned Node and Gitleaks; never depend on a
+  feature worktree for a tool. `migration-receipt.json` there records their hashes.
+- **Active worktrees:** those with an open PR. Keep their source, `node_modules` and managed runtime.
+- **Retired worktrees:** remove through Git after preserving ignored evidence; a merged PR alone is
+  insufficient proof.
+- **Package output:** keep the current `release/desktop`. After a milestone closes, keep the installer,
+  its hash and provenance, and remove `win-unpacked`.
+- **Runtime generations:** each install retains one `.previous-<uuid>` for recovery. Clear them when
+  no rollback investigation depends on them; they are about 0.5 GB each.
+- **Failed installations:** keep until their failure is recorded in a report, then clear them.
+- **CI evidence:** keep reports, logs and receipts indefinitely. They are small; trees are not.
+- **Caches:** the pnpm store and npm cache stay; pruning them forces online reinstallation.
+
+Review `Audit` output at each milestone closure. Nothing here runs automatically.
 
 ## Builds, dependencies, and toolchains
 
