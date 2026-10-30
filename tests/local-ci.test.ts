@@ -417,6 +417,7 @@ describe('Nexar Local CI Orchestrator', () => {
     const winFullStages = [
       'dependencies',
       'dsh-install',
+      'dsh-artifact-seal',
       'format-check',
       'lint',
       'boundaries',

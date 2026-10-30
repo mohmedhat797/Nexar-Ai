@@ -9,6 +9,7 @@ export const EXPECTED_STAGES = {
   windows_full: [
     'dependencies',
     'dsh-install',
+    'dsh-artifact-seal',
     'format-check',
     'lint',
     'boundaries',

@@ -17,6 +17,7 @@ import {
 import { basename, dirname, extname, join, parse, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { spawnSubprocess } from '../local-ci/process-util.mjs';
+import { INSTALL_RECEIPT, installReceipt } from './artifact.mjs';
 
 const PACKAGE_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
@@ -106,7 +107,18 @@ export async function installDshRuntime({
       if (!PACKAGE_NAME.test(candidate?.package ?? '') || !VERSION.test(candidate?.version ?? '')) {
         throw failure('INVALID_PIN');
       }
-      pin = { package: candidate.package, version: candidate.version };
+      // Security corrections only: exact package names and exact versions, no ranges.
+      const overrides = candidate.overrides ?? {};
+      if (
+        typeof overrides !== 'object' ||
+        Array.isArray(overrides) ||
+        !Object.entries(overrides).every(
+          ([name, value]) => PACKAGE_NAME.test(name) && VERSION.test(String(value)),
+        )
+      ) {
+        throw failure('INVALID_PIN');
+      }
+      pin = { package: candidate.package, version: candidate.version, overrides };
       const lock = readJson(join(pinDir, 'dsh-runtime.package-lock.json'));
       if (
         lock.lockfileVersion !== 3 ||
@@ -146,6 +158,7 @@ export async function installDshRuntime({
             version: '0.0.0',
             private: true,
             dependencies: { [pin.package]: pin.version },
+            ...(Object.keys(pin.overrides).length > 0 ? { overrides: pin.overrides } : {}),
           },
           null,
           2,
@@ -193,6 +206,11 @@ export async function installDshRuntime({
       );
       if (result.stdout.trim() !== pin.version) throw failure('VERSION_PROBE_MISMATCH');
     });
+    // Reached only after every check above, so a failed or partial stage never carries one.
+    writeFileSync(
+      join(stage, INSTALL_RECEIPT),
+      `${JSON.stringify(installReceipt({ generation, pinDir }), null, 2)}\n`,
+    );
     await step('publication', () => {
       if (performance.now() - started >= INSTALL_TIMEOUT_MS) throw failure('INSTALLATION_TIMEOUT');
       assertOwnedTarget(dir);
