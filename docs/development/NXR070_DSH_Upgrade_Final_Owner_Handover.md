@@ -1,5 +1,7 @@
 # DSH runtime upgrade — final owner handover
 
+**Update, 31 October 2026:** the target is now exactly `0.2.1-rc.5`, and Windows Full passes on it. Current state: [rc.5 delta report](NXR070_DSH_RC5_Compatibility_and_Upgrade_Delta.md) and [stabilization handover](NEXAR_Engineering_Stabilization_and_Storage_Optimization_Handover.md). Everything below is the 27 October record, kept as history.
+
 Date: 27 October 2026. **The exact rc.3 upgrade is implemented, but Windows acceptance is blocked. Do not merge or deploy it.**
 
 ## Outcome

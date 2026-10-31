@@ -1,10 +1,12 @@
 # Nexar engineering stabilization and storage optimization handover
 
-Date: 30 October 2026, hosted CI result updated 31 October. **Overall: NEXAR_ENGINEERING_COMPLETED_WITH_OUTSTANDING_GATES.** The DSH rc.3 stack is ready for your independent review. Nothing was merged.
+Date: 30 October 2026, updated 31 October for the rc.5 amendment. **Overall: NEXAR_ENGINEERING_COMPLETED_WITH_OUTSTANDING_GATES.** The DSH stack, now pinned to rc.5, is ready for your independent review. Nothing was merged.
+
+**rc.5 replaces rc.3 as the target.** Sections 2 to 8 below record the 30 October rc.3 work as it happened, including its measured numbers. Current results are in the [rc.5 delta report](NXR070_DSH_RC5_Compatibility_and_Upgrade_Delta.md).
 
 ## 1. Executive summary
 
-Windows Full now passes on exact source, including real packaging and packaged E2E. All six dependency advisories are corrected. The legacy directory is gone and about 23 GiB is recovered. Hosted CI is now green on this PR and the maintenance PR, including hosted Windows packaging and packaged E2E. The remaining gate is your independent acceptance. PRs #44 and #45 show red, but their jobs have never run; see section 10.
+Windows Full, WSL Full and rollback pass on rc.5 at `cb4e2bb`, including real packaging and packaged E2E. rc.5 fixes a real stdout failure that rc.3 has. All eleven dependency advisories are corrected. The legacy directory is gone and about 23 GiB was recovered on 30 October. Hosted CI is green on PRs #44, #45 and the maintenance PR; PR #46's latest full result is for its rc.3-pinned parent, and the rc.5 result is in the PR description. The remaining gate is your independent acceptance.
 
 ## 2. Storage
 
@@ -16,6 +18,8 @@ Windows Full now passes on exact source, including real packaging and packaged E
 | Files             | 1,471,220 | 508,202   |
 
 The canonical reduction is real deletion, not relocation. Repeated `win-unpacked` copies were the largest cause; Git was 8 MiB of packs. Details, exact paths and items left for your decision are in the private `.nexar/workspace-maintenance/` reports.
+
+31 October, rc.5 amendment: 528 MiB reclaimed on `D:`, and 2,002 MiB inside the WSL virtual disk, which does not return space to the host until the disk is compacted. `D:` free is 39.23 GiB. That is down from 42.1 GiB before rc.5 acceptance, because new runtime and package artifacts outweighed the cleanup.
 
 ## 3. Legacy directory
 
@@ -33,37 +37,44 @@ Packaging now consumes the sealed, tested runtime by hashing every byte it copie
 
 ## 6. Dependency security
 
+**Correction, 31 October:** the count below is wrong. The data held eleven unique advisories, because five undici ones published on 27 October were missed. The same undici version fixes them. See the [delta report](NXR070_DSH_RC5_Compatibility_and_Upgrade_Delta.md).
+
 196 audit records were six advisories. Exact overrides correct all of them; `npm audit` is clean. It also removes 56% of materialized files. **This is a decision for your review:** the runtime no longer matches upstream's own resolution, and undici and Zod have not met real provider traffic because no paid inference ran. See the [assessment](NXR070_DSH_RC3_Dependency_Security_Assessment.md) and [ADR amendment](../adr/030-dependency-security-amendment-dsh-021-rc3.md).
 
 ## 7. Windows acceptance
 
-`NEXAR_WINDOWS_FULL_PASS` on `ab1ddda`: 4,629 tests passed, zero failed; source and packaged Desktop 33/33 each; Gitleaks PASS; installer SHA-256 `cc15c940…`. See the [acceptance report](NXR070_DSH_RC3_Final_Windows_Acceptance.md).
+rc.5: `NEXAR_WINDOWS_FULL_PASS` on `cb4e2bb`: 4,634 tests passed, zero failed; source and packaged Desktop 33/33 each; Gitleaks PASS; installer SHA-256 `075dd074…`; package stage 1,388 s against the 1,500 s envelope.
+
+rc.3, history: `NEXAR_WINDOWS_FULL_PASS` on `ab1ddda`: 4,629 tests passed, zero failed; source and packaged Desktop 33/33 each; Gitleaks PASS; installer SHA-256 `cc15c940…`. See the [acceptance report](NXR070_DSH_RC3_Final_Windows_Acceptance.md).
 
 ## 8. WSL acceptance
 
-WSL Full on `ab1ddda`: 4,772 passed, 30 skipped, zero failed; real Bubblewrap 12/12. Rollback rc.2→rc.3→rc.2 passed at runtime and state level. WSL2 is not native Ubuntu.
+rc.5: WSL Full on `cb4e2bb`: 4,777 passed, 30 skipped, zero failed; real Bubblewrap 12/12. Rollback rc.2→rc.5→rc.2 passed at runtime and state level.
+
+rc.3, history: WSL Full on `ab1ddda`: 4,772 passed, 30 skipped, zero failed; real Bubblewrap 12/12. Rollback rc.2→rc.3→rc.2 passed at runtime and state level. WSL2 is not native Ubuntu.
 
 ## 9. Git
 
-| Reference      | Branch                              | State                                       |
-| -------------- | ----------------------------------- | ------------------------------------------- |
-| PR #44         | feat/nxr-070b-multi-api-connections | Draft, unchanged `ae8a46b`                  |
-| PR #45         | feat/nxr-070c-review-diversity      | Draft, unchanged `46aa3c2`                  |
-| PR #46         | feat/nxr-dsh-021-rc3-upgrade        | Draft, updated                              |
-| Maintenance PR | codex/workspace-maintenance         | Draft; cleanup utility and retention policy |
+| Reference      | Branch                              | State                                         |
+| -------------- | ----------------------------------- | --------------------------------------------- |
+| PR #44         | feat/nxr-070b-multi-api-connections | Draft, `b5848a1`: hosted CI fixes, still rc.2 |
+| PR #45         | feat/nxr-070c-review-diversity      | Draft, `f8fde29`: merge of #44, still rc.2    |
+| PR #46         | feat/nxr-dsh-021-rc3-upgrade        | Draft, rc.5 (the branch name stays as is)     |
+| Maintenance PR | codex/workspace-maintenance         | Draft; cleanup utility and retention policy   |
 
 Main is unchanged. There was no merge, force-push or history rewrite.
 
 ## 10. Remaining blockers and limits
 
-| Item                       | Owner action or status                                                                                             |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Independent acceptance     | **Yours.** This is the implementer's own verification                                                              |
-| Hosted CI                  | **Green** on PR #46 and the maintenance PR; PRs #44 and #45 have never run. See below                              |
-| Package stage margin       | Local: 910–1,692 s against a 1,500 s envelope, 1,324 s in the passing run. Hosted step: 212 s. Envelope not raised |
-| Clean-machine NSIS install | Not performed; would risk your real installation on this machine                                                   |
-| Historical 180 s cause     | Correlated, not proven                                                                                             |
-| Local branch `wip/v06`     | 36 unpushed commits; preserved, please decide                                                                      |
+| Item                       | Owner action or status                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Independent acceptance     | **Yours.** This is the implementer's own verification                                                           |
+| Hosted CI                  | **Green** on PRs #44, #45, the maintenance PR and PR #46's rc.3-pinned parent. rc.5 result: see the PR          |
+| Live provider traffic      | Not run, by policy. ACP tests use a local fake model                                                            |
+| Package stage margin       | Local: 910–1,692 s against a 1,500 s envelope, 1,388 s in the rc.5 run. Hosted step: 212 s. Envelope not raised |
+| Clean-machine NSIS install | Not performed; would risk your real installation on this machine                                                |
+| Historical 180 s cause     | Correlated, not proven                                                                                          |
+| Local branch `wip/v06`     | 36 unpushed commits; preserved, please decide                                                                   |
 
 Hosted results after the fixes (run 41144284645 at `c357590` on PR #46; run 41143789384 at `7488502` on the maintenance PR, whose three checks all pass):
 
@@ -85,11 +96,11 @@ Earlier failures (30 October, runs 41073887311 and 41074704254) and what fixed t
 
 **What hosted CI does not cover:** the real plane. Hosted runs skip the plane-only Cowork and WSL tests, so those stay covered only by local Full. The fail-closed test for a missing helper still runs on hosted.
 
-**PRs #44 and #45 have no real hosted result.** Their red checks come from runs 40482032663 and 40482043084 on 27 October, at `ae8a46b` and `46aa3c2`. No job started: each has zero steps and the annotation "The job was not started because an Actions budget is preventing further use". Neither branch contains the fixes above, so a re-run would probably hit the Windows and Linux failures on the table. That is a prediction, not a result.
+**PRs #44 and #45 now have real hosted results.** The fixes above were added to `b5848a1` and merged forward to `f8fde29` and `f7be98f`. All three jobs pass on each of them. Their earlier red checks, runs 40482032663 and 40482043084 on 27 October, never started a job because of an Actions budget.
 
 ## 11. Recommended next milestone
 
-Get real hosted results for PRs #44 and #45, since they merge first. Then review and accept this stack, and merge B′→C′→upgrade in order. Measure NSIS compression if the local package stage keeps approaching its envelope.
+Review and accept this stack, and merge B′→C′→upgrade in order. Watch the first real provider use on rc.5. Measure NSIS compression if the local package stage keeps approaching its envelope.
 
 ## Verdicts
 
@@ -98,8 +109,8 @@ Get real hosted results for PRs #44 and #45, since they merge first. Then review
 | Storage             | NEXAR_STORAGE_OPTIMIZATION_COMPLETED (23.24 GiB net) |
 | Legacy directory    | NEXAR_LEGACY_NXR070_SAFELY_REMOVED                   |
 | Toolchain           | NEXAR_TOOLCHAIN_MIGRATION_VERIFIED                   |
-| Packaging           | NEXAR_DSH_RC3_PACKAGING_VERIFIED                     |
-| Dependency security | NEXAR_DSH_RC3_DEPENDENCY_RISKS_DISPOSITIONED         |
-| Windows             | NXR070_DSH_RC3_WINDOWS_FULL_CI_PASSED                |
-| Integration         | NXR070_DSH_RC3_READY_FOR_INDEPENDENT_ACCEPTANCE      |
+| Packaging           | NEXAR_DSH_RC5_PACKAGING_VERIFIED                     |
+| Dependency security | NEXAR_DSH_RC5_DEPENDENCY_RISKS_DISPOSITIONED         |
+| Windows             | NXR070_DSH_RC5_WINDOWS_FULL_CI_PASSED                |
+| Integration         | NXR070_DSH_RC5_READY_FOR_INDEPENDENT_ACCEPTANCE      |
 | Overall             | NEXAR_ENGINEERING_COMPLETED_WITH_OUTSTANDING_GATES   |

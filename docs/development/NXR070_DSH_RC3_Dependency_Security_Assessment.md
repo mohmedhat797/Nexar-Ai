@@ -1,5 +1,7 @@
 # DSH rc.3 dependency security assessment
 
+**Correction, 31 October 2026:** this register lists six advisories, but the data held eleven. Five undici advisories published on 27 October are missing here. Undici 8.12.3 fixes them, so the clean audit stands. See the [rc.5 delta report](NXR070_DSH_RC5_Compatibility_and_Upgrade_Delta.md). The text below is unchanged history, for a runtime that was never accepted.
+
 Date: 30 October 2026. Lock SHA-256 `7d2dbdc2a97aacfcb9b1ff72755db15fabd29f46115de29ba3be9f4acfcfe60e`. **Verdict: NEXAR_DSH_RC3_DEPENDENCY_RISKS_DISPOSITIONED.** Authorized by the [dependency security amendment](../adr/030-dependency-security-amendment-dsh-021-rc3.md).
 
 ## Result

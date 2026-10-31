@@ -1,5 +1,6 @@
 # ADR-030 dependency security amendment: exact overrides for DSH 0.2.1-rc.3
 
+- Superseded as the current override set by the [rc.5 dependency amendment](030-dependency-security-amendment-dsh-021-rc5.md), 31 October 2026.
 - Authorization: project owner, NEXAR engineering stabilization assignment, 30 October 2026: "narrowly scoped transitive dependency correction" with documented artifact identity.
 - Status: implemented on `feat/nxr-dsh-021-rc3-upgrade`. Integration still requires independent owner acceptance.
 - Amends: [ADR-030 version amendment](030-version-amendment-dsh-021-rc3.md). The exact package remains `@deepseek-ai/dsh@0.2.1-rc.3`; only the listed transitive packages move.
