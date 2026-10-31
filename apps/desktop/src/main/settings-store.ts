@@ -184,6 +184,17 @@ function parseChatGptPlan(raw: unknown): ChatGptPlanResult {
   return parsed.success ? { valid: true, value: parsed.data } : { valid: false };
 }
 
+// ---- Owner connections rollback (ADR-029 §6) --------------------------------------------------
+
+const OwnerConnectionsSchema = z.strictObject({ enabled: z.boolean() });
+
+/** Missing means on. A damaged section means off, so a typo can only hide connections. */
+function parseOwnerConnections(raw: unknown): boolean {
+  if (raw === undefined) return true;
+  const parsed = OwnerConnectionsSchema.safeParse(raw);
+  return parsed.success && parsed.data.enabled;
+}
+
 // ---- Connections (ADR-029) --------------------------------------------------------------------
 
 const CredentialScopeSchema = z.discriminatedUnion('kind', [
@@ -374,6 +385,9 @@ interface Loaded {
   /** Owner-edited; never written by Nexar, kept verbatim. */
   readonly chatgptPlanRaw: unknown;
   readonly chatgptPlan: ChatGptPlanResult;
+  /** Owner-edited; never written by Nexar, kept verbatim. */
+  readonly ownerConnectionsRaw: unknown;
+  readonly ownerConnectionsEnabled: boolean;
   readonly connectionsRaw: unknown;
   readonly connections: ConnectionsConfigResult;
 }
@@ -404,12 +418,21 @@ export class SettingsStore {
     let behaviorRaw: unknown;
     let orchestrationRaw: unknown;
     let chatgptPlanRaw: unknown;
+    let ownerConnectionsRaw: unknown;
     let connectionsRaw: unknown;
     try {
       const file = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
       if (typeof file === 'object' && file !== null && !Array.isArray(file)) {
-        const { codePlane, cowork, behavior, orchestration, chatgptPlan, connections, ...rest } =
-          file as Record<string, unknown>;
+        const {
+          codePlane,
+          cowork,
+          behavior,
+          orchestration,
+          chatgptPlan,
+          ownerConnections,
+          connections,
+          ...rest
+        } = file as Record<string, unknown>;
         const parsed = AppearanceSchema.safeParse(rest);
         if (parsed.success) appearance = parsed.data;
         codePlaneRaw = Object.hasOwn(file, 'codePlane') ? codePlane : undefined;
@@ -417,6 +440,9 @@ export class SettingsStore {
         behaviorRaw = Object.hasOwn(file, 'behavior') ? behavior : undefined;
         orchestrationRaw = Object.hasOwn(file, 'orchestration') ? orchestration : undefined;
         chatgptPlanRaw = Object.hasOwn(file, 'chatgptPlan') ? chatgptPlan : undefined;
+        ownerConnectionsRaw = Object.hasOwn(file, 'ownerConnections')
+          ? ownerConnections
+          : undefined;
         connectionsRaw = Object.hasOwn(file, 'connections') ? connections : undefined;
       } else connectionsRaw = null;
     } catch (error) {
@@ -435,6 +461,8 @@ export class SettingsStore {
       orchestration: parseOrchestration(orchestrationRaw),
       chatgptPlanRaw,
       chatgptPlan: parseChatGptPlan(chatgptPlanRaw),
+      ownerConnectionsRaw,
+      ownerConnectionsEnabled: parseOwnerConnections(ownerConnectionsRaw),
       connectionsRaw,
       connections: parseConnections(connectionsRaw),
     };
@@ -507,6 +535,9 @@ export class SettingsStore {
             ...behaviorSection,
             ...orchestrationSection,
             ...(next.chatgptPlanRaw === undefined ? {} : { chatgptPlan: next.chatgptPlanRaw }),
+            ...(next.ownerConnectionsRaw === undefined
+              ? {}
+              : { ownerConnections: next.ownerConnectionsRaw }),
             ...connectionsSection,
           },
           null,
@@ -599,6 +630,11 @@ export class SettingsStore {
       await this.write({ ...loaded, behaviorRaw: value, behavior: { valid: true, value } });
       return value;
     });
+  }
+
+  /** Read once per start: the owner edits the file while the app is closed. */
+  async getOwnerConnectionsEnabled(): Promise<boolean> {
+    return (await this.load()).ownerConnectionsEnabled;
   }
 
   /** Main-process only: the validated ChatGPT plan model list (owner-edited). */

@@ -91,6 +91,8 @@ export class ConnectionManager {
   private readonly now: () => string;
   private records = new Map<string, PersistentConnectionRecord>();
   private recovering = false;
+  /** Rollback control: stays off until the setting has been read. */
+  private ownerConnectionsEnabled = false;
   constructor(private readonly deps: ConnectionManagerDeps) {
     this.now = deps.now ?? (() => new Date().toISOString());
   }
@@ -105,6 +107,7 @@ export class ConnectionManager {
   private async state(): Promise<ConnectionsSettings> {
     const res = await this.deps.settingsStore.getConnections();
     if (!res.valid || !validConnections(res.value)) throw rejected('connection.settings-invalid');
+    this.ownerConnectionsEnabled = await this.deps.settingsStore.getOwnerConnectionsEnabled();
     this.updateView(res.value);
     return res.value;
   }
@@ -125,6 +128,18 @@ export class ConnectionManager {
     if (record === undefined) throw rejected('connection.unknown');
     return record;
   }
+  /**
+   * ADR-029 §6: rollback hides added connections and retains their state. The single plan stays,
+   * since a replacement is the only plan left once the built-in id is retired.
+   */
+  private hidden(r: PersistentConnectionRecord): boolean {
+    return !this.ownerConnectionsEnabled && !r.builtIn && planScopeName(r.id) === undefined;
+  }
+  private manageable(id: string): PersistentConnectionRecord {
+    const r = this.record(id);
+    if (this.hidden(r)) throw rejected('connection.owner-connections-off');
+    return r;
+  }
   private idle(id: string): void {
     if (this.getActiveExecutionCount(id) !== 0) throw rejected('connection.active');
   }
@@ -141,6 +156,7 @@ export class ConnectionManager {
   }
   private eligible(r: PersistentConnectionRecord): boolean {
     return (
+      !this.hidden(r) &&
       canConnectionAdmit(r) &&
       !this.authenticating.has(r.id) &&
       (r.credentialScope.kind === 'native-home' ||
@@ -255,19 +271,22 @@ export class ConnectionManager {
   listConnections(): Promise<readonly PersistentConnectionRecord[]> {
     return this.serial(async () => {
       await this.state();
-      return [...this.records.values()].sort((a, b) => a.id.localeCompare(b.id));
+      return [...this.records.values()]
+        .filter((r) => !this.hidden(r))
+        .sort((a, b) => a.id.localeCompare(b.id));
     });
   }
   async getConnection(id: string): Promise<PersistentConnectionRecord | undefined> {
     await this.listConnections();
     const definition = defaultDefinition(id);
-    return this.records.get(id) ?? (definition ? builtin(definition) : undefined);
+    const record = this.records.get(id) ?? (definition ? builtin(definition) : undefined);
+    return record === undefined || this.hidden(record) ? undefined : record;
   }
   prepareAction(args: ConnectionPrepareArgs): Promise<ConnectionConfirmation> {
     return this.serial(async () => {
       this.writer();
       await this.state();
-      const record = this.record(args.connectionId);
+      const record = this.manageable(args.connectionId);
       if (
         (args.action === 'remove' && record.builtIn) ||
         (args.action === 'replace' &&
@@ -332,7 +351,7 @@ export class ConnectionManager {
     return this.serial(async () => {
       this.writer();
       await this.state();
-      const record = this.record(id);
+      const record = this.manageable(id);
       if (!canConnectionAdmit(record) || this.authenticating.has(id)) throw unavailable();
       this.idle(id);
       this.authenticating.add(id);
@@ -377,6 +396,7 @@ export class ConnectionManager {
   async addApiConnection(raw: ConnectionAddArgs): Promise<PersistentConnectionRecord> {
     const args = ConnectionAddArgsSchema.parse(raw);
     return this.mutate(async (state) => {
+      if (!this.ownerConnectionsEnabled) throw rejected('connection.owner-connections-off');
       const id = this.nextId(`${args.provider}.api`, state);
       const name = ownerKeyName(args.provider, id);
       if (name === undefined) throw rejected('connection.unsupported-provider');
@@ -422,7 +442,7 @@ export class ConnectionManager {
   ): Promise<PersistentConnectionRecord> {
     const { connectionId } = ConnectionIdArgsSchema.parse({ connectionId: raw.connectionId });
     return this.mutate(async (state) => {
-      const r = this.record(connectionId);
+      const r = this.manageable(connectionId);
       const expected = {
         disable: 'ACTIVE',
         enable: 'DISABLED',
@@ -484,7 +504,7 @@ export class ConnectionManager {
   ): Promise<PersistentConnectionRecord> {
     const { connectionId } = ConnectionIdArgsSchema.parse({ connectionId: raw.connectionId });
     return this.mutate(async (state) => {
-      const r = this.record(connectionId);
+      const r = this.manageable(connectionId);
       await this.confirm(r, 'forget', raw);
       this.idle(r.id);
       const scope = r.credentialScope;
@@ -506,7 +526,7 @@ export class ConnectionManager {
   async rotateCredential(raw: ConnectionRotateArgs): Promise<PersistentConnectionRecord> {
     const args = ConnectionRotateArgsSchema.parse(raw);
     return this.mutate(async (state) => {
-      const r = this.record(args.connectionId);
+      const r = this.manageable(args.connectionId);
       this.idle(r.id);
       // Re-entry into an ordinarily removed identity keeps it tombstoned until explicit Restore.
       if (

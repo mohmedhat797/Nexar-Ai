@@ -128,7 +128,9 @@ Each slice is one commit that passes `pnpm check`.
 
 ## J. Rollback
 
-Turning the rollback control off hides owner Codex connections. Homes, tombstones and binding records are retained, and pins fail explicitly instead of attaching to another account. A code revert is also safe: the persisted definitions fail closed to built-ins, as B′ specifies. No rollback deletes a home or changes a session. Built-in Codex keeps working throughout.
+To turn the rollback control off, close Nexar, add `"ownerConnections": { "enabled": false }` to `desktop-settings.json`, and start it again. The renderer cannot read or change this setting. A missing section means on, and a damaged one means off. A replacement ChatGPT plan stays available, because it is the only plan left once the built-in id is retired.
+
+Turning the rollback control off hides owner API and Codex connections. Homes, tombstones and binding records are retained, and pins fail explicitly instead of attaching to another account. A code revert is also safe: the persisted definitions fail closed to built-ins, as B′ specifies. No rollback deletes a home or changes a session. Built-in Codex keeps working throughout.
 
 ## K. Risks
 
