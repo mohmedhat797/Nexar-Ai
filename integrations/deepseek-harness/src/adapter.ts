@@ -35,7 +35,8 @@ import {
 } from './runtime-process.js';
 import type { BinarySpec, RuntimeProcess } from './runtime-process.js';
 
-const DEFAULT_INITIALIZE_TIMEOUT_MS = 15_000;
+/** Same as the local ACP path; a real first launch on Windows has exceeded 15 s. */
+export const DEFAULT_INITIALIZE_TIMEOUT_MS = 90_000;
 const DEFAULT_RUN_TIMEOUT_MS = 15 * 60_000;
 const PROBE_TIMEOUT_MS = 5_000;
 const SHUTDOWN_TIMEOUT_MS = 2_000;

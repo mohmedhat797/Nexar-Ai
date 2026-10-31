@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ExecutionEvent, ResourceDescriptor, SecretResolver } from '@nexar/contracts';
 import { NexarError, adapterId } from '@nexar/contracts';
-import { DeepSeekHarnessExecutionAdapter } from './adapter.js';
+import { DEFAULT_INITIALIZE_TIMEOUT_MS, DeepSeekHarnessExecutionAdapter } from './adapter.js';
 import { DSH_PINNED_VERSION, deepseekHarnessResource } from './resource.js';
 import { fakeBinary, makeContext, makeTask, makeTempDir, readRecord } from './test/support.js';
 import type { LogLine } from './test/support.js';
@@ -30,6 +30,10 @@ function setup(settings: Record<string, string> = {}, extra: { env?: NodeJS.Proc
 }
 
 describe('DeepSeekHarnessExecutionAdapter.execute', () => {
+  it('allows a cold runtime start the same 90 s as the local ACP path', () => {
+    expect(DEFAULT_INITIALIZE_TIMEOUT_MS).toBe(90_000);
+  });
+
   it('runs a task end to end and maps text, usage and resolved info', async () => {
     const { dir, recordPath, stateDir, adapter } = setup();
     const events: ExecutionEvent[] = [];
