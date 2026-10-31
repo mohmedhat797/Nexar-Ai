@@ -65,9 +65,9 @@ WSL Full on a Linux checkout of `ab1ddda`: **4,772 passed, 30 skipped, zero fail
 
 ## Remaining limitations
 
-- **Hosted CI is red.** Runs resumed on 30 October and run 41073887311 failed on hosted Windows (`wsl-cowork`, no WSL plane) and hosted Linux (`connections.e2e`, no OS keyring). Both are diagnosed as environmental and predate this work, but neither is fixed. See the [handover](NEXAR_Engineering_Stabilization_and_Storage_Optimization_Handover.md).
+- **Hosted CI passed after this run, at a later commit.** Run 41144284645 at `c357590` is green on Windows, Linux and secret scan, including hosted packaging and packaged E2E. It skips the tests that need the real WSL plane, so those stay covered only by local Full. The acceptance above is for `ab1ddda`. See the [handover](NEXAR_Engineering_Stabilization_and_Storage_Optimization_Handover.md).
 - Independent owner review is pending; this is the implementing agent's own verification.
 - No clean-machine NSIS installation, and the NSIS payload was not independently extracted. See the [packaging report](NXR070_DSH_Verified_Runtime_Packaging_Architecture.md).
-- The package stage's 1,324 s leaves limited margin under the 1,500 s envelope, and one standalone run took 1,692 s.
+- The local package stage's 1,324 s leaves limited margin under the 1,500 s envelope, and one standalone run took 1,692 s. The hosted packaging step took 212 s.
 - The historical 180-second cause is correlated with low disk space but not demonstrated.
 - The commit after this run changes documentation only; its `pnpm check` result is in the publication record of PR #46.

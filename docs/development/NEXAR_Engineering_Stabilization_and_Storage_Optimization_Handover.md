@@ -1,10 +1,10 @@
 # Nexar engineering stabilization and storage optimization handover
 
-Date: 30 October 2026. **Overall: NEXAR_ENGINEERING_COMPLETED_WITH_OUTSTANDING_GATES.** The DSH rc.3 stack is ready for your independent review. Nothing was merged.
+Date: 30 October 2026, hosted CI result updated 31 October. **Overall: NEXAR_ENGINEERING_COMPLETED_WITH_OUTSTANDING_GATES.** The DSH rc.3 stack is ready for your independent review. Nothing was merged.
 
 ## 1. Executive summary
 
-Windows Full now passes on exact source, including real packaging and packaged E2E. All six dependency advisories are corrected. The legacy directory is gone and about 23 GiB is recovered. Two gates remain: your independent acceptance, and **hosted CI, which now runs and is red**. The three hosted failures are environmental and predate this work, but they are not fixed; see section 10.
+Windows Full now passes on exact source, including real packaging and packaged E2E. All six dependency advisories are corrected. The legacy directory is gone and about 23 GiB is recovered. Hosted CI is now green on this PR and the maintenance PR, including hosted Windows packaging and packaged E2E. The remaining gate is your independent acceptance. PRs #44 and #45 show red, but their jobs have never run; see section 10.
 
 ## 2. Storage
 
@@ -56,28 +56,40 @@ Main is unchanged. There was no merge, force-push or history rewrite.
 
 ## 10. Remaining blockers and limits
 
-| Item                       | Owner action or status                                                                                                    |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Independent acceptance     | **Yours.** This is the implementer's own verification                                                                     |
-| Hosted CI                  | **Red.** Runs resumed on 30 October; see the table below. Not claimed as passing                                          |
-| Package stage margin       | 910–1,692 s observed against a 1,500 s envelope; 1,324 s in the passing run. Can fail intermittently; envelope not raised |
-| Clean-machine NSIS install | Not performed; would risk your real installation on this machine                                                          |
-| Historical 180 s cause     | Correlated, not proven                                                                                                    |
-| Local branch `wip/v06`     | 36 unpushed commits; preserved, please decide                                                                             |
+| Item                       | Owner action or status                                                                                             |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Independent acceptance     | **Yours.** This is the implementer's own verification                                                              |
+| Hosted CI                  | **Green** on PR #46 and the maintenance PR; PRs #44 and #45 have never run. See below                              |
+| Package stage margin       | Local: 910–1,692 s against a 1,500 s envelope, 1,324 s in the passing run. Hosted step: 212 s. Envelope not raised |
+| Clean-machine NSIS install | Not performed; would risk your real installation on this machine                                                   |
+| Historical 180 s cause     | Correlated, not proven                                                                                             |
+| Local branch `wip/v06`     | 36 unpushed commits; preserved, please decide                                                                      |
 
-Hosted run results, 30 October (runs 41073887311 on PR #46 and 41074704254 on the maintenance PR):
+Hosted results after the fixes (run 41144284645 at `c357590` on PR #46; run 41143789384 at `7488502` on the maintenance PR, whose three checks all pass):
 
-| Job            | Failure                                      | Cause                                                                                                                                                                                            | Where it comes from                                                                              |
-| -------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| windows-latest | `wsl-cowork.real.test.ts`, 5 tests, both PRs | Requires the real `nexar-plane` WSL distro, which hosted runners lack; the test gates only on Windows                                                                                            | Predates this work: the maintenance PR is `main` plus tooling and fails identically              |
-| ubuntu-latest  | `connections.e2e.ts`, 4 tests, PR #46 only   | `safeStorage.isEncryptionAvailable()` is false under Xvfb, because hosted Linux has no OS keyring. Three tests assert this directly; the fourth's cause is inferred, as it fails with empty text | Test added on B′ (`0ce0f64`). No hosted run of it existed before, and this work did not touch it |
-| secret scan    | Gitleaks, 7 findings, maintenance PR only    | The all-refs scan sees test fixtures on B′, and `main`'s config lacks B′'s allowlist. Values were inspected only in masked form                                                                  | Should clear once B′ merges. The maintenance branch's own history scans clean                    |
+| PR #46 job     | Step                 | Tests                     |
+| -------------- | -------------------- | ------------------------- |
+| windows-latest | Test                 | 4,636 passed, 162 skipped |
+| windows-latest | Desktop E2E          | 31 passed, 2 skipped      |
+| windows-latest | Packaged desktop E2E | 31 passed, 2 skipped      |
+| ubuntu-latest  | Test                 | 4,770 passed, 32 skipped  |
+| ubuntu-latest  | Desktop E2E          | 26 passed, 7 skipped      |
 
-On PR #46, secret scan passes. None of these has been fixed or re-run with a fix, so these causes are diagnoses from logs, not confirmed by a green run.
+Earlier failures (30 October, runs 41073887311 and 41074704254) and what fixed them:
+
+| Job            | Failure                                      | Cause                                                                                                                                                                                                                                 | Fix                                                                                                                                   |
+| -------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| windows-latest | `wsl-cowork.real.test.ts`, 5 tests, both PRs | Requires the real `nexar-plane` WSL distro, which hosted runners lack. Inferred from the failure and consistent with the green run                                                                                                    | Plane-only tests skip when `RUNNER_ENVIRONMENT` is `github-hosted`. Local and self-hosted runs still fail if the plane is missing     |
+| ubuntu-latest  | `connections.e2e.ts`, 4 tests, PR #46 only   | Playwright's Electron loader forces `--password-store=basic`, so `safeStorage` stayed unavailable. An earlier diagnosis here, "hosted Linux has no OS keyring", was wrong: bare Electron reached `gnome_libsecret` on the same recipe | CI opts in to a test-only entry that selects `gnome-libsecret` after the loader runs, using a throwaway keyring. The app is unchanged |
+| secret scan    | Gitleaks, 7 findings, maintenance PR only    | The all-refs scan sees test fixtures on B′, and `main`'s config lacks B′'s allowlist. Values were inspected only in masked form                                                                                                       | The maintenance branch carries the same allowlist, which may cause a small merge conflict with B′                                     |
+
+**What hosted CI does not cover:** the real plane. Hosted runs skip the plane-only Cowork and WSL tests, so those stay covered only by local Full. The fail-closed test for a missing helper still runs on hosted.
+
+**PRs #44 and #45 have no real hosted result.** Their red checks come from runs 40482032663 and 40482043084 on 27 October, at `ae8a46b` and `46aa3c2`. No job started: each has zero steps and the annotation "The job was not started because an Actions budget is preventing further use". Neither branch contains the fixes above, so a re-run would probably hit the Windows and Linux failures on the table. That is a prediction, not a result.
 
 ## 11. Recommended next milestone
 
-Fix hosted CI first: gate the WSL test on the plane being present, without weakening local Full, and give hosted Linux a keyring or a declared alternative. Then review and accept this stack, address the package-stage margin by measuring NSIS compression, and merge B′→C′→upgrade in order.
+Get real hosted results for PRs #44 and #45, since they merge first. Then review and accept this stack, and merge B′→C′→upgrade in order. Measure NSIS compression if the local package stage keeps approaching its envelope.
 
 ## Verdicts
 
