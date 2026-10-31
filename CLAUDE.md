@@ -168,6 +168,12 @@ worktrees live outside the repo, on the plane's own filesystem:
 
 ## Where things go
 
+**Workspace maintenance:** `Nexar-Ai-main` is the canonical repository. New development
+worktrees must use `.nexar/worktrees/<purpose>` unless a documented technical reason
+requires another location. Reuse matching worktrees when safe and preserve active PRs,
+ignored evidence, sessions, and Project Memory. See
+[`docs/development/Nexar_Workspace_Management.md`](docs/development/Nexar_Workspace_Management.md).
+
 ADRs `docs/adr/` · research snapshots (with SHAs) `docs/research/upstream/` · roadmap
 `docs/roadmap/ROADMAP.md` · backlog `docs/backlog/` · devlogs/reports `docs/devlog/` ·
 example config `config/` · workflows `workflows/`. If it matters later, write it into the repo.
