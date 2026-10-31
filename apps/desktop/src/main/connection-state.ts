@@ -1,5 +1,6 @@
 import {
   BUILTIN_CONNECTIONS,
+  isOwnerCodexConnectionId,
   type ConnectionDefinition,
   type ConnectionsSettings,
 } from '@nexar/contracts';
@@ -84,6 +85,8 @@ export function validConnections(value: ConnectionsSettings): boolean {
       return false;
     if (r.identityAssurance === 'OWNER_ASSERTED_SAME_ACCOUNT' && r.assertion === undefined)
       return false;
+    if (isOwnerCodexConnectionId(id) !== (r.nativeHome !== undefined)) return false;
+    if (r.nativeHome?.signedInAt !== undefined && !timestamp(r.nativeHome.signedInAt)) return false;
     const definition = defaultDefinition(id);
     if (definition !== undefined) {
       for (const key of [
@@ -108,6 +111,18 @@ export function validConnections(value: ConnectionsSettings): boolean {
         r.support !== 'official' ||
         r.credentialScope.kind !== 'account' ||
         r.credentialScope.name !== planScopeName(id)
+      )
+        return false;
+    } else if (isOwnerCodexConnectionId(id)) {
+      if (
+        r.builtIn ||
+        r.provider !== 'openai' ||
+        r.method !== 'subscription' ||
+        r.authClass !== 'vendor-native' ||
+        r.support !== 'official' ||
+        r.credentialScope.kind !== 'native-home' ||
+        r.credentialScope.runtimeId !== 'codex' ||
+        r.credentialScope.home !== 'private'
       )
         return false;
     } else {

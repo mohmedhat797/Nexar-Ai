@@ -247,6 +247,9 @@ const PersistentConnectionSchema = z.strictObject({
     .strictObject({ type: z.literal('same-account'), at: z.string(), source: z.literal('owner') })
     .optional(),
   retirement: z.literal('replaced').optional(),
+  nativeHome: z
+    .strictObject({ marker: z.string().uuid(), signedInAt: z.string().optional() })
+    .optional(),
 });
 
 const ConnectionsSchema = z

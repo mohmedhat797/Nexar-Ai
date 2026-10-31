@@ -25,6 +25,10 @@ export const ConnectionIdArgsSchema = z.strictObject({
   connectionId: ConnectionIdSchema,
 });
 export type ConnectionIdArgs = z.infer<typeof ConnectionIdArgsSchema>;
+export const ConnectionCodexAddArgsSchema = z.strictObject({
+  label: z.string().trim().min(1).max(128),
+});
+export type ConnectionCodexAddArgs = z.infer<typeof ConnectionCodexAddArgsSchema>;
 export const ConnectionActionSchema = z.enum(['remove', 'forget', 'replace']);
 export const ConnectionPrepareArgsSchema = z.strictObject({
   connectionId: ConnectionIdSchema,

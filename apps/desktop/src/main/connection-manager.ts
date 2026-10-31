@@ -24,9 +24,11 @@ import {
 } from './connection-state.js';
 import {
   ConnectionAddArgsSchema,
+  ConnectionCodexAddArgsSchema,
   ConnectionIdArgsSchema,
   ConnectionRotateArgsSchema,
   type ConnectionAddArgs,
+  type ConnectionCodexAddArgs,
   type ConnectionDto,
   type ConnectionIdArgs,
   type ConnectionRotateArgs,
@@ -159,6 +161,7 @@ export class ConnectionManager {
       !this.hidden(r) &&
       canConnectionAdmit(r) &&
       !this.authenticating.has(r.id) &&
+      (r.nativeHome === undefined || r.nativeHome.signedInAt !== undefined) &&
       (r.credentialScope.kind === 'native-home' ||
         r.credentialScope.kind === 'none' ||
         this.hasCredential(r))
@@ -391,6 +394,26 @@ export class ConnectionManager {
             : 'pin.connection-disabled',
         );
       return this.lease(record);
+    });
+  }
+  /** No credential exists yet: the home is created when the owner first signs in. */
+  async addCodexConnection(raw: ConnectionCodexAddArgs): Promise<PersistentConnectionRecord> {
+    const args = ConnectionCodexAddArgsSchema.parse(raw);
+    return this.mutate(async (state) => {
+      if (!this.ownerConnectionsEnabled) throw rejected('connection.owner-connections-off');
+      const at = this.now();
+      const r: PersistentConnectionRecord = {
+        ...builtin(BUILTIN_CONNECTIONS['openai.subscription']),
+        id: this.nextId('openai.subscription', state),
+        label: args.label,
+        builtIn: false,
+        credentialScope: { kind: 'native-home', runtimeId: 'codex', home: 'private' },
+        nativeHome: { marker: randomUUID() },
+        createdAt: at,
+        updatedAt: at,
+      };
+      await this.commit(state, [r]);
+      return r;
     });
   }
   async addApiConnection(raw: ConnectionAddArgs): Promise<PersistentConnectionRecord> {
