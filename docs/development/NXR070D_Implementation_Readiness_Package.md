@@ -145,10 +145,10 @@ Turning the rollback control off hides owner Codex connections. Homes, tombstone
 
 ## L. Owner decisions
 
-Only these are open:
+The owner decided both on 2026-10-31:
 
-1. **Rollback control.** ADR-029 §6 says "feature flag off", but B′ shipped without a flag. **Recommended:** add one owner-connections setting in slice 1, covering B′ and D′, which matches the accepted ADR. The alternative is to amend the ADR to accept code-revert rollback.
-2. **Minimum UI in D′.** H′ owns the Providers UI, and it comes after D′. **Recommended:** ship bridge channels and E2E only, then build H′ straight after. The owner cannot use multiple Codex accounts until H′ lands. The alternative is one small "Add Codex account" control in D′.
+1. **Rollback control.** ADR-029 §6 says "feature flag off", but B′ shipped without a flag. **Decision:** add one owner-connections setting in slice 1, covering B′ and D′, which matches the accepted ADR. The ADR is not amended.
+2. **Minimum UI in D′.** H′ owns the Providers UI, and it comes after D′. **Decision:** ship bridge channels and E2E only, then build H′ straight after. The owner cannot use multiple Codex accounts until H′ lands.
 
 ## M. Recommended Git strategy
 

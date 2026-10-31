@@ -29,7 +29,7 @@
 
 1. **Revoke the DeepSeek key** that was exposed in the transcript and terminal, if you have not already.
 2. **Review and merge the Draft PR** for this branch.
-3. **Decide the two questions** in [section L of the D′ package](NXR070D_Implementation_Readiness_Package.md): the rollback control and minimum UI. Both have a recommendation.
+3. **The two D′ questions are decided.** You accepted both recommendations for the rollback control and minimum UI, recorded in [section L of the D′ package](NXR070D_Implementation_Readiness_Package.md).
 4. **Decide how to update the installed Plane** before L4 and L5. No documented procedure exists yet.
 5. **Run the owner scenarios L1–L8** in the [gap register](NXR070_Operational_Acceptance_Gap_Register.md) when you want real-account evidence. All are pending, and most use small amounts of paid inference.
 
