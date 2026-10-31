@@ -387,11 +387,11 @@ export function validateUpstreamManifest(raw: unknown): UpstreamManifest {
       }
       if (
         upstreamId === 'deepseek-harness' &&
-        currentRuntimePin !== '@deepseek-ai/dsh@0.2.1-rc.3'
+        currentRuntimePin !== '@deepseek-ai/dsh@0.2.1-rc.5'
       ) {
         throw new NexarError(
           'VALIDATION_ERROR',
-          'DSH pin must match the owner-authorized @deepseek-ai/dsh@0.2.1-rc.3',
+          'DSH pin must match the owner-authorized @deepseek-ai/dsh@0.2.1-rc.5',
         );
       }
     }

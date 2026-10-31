@@ -4,7 +4,7 @@ import type { ResourceDescriptor } from '@nexar/contracts';
 export const DEEPSEEK_HARNESS_ADAPTER_ID = adapterId('deepseek-harness');
 
 /** The `dsh` version this adapter's wire protocol was verified against (exact-pinned). */
-export const DSH_PINNED_VERSION = '0.2.1-rc.3';
+export const DSH_PINNED_VERSION = '0.2.1-rc.5';
 
 /** The official Flash catalog identifier shipped by this exact runtime release. */
 export const DSH_DEFAULT_MODEL = 'deepseek-flash';

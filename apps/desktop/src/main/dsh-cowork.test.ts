@@ -183,7 +183,7 @@ describe('status', () => {
         ...(isolated
           ? {
               backend: {
-                probe: () => Promise.resolve({ state: 'ready' as const, version: '0.2.1-rc.3' }),
+                probe: () => Promise.resolve({ state: 'ready' as const, version: '0.2.1-rc.5' }),
                 run: () => Promise.reject(Error('must not run')),
               },
             }
@@ -214,7 +214,7 @@ describe('status', () => {
         ...(isolated
           ? {
               backend: {
-                probe: () => Promise.resolve({ state: 'ready' as const, version: '0.2.1-rc.3' }),
+                probe: () => Promise.resolve({ state: 'ready' as const, version: '0.2.1-rc.5' }),
                 run: () => Promise.reject(Error('must not run')),
               },
             }
@@ -250,7 +250,7 @@ describe('status', () => {
     expect(await cowork.refresh()).toEqual({
       state: 'ready',
       reason: 'DeepSeek Harness is ready',
-      version: '0.2.1-rc.3',
+      version: '0.2.1-rc.5',
     });
     expect(cowork.available()).toBe(true);
     expect(cowork.reason()).toBeUndefined();
@@ -306,14 +306,14 @@ describe('status', () => {
     const isolatedNoControl = setup({
       kit: { resources: [] },
       backend: {
-        probe: () => Promise.resolve({ state: 'ready', version: '0.2.1-rc.3' }),
+        probe: () => Promise.resolve({ state: 'ready', version: '0.2.1-rc.5' }),
         run: () => Promise.reject(new Error('must not run')),
       },
     });
     expect(await isolatedNoControl.cowork.refresh()).toEqual({
       state: 'configuration-missing',
       reason: 'No control-compatible resource can run Cowork',
-      version: '0.2.1-rc.3',
+      version: '0.2.1-rc.5',
       placement: 'WSL2_BUBBLEWRAP',
     });
 

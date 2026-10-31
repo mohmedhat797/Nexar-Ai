@@ -25,7 +25,7 @@ import {
 } from '../scripts/dsh-runtime/artifact.mjs';
 
 const roots: string[] = [];
-const version = '0.2.1-rc.3';
+const version = '0.2.1-rc.5';
 const packageName = '@deepseek-ai/dsh';
 const entries = {
   [`node_modules/${packageName}`]: { version, integrity: 'sha512-root' },

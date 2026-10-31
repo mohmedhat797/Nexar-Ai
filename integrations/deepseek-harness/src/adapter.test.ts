@@ -43,7 +43,7 @@ describe('DeepSeekHarnessExecutionAdapter.execute', () => {
     expect(result.resolved).toEqual({
       provider: 'deepseek-official',
       model: 'deepseek-flash',
-      runtimeVersion: 'deepseek-harness-sdk-runtime@0.2.1-rc.3',
+      runtimeVersion: 'deepseek-harness-sdk-runtime@0.2.1-rc.5',
     });
     expect(result.usage.inputTokens).toEqual({ status: 'measured', value: 30 });
     expect(result.usage.outputTokens).toEqual({ status: 'measured', value: 12 });
@@ -405,7 +405,7 @@ describe('DeepSeekHarnessExecutionAdapter.probe', () => {
   it('reports degraded on a version mismatch', async () => {
     const state = await prober({ version: '0.3.0' }).probe(deepseekHarnessResource(), signal);
     expect(state.availability).toBe('degraded');
-    expect(state.detail).toBe('dsh 0.3.0 (expected 0.2.1-rc.3)');
+    expect(state.detail).toBe('dsh 0.3.0 (expected 0.2.1-rc.5)');
   });
 
   it('reports unauthenticated when the credential env var is absent', async () => {

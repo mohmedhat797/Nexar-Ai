@@ -170,7 +170,7 @@ describe.skipIf(NO_PLANE)('SEC02 Windows to actual WSL Cowork', () => {
   it('runs the real isolated helper, relays model calls and approvals, and returns validated draft bytes', async () => {
     const f = await fixture();
     try {
-      expect(await f.backend.probe()).toMatchObject({ state: 'ready', version: '0.2.1-rc.3' });
+      expect(await f.backend.probe()).toMatchObject({ state: 'ready', version: '0.2.1-rc.5' });
       const result = await f.backend.run(f.options, f.scope);
       expect(result.text).toContain('SEC02-WINDOWS-DONE');
       expect(await readFile(join(f.scratch, 'proposal.md'), 'utf8')).toBe('# SEC02 Windows draft');
