@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   connectionOf,
+  isOwnerCodexConnectionId,
   NexarError,
   type ResourceDescriptor,
   type ResourceSnapshot,
@@ -8,7 +9,7 @@ import {
 } from '@nexar/contracts';
 import { catalogResourceId } from '@nexar/resource-registry';
 import { piCatalogDiscoverySource, type PiCatalogDiscoveryOptions } from '@nexar/integration-pi';
-import type { InventoryExecutionGuard } from '@nexar/host';
+import { ownerCodexResource, type InventoryExecutionGuard } from '@nexar/host';
 import type { ConnectionManager } from './connection-manager.js';
 import type { SettingsStore } from './settings-store.js';
 import type { EngineHost } from './engine-host.js';
@@ -26,6 +27,13 @@ export class ConnectionRuntime {
     const records = await this.manager.listConnections();
     const results: ResourceDescriptor[] = [];
     for (const record of records) {
+      if (isOwnerCodexConnectionId(record.id)) {
+        // Its sign-in state comes from the adapter's probe, under the connection's lease.
+        const bound = ownerCodexResource(record);
+        this.known.set(bound.id, bound);
+        if (this.manager.isAvailable(bound)) results.push(bound);
+        continue;
+      }
       if (record.builtIn || record.method !== 'api' || record.credentialScope.kind !== 'keystore')
         continue;
       // Only eligible sources acquire a refresh lease. Static identity enumeration is not authentication.
@@ -93,7 +101,7 @@ export class ConnectionRuntime {
       this.manager.assertAvailable(descriptor);
       return;
     }
-    if (id.startsWith('catalog:') || id.startsWith('inventory:'))
+    if (id.startsWith('catalog:') || id.startsWith('inventory:') || id.startsWith('codex:'))
       throw new NexarError('RESOURCE_UNAVAILABLE', 'Pinned connection is unavailable', {
         details: { reason: 'pin.connection-removed' },
       });
@@ -145,7 +153,7 @@ export class ConnectionRuntime {
     const labels = references.flatMap((ref) => {
       if (ids.has(ref.id))
         return [`${ref.label}: ${known.get(ref.id)?.displayName ?? record.label}`];
-      if (!known.has(ref.id) && /^(catalog|inventory):/.test(ref.id))
+      if (!known.has(ref.id) && /^(catalog|inventory|codex):/.test(ref.id))
         return [`${ref.label}: unresolved saved connection (reference retained)`];
       return [];
     });
