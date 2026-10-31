@@ -17,6 +17,7 @@ import {
   type InventoryExecutionGuard,
 } from '@nexar/host';
 import type { WorkflowCatalog, WorkflowRunner } from '@nexar/workflows';
+import type { PiModelsLike } from '@nexar/integration-pi';
 
 /**
  * Everything the bridge needs from the Nexar engine. One interface so the engine can move into an
@@ -45,6 +46,7 @@ export interface EngineHostOptions {
   /** Resources the app publishes itself (the connected plan); read on every (re)composition. */
   readonly extraResources?: () => Promise<readonly ResourceDescriptor[]>;
   readonly inventoryGuard?: InventoryExecutionGuard;
+  readonly piModels?: PiModelsLike;
   /** Startup phase names for diagnostics (no data); see NEXAR_DESKTOP_STARTUP_TRACE. */
   readonly trace?: (phase: string) => void;
 }
@@ -77,6 +79,7 @@ export async function createEngineHost(options: EngineHostOptions): Promise<Engi
       ...(options.inventoryGuard === undefined ? {} : { inventoryGuard: options.inventoryGuard }),
       ...(options.connections === undefined ? {} : { connections: options.connections }),
       ...(options.resolveSecret === undefined ? {} : { resolveSecret: options.resolveSecret }),
+      ...(options.piModels === undefined ? {} : { piModels: options.piModels }),
     });
     options.trace?.('engine-compose');
     const workflows = await composeWorkflows(composition.runtime, io);

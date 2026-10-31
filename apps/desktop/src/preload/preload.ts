@@ -25,6 +25,16 @@ import {
   SubscriptionListSchema,
   SubscriptionRowSchema,
 } from '../shared/subscriptions.js';
+import {
+  ConnectionAddArgsSchema,
+  ConnectionDtoSchema,
+  ConnectionIdArgsSchema,
+  ConnectionListSchema,
+  ConnectionRotateArgsSchema,
+  ConnectionPrepareArgsSchema,
+  ConnectionConfirmationSchema,
+  ConnectionConfirmedArgsSchema,
+} from '../shared/connections.js';
 
 /** One fixed channel per method; arguments are always an object (validated in the main process). */
 const invoke = <R>(channel: string, args: unknown): Promise<R> =>
@@ -150,6 +160,51 @@ const api: NexarApi = {
     invokeProvider(CHANNELS.providersRemoveKey, { provider }, ProviderRowSchema),
   checkProviderKey: (provider) =>
     invokeProvider(CHANNELS.providersCheckKey, { provider }, ProviderRowSchema),
+  listConnections: () =>
+    invokeProvider(CHANNELS.connectionList, {}, ConnectionListSchema, z.strictObject({})),
+  prepareConnectionAction: (input) =>
+    invokeProvider(
+      CHANNELS.connectionPrepare,
+      input,
+      ConnectionConfirmationSchema,
+      ConnectionPrepareArgsSchema,
+    ),
+  addConnection: (input) =>
+    invokeProvider(CHANNELS.connectionAdd, input, ConnectionDtoSchema, ConnectionAddArgsSchema),
+  disableConnection: (input) =>
+    invokeProvider(CHANNELS.connectionDisable, input, ConnectionDtoSchema, ConnectionIdArgsSchema),
+  enableConnection: (input) =>
+    invokeProvider(CHANNELS.connectionEnable, input, ConnectionDtoSchema, ConnectionIdArgsSchema),
+  removeConnection: (input) =>
+    invokeProvider(
+      CHANNELS.connectionRemove,
+      input,
+      ConnectionDtoSchema,
+      ConnectionConfirmedArgsSchema,
+    ),
+  restoreConnection: (input) =>
+    invokeProvider(CHANNELS.connectionRestore, input, ConnectionDtoSchema, ConnectionIdArgsSchema),
+  forgetConnectionCredentials: (input) =>
+    invokeProvider(
+      CHANNELS.connectionForgetCredentials,
+      input,
+      ConnectionDtoSchema,
+      ConnectionConfirmedArgsSchema,
+    ),
+  rotateConnectionKey: (input) =>
+    invokeProvider(
+      CHANNELS.connectionRotateKey,
+      input,
+      ConnectionDtoSchema,
+      ConnectionRotateArgsSchema,
+    ),
+  replaceChatGptPlanAccount: (input) =>
+    invokeProvider(
+      CHANNELS.chatgptPlanReplaceAccount,
+      input,
+      ChatGptPlanStatusSchema,
+      ConnectionConfirmedArgsSchema,
+    ),
   listProjects: () => invoke(CHANNELS.projectsList, {}),
   addProject: () => invoke(CHANNELS.projectsAdd, {}),
   removeProject: (id) => invoke(CHANNELS.projectsRemove, { id }),

@@ -1,5 +1,6 @@
 export interface GitInfo {
   commit: string;
+  tree?: string;
   branch: string;
   isDirty: boolean;
   dirtyFingerprint: string | null;

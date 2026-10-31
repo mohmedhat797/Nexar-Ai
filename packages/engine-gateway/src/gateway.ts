@@ -55,6 +55,9 @@ export interface ControlModelGatewayOptions {
   readonly onEvent?: (event: ControlEvent) => void;
   /** Same durable sink used by the owning Nexar runtime. One record per provider attempt. */
   readonly telemetry?: TelemetrySink;
+  /** Host connection authority; retained for the entire control decision, including between calls. */
+  readonly admit?: (descriptor: ResourceSnapshot['descriptor']) => Promise<{ release(): void }>;
+  readonly validatePin?: (resourceId: string) => void;
 }
 
 interface ActiveDecision {
@@ -65,6 +68,11 @@ interface ActiveDecision {
   readonly failed: ReadonlySet<string>;
   /** Canonical JSON of the extras this decision issued; foreign extras are never forwarded. */
   readonly issuedExtras: Set<string>;
+  readonly snapshot: ResourceSnapshot;
+  readonly admission?: Promise<{ release(): void }>;
+  inFlight: number;
+  ended: boolean;
+  released: boolean;
 }
 
 const RETRYABLE: ReadonlySet<NexarErrorCode> = new Set<NexarErrorCode>([
@@ -136,9 +144,12 @@ export class ControlModelGateway {
     controlPolicy: ControlResourcePolicy | undefined,
   ): { readonly resourceId: string } | undefined {
     try {
+      const policy = controlPolicy ?? DEFAULT_CONTROL_RESOURCE_POLICY;
+      if (policy.mode === 'pinned' && typeof policy.resourceId === 'string')
+        this.options.validatePin?.(policy.resourceId);
       const decision = selectControl({
         engine,
-        policy: controlPolicy ?? DEFAULT_CONTROL_RESOURCE_POLICY,
+        policy,
         candidates: this.options.candidates(),
         routingPolicy: this.options.policy,
         ...(this.options.history === undefined ? {} : { history: this.options.history }),
@@ -166,13 +177,45 @@ export class ControlModelGateway {
     ) {
       throw invalid('Unknown or inactive control decision for this engine and lineage');
     }
+    try {
+      await entry.admission;
+      if (entry.ended || signal.aborted)
+        throw new NexarError('EXECUTION_CANCELLED', 'Turn was cancelled');
+      entry.inFlight++;
+      try {
+        return await this.performTurn(request, signal, entry);
+      } finally {
+        entry.inFlight--;
+        if (entry.ended) this.release(entry);
+      }
+    } catch (error) {
+      if (this.options.admit !== undefined) {
+        entry.ended = true;
+        this.release(entry);
+      }
+      throw error;
+    }
+  }
+
+  private async performTurn(
+    request: ControlTurnRequest,
+    signal: AbortSignal,
+    entry: ActiveDecision,
+  ): Promise<ControlTurnResult> {
     const { decision } = entry;
-    const snapshot = this.options.candidates().find((c) => c.descriptor.id === decision.resourceId);
+    // The admitted account remains pinned while Disable drains its existing authorized turn.
+    const snapshot =
+      this.options.admit === undefined
+        ? this.options.candidates().find((c) => c.descriptor.id === decision.resourceId)
+        : entry.snapshot;
     const port = snapshot === undefined ? undefined : this.options.ports(snapshot.descriptor);
     if (snapshot === undefined || port === undefined) {
       this.fail(entry, 'RESOURCE_UNAVAILABLE');
       throw new NexarError('RESOURCE_UNAVAILABLE', 'The pinned control resource is not available', {
-        details: { reason: 'control-resource-failed', resourceId: decision.resourceId },
+        details: {
+          reason: 'control-resource-failed',
+          resourceId: decision.resourceId,
+        },
       });
     }
 
@@ -193,7 +236,9 @@ export class ControlModelGateway {
         });
       } catch (e) {
         const error = signal.aborted
-          ? new NexarError('EXECUTION_CANCELLED', 'Turn was cancelled', { cause: e })
+          ? new NexarError('EXECUTION_CANCELLED', 'Turn was cancelled', {
+              cause: e,
+            })
           : isNexarError(e)
             ? e
             : toNexarError(e, 'PROVIDER_ERROR');
@@ -248,7 +293,10 @@ export class ControlModelGateway {
           resourceKind: descriptor.kind.type,
           adapter: descriptor.runtime.adapter,
           ...(descriptor.kind.type === 'model'
-            ? { provider: descriptor.kind.provider, model: descriptor.kind.model }
+            ? {
+                provider: descriptor.kind.provider,
+                model: descriptor.kind.model,
+              }
             : {}),
           routing: {
             policy: this.options.policy.name,
@@ -288,7 +336,9 @@ export class ControlModelGateway {
         },
       });
     } catch {
-      this.options.logger.warn('control accounting unavailable', { code: 'TELEMETRY_SINK_FAILED' });
+      this.options.logger.warn('control accounting unavailable', {
+        code: 'TELEMETRY_SINK_FAILED',
+      });
     }
   }
 
@@ -313,14 +363,30 @@ export class ControlModelGateway {
       entry.controlPolicy,
       failed,
     );
-    this.active.delete(controlDecisionId);
-    this.emit('control.restart', next, { previousDecisionId: controlDecisionId });
+    this.end(controlDecisionId);
+    this.emit('control.restart', next, {
+      previousDecisionId: controlDecisionId,
+    });
     return next;
   }
 
   /** Forgets the decision and its extras. */
   end(controlDecisionId: string): void {
+    const entry = this.active.get(controlDecisionId);
     this.active.delete(controlDecisionId);
+    if (entry !== undefined) {
+      entry.ended = true;
+      this.release(entry);
+    }
+  }
+
+  private release(entry: ActiveDecision): void {
+    if (entry.inFlight !== 0 || entry.released) return;
+    entry.released = true;
+    void entry.admission?.then(
+      (lease) => lease.release(),
+      () => undefined,
+    );
   }
 
   private pin(
@@ -330,6 +396,8 @@ export class ControlModelGateway {
     controlPolicy: ControlResourcePolicy,
     failed: ReadonlySet<string>,
   ): ControlDecision {
+    if (selectionPolicy.mode === 'pinned' && typeof selectionPolicy.resourceId === 'string')
+      this.options.validatePin?.(selectionPolicy.resourceId);
     if (this.active.size >= MAX_ACTIVE_DECISIONS) {
       throw new NexarError('CONFLICT', 'Too many active control decisions');
     }
@@ -346,14 +414,27 @@ export class ControlModelGateway {
       newId: this.options.newId,
       exclude: [...failed],
     });
+    const snapshot = this.options.candidates().find((c) => c.descriptor.id === decision.resourceId);
+    if (snapshot === undefined)
+      throw new NexarError('RESOURCE_UNAVAILABLE', 'Control resource is unavailable');
+    const admission = this.options.admit?.(snapshot.descriptor);
+    // Admission may reject before the first provider request; keep it handled until turn/end observes it.
+    void admission?.catch(() => undefined);
     this.active.set(decision.controlDecisionId, {
       decision,
       lineage,
       controlPolicy,
       failed,
       issuedExtras: new Set(),
+      snapshot,
+      ...(admission === undefined ? {} : { admission }),
+      inFlight: 0,
+      ended: false,
+      released: false,
     });
-    this.emit('control.decided', decision, { reasonCodes: decision.reasonCodes });
+    this.emit('control.decided', decision, {
+      reasonCodes: decision.reasonCodes,
+    });
     return decision;
   }
 

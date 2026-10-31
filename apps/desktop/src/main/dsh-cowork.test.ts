@@ -174,6 +174,60 @@ async function ready(options: Setup = {}) {
 }
 
 describe('status', () => {
+  it.each([false, true])(
+    'withdrawn control immediately invalidates cached readiness (isolated=%s)',
+    async (isolated) => {
+      const resources: [string, string][] = [['res-a', 'alpha']];
+      const { cowork, created } = setup({
+        kit: { resources },
+        ...(isolated
+          ? {
+              backend: {
+                probe: () => Promise.resolve({ state: 'ready' as const, version: '0.2.0-rc.2' }),
+                run: () => Promise.reject(Error('must not run')),
+              },
+            }
+          : {}),
+      });
+      expect((await cowork.refresh()).state).toBe('ready');
+      resources.splice(0);
+      // Production isolation still routes to a blocking failure, never a host fallback.
+      expect(cowork.available()).toBe(isolated);
+      expect((await cowork.status()).state).toBe('configuration-missing');
+      expect(cowork.fallbackReason()).toBe('dsh-control-unavailable');
+      await expect(
+        cowork.run(coworkRequest(projectId).request, new AbortController().signal),
+      ).rejects.toMatchObject({ code: 'INTEGRATION_UNAVAILABLE' });
+      expect(created).toHaveLength(0);
+      resources.push(['res-a', 'alpha']);
+      expect((await cowork.status()).state).toBe('ready');
+      expect(cowork.available()).toBe(true);
+      expect(cowork.fallbackReason()).toBeUndefined();
+    },
+  );
+  it.each([false, true])(
+    'new control becomes usable within the runtime cache window (isolated=%s)',
+    async (isolated) => {
+      const resources: [string, string][] = [];
+      const { cowork, spawned } = setup({
+        kit: { resources },
+        ...(isolated
+          ? {
+              backend: {
+                probe: () => Promise.resolve({ state: 'ready' as const, version: '0.2.0-rc.2' }),
+                run: () => Promise.reject(Error('must not run')),
+              },
+            }
+          : {}),
+      });
+      expect((await cowork.refresh()).state).toBe('configuration-missing');
+      const probes = versionSpawns(spawned);
+      resources.push(['res-a', 'alpha']);
+      expect((await cowork.status()).state).toBe('ready');
+      expect(cowork.available()).toBe(true);
+      expect(versionSpawns(spawned)).toBe(probes);
+    },
+  );
   it('keeps an unavailable isolated lane routed to a blocking failure without host execution', async () => {
     const { cowork, spawned, created } = setup({
       backend: {

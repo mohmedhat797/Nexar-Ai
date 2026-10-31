@@ -1,10 +1,31 @@
 title = "Nexar secret scanning"
 
+# Exact synthetic values only; retain default rules and full-history scanning.
+
 [extend]
 useDefault = true
 
 [[rules]]
 id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Synthetic API credentials in the original connection-manager regression fixtures"
+condition = "AND"
+paths = ['''^apps/desktop/src/main/connection-manager\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^sk-test-valid-length-key-1234$''',
+  '''^gsk-groq-test-secret-key-1234$''',
+  '''^mis-mistral-test-secret-key-1234$''',
+  '''^xai-test-key-rotated-5678$''',
+]
+
+[[rules.allowlists]]
+description = "Synthetic credential in the connection-consent regression fixture"
+condition = "AND"
+paths = ['''^apps/desktop/src/main/connection-consent\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^synthetic-consent-key-123456789$''']
 
 [[rules.allowlists]]
 description = "Conversation idempotency sentinel in the provider preservation test"

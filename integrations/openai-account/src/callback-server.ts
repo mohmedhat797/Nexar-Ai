@@ -9,7 +9,7 @@ export type CallbackOutcome =
 export interface CallbackServerOptions {
   /** The `state` this sign-in was started with. */
   readonly state: string;
-  /** Called once, with the first request that reaches `/callback` on the right host. */
+  /** Called once after the first valid callback response is handed to the OS. */
   readonly onOutcome: (outcome: CallbackOutcome) => void;
 }
 
@@ -91,9 +91,13 @@ export function createCallbackServer(options: CallbackServerOptions): Server {
     } else {
       outcome = { code, clientId };
     }
+    if (!settled) {
+      // Reserve before sending: a second callback must not replace the first while it drains.
+      settled = true;
+      // The callback child may exit as soon as onOutcome writes to stdout. Drain the HTTP
+      // response to the OS first; stdout completion alone does not establish HTTP completion.
+      response.once('finish', () => options.onOutcome(outcome));
+    }
     page(response, 'error' in outcome ? 400 : 200, 'error' in outcome ? PAGES.failed : PAGES.ok);
-    if (settled) return;
-    settled = true;
-    options.onOutcome(outcome);
   });
 }

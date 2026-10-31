@@ -161,6 +161,9 @@ describe('Nexar Desktop providers and orchestration', () => {
       expect(await page.locator('body').innerText()).not.toContain(SENTINEL);
       await openSettings(page, 'Providers');
       await page.getByRole('button', { name: 'Remove DeepSeek API key' }).click();
+      await isVisible(page.getByRole('dialog', { name: 'Confirm connection action' }));
+      await page.getByLabel('Connection name confirmation').fill('DeepSeek (API)');
+      await page.getByRole('button', { name: 'Confirm connection action', exact: true }).click();
       await hasText(page.getByTestId('provider-card-deepseek'), 'Not saved');
     }
     await harness.close(app);

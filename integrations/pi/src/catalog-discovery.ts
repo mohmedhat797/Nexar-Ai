@@ -5,6 +5,8 @@ import type {
   DiscoveryCredentialSource,
   DiscoveryContext,
   DiscoverySource,
+  ConnectionDefinition,
+  ResourceConnection,
   ResourceDescriptor,
 } from '@nexar/contracts';
 import { DEFAULT_ALLOWED_PROVIDERS, listCatalogModels } from './pi-models.js';
@@ -57,6 +59,16 @@ export interface PiCatalogDiscoveryOptions {
   readonly allowedProviders?: readonly string[];
   /** Test seam; default reads the static pi-ai catalog. */
   readonly listModels?: (provider: string) => Promise<readonly CatalogModel[]>;
+  /** Optional connection definition or identity reference (ADR-029). */
+  readonly connection?: ConnectionDefinition;
+  /** Optional credential name reference (e.g. owner key name in key store). */
+  readonly credentialName?: string;
+  /** Host injects the accepted registry materializer for connection-qualified owner resources. */
+  readonly catalogResourceId?: (
+    connection: ConnectionDefinition,
+    provider: string,
+    model: string,
+  ) => string;
 }
 
 function toDescriptor(
@@ -64,6 +76,8 @@ function toDescriptor(
   model: CatalogModel,
   id: string,
   credentialSource: DiscoveryCredentialSource,
+  credentialName?: string,
+  connection?: ResourceConnection,
 ): ResourceDescriptor {
   const free = model.inputPerMillionTokens === 0 && model.outputPerMillionTokens === 0;
   // A 0/0 catalog rate means free, plan-billed or unknown, and cannot be told apart.
@@ -75,12 +89,13 @@ function toDescriptor(
         inputPerMillionTokens: model.inputPerMillionTokens,
         outputPerMillionTokens: model.outputPerMillionTokens,
       };
+  const keyEnv = credentialName ?? PI_PROVIDER_CREDENTIAL_NAMES[provider] ?? '';
   const base = piModelResource({
     id,
     provider,
     model: model.id,
     // A reference to the variable's name only: its value is never read here.
-    apiKeyEnv: PI_PROVIDER_CREDENTIAL_NAMES[provider] as string,
+    apiKeyEnv: keyEnv,
     capabilities:
       model.contextWindow >= LONG_CONTEXT_TOKENS
         ? [...BASE_CAPABILITIES, 'long-context']
@@ -92,7 +107,7 @@ function toDescriptor(
       mode: 'api-key',
       credential: {
         source: credentialSource,
-        name: PI_PROVIDER_CREDENTIAL_NAMES[provider] as string,
+        name: keyEnv,
       },
     },
     cost,
@@ -100,7 +115,7 @@ function toDescriptor(
     metadata: {
       ...base.metadata,
       rates: 'catalog',
-      connection: {
+      connection: connection ?? {
         id: `${provider}.api`,
         provider,
         method: 'api',
@@ -129,6 +144,30 @@ export function piCatalogDiscoverySource(options: PiCatalogDiscoveryOptions): Di
             details: { source: PI_CATALOG_SOURCE_ID },
           });
         }
+        const c = options.connection;
+        if (c !== undefined) {
+          const suffix = new RegExp(`^${provider}\\.api\\.c([a-z2-7]{10})$`).exec(c.id)?.[1];
+          const expected = c.builtIn
+            ? PI_PROVIDER_CREDENTIAL_NAMES[provider]
+            : suffix === undefined
+              ? undefined
+              : `${PI_PROVIDER_CREDENTIAL_NAMES[provider]}__C${suffix.toUpperCase()}`;
+          if (
+            c.provider !== provider ||
+            c.method !== 'api' ||
+            c.authClass !== 'official-api' ||
+            c.credentialScope.kind !== 'keystore' ||
+            c.credentialScope.name !== expected ||
+            options.credentialName !== expected ||
+            options.credentialSource !== 'keystore' ||
+            (!c.builtIn && options.catalogResourceId === undefined)
+          ) {
+            throw new NexarError(
+              'CONFIGURATION_ERROR',
+              'Catalog connection credential scope is invalid',
+            );
+          }
+        }
       }
       const seen = new Set<string>();
       const out: ResourceDescriptor[] = [];
@@ -138,10 +177,30 @@ export function piCatalogDiscoverySource(options: PiCatalogDiscoveryOptions): Di
         let count = 0;
         for (const model of models) {
           if (count >= maxModels) break;
-          const id = slugifyResourceId(`pi.${provider}.${model.id}`);
+          const id =
+            options.connection !== undefined && !options.connection.builtIn
+              ? options.catalogResourceId!(options.connection, provider, model.id)
+              : slugifyResourceId(`pi.${provider}.${model.id}`);
           if (id === undefined || seen.has(id)) continue;
           seen.add(id);
-          out.push(toDescriptor(provider, model, id, options.credentialSource ?? 'env'));
+          out.push(
+            toDescriptor(
+              provider,
+              model,
+              id,
+              options.credentialSource ?? 'env',
+              options.credentialName,
+              options.connection === undefined
+                ? undefined
+                : {
+                    id: options.connection.id,
+                    provider: options.connection.provider,
+                    method: options.connection.method,
+                    authClass: options.connection.authClass,
+                    support: options.connection.support,
+                  },
+            ),
+          );
           count += 1;
         }
       }

@@ -31,11 +31,24 @@ esolveSecret, so config cannot hand one to an adapter as a key.
  */
 export const blobNames = ['chatgpt-plan'] as const;
 
-type CredentialName = (typeof credentialNames)[number];
-type BlobName = (typeof blobNames)[number];
-type EntryName = CredentialName | BlobName;
+type EntryName = string;
 const NAMES: ReadonlySet<string> = new Set(credentialNames);
 const BLOB_NAMES: ReadonlySet<string> = new Set(blobNames);
+
+export const OWNER_KEY_PATTERN = /^[A-Z0-9_]+_API_KEY__C[A-Za-z0-9_-]+$/;
+export const OWNER_BLOB_PATTERN = /^[a-z0-9_.:-]{3,64}$/;
+
+export function isValidCredentialName(name: string): boolean {
+  return NAMES.has(name) || OWNER_KEY_PATTERN.test(name);
+}
+
+export function isValidBlobName(name: string): boolean {
+  return (
+    !['__proto__', 'constructor', 'prototype'].includes(name) &&
+    (BLOB_NAMES.has(name) || OWNER_BLOB_PATTERN.test(name))
+  );
+}
+
 const KEY = /^[A-Za-z0-9_.:-]{16,4096}$/;
 const LAST_FOUR = /^[A-Za-z0-9_.:-]{4}$/;
 const BLOB = /^[A-Za-z0-9_-]{16,24576}$/;
@@ -62,6 +75,13 @@ export interface DesktopKeyStoreOptions {
   readonly userData: string;
   readonly encryption: DesktopEncryption;
   readonly platform?: NodeJS.Platform;
+}
+
+/** Main-only atomic encrypted-store mutation. Undefined value means deletion. */
+export interface CredentialChange {
+  readonly kind: 'key' | 'blob';
+  readonly name: string;
+  readonly value?: string;
 }
 
 interface Entry {
@@ -93,14 +113,14 @@ function unavailable(): NexarError {
   return new NexarError('AUTH_REQUIRED', 'Desktop credential storage is unavailable');
 }
 
-function nameOf(name: string): CredentialName {
-  if (!NAMES.has(name)) throw invalid();
-  return name as CredentialName;
+function nameOf(name: string): string {
+  if (!isValidCredentialName(name)) throw invalid();
+  return name;
 }
 
-function blobNameOf(name: string): BlobName {
-  if (!BLOB_NAMES.has(name)) throw invalid();
-  return name as BlobName;
+function blobNameOf(name: string): string {
+  if (!isValidBlobName(name)) throw invalid();
+  return name;
 }
 
 function errno(error: unknown): string | undefined {
@@ -152,7 +172,7 @@ function parseDocument(text: string): Document {
   const entries: Document['entries'] = {};
   for (const [name, entry] of Object.entries(value['entries'])) {
     if (
-      !(NAMES.has(name) || BLOB_NAMES.has(name)) ||
+      !(isValidCredentialName(name) || isValidBlobName(name)) ||
       !object(entry) ||
       !exactKeys(entry, ['ciphertext', 'lastFour']) ||
       typeof entry['lastFour'] !== 'string' ||
@@ -161,7 +181,7 @@ function parseDocument(text: string): Document {
       throw unavailable();
     }
     decodeCipher(entry['ciphertext']);
-    entries[name as EntryName] = {
+    entries[name] = {
       ciphertext: entry['ciphertext'] as string,
       lastFour: entry['lastFour'],
     };
@@ -260,6 +280,40 @@ export class DesktopKeyStore {
 
   async removeBlob(requestedName: string): Promise<void> {
     await this.delete(blobNameOf(requestedName));
+  }
+
+  /** Credentials and a reference-only recovery journal commit in the same guarded file replacement. */
+  async batch(changes: readonly CredentialChange[]): Promise<void> {
+    await this.serialized(async () => {
+      const loaded = this.load();
+      const entries = { ...loaded.document.entries };
+      for (const change of changes) {
+        const name = change.kind === 'key' ? nameOf(change.name) : blobNameOf(change.name);
+        if (change.value === undefined) {
+          delete entries[name];
+          continue;
+        }
+        if (!(change.kind === 'key' ? KEY : BLOB).test(change.value)) throw invalid();
+        if (!this.availability()) throw unavailable();
+        let encrypted: Buffer;
+        try {
+          encrypted = this.encryption.encryptString(change.value);
+        } catch {
+          throw unavailable();
+        }
+        if (
+          !Buffer.isBuffer(encrypted) ||
+          encrypted.length === 0 ||
+          encrypted.length > MAX_CIPHER_BYTES
+        )
+          throw unavailable();
+        entries[name] = {
+          ciphertext: encrypted.toString('base64'),
+          lastFour: change.kind === 'key' ? change.value.slice(-4) : BLOB_TAG,
+        };
+      }
+      await this.write({ ...loaded, document: { version: 1, entries } });
+    });
   }
 
   private async put(name: EntryName, secret: string, lastFour: string): Promise<void> {

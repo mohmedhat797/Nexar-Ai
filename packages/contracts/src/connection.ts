@@ -44,6 +44,47 @@ export interface ConnectionDefinition extends ResourceConnection {
   readonly credentialScope: ConnectionCredentialScope;
 }
 
+/** Lifecycle states of a connection (ADR-029 §4.3 / OD-7). */
+export type ConnectionLifecycleState = 'ACTIVE' | 'DISABLED' | 'TOMBSTONED';
+
+/** Identity assurance levels for credential binding (ADR-029 §4.3 / OD-8). */
+export type ConnectionIdentityAssurance =
+  | 'VERIFIED_SAME_ACCOUNT'
+  | 'OWNER_ASSERTED_SAME_ACCOUNT'
+  | 'VERIFIED_DIFFERENT_ACCOUNT'
+  | 'IDENTITY_UNKNOWN';
+
+/** Full persistent connection record stored in settings. */
+export interface PersistentConnectionRecord extends ConnectionDefinition {
+  readonly credentialGeneration: number;
+  readonly identityAssurance: ConnectionIdentityAssurance;
+  readonly lifecycleState: ConnectionLifecycleState;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  /** Evidence of an explicit owner continuity action; never a credential or account subject. */
+  readonly assertion?:
+    { readonly type: 'same-account'; readonly at: string; readonly source: 'owner' } | undefined;
+  /** Replacement retirement is permanent; ordinary owner removal remains reversible. */
+  readonly retirement?: 'replaced' | undefined;
+}
+
+/** Settings schema container for connections and tombstones. */
+export interface ConnectionsSettings {
+  readonly schemaVersion: 1;
+  readonly connections: Readonly<Record<string, PersistentConnectionRecord>>;
+  readonly tombstones: readonly string[];
+}
+
+/** Pure helper checking if connection can admit new execution units. */
+export function canConnectionAdmit(record: PersistentConnectionRecord): boolean {
+  return record.lifecycleState === 'ACTIVE' && record.enabled;
+}
+
+/** Pure helper checking if an ID has been permanently tombstoned. */
+export function isConnectionTombstoned(id: string, tombstones: readonly string[]): boolean {
+  return tombstones.includes(id);
+}
+
 /** Supported host literals for connection isolation and attribution. */
 export type ConnectionHost = 'desktop' | 'plane';
 

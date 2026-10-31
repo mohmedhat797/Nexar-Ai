@@ -80,9 +80,20 @@ jobs:
 
       # Nexar Desktop (ADR-021): drives the real Electron app with Playwright on a virtual display.
       # Offline: only the echo resource is used. --no-sandbox is passed by the test, not the app.
+      # safeStorage needs a real Secret Service, so a throwaway keyring lives for this step only.
+      - name: Desktop E2E keyring prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y -qq gnome-keyring libsecret-1-0
+
       - name: Desktop E2E (Electron under Xvfb)
         if: runner.os == 'Linux'
-        run: xvfb-run -a pnpm desktop:e2e
+        env:
+          NEXAR_E2E_SECRET_SERVICE: '1'
+        run: |
+          dbus-run-session -- bash -euc '
+            printf ci-throwaway | gnome-keyring-daemon --unlock --components=secrets > /dev/null
+            xvfb-run -a pnpm desktop:e2e
+          '
 
       - name: Desktop E2E (native Windows, offline echo)
         if: runner.os == 'Windows'

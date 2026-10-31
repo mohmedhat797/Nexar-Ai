@@ -10,6 +10,11 @@ import {
 } from 'playwright-core';
 import { defaultConfig } from '@nexar/core';
 import { expect, onTestFailed } from 'vitest';
+import { finishProcess, waitForMainProcessExit } from './process-lifecycle.js';
+import {
+  STATE_GUARD_TRACE_EVENT,
+  type WindowsStateProcessEvent,
+} from '../src/main/private-state-process.js';
 
 /*
  * Launch helpers shared by the Code-lane scenarios: the same robustness as the main desktop
@@ -18,6 +23,11 @@ import { expect, onTestFailed } from 'vitest';
  */
 
 const MAIN = fileURLToPath(new URL('../dist/main/main.js', import.meta.url));
+// Opt-in only: CI provides a throwaway Secret Service. Never touch a developer's real keyring.
+const ENTRY =
+  process.platform === 'linux' && process.env['NEXAR_E2E_SECRET_SERVICE'] === '1'
+    ? fileURLToPath(new URL('./secret-service-main.mjs', import.meta.url))
+    : MAIN;
 const EXECUTABLE = process.env['NEXAR_DESKTOP_EXECUTABLE'];
 export const POLL = { timeout: 60_000, interval: 200 };
 
@@ -42,6 +52,47 @@ export const hasText = (locator: Locator, needle: string): Promise<void> =>
   expect.poll(() => text(locator).catch(() => ''), POLL).toContain(needle);
 export const isVisible = (locator: Locator): Promise<void> =>
   expect.poll(() => locator.isVisible().catch(() => false), POLL).toBe(true);
+
+/** Read only the test-gated main-process metadata, after early launch stderr was consumed. */
+export async function mainProcessIdentity(app: ElectronApplication) {
+  const identity = await app.evaluate(({ app: main }) => {
+    const metric = main.getAppMetrics().find((item) => item.pid === process.pid);
+    return {
+      pid: process.pid,
+      parentPid: process.ppid,
+      createdAtEpochMs: metric?.creationTime,
+      nodeVersion: process.versions.node,
+      electronVersion: process.versions.electron,
+      uvVersion: process.versions.uv,
+    };
+  });
+  const launcherPid = app.process().pid;
+  // Playwright 1.63 launches through a shell on Windows: its ChildProcess PID is the
+  // launcher, not necessarily Electron's PID. Verify the direct parent link, not equality.
+  expect(Number.isInteger(identity.pid) && identity.pid > 0).toBe(true);
+  expect([identity.pid, identity.parentPid]).toContain(launcherPid);
+  return { ...identity, launcherPid };
+}
+
+export async function stateProcessObservation(
+  app: ElectronApplication,
+): Promise<WindowsStateProcessEvent[]> {
+  const events = (await app.evaluate(({ app: main }, eventName) => {
+    let observations: unknown;
+    const delivered = main.emit(eventName, (value: unknown) => {
+      observations = value;
+    });
+    if (!delivered) throw new Error('Startup process observation unavailable');
+    return observations;
+  }, STATE_GUARD_TRACE_EVENT)) as WindowsStateProcessEvent[];
+  expect(events).toHaveLength(2);
+  const identity = await mainProcessIdentity(app);
+  expect(events.every((event) => event.parentPid === identity.pid)).toBe(true);
+  expect(events.map((event) => event.event)).toEqual(['request', 'result']);
+  if (process.env['NEXAR_E2E_STATE_PROCESS_TRACE'] === '1')
+    process.stdout.write(`desktop e2e process identity ${JSON.stringify(identity)}\n`);
+  return events;
+}
 
 /** Native runtimes a developer may have signed in on PATH: E2E must never route to them. */
 const REAL_RUNTIMES = ['claude-code', 'codex', 'antigravity', 'deepseek-harness'];
@@ -102,15 +153,35 @@ export interface Harness {
   readonly dispose: () => Promise<void>;
 }
 
-export async function createHarness(): Promise<Harness> {
+export async function createHarness(
+  registerFailure: (callback: () => void) => void = onTestFailed,
+  launchApplication: typeof electron.launch = (options) => electron.launch(options),
+): Promise<Harness> {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'nexar-e2e-code-')));
   const projectDir = join(base, 'code-project');
   await mkdir(projectDir, { recursive: true });
   await writeFile(join(projectDir, 'readme-seed.txt'), 'seeded file content\n');
   const apps: ElectronApplication[] = [];
-  let output: string[] = [];
+  const identities = new WeakMap<
+    ElectronApplication,
+    Awaited<ReturnType<typeof mainProcessIdentity>>
+  >();
+  const profiles = new Map<ElectronApplication, string>();
+  const reservedProfiles = new Set<string>();
+  let failed = false;
 
   const launch: Harness['launch'] = async (userData, extraEnv = {}) => {
+    if (reservedProfiles.has(userData))
+      throw new Error('E2E profile still owned by an application; restart refused');
+    // Reserve before seeding or awaiting the launcher. Failed/unknown launches do not
+    // authorize a retry against potentially still-owned state within this fixture.
+    reservedProfiles.add(userData);
+    const output: string[] = [];
+    // Launch can reject before it returns an owned process handle; retain its seeded evidence too.
+    registerFailure(() => {
+      failed = true;
+      process.stderr.write(`desktop e2e failed; app output:\n${output.join('').slice(-8000)}\n`);
+    });
     await seedE2EConfig(userData);
     const env = Object.fromEntries(
       Object.entries(process.env).filter(
@@ -138,10 +209,10 @@ export async function createHarness(): Promise<Harness> {
       delete env['NEXAR_WORKFLOWS_DIR'];
       delete env['NEXAR_ENGINEERING_PLANS_DIR'];
     }
-    const app = await electron.launch({
+    const app = await launchApplication({
       ...(EXECUTABLE ? { executablePath: EXECUTABLE } : {}),
       args: [
-        ...(EXECUTABLE ? [] : [MAIN]),
+        ...(EXECUTABLE ? [] : [ENTRY]),
         ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         '--disable-gpu',
         '--disable-dev-shm-usage',
@@ -152,52 +223,60 @@ export async function createHarness(): Promise<Harness> {
       env,
     });
     apps.push(app);
-    output = [];
+    profiles.set(app, userData);
     const capture = (chunk: Buffer): void => {
       output.push(chunk.toString());
       if (output.length > 200) output.shift();
     };
     app.process().stdout?.on('data', capture);
     app.process().stderr?.on('data', capture);
-    // A step without its own timeout (close, evaluate) only surfaces as the test timeout: print
-    // this launch's startup trace and output so the failing run says where the app stopped.
-    const launched = output;
-    onTestFailed(() => {
-      process.stderr.write(`desktop e2e failed; app output:\n${launched.join('').slice(-8000)}\n`);
-    });
     try {
+      identities.set(app, await mainProcessIdentity(app));
+      if (process.platform === 'win32' && process.env['NEXAR_E2E_STATE_PROCESS_TRACE'] === '1') {
+        const events = await stateProcessObservation(app);
+        process.stdout.write(`desktop e2e state process ${JSON.stringify(events)}\n`);
+      }
       // Cold starts run under antivirus scanning on CI runners: a packaged or source build can take
       // well over 30 s before its first window (Windows: engine-config alone has taken 15 s).
       const page = await app.firstWindow({ timeout: 90_000 });
       await page.waitForSelector('.app, [data-testid="open-folder-cta"]', { timeout: 60_000 });
       return { app, page };
     } catch (error) {
-      app.process().kill();
-      apps.splice(apps.indexOf(app), 1);
-      process.stderr.write(
-        `desktop e2e launch failed; app output:\n${output.join('').slice(-8000)}\n`,
-      );
+      try {
+        await close(app);
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'E2E launch and cleanup failed', {
+          cause: cleanupError,
+        });
+      } finally {
+        process.stderr.write(
+          `desktop e2e launch failed; app output:\n${output.join('').slice(-8000)}\n`,
+        );
+      }
       throw error;
     }
   };
 
   const close: Harness['close'] = async (app) => {
+    if (!apps.includes(app)) return;
     const child = app.process();
-    // Bounded like `dispose`: an app that will not close is ended below instead of hanging the test.
-    const closed = await Promise.race([
-      app.close().then(
-        () => true,
-        () => true,
-      ),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), 20_000)),
-    ]);
-    if (!closed) process.stderr.write('desktop e2e: app.close() did not finish within 20 s\n');
-    apps.splice(apps.indexOf(app), 1);
-    const deadline = Date.now() + 20_000;
-    while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    if (child.exitCode === null && child.signalCode === null) child.kill();
+    const identity = identities.get(app);
+    const result = await finishProcess(child, () => app.close(), {
+      verifyExit: () => {
+        if (!identity)
+          return Promise.reject(
+            new Error('E2E main process identity unavailable; profile retained'),
+          );
+        return waitForMainProcessExit(identity);
+      },
+    });
+    if (process.env['NEXAR_E2E_PHASE_TRACE'] === '1')
+      process.stderr.write(`desktop e2e exit ${JSON.stringify({ pid: child.pid, ...result })}\n`);
+    const index = apps.indexOf(app);
+    if (index >= 0) apps.splice(index, 1);
+    const userData = profiles.get(app);
+    if (userData !== undefined) reservedProfiles.delete(userData);
+    profiles.delete(app);
   };
 
   return {
@@ -207,19 +286,21 @@ export async function createHarness(): Promise<Harness> {
     launch,
     close,
     dispose: async () => {
-      // An app that will not close must not hang teardown: give it 15 s, then end its process.
-      await Promise.all(
-        apps.map((a) => {
-          // Take the process handle first: it is unavailable once the app connection closes.
-          const child = a.process();
-          return Promise.race([
-            a.close().catch(() => undefined),
-            new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
-          ]).then(() => {
-            if (child.exitCode === null && child.signalCode === null) child.kill();
-          });
-        }),
-      );
+      // A failed exit retains its profile and process handle for diagnosis; never race rm/relaunch.
+      const failures: unknown[] = [];
+      for (const app of [...apps]) {
+        try {
+          await close(app);
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length > 0)
+        throw new AggregateError(failures, 'E2E cleanup incomplete; profiles retained');
+      if (failed) {
+        process.stderr.write(`desktop e2e failed fixture retained: ${base}\n`);
+        return;
+      }
       await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };

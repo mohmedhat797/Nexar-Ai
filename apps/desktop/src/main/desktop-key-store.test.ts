@@ -525,4 +525,46 @@ $ownerAllowed = $owner -in @($user, 'S-1-5-18', 'S-1-5-32-544')
     expect(await actual.readFile(path, 'utf8')).toBe(before);
     expect((await fs.readdir(root)).sort()).toEqual(['credentials.json']);
   });
+
+  it('stores, resolves, and removes owner-scoped API keys with valid patterns', async () => {
+    const ownerKeyName = 'ANTHROPIC_API_KEY__CABCD1234EF';
+    const testSecret = 'sk-ant-api03-owner-test-secret-1234';
+
+    expect(store.metadata(ownerKeyName)).toEqual({ present: false });
+    expect(store.resolveSecret(ownerKeyName)).toBeUndefined();
+
+    await store.save(ownerKeyName, testSecret);
+    expect(store.metadata(ownerKeyName)).toEqual({ present: true, lastFour: '1234' });
+    expect(store.resolveSecret(ownerKeyName)).toBe(testSecret);
+
+    await store.remove(ownerKeyName);
+    expect(store.metadata(ownerKeyName)).toEqual({ present: false });
+    expect(store.resolveSecret(ownerKeyName)).toBeUndefined();
+  });
+
+  it('rejects malformed owner credential names', async () => {
+    const testSecret = 'sk-ant-api03-owner-test-secret-1234';
+    await expect(store.save('lowercase_api_key__c123', testSecret)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    await expect(store.save('ANTHROPIC_KEY_WRONG', testSecret)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    expect(() => store.metadata('UNKNOWN_KEY')).toThrow(
+      expect.objectContaining({ code: 'VALIDATION_ERROR' }),
+    );
+  });
+
+  it('stores, reads, and removes plan binding blobs', async () => {
+    const blobName = 'chatgpt-plan:binding';
+    const blobData = 'eyJzdWIiOiJ1c2VyLTEyMzQ1Njc4OTAifQ'; // valid base64url > 16 chars
+
+    expect(store.readBlob(blobName)).toBeUndefined();
+
+    await store.saveBlob(blobName, blobData);
+    expect(store.readBlob(blobName)).toBe(blobData);
+
+    await store.removeBlob(blobName);
+    expect(store.readBlob(blobName)).toBeUndefined();
+  });
 });

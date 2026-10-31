@@ -2,7 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ElectronApplication, Page } from 'playwright-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
 import {
   POLL,
   addProject,
@@ -287,6 +287,31 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
     async () => {
       const userData = harness.newUserData('sow');
       const { control, work } = await seedModels(userData);
+      onTestFailed(async () => {
+        try {
+          const turns = await recordedTurns(userData);
+          process.stderr.write(
+            `sow e2e progress ${JSON.stringify({
+              at: Date.now(),
+              turns: turns.map((turn) => ({
+                state: turn.state,
+                tasks: turn.tasks.map((task) => ({
+                  controlPath: task.control?.path,
+                  delegations: task.delegations?.map((unit) => ({
+                    unitId: unit.unitId,
+                    outcome: unit.outcome,
+                  })),
+                })),
+              })),
+              controlRequests: control.completions.length,
+              workRequests: work.completions.length,
+              recentControl: control.completions.slice(-12),
+            })}\n`,
+          );
+        } catch {
+          process.stderr.write('sow e2e progress unavailable\n');
+        }
+      });
       const { app, page } = await harness.launch(userData, SOW_ENV);
       await addProject(app, page, harness.projectDir);
 
