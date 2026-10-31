@@ -1,8 +1,18 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BUILTIN_CONNECTIONS, isOwnerCodexConnectionId } from '@nexar/contracts';
+import {
+  adapterId,
+  BUILTIN_CONNECTIONS,
+  isOwnerCodexConnectionId,
+  ownerCodexResourceId,
+  resourceId,
+  type PersistentConnectionRecord,
+  type ResourceDescriptor,
+} from '@nexar/contracts';
+import { ownerCodexResource } from '@nexar/host';
+import { CodexHomeStore } from './codex-home-store.js';
 import { DesktopKeyStore, type DesktopEncryption } from './desktop-key-store.js';
 import { ConnectionManager } from './connection-manager.js';
 import { SettingsStore } from './settings-store.js';
@@ -132,6 +142,76 @@ describe('owner Codex connections', () => {
   it('rejects a blank or oversized label', async () => {
     await expect(manager.addCodexConnection({ label: '  ' })).rejects.toThrow();
     await expect(manager.addCodexConnection({ label: 'x'.repeat(129) })).rejects.toThrow();
+  });
+
+  describe('home resolution', () => {
+    const descriptor = (
+      record: PersistentConnectionRecord,
+      change: Partial<ResourceDescriptor> = {},
+    ): ResourceDescriptor => ({ ...ownerCodexResource(record), ...change });
+    let store: CodexHomeStore;
+    let withHomes: ConnectionManager;
+
+    beforeEach(() => {
+      store = new CodexHomeStore({
+        userData: dir,
+        secureDirectory: (path) => mkdir(path, { recursive: true }).then(() => undefined),
+      });
+      withHomes = new ConnectionManager({
+        settingsStore: new SettingsStore(path),
+        keyStore,
+        codexHomes: store,
+        now: () => '2026-11-01T12:00:00.000Z',
+      });
+    });
+
+    it('resolves each connection to its own home', async () => {
+      const a = await withHomes.addCodexConnection({ label: 'A' });
+      const b = await withHomes.addCodexConnection({ label: 'B' });
+      const homeA = await store.ensure(a);
+      const homeB = await store.ensure(b);
+      expect(await withHomes.resolveCodexHome(descriptor(a))).toBe(homeA);
+      expect(await withHomes.resolveCodexHome(descriptor(b))).toBe(homeB);
+      expect(homeA).not.toBe(homeB);
+    });
+
+    it('asks for a sign-in while no home exists', async () => {
+      const a = await withHomes.addCodexConnection({ label: 'A' });
+      await expect(withHomes.resolveCodexHome(descriptor(a))).rejects.toMatchObject({
+        code: 'AUTH_REQUIRED',
+      });
+    });
+
+    it('refuses a resource that claims another connection or another home', async () => {
+      const a = await withHomes.addCodexConnection({ label: 'A' });
+      const b = await withHomes.addCodexConnection({ label: 'B' });
+      await store.ensure(a);
+      const options = { adapter: adapterId('codex'), locality: 'local' as const };
+      for (const bad of [
+        descriptor(a, { id: resourceId(ownerCodexResourceId(b.id)) }),
+        descriptor(a, { id: resourceId('codex') }),
+        descriptor(a, { runtime: { ...options, options: { codexHome: dir } } }),
+      ])
+        await expect(withHomes.resolveCodexHome(bad)).rejects.toMatchObject({
+          details: { reason: 'connection.scope' },
+        });
+    });
+
+    it('refuses a stale generation', async () => {
+      const a = await withHomes.addCodexConnection({ label: 'A' });
+      await store.ensure(a);
+      const stale = descriptor({ ...a, credentialGeneration: 2 });
+      await expect(withHomes.resolveCodexHome(stale)).rejects.toMatchObject({
+        details: { reason: 'connection.stale-generation' },
+      });
+    });
+
+    it('refuses without a home store', async () => {
+      const a = await manager.addCodexConnection({ label: 'A' });
+      await expect(manager.resolveCodexHome(descriptor(a))).rejects.toMatchObject({
+        code: 'CONFIGURATION_ERROR',
+      });
+    });
   });
 
   it('refuses a new connection while owner connections are off', async () => {

@@ -2,6 +2,7 @@ export * from './composition.js';
 export type { InventoryExecutionGuard } from './inventory-guard.js';
 export {
   createNativeModelInventories,
+  ownerCodexResource,
   type NativeInventoryDefinition,
 } from './native-inventories.js';
 export { createEngineExecutor, engineAllocator, type BridgeRuntimeSource } from './bridge-ports.js';

@@ -4,7 +4,9 @@ import {
   canConnectionAdmit,
   connectionOf,
   generateConnectionId,
+  isOwnerCodexConnectionId,
   NexarError,
+  ownerCodexResourceId,
   type ConnectionDefinition,
   type ConnectionsSettings,
   type PersistentConnectionRecord,
@@ -12,6 +14,7 @@ import {
 } from '@nexar/contracts';
 import { catalogResourceId } from '@nexar/resource-registry';
 import { API_PROVIDER_IDS } from '../shared/providers.js';
+import type { CodexHomeStore } from './codex-home-store.js';
 import type { CredentialChange, DesktopKeyStore } from './desktop-key-store.js';
 import type { SettingsStore } from './settings-store.js';
 import { hasRetainedPlanBinding } from './chatgpt-plan.js';
@@ -57,6 +60,7 @@ export interface ConnectionLease {
 export interface ConnectionManagerDeps {
   readonly settingsStore: SettingsStore;
   readonly keyStore: DesktopKeyStore;
+  readonly codexHomes?: CodexHomeStore;
   readonly onChange?: () => void | Promise<void>;
   readonly now?: () => string;
   readonly rng?: (count: number) => Uint8Array;
@@ -708,6 +712,16 @@ export class ConnectionManager {
   validateResource(descriptor: ResourceDescriptor): void {
     this.resourceRecord(descriptor, true);
   }
+  /** Called with the connection's lease held, so the home outlives the process that uses it. */
+  async resolveCodexHome(descriptor: ResourceDescriptor): Promise<string> {
+    const r = this.resourceRecord(descriptor, true);
+    if (r === undefined || this.deps.codexHomes === undefined)
+      throw new NexarError('CONFIGURATION_ERROR', 'Codex home does not match its connection');
+    const home = await this.deps.codexHomes.resolve(r);
+    if (home === undefined)
+      throw new NexarError('AUTH_REQUIRED', 'Sign in to this Codex connection first');
+    return home;
+  }
   private resourceRecord(
     descriptor: ResourceDescriptor,
     bound = false,
@@ -732,6 +746,15 @@ export class ConnectionManager {
       c.authClass !== r.authClass ||
       c.support !== r.support ||
       (descriptor.kind.type === 'model' && descriptor.kind.provider !== r.provider)
+    )
+      throw rejected('connection.scope');
+    if (
+      isOwnerCodexConnectionId(r.id) &&
+      (descriptor.id !== ownerCodexResourceId(r.id) ||
+        descriptor.runtime.adapter !== 'codex' ||
+        descriptor.runtime.options?.['codexHome'] !== undefined ||
+        descriptor.auth.mode !== 'subscription' ||
+        descriptor.auth.credential.source !== 'runtime-managed')
     )
       throw rejected('connection.scope');
     if (r.credentialScope.kind === 'keystore') {

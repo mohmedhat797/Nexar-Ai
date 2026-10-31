@@ -1,6 +1,9 @@
 import {
   BUILTIN_CONNECTIONS,
+  ownerCodexResourceId,
+  resourceId,
   type InventorySource,
+  type PersistentConnectionRecord,
   type ProviderModelEntry,
   type ProviderRuntimeIdentity,
   type ResourceDescriptor,
@@ -15,6 +18,25 @@ import {
   antigravityModelInventorySource,
   antigravityResource,
 } from '@nexar/integration-antigravity';
+
+/** The resource an owner-added Codex connection publishes. It carries no path; main resolves one. */
+export function ownerCodexResource(record: PersistentConnectionRecord): ResourceDescriptor {
+  return codexResource({
+    id: resourceId(ownerCodexResourceId(record.id)),
+    displayName: record.label,
+    metadata: {
+      connection: {
+        id: record.id,
+        provider: record.provider,
+        method: record.method,
+        authClass: record.authClass,
+        support: record.support,
+      },
+      connectionGeneration: record.credentialGeneration,
+      connectionHost: record.machine,
+    },
+  });
+}
 
 export interface NativeInventoryDefinition {
   readonly sourceId: SubscriptionRuntimeId;

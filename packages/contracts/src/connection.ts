@@ -202,6 +202,11 @@ export function isOwnerCodexConnectionId(id: string): boolean {
   return OWNER_CODEX_ID.test(id);
 }
 
+/** The one resource an owner Codex connection publishes; a pin to it cannot reach another account. */
+export function ownerCodexResourceId(connectionId: string): string {
+  return `codex:${connectionId}`;
+}
+
 const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
 const FAMILY_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 

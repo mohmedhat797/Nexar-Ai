@@ -35,6 +35,7 @@ import { ConnectionManager } from './connection-manager.js';
 import { ConnectionRuntime } from './connection-runtime.js';
 import { ChatGptPlanService } from './chatgpt-plan.js';
 import { chatGptPlanInventoryDefinition } from './chatgpt-plan-resources.js';
+import { CodexHomeStore } from './codex-home-store.js';
 import { ProviderInventoryService } from './provider-inventory.js';
 import { chatGptTestHooks } from './chatgpt-test-hooks.js';
 import { installationId } from './installation-id.js';
@@ -180,6 +181,7 @@ async function start(): Promise<void> {
   const connectionManager: ConnectionManager = new ConnectionManager({
     settingsStore: settings,
     keyStore: keys,
+    codexHomes: new CodexHomeStore({ userData }),
     isWriter: () => sessionStore.holdsLease(),
     affectedPins: (record) => {
       const current = engineRef.current;
@@ -287,6 +289,8 @@ async function start(): Promise<void> {
       }
       return token;
     },
+    resolveCodexHome: (descriptor: ResourceDescriptor) =>
+      connectionManager.resolveCodexHome(descriptor),
     ...(planTest?.responsesFetch === undefined ? {} : { fetch: planTest.responsesFetch }),
   };
   const engine = await createEngineHost({
