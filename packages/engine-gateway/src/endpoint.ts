@@ -16,6 +16,8 @@ import {
   type IntelligenceRequest,
   type Logger,
   type NexarErrorCode,
+  type ReviewDimensions,
+  resolveReviewDimensions,
 } from '@nexar/contracts';
 import type { StrategySettings } from '@nexar/resource-controller';
 import {
@@ -48,6 +50,8 @@ export const DEFAULT_ENDPOINT_LIMITS: BridgeEndpointLimits = {
 
 /** What Desktop mints for one engine turn. */
 export interface BridgeGrantInput {
+  /** Trusted host selection constraint; never accepted on the relay request. */
+  readonly reviewDimensions?: ReviewDimensions;
   readonly sessionId: string;
   readonly turnId: string;
   readonly correlationId: string;
@@ -223,6 +227,7 @@ export class BridgeHost {
     ) {
       throw new NexarError('VALIDATION_ERROR', 'Invalid turn delegation scope');
     }
+    const reviewDimensions = resolveReviewDimensions(input.reviewDimensions);
     this.sweep();
     const { gateway } = this.options;
     if (control !== undefined && gateway === undefined) {
@@ -250,6 +255,7 @@ export class BridgeHost {
       projectId: input.projectId,
       engine: input.engine,
       access: input.access,
+      ...(reviewDimensions === undefined ? {} : { reviewDimensions }),
       ...(input.budgetUsd === undefined ? {} : { budgetUsd: input.budgetUsd }),
       maxUnits: input.maxUnits,
       expiresAt: new Date(expiresAtMs).toISOString(),

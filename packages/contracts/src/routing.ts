@@ -8,6 +8,7 @@ import type {
 } from './intelligence.js';
 import type { ResourceSnapshot } from './resource.js';
 import type { NexarTask } from './task.js';
+import type { UnitStrategy, WorkUnit } from './strategy.js';
 
 /** One machine-readable, human-explainable factor behind a routing outcome. */
 export interface RouteReason {
@@ -77,6 +78,8 @@ export type RouteDecision =
     }
   | {
       readonly outcome: 'no-eligible-resource';
+      /** Plan-level failure reasons, including required diversity with no allocatable candidate. */
+      readonly reasons?: readonly RouteReason[];
       readonly taskId: TaskId;
       readonly rejected: readonly CandidateAssessment[];
       readonly policy: PolicyStamp;
@@ -86,4 +89,6 @@ export type RouteDecision =
 /** What callers depend on to pick a resource; hides the policy algorithm behind it. */
 export interface ResourceRouter {
   route(task: NexarTask): Promise<RouteDecision>;
+  /** Optional trusted plan revalidation; absence fails closed for opt-in planned execution. */
+  revalidate?(planned: UnitStrategy, unit: WorkUnit): Promise<RouteDecision>;
 }

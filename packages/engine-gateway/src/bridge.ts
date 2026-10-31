@@ -26,7 +26,13 @@ import {
   type WorkUnit,
 } from '@nexar/contracts';
 import { MAX_DELEGATION_DEPTH, neutralizeUntrusted, wrapUntrusted } from '@nexar/operating';
-import type { StrategySettings } from '@nexar/resource-controller';
+import { retainedReviewIdentity, type StrategySettings } from '@nexar/resource-controller';
+import {
+  resolveReviewDimensions,
+  type StrategyExecution,
+  type UnitStrategy,
+  type ReviewIdentity,
+} from '@nexar/contracts';
 
 /*
  * Intelligence Execution Bridge (ADR-027 section 7B): an engine asks Nexar to execute one bounded
@@ -40,11 +46,12 @@ export interface BridgeAllocator {
     ledger: StrategyLedger,
     unit: WorkUnit,
     settings?: StrategySettings,
-  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger }>;
+  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger; strategy?: UnitStrategy }>;
 }
 
 /** The child task the executor creates and runs; it never names a working directory or workspace. */
 export interface ChildTaskInput {
+  readonly strategy?: StrategyExecution;
   readonly kind: TaskKind;
   readonly systemPrompt: string;
   readonly prompt: string;
@@ -56,6 +63,7 @@ export interface ChildTaskInput {
 }
 
 export interface ChildExecution {
+  readonly reviewIdentity?: ReviewIdentity;
   readonly text: string;
   readonly usage: UsageReport;
   /** The resource that actually ran the task (engine routing revalidates the allocation). */
@@ -111,6 +119,7 @@ export interface BridgeAccounting {
 }
 
 interface Job {
+  completion?: Promise<void>;
   readonly unitId: string;
   readonly abort: AbortController;
   result?: IntelligenceResult;
@@ -216,6 +225,7 @@ export class IntelligenceBridge {
   }
 
   open(grant: BridgeGrant, unitLimit?: DelegationUnitLimit): void {
+    const dimensions = resolveReviewDimensions(grant.reviewDimensions);
     const invalid = (message: string): NexarError => new NexarError('VALIDATION_ERROR', message);
     if (typeof grant.grantId !== 'string' || grant.grantId.length === 0) {
       throw invalid('grantId must be a non-empty string');
@@ -251,7 +261,8 @@ export class IntelligenceBridge {
         allocations: [],
         spentUsd: 0,
         ...(grant.budgetUsd === undefined ? {} : { budgetUsd: grant.budgetUsd }),
-        reviewDiversity: 'preferred',
+        reviewDiversity: dimensions?.resource ?? 'preferred',
+        ...(dimensions === undefined ? {} : { reviewDimensions: dimensions }),
       },
       unaccounted: 0,
       tail: Promise.resolve(),
@@ -352,7 +363,7 @@ export class IntelligenceBridge {
     state.unitIds.add(request.unitId);
     state.jobs.set(jobId, job);
     this.emit('bridge.submitted', { grantId, jobId, unitId: request.unitId });
-    void this.run(state, jobId, job, request);
+    job.completion = this.run(state, jobId, job, request);
     return { jobId };
   }
 
@@ -397,9 +408,24 @@ export class IntelligenceBridge {
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = AbortSignal.any([job.abort.signal, timeout]);
 
+      if (state.ledger.reviewDimensions !== undefined && request.reviewOf !== undefined) {
+        const earlier = [...state.jobs.values()].find((j) => j.unitId === request.reviewOf);
+        if (earlier?.completion !== undefined) await untilAborted(earlier.completion, signal);
+        if (earlier?.result?.outcome !== 'succeeded')
+          throw new NexarError(
+            'NO_ELIGIBLE_RESOURCE',
+            'Reviewed work has not completed successfully',
+          );
+      }
+
       const allocation = await this.allocate(state, request);
       if (allocation.decision.outcome !== 'selected') {
-        result = this.failed(request.unitId, 'NO_ELIGIBLE_RESOURCE');
+        result = {
+          ...this.failed(request.unitId, 'NO_ELIGIBLE_RESOURCE'),
+          ...(allocation.decision.reasons === undefined
+            ? {}
+            : { reasonCodes: allocation.decision.reasons.map((r) => r.code) }),
+        };
       } else {
         decisionId = this.options.newId();
         resourceId = allocation.decision.selected.resourceId;
@@ -407,11 +433,20 @@ export class IntelligenceBridge {
         try {
           if (job.abort.signal.aborted) throw job.abort.signal.reason;
           const execution = await untilAborted(
-            this.options.executor(this.childTask(state, request, resourceId), signal),
+            this.options.executor(
+              this.childTask(state, request, resourceId, allocation.strategy),
+              signal,
+            ),
             signal,
           );
           resourceId = toResourceId(execution.resourceId);
-          this.settle(state, request.unitId, resourceId, execution.usage.costUsd);
+          this.settle(
+            state,
+            request.unitId,
+            resourceId,
+            execution.usage.costUsd,
+            execution.reviewIdentity,
+          );
           result = {
             unitId: request.unitId,
             outcome: 'succeeded',
@@ -423,7 +458,13 @@ export class IntelligenceBridge {
             },
           };
         } catch (error) {
-          this.settle(state, request.unitId, resourceId, { status: 'unavailable' });
+          this.settle(
+            state,
+            request.unitId,
+            resourceId,
+            { status: 'unavailable' },
+            state.ledger.reviewDimensions === undefined ? undefined : { resourceId },
+          );
           if (job.abort.signal.aborted) {
             result = this.failed(request.unitId, 'EXECUTION_CANCELLED', 'cancelled');
           } else if (timeout.aborted) {
@@ -433,6 +474,14 @@ export class IntelligenceBridge {
               request.unitId,
               isNexarError(error) ? error.code : 'PROVIDER_ERROR',
             );
+            if (isNexarError(error) && Array.isArray(error.details?.['reasonCodes'])) {
+              const codes = (error.details['reasonCodes'] as unknown[]).filter(
+                (c): c is string =>
+                  typeof c === 'string' &&
+                  /^strategy\.diversity\.(resource|connection|provider)\.unavailable$/.test(c),
+              );
+              if (codes.length > 0) result = { ...result, reasonCodes: codes };
+            }
           }
         }
       }
@@ -461,9 +510,9 @@ export class IntelligenceBridge {
   private allocate(
     state: GrantState,
     request: IntelligenceRequest,
-  ): Promise<{ decision: RouteDecision }> {
+  ): Promise<{ decision: RouteDecision; strategy?: StrategyExecution }> {
     const { grant } = state;
-    const step = async (): Promise<{ decision: RouteDecision }> => {
+    const step = async (): Promise<{ decision: RouteDecision; strategy?: StrategyExecution }> => {
       const cap = this.remainingCap(state, request);
       const unit: WorkUnit = {
         unitId: request.unitId,
@@ -480,13 +529,47 @@ export class IntelligenceBridge {
           ? {}
           : { qualityClass: request.requirements.qualityClass }),
       };
+      const ledger = state.ledger;
       const allocated = await this.options.allocator.allocate(
-        state.ledger,
+        ledger,
         unit,
         this.options.strategySettings,
       );
-      state.ledger = allocated.ledger;
-      return allocated;
+      if (ledger.reviewDimensions === undefined) {
+        state.ledger = allocated.ledger;
+      } else {
+        if (
+          allocated.strategy?.reviewContext === undefined ||
+          allocated.ledger.reviewDimensions === undefined
+        )
+          throw new NexarError(
+            'CONFIGURATION_ERROR',
+            'Review allocation requires retained strategy context',
+          );
+        // Allocation is asynchronous. Other admitted executions may settle while it observes the
+        // Registry. Publish its new allocation without overwriting their actual identity/cost.
+        // This is a synchronous reconciliation of the existing ledger, not a second authority.
+        const prior = new Map(ledger.allocations.map((a) => [a.unitId, a]));
+        const settled = new Map(
+          state.ledger.allocations
+            .filter((a) => prior.get(a.unitId) !== a)
+            .map((a) => [a.unitId, a]),
+        );
+        state.ledger = {
+          ...allocated.ledger,
+          reviewDimensions: ledger.reviewDimensions,
+          allocations: allocated.ledger.allocations.map((a) => settled.get(a.unitId) ?? a),
+          spentUsd: round6(
+            Math.max(0, allocated.ledger.spentUsd + state.ledger.spentUsd - ledger.spentUsd),
+          ),
+        };
+      }
+      return {
+        decision: allocated.decision,
+        ...(allocated.strategy === undefined
+          ? {}
+          : { strategy: { planned: allocated.strategy, unit } }),
+      };
     };
     const next = state.tail.then(step, step);
     state.tail = next.catch(() => undefined);
@@ -497,6 +580,7 @@ export class IntelligenceBridge {
     state: GrantState,
     request: IntelligenceRequest,
     selected: ResourceId,
+    strategy?: StrategyExecution,
   ): ChildTaskInput {
     const { grant } = state;
     const cap = this.remainingCap(state, request);
@@ -512,6 +596,7 @@ export class IntelligenceBridge {
       );
     }
     return {
+      ...(strategy === undefined ? {} : { strategy }),
       kind: request.kind,
       systemPrompt: SYSTEM_PROMPT,
       prompt: lines.join('\n'),
@@ -556,9 +641,23 @@ export class IntelligenceBridge {
     unitId: string,
     resourceId: ResourceId | undefined,
     cost: Measured<number>,
+    identity?: ReviewIdentity,
   ): void {
     const prior = state.ledger.allocations.find((a) => a.unitId === unitId);
     if (prior === undefined) return;
+    if (state.ledger.reviewDimensions !== undefined) {
+      const actualId = resourceId ?? prior.resourceId;
+      const retained = retainedReviewIdentity(
+        identity ?? (actualId === prior.resourceId ? prior.reviewIdentity : undefined),
+        actualId,
+      );
+      state.ledger = {
+        ...state.ledger,
+        allocations: state.ledger.allocations.map((a) =>
+          a.unitId === unitId ? { ...a, resourceId: actualId, reviewIdentity: retained } : a,
+        ),
+      };
+    }
     const actual = valueOf(cost);
     if (actual === undefined || !Number.isFinite(actual) || actual < 0) {
       state.unaccounted += 1;
@@ -569,6 +668,7 @@ export class IntelligenceBridge {
       allocations: state.ledger.allocations.map((a) =>
         a.unitId === unitId
           ? {
+              ...(state.ledger.reviewDimensions === undefined ? {} : a),
               unitId,
               resourceId: resourceId ?? a.resourceId,
               estimatedCostUsd: actual,

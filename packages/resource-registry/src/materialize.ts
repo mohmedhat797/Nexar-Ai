@@ -23,7 +23,7 @@ function slugifyCatalogId(raw: string): string {
 
 /** Default connection → existing `pi.<provider>.<model>` id; any other → `catalog:<sha256(connectionKey, provider, model)>`. */
 export function catalogResourceId(
-  connection: ConnectionDefinition,
+  connection: Pick<ConnectionDefinition, 'id' | 'machine' | 'builtIn'>,
   provider: string,
   model: string,
 ): ResourceId {

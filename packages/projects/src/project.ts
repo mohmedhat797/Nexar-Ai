@@ -1,4 +1,4 @@
-import type { Capability, ProjectId, ResourceId } from '@nexar/contracts';
+import type { Capability, ProjectId, ResourceId, ReviewDimensions } from '@nexar/contracts';
 
 /** Task requirement defaults a project contributes; see `mergeRequirements` for the rules. */
 export interface ProjectDefaults {
@@ -50,6 +50,7 @@ export interface ProjectEngineeringSettings {
   /** 0..3 */
   readonly maxReworkRounds: number;
   readonly reviewDiversity: 'preferred' | 'required';
+  readonly reviewDimensions?: ReviewDimensions | undefined;
   readonly ownerApproval: 'always' | 'never';
   readonly lanePreferences: Readonly<Partial<Record<EngineeringLaneRole, readonly ResourceId[]>>>;
   readonly patchPolicy: EngineeringPatchPolicy;

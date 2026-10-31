@@ -22,11 +22,17 @@ export function createEngineExecutor(source: BridgeRuntimeSource): ChildExecutor
       requirements: input.requirements,
       metadata: { ...input.metadata },
     });
-    const outcome = await nexar.run(task, { signal });
+    const outcome = await nexar.run(task, {
+      signal,
+      ...(input.strategy === undefined ? {} : { strategy: input.strategy }),
+    });
     return {
       text: outcome.result.text,
       usage: outcome.record.usage,
       resourceId: outcome.record.resourceId,
+      ...(outcome.strategyAllocation?.reviewIdentity === undefined
+        ? {}
+        : { reviewIdentity: outcome.strategyAllocation.reviewIdentity }),
     };
   };
 }

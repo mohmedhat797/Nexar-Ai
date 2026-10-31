@@ -14,6 +14,7 @@ import {
   type DiscoveryCredentialSource,
   type ResourceDescriptor,
   type ResourceId,
+  type ReviewDimensions,
 } from '@nexar/contracts';
 import {
   DEFAULT_RESOURCE_INTELLIGENCE_SETTINGS,
@@ -214,30 +215,55 @@ const EngineeringCommandSchema = z.strictObject({
   timeoutMs: z.number().int().positive().max(86_400_000).default(600_000),
 });
 
-const ProjectEngineeringSchema = z.strictObject({
-  repository: PathSchema.default('.'),
-  baseBranch: z.string().min(1).default('main'),
-  setup: z.array(EngineeringCommandSchema).default([]),
-  setupAllowHosts: z.array(z.string().min(1)).default([]),
-  gates: z.array(EngineeringCommandSchema).default([]),
-  laneTimeoutMs: z.number().int().positive().max(86_400_000).default(1_800_000),
-  maxReworkRounds: z.number().int().min(0).max(3).default(1),
-  reviewDiversity: z.enum(['preferred', 'required']).default('preferred'),
-  ownerApproval: z.enum(['always', 'never']).default('always'),
-  lanePreferences: z
-    .strictObject(
-      Object.fromEntries(LANE_ROLES.map((role) => [role, z.array(ResourceIdSchema).optional()])),
-    )
-    .default({}),
-  patchPolicy: z
-    .strictObject({
-      denyGlobs: z.array(z.string().min(1)).default([]),
-      allowSymlinks: z.boolean().default(false),
-      allowModeChanges: z.boolean().default(false),
-      maxBytes: z.number().int().positive().default(5_242_880),
-    })
-    .default({ denyGlobs: [], allowSymlinks: false, allowModeChanges: false, maxBytes: 5_242_880 }),
-});
+const ReviewDimensionsSchema = z
+  .strictObject({
+    resource: z.enum(['preferred', 'required']).optional(),
+    connection: z.enum(['preferred', 'required']).optional(),
+    provider: z.enum(['preferred', 'required']).optional(),
+  })
+  .refine(
+    (v) => Object.keys(v).length > 0 && Object.values(v).every((m) => m !== undefined),
+    'Explicit review modes are required',
+  )
+  .transform((v) => v as ReviewDimensions);
+
+const ProjectEngineeringSchema = z
+  .strictObject({
+    repository: PathSchema.default('.'),
+    baseBranch: z.string().min(1).default('main'),
+    setup: z.array(EngineeringCommandSchema).default([]),
+    setupAllowHosts: z.array(z.string().min(1)).default([]),
+    gates: z.array(EngineeringCommandSchema).default([]),
+    laneTimeoutMs: z.number().int().positive().max(86_400_000).default(1_800_000),
+    maxReworkRounds: z.number().int().min(0).max(3).default(1),
+    reviewDiversity: z.enum(['preferred', 'required']).default('preferred'),
+    reviewDimensions: ReviewDimensionsSchema.optional(),
+    ownerApproval: z.enum(['always', 'never']).default('always'),
+    lanePreferences: z
+      .strictObject(
+        Object.fromEntries(LANE_ROLES.map((role) => [role, z.array(ResourceIdSchema).optional()])),
+      )
+      .default({}),
+    patchPolicy: z
+      .strictObject({
+        denyGlobs: z.array(z.string().min(1)).default([]),
+        allowSymlinks: z.boolean().default(false),
+        allowModeChanges: z.boolean().default(false),
+        maxBytes: z.number().int().positive().default(5_242_880),
+      })
+      .default({
+        denyGlobs: [],
+        allowSymlinks: false,
+        allowModeChanges: false,
+        maxBytes: 5_242_880,
+      }),
+  })
+  .refine(
+    (v) =>
+      v.reviewDimensions?.resource === undefined ||
+      v.reviewDimensions.resource === v.reviewDiversity,
+    'Conflicting resource review modes',
+  );
 
 const EngineeringSchema = z.strictObject({
   worktreesDir: PathSchema.optional(),

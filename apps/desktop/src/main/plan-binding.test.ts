@@ -1,10 +1,39 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFailed,
+  vi,
+} from 'vitest';
 import { noopLogger } from '@nexar/telemetry';
 import {
+  adapterId,
+  isNexarError,
+  resourceId,
+  taskId,
+  type PersistentConnectionRecord,
+  type ResourceDescriptor,
+  type StrategyLedger,
+  type WorkUnit,
+} from '@nexar/contracts';
+import { materializeInventory } from '@nexar/resource-registry';
+import {
+  allocateNext,
+  reviewIdentityOf,
+  DeterministicRoutingPolicy,
+  DEFAULT_TASK_KIND_RULES,
+} from '@nexar/resource-controller';
+import {
   createOpenAiAccountClient,
+  accountFailureReason,
   type OpenAiAccountClient,
 } from '@nexar/integration-openai-account';
 import {
@@ -14,6 +43,7 @@ import {
 } from '@nexar/integration-openai-account/testing';
 import { ChatGptPlanService } from './chatgpt-plan.js';
 import { ConnectionManager } from './connection-manager.js';
+import { ConnectionRuntime } from './connection-runtime.js';
 import { DesktopKeyStore } from './desktop-key-store.js';
 import { SettingsStore } from './settings-store.js';
 import { SigninCallbackSupervisor } from './signin-callback-child.js';
@@ -26,6 +56,31 @@ let kit: Awaited<ReturnType<typeof bundleSigninChild>>,
   manager: ConnectionManager,
   service: ChatGptPlanService,
   client: OpenAiAccountClient;
+let observations: Record<string, unknown>[] = [];
+async function observe<T>(phase: string, operation: () => Promise<T>): Promise<T> {
+  observations.push({ phase, outcome: 'start' });
+  try {
+    const result = await operation();
+    observations.push({ phase, outcome: 'success' });
+    return result;
+  } catch (error) {
+    const cause = error instanceof Error ? error.cause : undefined;
+    const code =
+      typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : undefined;
+    const network =
+      typeof code === 'string' &&
+      ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'UND_ERR_SOCKET'].includes(code)
+        ? code
+        : undefined;
+    observations.push({
+      phase,
+      outcome: 'error',
+      reason:
+        accountFailureReason(error) ?? (isNexarError(error) ? error.code : (network ?? 'unknown')),
+    });
+    throw error;
+  }
+}
 const barrier = () => {
   let resolve!: () => void;
   const promise = new Promise<void>((r) => {
@@ -40,6 +95,11 @@ afterAll(async () => {
   await rm(kit.dir, { recursive: true, force: true });
 });
 beforeEach(async () => {
+  observations = [];
+  const events = observations;
+  onTestFailed(() => {
+    process.stderr.write(`Plan fixture phases ${JSON.stringify(events)}\n`);
+  });
   dir = await mkdtemp(join(tmpdir(), 'nexar-plan-binding-'));
   fake = await startFakeAuthServer();
   const values = new Map<string, string>();
@@ -66,17 +126,49 @@ beforeEach(async () => {
     keyStore: keys,
   });
   await manager.initialize();
-  client = createOpenAiAccountClient({ issuer: fake.issuer, timeoutMs: 3000 });
+  const realClient = createOpenAiAccountClient({ issuer: fake.issuer, timeoutMs: 3000 });
+  client = {
+    ...realClient,
+    exchangeCode: (input) => observe('exchange', () => realClient.exchangeCode(input)),
+    refresh: (input) => observe('refresh', () => realClient.refresh(input)),
+    verifyIdToken: (input) => observe('verify', () => realClient.verifyIdToken(input)),
+  };
   service = make();
 });
 function make(custom = client): ChatGptPlanService {
+  const supervisor = new SigninCallbackSupervisor({
+    launch: kit.launch,
+    spawn: ((command: string, args: readonly string[], options: SpawnOptions) => {
+      const child = nodeSpawn(command, [...args], options);
+      child.once('exit', (code, signal) =>
+        observations.push({ phase: 'callback-exit', code, signal }),
+      );
+      return child;
+    }) as unknown as typeof nodeSpawn,
+  });
   return new ChatGptPlanService({
     keys,
     authority: manager,
     client: custom,
-    callback: new SigninCallbackSupervisor({ launch: kit.launch }),
+    callback: {
+      begin: async (state, signal) => {
+        const session = await observe('callback-start', () => supervisor.begin(state, signal));
+        return {
+          ...session,
+          result: session.result.then((result) => {
+            observations.push({
+              phase: 'callback-result',
+              outcome: 'error' in result ? result.error : 'authorized',
+            });
+            return result;
+          }),
+        };
+      },
+    },
     openExternal: async (url) => {
-      await fetch(url);
+      await observe('browser', async () => {
+        await fetch(url);
+      });
     },
     installationId: () => Promise.resolve('00000000-0000-4000-8000-000000000001'),
     logger: noopLogger,
@@ -95,6 +187,130 @@ afterEach(async () => {
   });
 });
 describe('Plan retained identity and sequential replacement with real fake-IdP verification', () => {
+  it('TST-42 retains historical review identity across verified re-entry and permanent sequential replacement', async () => {
+    await service.connect();
+    const before = await manager.currentPlan();
+    const materialize = (plan: PersistentConnectionRecord): ResourceDescriptor => {
+      const template: ResourceDescriptor = {
+        id: resourceId('template-only'),
+        displayName: 'Plan',
+        kind: { type: 'model', provider: 'openai', model: 'synthetic', access: 'subscription' },
+        capabilities: ['text-generation', 'model-turn'],
+        runtime: { adapter: adapterId('fake'), locality: 'remote' },
+        auth: {
+          mode: 'subscription',
+          credential: { source: 'connection', name: 'chatgpt-plan' },
+        },
+        cost: { model: 'subscription' },
+        dataLocality: 'third-party',
+        metadata: {
+          connection: {
+            id: plan.id,
+            provider: plan.provider,
+            method: plan.method,
+            authClass: plan.authClass,
+            support: plan.support,
+          },
+          connectionHost: plan.machine,
+          connectionGeneration: plan.credentialGeneration,
+        },
+      };
+      return materializeInventory(
+        {
+          identity: {
+            provider: plan.provider,
+            connectionId: plan.id,
+            runtimeId: 'openai-account',
+            routeId: 'plan',
+            machine: plan.machine,
+          },
+          generation: plan.credentialGeneration,
+          status: 'fresh',
+          source: 'live-runtime',
+          auth: 'authenticated',
+          observedAt: new Date().toISOString(),
+          entries: [
+            {
+              selection: { kind: 'model', id: 'synthetic' },
+              displayName: 'Synthetic',
+              availability: 'available',
+              compatibility: 'model-turn',
+            },
+          ],
+        },
+        template,
+      )[0]!;
+    };
+    const descriptor = materialize(before);
+    const retained = reviewIdentityOf(descriptor);
+    const ledger: StrategyLedger = {
+      graphId: 'plan-history',
+      reviewDiversity: 'preferred',
+      reviewDimensions: { connection: 'required' },
+      spentUsd: 0,
+      allocations: [{ unitId: 'write', resourceId: descriptor.id, reviewIdentity: retained }],
+    };
+    const review: WorkUnit = {
+      unitId: 'review',
+      reviewOf: 'write',
+      task: {
+        id: taskId('review'),
+        kind: 'general',
+        requirements: { capabilities: ['text-generation'] },
+      },
+    };
+    const allocate = (d: ResourceDescriptor) =>
+      allocateNext({
+        ledger,
+        unit: review,
+        candidates: [
+          {
+            descriptor: d,
+            state: {
+              availability: 'available',
+              auth: 'authenticated',
+              observedAt: new Date().toISOString(),
+            },
+          },
+        ],
+        policy: new DeterministicRoutingPolicy({ taskKinds: DEFAULT_TASK_KIND_RULES }),
+        now: new Date(),
+      });
+    await manager.forgetCredential({ connectionId: before.id });
+    await service.connect();
+    const reentered = materialize(await manager.currentPlan());
+    expect(reviewIdentityOf(reentered)).toEqual(retained);
+    expect(allocate(reentered).decision).toMatchObject({
+      outcome: 'no-eligible-resource',
+      reasons: [{ code: 'strategy.diversity.connection.unavailable' }],
+    });
+    const pins = new ConnectionRuntime(manager);
+    expect(() => pins.validatePin(reentered.id, [reentered])).not.toThrow();
+    const replacement = await manager.replacePlanAccount();
+    fake.idClaims = { sub: 'synthetic-new-plan-account' };
+    await service.connect();
+    expect(replacement.id).not.toBe(before.id);
+    const next = materialize(await manager.currentPlan());
+    expect(next.id).not.toBe(descriptor.id);
+    // Both a retained descriptor and a fresh authority must refuse the historical pin.
+    expect(() => pins.validatePin(reentered.id, [reentered, next])).toThrow();
+    expect(() => new ConnectionRuntime(manager).validatePin(reentered.id, [next])).toThrowError(
+      expect.objectContaining({
+        code: 'RESOURCE_UNAVAILABLE',
+        details: { reason: 'pin.connection-removed' },
+      }),
+    );
+    expect(() => pins.validatePin(next.id, [next])).not.toThrow();
+    expect(allocate(next).decision).toMatchObject({
+      outcome: 'selected',
+      selected: { resourceId: next.id },
+    });
+    expect(ledger.allocations[0]?.reviewIdentity).toEqual(retained);
+    expect((await manager.getConnection(before.id))?.retirement).toBe('replaced');
+    await expect(manager.restoreConnection({ connectionId: before.id })).rejects.toThrow();
+    expect(JSON.stringify(ledger)).not.toContain(FAKE_SUB);
+    expect(JSON.stringify(ledger)).not.toContain('synthetic-new-plan-account');
+  });
   it('re-enters an ordinarily removed Plan with the same account before explicit Restore, without reactivation', async () => {
     const plan = await manager.replacePlanAccount();
     await service.connect();

@@ -47,6 +47,49 @@ function message(fn: () => unknown): string {
 }
 
 describe('parseConfig', () => {
+  it('accepts explicit review dimensions without changing the legacy resource default', () => {
+    const parsed = parseConfig(
+      config({
+        projects: [
+          {
+            id: 'review-project',
+            displayName: 'Review project',
+            roots: ['work'],
+            engineering: {
+              repository: 'repo',
+              reviewDimensions: { connection: 'required', provider: 'preferred' },
+            },
+          },
+        ],
+      }),
+      'test',
+    );
+    expect(parsed.projects[0]?.engineering?.reviewDimensions).toEqual({
+      connection: 'required',
+      provider: 'preferred',
+    });
+    expect(parsed.projects[0]?.engineering?.reviewDiversity).toBe('preferred');
+  });
+  it.each([{ host: 'required' }, {}, { provider: 'optional' }, { resource: 'required' }])(
+    'rejects unsupported, empty or contradictory project review dimensions %j',
+    (reviewDimensions) => {
+      expect(() =>
+        parseConfig(
+          config({
+            projects: [
+              {
+                id: 'review-project',
+                displayName: 'Review project',
+                roots: ['work'],
+                engineering: { repository: 'repo', reviewDiversity: 'preferred', reviewDimensions },
+              },
+            ],
+          }),
+          'test',
+        ),
+      ).toThrow(expect.objectContaining({ code: 'CONFIGURATION_ERROR' }));
+    },
+  );
   it('accepts a valid config and merges task-kind overrides over the defaults', () => {
     const parsed = parseConfig(
       config({

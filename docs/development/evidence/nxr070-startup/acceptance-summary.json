@@ -1,0 +1,970 @@
+{
+  "schema": "nxr070-electron-startup-acceptance@1",
+  "recordedAtUtc": "2026-10-25T23:12:56.326Z",
+  "executionDatesLocal": "2026-10-25/2026-10-26 Africa/Cairo",
+  "rootCause": "NXR070_ELECTRON_STARTUP_ROOT_CAUSE_UNRESOLVED",
+  "remediation": "NXR070_ELECTRON_STARTUP_REMEDIATION_INCOMPLETE",
+  "overall": "NXR070_BC_STABILIZATION_PARTIALLY_COMPLETE",
+  "independentOwnerAcceptance": "INDEPENDENT_OWNER_REVIEW_PENDING",
+  "mainAtVerification": "41b918bf3c32cfd47301f7551a7280368fc3c8ec",
+  "runtimePin": "@deepseek-ai/dsh@0.2.0-rc.2",
+  "guardDeadlineMs": 15000,
+  "installerFullDeadlineMs": 180000,
+  "syntheticFixtureTiming": {
+    "previousReadinessWaitMs": 5000,
+    "readinessWaitMs": 10000,
+    "existingWholeCaseBudgetMs": 20000,
+    "oauthResponseBoundMs": 4000,
+    "oauthResponseStartsAtCompleteSignal": true,
+    "oauthResponseIncludesCleanupAndDisposal": true,
+    "productionDeadlineChanged": false
+  },
+  "liveProviderTests": false,
+  "windowsB": {
+    "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/reports/report-2026-10-25T19-32-29-858Z.json",
+    "sha256": "5b119937c082b1a38ec774c50b84913c7efcfe5416d797a10d2a50a6e5e4e977",
+    "status": "NEXAR_WINDOWS_FULL_FAIL",
+    "durationSeconds": 183.91,
+    "sourceStart": {
+      "commit": "ca8a603b442fe65750990f1f6f9671f42d7e20bc",
+      "tree": "204034739826e87c095807831c51844abfb18390",
+      "branch": "feat/nxr-070b-multi-api-connections",
+      "isDirty": false,
+      "dirtyFingerprint": null,
+      "summary": "ca8a603"
+    },
+    "sourceEnd": {
+      "commit": "ca8a603b442fe65750990f1f6f9671f42d7e20bc",
+      "tree": "204034739826e87c095807831c51844abfb18390",
+      "branch": "feat/nxr-070b-multi-api-connections",
+      "isDirty": false,
+      "dirtyFingerprint": null,
+      "summary": "ca8a603"
+    },
+    "sourceStable": true,
+    "environment": {
+      "os": {
+        "platform": "win32",
+        "release": "10.0.26300",
+        "arch": "x64",
+        "cpus": 20,
+        "totalMemGb": "15.73",
+        "isWsl": false
+      },
+      "node": {
+        "version": "v22.23.3",
+        "execPath": "D:\\Nexar-Ai-nxr070\\.nexar\\research-toolchain\\node-v22.23.3-win-x64\\node.exe",
+        "pinnedMajor": "22",
+        "source": "custom"
+      },
+      "pnpm": {
+        "version": "10.33.0",
+        "expected": "10.33.0"
+      },
+      "dsh": {
+        "package": "@deepseek-ai/dsh",
+        "version": "0.2.0-rc.2",
+        "lockMatches": true
+      },
+      "gitleaks": {
+        "version": "8.28.0",
+        "execPath": "D:\\Nexar-Ai-main\\.nexar\\gitleaks-8.28.0\\gitleaks.exe"
+      }
+    },
+    "totals": {
+      "testFilesPassed": 0,
+      "testFilesFailed": 0,
+      "testFilesTotal": 0,
+      "testsPassed": 0,
+      "testsFailed": 0,
+      "testsSkipped": 0,
+      "testsTotal": 0
+    },
+    "stages": [
+      {
+        "id": "dependencies",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 1705,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd install --frozen-lockfile",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070b\\.nexar\\ci\\logs\\1792956751210-dependencies.log",
+          "sha256": "7e2173e73a782a5d0f7eb6ffecd2996f62e4c1da527fa51ec41c10339eac5776"
+        }
+      },
+      {
+        "id": "dsh-install",
+        "status": "FAIL",
+        "required": true,
+        "durationMs": 180829,
+        "exitCode": 124,
+        "failureCategory": "TIMEOUT",
+        "command": "D:\\Nexar-Ai-nxr070\\.nexar\\research-toolchain\\node-v22.23.3-win-x64\\node.exe D:\\Nexar-Ai-main\\.nexar\\nxr070b\\scripts\\install-dsh-runtime.mjs D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/dsh-final-ca8a603-20261025",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070b\\.nexar\\ci\\logs\\1792956752923-dsh-install.log",
+          "sha256": "685e70418950a623faade45e40dff11c288ddd8ff3d27149f3f284eded5a40d1"
+        }
+      },
+      {
+        "id": "format-check",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "lint",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "boundaries",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "typecheck",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "test-offline",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "build",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "cli-smoke-resources",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "cli-smoke-run",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "dsh-context-real",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "cowork-isolation-wsl",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "desktop-e2e-source",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "desktop-package-win",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "desktop-e2e-packaged",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "linux-sandbox",
+        "status": "SKIPPED",
+        "required": false,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      },
+      {
+        "id": "gitleaks-scan",
+        "status": "SKIPPED",
+        "required": true,
+        "durationMs": 0,
+        "exitCode": null,
+        "failureCategory": "SKIPPED_DUE_TO_PREVIOUS_FAILURE",
+        "command": "",
+        "tests": null,
+        "log": null
+      }
+    ],
+    "packageArtifacts": {
+      "installerName": "Nexar-0.1.0-windows-x64-setup.exe",
+      "installerPath": "D:\\Nexar-Ai-main\\.nexar\\nxr070b\\release\\desktop\\Nexar-0.1.0-windows-x64-setup.exe",
+      "sizeBytes": 322178248,
+      "sha256": "a492694d549c14cc36c29ce70f53b947990cb9e9fb8ce49bd95f3e1e124090f8",
+      "shaMatchesActual": true,
+      "unpackedExists": true,
+      "unpackedPath": "D:\\Nexar-Ai-main\\.nexar\\nxr070b\\release\\desktop\\win-unpacked\\Nexar.exe",
+      "bundledDshExists": true,
+      "bundledDshVersion": "0.2.0-rc.2",
+      "bundledDshMatches": true,
+      "signed": false,
+      "signatureStatus": "NotSigned",
+      "mtimeMs": 1792850622550.4248,
+      "isStale": false
+    }
+  },
+  "windowsC": {
+    "path": "D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/reports/report-2026-10-25T19-36-40-909Z.json",
+    "sha256": "a053d3fa7fb6dde15a6480ffb3079b32518c17de00d2ffe6dec4d3f88d97f196",
+    "status": "NEXAR_WINDOWS_FULL_PASS",
+    "durationSeconds": 3237.37,
+    "sourceStart": {
+      "commit": "315a029e96390422bf0ab2c05080fab2b0bd8656",
+      "tree": "a3b14a052c446ee79305281ac9b717dd9a66ac11",
+      "branch": "feat/nxr-070c-review-diversity",
+      "isDirty": false,
+      "dirtyFingerprint": null,
+      "summary": "315a029"
+    },
+    "sourceEnd": {
+      "commit": "315a029e96390422bf0ab2c05080fab2b0bd8656",
+      "tree": "a3b14a052c446ee79305281ac9b717dd9a66ac11",
+      "branch": "feat/nxr-070c-review-diversity",
+      "isDirty": false,
+      "dirtyFingerprint": null,
+      "summary": "315a029"
+    },
+    "sourceStable": true,
+    "environment": {
+      "os": {
+        "platform": "win32",
+        "release": "10.0.26300",
+        "arch": "x64",
+        "cpus": 20,
+        "totalMemGb": "15.73",
+        "isWsl": false
+      },
+      "node": {
+        "version": "v22.23.3",
+        "execPath": "D:\\Nexar-Ai-nxr070\\.nexar\\research-toolchain\\node-v22.23.3-win-x64\\node.exe",
+        "pinnedMajor": "22",
+        "source": "custom"
+      },
+      "pnpm": {
+        "version": "10.33.0",
+        "expected": "10.33.0"
+      },
+      "dsh": {
+        "package": "@deepseek-ai/dsh",
+        "version": "0.2.0-rc.2",
+        "lockMatches": true
+      },
+      "gitleaks": {
+        "version": "8.28.0",
+        "execPath": "D:\\Nexar-Ai-main\\.nexar\\gitleaks-8.28.0\\gitleaks.exe"
+      }
+    },
+    "totals": {
+      "testFilesPassed": 258,
+      "testFilesFailed": 0,
+      "testFilesTotal": 275,
+      "testsPassed": 4647,
+      "testsFailed": 0,
+      "testsSkipped": 169,
+      "testsTotal": 4820,
+      "testsPending": 4,
+      "testsTodo": 0,
+      "testsUnclassified": 0
+    },
+    "stages": [
+      {
+        "id": "dependencies",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 1252,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd install --frozen-lockfile",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957002037-dependencies.log",
+          "sha256": "29900d454900e2058a43686edc5fa279220752cbfbb35437830540453d28b5d6"
+        }
+      },
+      {
+        "id": "dsh-install",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 104232,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "D:\\Nexar-Ai-nxr070\\.nexar\\research-toolchain\\node-v22.23.3-win-x64\\node.exe D:\\Nexar-Ai-main\\.nexar\\nxr070c\\scripts\\install-dsh-runtime.mjs D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/dsh-final-315a029-20261025",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957003293-dsh-install.log",
+          "sha256": "a3130e41f2f4686c7cdbede9a04a0cb0d88f15089e7ade431be0c0c6a8772e5c"
+        }
+      },
+      {
+        "id": "format-check",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 77387,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd format:check",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957107530-format-check.log",
+          "sha256": "f392f9aef2fb4cee406f0df7a4109b4f29a20f5044f55b0d502730d6691cb25d"
+        }
+      },
+      {
+        "id": "lint",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 185629,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd lint",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957184919-lint.log",
+          "sha256": "b77061d9bbf580b9074e65d621ab16b3966bc78cbea25a24761b2556b67c9759"
+        }
+      },
+      {
+        "id": "boundaries",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 1013,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd check:boundaries",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957370551-boundaries.log",
+          "sha256": "e78544b331279f4f1d2c2cb4652e68146cc6d5ff777b9c6fffedaf7201a585f4"
+        }
+      },
+      {
+        "id": "typecheck",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 51759,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd typecheck",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957371565-typecheck.log",
+          "sha256": "31d0dd54a586f28a4961848e21e373f9c66743df47e112185473fd3f62fff668"
+        }
+      },
+      {
+        "id": "test-offline",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 464147,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd test --maxWorkers=2 --reporter=default --reporter=json --outputFile=.nexar/ci/test-offline.json",
+        "tests": {
+          "testFilesPassed": 233,
+          "testFilesFailed": 0,
+          "testFilesTotal": 250,
+          "testsPassed": 4570,
+          "testsFailed": 0,
+          "testsSkipped": 169,
+          "testsPending": 4,
+          "testsTodo": 0,
+          "testsTotal": 4743,
+          "testsUnclassified": 0
+        },
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957423325-test-offline.log",
+          "sha256": "b832902c791c9bacb1a956e3f7aa0404979ec5e97bb759d299a7b7b1a6f874f3"
+        }
+      },
+      {
+        "id": "build",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 7364,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd build",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957887529-build.log",
+          "sha256": "f11aa0e9fa1dc79fa7d426d4e338ef1858c6728cd1a4e59f34d69ba02569d953"
+        }
+      },
+      {
+        "id": "cli-smoke-resources",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 1137,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "D:\\Nexar-Ai-nxr070\\.nexar\\research-toolchain\\node-v22.23.3-win-x64\\node.exe apps/cli/dist/main.js resources",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957894895-cli-smoke-resources.log",
+          "sha256": "c900ba183a397b94b2d51851b98c30594e3a46599273629953f17f1f08e9146a"
+        }
+      },
+      {
+        "id": "cli-smoke-run",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 1044,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "D:\\Nexar-Ai-nxr070\\.nexar\\research-toolchain\\node-v22.23.3-win-x64\\node.exe apps/cli/dist/main.js run --kind general ci smoke",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957896033-cli-smoke-run.log",
+          "sha256": "4a1dfe5cb8c0f9a73cb47e59f259b83ba3fc795c865bba3f9c6bc246799adba9"
+        }
+      },
+      {
+        "id": "dsh-context-real",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 28769,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd exec vitest run apps/desktop/src/main/dsh-cowork.context.real.test.ts",
+        "tests": {
+          "testFilesPassed": 1,
+          "testFilesFailed": 0,
+          "testFilesTotal": 1,
+          "testsPassed": 3,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "testsTotal": 3
+        },
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957897078-dsh-context-real.log",
+          "sha256": "c76ee037ea93af78ed5875a3aa2ab9f5af545f2061ebce2283eed04e9f30a0ea"
+        }
+      },
+      {
+        "id": "cowork-isolation-wsl",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 47239,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "D:\\Nexar-Ai-nxr070\\.nexar\\research-toolchain\\node-v22.23.3-win-x64\\node.exe scripts/verify-cowork-wsl.mjs",
+        "tests": {
+          "testFilesPassed": 2,
+          "testFilesFailed": 0,
+          "testFilesTotal": 2,
+          "testsPassed": 8,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "testsTotal": 8
+        },
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957925849-cowork-isolation-wsl.log",
+          "sha256": "247acb1e9931bec4ef3c39747074f2ab1812ef3c2bed0f050e7bedb2451d3dae"
+        }
+      },
+      {
+        "id": "desktop-e2e-source",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 400949,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd desktop:e2e",
+        "tests": {
+          "testFilesPassed": 11,
+          "testFilesFailed": 0,
+          "testFilesTotal": 11,
+          "testsPassed": 33,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "testsTotal": 33
+        },
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792957973090-desktop-e2e-source.log",
+          "sha256": "5ec76bddb32306db5055c92938932e96afb2d94691dba223d952e7e3a57f5dc5"
+        }
+      },
+      {
+        "id": "desktop-package-win",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 1398448,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd desktop:package:win",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792958374044-desktop-package-win.log",
+          "sha256": "2f417e2bfc23b9808e2bdecdd5823762af08c7aa62a8c24027f9ab35aacf6753"
+        }
+      },
+      {
+        "id": "desktop-e2e-packaged",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 462397,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "pnpm.cmd desktop:e2e",
+        "tests": {
+          "testFilesPassed": 11,
+          "testFilesFailed": 0,
+          "testFilesTotal": 11,
+          "testsPassed": 33,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "testsTotal": 33
+        },
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792959772507-desktop-e2e-packaged.log",
+          "sha256": "69172c68b96f317e812f6303630741ae4b6c8ade3839e1a02a6d9d0fbb6d6598"
+        }
+      },
+      {
+        "id": "linux-sandbox",
+        "status": "BLOCKED",
+        "required": false,
+        "durationMs": 9,
+        "exitCode": 0,
+        "failureCategory": "ENVIRONMENT_UNSUPPORTED",
+        "command": "linux-sandbox-gate",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792960236202-linux-sandbox.log",
+          "sha256": "fbecb50c35e307b41be7b32f14b08b624a505d912be194284e9dad241afd5e4e"
+        }
+      },
+      {
+        "id": "gitleaks-scan",
+        "status": "PASS",
+        "required": true,
+        "durationMs": 2067,
+        "exitCode": 0,
+        "failureCategory": null,
+        "command": "D:\\Nexar-Ai-main\\.nexar\\gitleaks-8.28.0\\gitleaks.exe git --redact --verbose --exit-code 1 .",
+        "tests": null,
+        "log": {
+          "path": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\.nexar\\ci\\logs\\1792960236213-gitleaks-scan.log",
+          "sha256": "e6605f36346232b49ed5630a8310f77afb3d50d449fd8770644f9efff76e16bc"
+        }
+      }
+    ],
+    "packageArtifacts": {
+      "installerName": "Nexar-0.1.0-windows-x64-setup.exe",
+      "installerPath": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\release\\desktop\\Nexar-0.1.0-windows-x64-setup.exe",
+      "sizeBytes": 322190637,
+      "sha256": "35c2d64dec469f262df059ba7668eee2b1907875cd911de5b34fa0f203b5ba9a",
+      "shaMatchesActual": true,
+      "unpackedExists": true,
+      "unpackedPath": "D:\\Nexar-Ai-main\\.nexar\\nxr070c\\release\\desktop\\win-unpacked\\Nexar.exe",
+      "bundledDshExists": true,
+      "bundledDshVersion": "0.2.0-rc.2",
+      "bundledDshMatches": true,
+      "signed": false,
+      "signatureStatus": "NotSigned",
+      "mtimeMs": 1792959717523.58,
+      "isStale": false
+    }
+  },
+  "wslB": {
+    "report": {
+      "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-wsl-full-ca8a603-20261026.json",
+      "sha256": "0f3700873f3becd7d2099aea2bc90f490ddc322c468a8d37c883f3377b567f89"
+    },
+    "counts": {
+      "passed": 4654,
+      "failed": 0,
+      "skipped": 30,
+      "pending": 0,
+      "todo": 0
+    },
+    "execution": {
+      "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-wsl-full-ca8a603-20261026.execution.json",
+      "sha256": "393edf0597051d49d2e0a0e190c62f79b451ebb8981a2bd1c31d0359ef3d2588"
+    },
+    "manifest": {
+      "schema": "nexar-wsl-acceptance@1",
+      "startedAt": "2026-10-25T22:46:03.691Z",
+      "finishedAt": "2026-10-25T22:50:12.603Z",
+      "start": {
+        "commit": "ca8a603b442fe65750990f1f6f9671f42d7e20bc",
+        "tree": "204034739826e87c095807831c51844abfb18390",
+        "status": ""
+      },
+      "end": {
+        "commit": "ca8a603b442fe65750990f1f6f9671f42d7e20bc",
+        "tree": "204034739826e87c095807831c51844abfb18390",
+        "status": ""
+      },
+      "sourceStable": true,
+      "node": "v22.23.3",
+      "command": [
+        "exec",
+        "vitest",
+        "run",
+        "--maxWorkers=1",
+        "--reporter=json",
+        "--outputFile=.nexar/ci/electron-startup-b-wsl-full-ca8a603-20261026.json"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null
+    }
+  },
+  "wslC": {
+    "report": {
+      "path": "D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/electron-startup-c-wsl-full-315a029-20261026.json",
+      "sha256": "3197c4c9974ef3bbcfa30f47920197fc32ac169e1dae2cfb0305dfeea538609e"
+    },
+    "counts": {
+      "passed": 4713,
+      "failed": 0,
+      "skipped": 30,
+      "pending": 0,
+      "todo": 0
+    },
+    "execution": {
+      "path": "D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/electron-startup-c-wsl-full-315a029-20261026.execution.json",
+      "sha256": "81041d196d4fbb1c9f969b2ca108d0da686135c4213ad117bca15a8e5b5d127c"
+    },
+    "manifest": {
+      "schema": "nexar-wsl-acceptance@1",
+      "startedAt": "2026-10-25T22:51:49.724Z",
+      "finishedAt": "2026-10-25T22:55:51.336Z",
+      "start": {
+        "commit": "315a029e96390422bf0ab2c05080fab2b0bd8656",
+        "tree": "a3b14a052c446ee79305281ac9b717dd9a66ac11",
+        "status": ""
+      },
+      "end": {
+        "commit": "315a029e96390422bf0ab2c05080fab2b0bd8656",
+        "tree": "a3b14a052c446ee79305281ac9b717dd9a66ac11",
+        "status": ""
+      },
+      "sourceStable": true,
+      "node": "v22.23.3",
+      "command": [
+        "exec",
+        "vitest",
+        "run",
+        "--maxWorkers=1",
+        "--reporter=json",
+        "--outputFile=.nexar/ci/electron-startup-c-wsl-full-315a029-20261026.json"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null
+    }
+  },
+  "supplementalB": {
+    "source": {
+      "execution": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-source-ca8a603-20261026.execution.json",
+        "sha256": "ed1d222e2f83a773b69e0b905e0751c8fc243866a46879a2877ba63eef32e53b"
+      },
+      "sourceStart": {
+        "commit": "ca8a603b442fe65750990f1f6f9671f42d7e20bc",
+        "tree": "204034739826e87c095807831c51844abfb18390",
+        "isDirty": false,
+        "dirtyFingerprint": null
+      },
+      "sourceEnd": {
+        "commit": "ca8a603b442fe65750990f1f6f9671f42d7e20bc",
+        "tree": "204034739826e87c095807831c51844abfb18390",
+        "isDirty": false,
+        "dirtyFingerprint": null
+      },
+      "sourceStable": true,
+      "result": {
+        "command": "pnpm.cmd --filter @nexar/desktop exec vitest run --config e2e/vitest.e2e.config.ts --maxWorkers=1 --reporter=json --outputFile=D:\\Nexar-Ai-main\\.nexar\\nxr070b\\.nexar\\ci\\electron-startup-b-source-ca8a603-20261026.vitest.json",
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 636798,
+        "timedOut": false,
+        "aborted": false,
+        "settled": true,
+        "error": null
+      },
+      "raw": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-source-ca8a603-20261026.vitest.json",
+        "sha256": "68bf5799c1d183605bf2dc4c522360b3e83b80902dcebf62803fa9a7b5fc7451"
+      },
+      "counts": {
+        "passed": 33,
+        "failed": 0,
+        "skipped": 0,
+        "pending": 0,
+        "todo": 0
+      },
+      "stdout": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-source-ca8a603-20261026.stdout.log",
+        "sha256": "ce754ccf10011481078407264ab39b56bc3829082e0f5cee42988a2d7f36608b"
+      },
+      "stderr": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-source-ca8a603-20261026.stderr.log",
+        "sha256": "b9dce7499ac105c951d2441cc5074e7657a5a460b74f84d8328ac9615b62facd"
+      }
+    },
+    "context": {
+      "execution": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-context-ca8a603-20261026.execution.json",
+        "sha256": "2e1ae1cc1ea814362791eaa303e76de4fa5e0555d5dfca7048d73c70d3bb3e54"
+      },
+      "sourceStart": {
+        "commit": "ca8a603b442fe65750990f1f6f9671f42d7e20bc",
+        "tree": "204034739826e87c095807831c51844abfb18390",
+        "isDirty": false,
+        "dirtyFingerprint": null
+      },
+      "sourceEnd": {
+        "commit": "ca8a603b442fe65750990f1f6f9671f42d7e20bc",
+        "tree": "204034739826e87c095807831c51844abfb18390",
+        "isDirty": false,
+        "dirtyFingerprint": null
+      },
+      "sourceStable": true,
+      "result": {
+        "command": "pnpm.cmd exec vitest run apps/desktop/src/main/dsh-cowork.context.real.test.ts --maxWorkers=1 --reporter=json --outputFile=D:\\Nexar-Ai-main\\.nexar\\nxr070b\\.nexar\\ci\\electron-startup-b-context-ca8a603-20261026.vitest.json",
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 37277,
+        "timedOut": false,
+        "aborted": false,
+        "settled": true,
+        "error": null
+      },
+      "raw": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-context-ca8a603-20261026.vitest.json",
+        "sha256": "fc6a1d234ca0c591c73ce1d002125f9b0b964004f5249c3d851591b9ef6fd19c"
+      },
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "pending": 0,
+        "todo": 0
+      },
+      "stdout": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-context-ca8a603-20261026.stdout.log",
+        "sha256": "a96b0e910e4018834f27e99c3198a745921192a6b579523700cad2a26814b641"
+      },
+      "stderr": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-context-ca8a603-20261026.stderr.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "windowsWsl": {
+      "execution": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-wsl-gate-ca8a603-20261026.execution.json",
+        "sha256": "bdfd4cf73386c4761c7a5db8ba922b5c10aaf0c80fdc386f1e4b3bedc91d5768"
+      },
+      "sourceStart": {
+        "commit": "ca8a603b442fe65750990f1f6f9671f42d7e20bc",
+        "tree": "204034739826e87c095807831c51844abfb18390",
+        "isDirty": false,
+        "dirtyFingerprint": null
+      },
+      "sourceEnd": {
+        "commit": "ca8a603b442fe65750990f1f6f9671f42d7e20bc",
+        "tree": "204034739826e87c095807831c51844abfb18390",
+        "isDirty": false,
+        "dirtyFingerprint": null
+      },
+      "sourceStable": true,
+      "result": {
+        "command": "D:\\Nexar-Ai-nxr070\\.nexar\\research-toolchain\\node-v22.23.3-win-x64\\node.exe scripts/verify-cowork-wsl.mjs",
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 62235,
+        "timedOut": false,
+        "aborted": false,
+        "settled": true,
+        "error": null
+      },
+      "raw": null,
+      "counts": null,
+      "stdout": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-wsl-gate-ca8a603-20261026.stdout.log",
+        "sha256": "e356360c8858a2f560c639ae3a2af3a6b1f360ffb5de55424028ce97f83699c3"
+      },
+      "stderr": {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-wsl-gate-ca8a603-20261026.stderr.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "windowsWslRaw": {
+      "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-cowork-wsl-ca8a603-20261026.json",
+      "sha256": "06fe8a5c2ec39542a3683dde6f9c63494bea5bfd8a03b6593d0b9912fa06694b"
+    },
+    "kernelRaw": {
+      "path": "D:/Nexar-Ai-main/.nexar/nxr070b/.nexar/ci/electron-startup-b-kernel-ca8a603-20261026.json",
+      "sha256": "bd6554e43bf3a73f9255e407573779feab72c2ad767dbb88a35387ce530c68ca"
+    },
+    "kernelCounts": {
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0,
+      "pending": 0,
+      "todo": 0
+    }
+  },
+  "nestedKernelC": {
+    "path": "D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/electron-startup-c-kernel-315a029-20261026.json",
+    "sha256": "964dd7b1e0a8d60380fc48b5239917bd2c7ce90a3ab295a0cce155fdc037f663",
+    "counts": {
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0,
+      "pending": 0,
+      "todo": 0
+    }
+  },
+  "boundedCampaign": {
+    "plan": {
+      "path": "D:/Nexar-Ai-main/.nexar/nxr070c/docs/development/evidence/nxr070-startup/campaign-plan.json",
+      "sha256": "72bc811b5c114ec4dfa9d244cd9b952c58af418a2528ee10b177a0a3c2df1b20"
+    },
+    "reports": [
+      {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/electron-startup-c-source-acf29da-20261025.json",
+        "sha256": "f81514ed61e355a17d4424ba9c84ed69fb09d3ab78816909caaa11030859c239"
+      },
+      {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/electron-startup-c-packaged-acf29da-20261025.json",
+        "sha256": "d4e171d17885fa41ecdd3e6d8bc90061793b729704403e63665d11fcba6c47c4"
+      },
+      {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/electron-startup-c-without-cowork-acf29da-20261025.json",
+        "sha256": "215eda2591e2edff03a1b27a7f28ffd792071819ccf21ffea5c799efdb7e3f6a"
+      },
+      {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/electron-startup-c-cowork-1-acf29da-20261025.json",
+        "sha256": "edd7b53f7fb3a6fe642db190fd5d63d71d14f05dc2790fe0389f74ce5c278012"
+      },
+      {
+        "path": "D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/electron-startup-c-cowork-2-acf29da-20261025.json",
+        "sha256": "28a1b381992dbf69d4779525edb1f4a2ae2d54cb791f8f9772f812fdcffff6ef"
+      }
+    ],
+    "historicalFailureReproduced": false
+  },
+  "historicalTarget": {
+    "path": "D:/Nexar-Ai-main/.nexar/nxr070c/.nexar/ci/reports/report-2026-10-24T17-24-16-812Z.json",
+    "sha256": "0115e7c77e8ac5f71491efcb5fa1c4b9c4f57500cb9e17a3be649dbe0136155b",
+    "source": "80e70a60f2bd5c109c4a424002ea6af8bcd9b54e",
+    "tree": "9aa95dd150bff75aef1d0737520a5b61b6e9ee7d",
+    "suppliedChecksumDiscrepancy": "The prompt checksum had 75 characters; the actual 64-character hash matches the repository receipt."
+  },
+  "mergePolicyAtVerification": {
+    "mainProtected": false,
+    "requiredStatusChecks": [],
+    "repositoryRulesets": [],
+    "policyChangedByThisTask": false,
+    "mergeAuthorized": false
+  },
+  "publication": {
+    "initialPr44Head": "06e55f36f66c27b24d524e699d06246094c4617a",
+    "initialPr45Head": "c7eba797f1a523102a03a8945b5df41e1f6b5d14",
+    "finalHeadVerification": "recorded after publication in local receipt",
+    "receipt": ".nexar/ci/NXR070_Electron_Startup_Publication_Receipt_20261026.md",
+    "keepDraft": true,
+    "forcePush": false,
+    "merge": false
+  },
+  "coverageLimits": [
+    "Historical startup mechanism remains unresolved",
+    "B latest standalone Windows aggregate failed; supplemental passes do not constitute an aggregate PASS.",
+    "Native Ubuntu is not accepted; the optional native-Linux stage was BLOCKED.",
+    "win-unpacked E2E is not clean-machine NSIS installation",
+    "No live provider/account/paid inference acceptance"
+  ]
+}

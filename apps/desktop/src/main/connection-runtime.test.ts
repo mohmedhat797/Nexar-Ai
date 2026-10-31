@@ -3,7 +3,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { NexarError, taskId, type ResourceDescriptor } from '@nexar/contracts';
+import {
+  NexarError,
+  taskId,
+  type ResourceDescriptor,
+  type StrategyLedger,
+  type WorkUnit,
+} from '@nexar/contracts';
 import { ControlModelGateway, IntelligenceBridge } from '@nexar/engine-gateway';
 import { createControlModelTurnPorts, engineAllocator } from '@nexar/host';
 import { catalogResourceId } from '@nexar/resource-registry';
@@ -164,9 +170,9 @@ afterEach(async () => {
     retryDelay: 50,
   });
 });
-async function add(label: string, key: string): Promise<ConnectionDto> {
+async function add(label: string, key: string, provider = 'openai'): Promise<ConnectionDto> {
   const result = await h.call<ConnectionDto>(CHANNELS.connectionAdd, {
-    provider: 'openai',
+    provider,
     label,
     apiKey: key,
   });
@@ -198,6 +204,169 @@ function turn(id: string, signal = new AbortController().signal) {
 }
 
 describe('production persisted connection → registry → NRC → transport', () => {
+  it.each(['connection', 'provider'] as const)(
+    'TST-42 preserves actual account identity through Forget/re-entry and enforces %s diversity at execution',
+    async (dimension) => {
+      const a = await add('Review account A', A),
+        b = await add('Review account B', B, dimension === 'provider' ? 'anthropic' : 'openai');
+      const ar = await resource(a.id),
+        br = await resource(b.id);
+      const { controller, nexar } = engine.composition().runtime;
+      const writer: WorkUnit = {
+        unitId: 'implementation',
+        task: {
+          id: taskId('implementation'),
+          kind: 'general',
+          requirements: { capabilities: ['text-generation'], preferredResourceIds: [ar.id] },
+        },
+      };
+      const reviewer: WorkUnit = {
+        unitId: 'review',
+        reviewOf: writer.unitId,
+        task: {
+          id: taskId('review'),
+          kind: 'general',
+          requirements: { capabilities: ['text-generation'], preferredResourceIds: [br.id] },
+        },
+      };
+      const initial: StrategyLedger = {
+        graphId: 'actual-connections',
+        reviewDiversity: 'preferred',
+        reviewDimensions: { [dimension]: 'required' },
+        spentUsd: 0,
+        allocations: [],
+      };
+      const written = await controller.allocate(initial, writer);
+      expect(written.decision).toMatchObject({
+        outcome: 'selected',
+        selected: { resourceId: ar.id },
+      });
+      const writeTask = nexar.createTask({
+        kind: 'general',
+        prompt: 'synthetic implementation',
+        requirements: writer.task.requirements,
+      });
+      if (!written.strategy) throw Error('missing production strategy');
+      const actual = await nexar.run(writeTask, {
+        strategy: { planned: written.strategy, unit: writer },
+      });
+      expect(actual.strategyAllocation?.reviewIdentity).toMatchObject({
+        connectionId: a.id,
+        host: 'desktop',
+        provider: 'openai',
+      });
+      const ledger = { ...written.ledger, allocations: [actual.strategyAllocation!] };
+      await manager.forgetCredential({ connectionId: a.id });
+      await manager.rotateCredential({ connectionId: a.id, apiKey: A, sameAccount: true });
+      expect((await resource(a.id)).id).toBe(ar.id);
+      const reviewed = await engine.composition().runtime.controller.allocate(ledger, reviewer);
+      expect(reviewed.decision).toMatchObject({
+        outcome: 'selected',
+        selected: { resourceId: br.id },
+      });
+      expect(reviewed.strategy?.reviewContext?.reviewed).toEqual(
+        actual.strategyAllocation?.reviewIdentity,
+      );
+      if (!reviewed.strategy) throw Error('missing review strategy');
+      const reviewTask = () =>
+        nexar.createTask({
+          kind: 'general',
+          prompt: 'synthetic review',
+          requirements: reviewer.task.requirements,
+        });
+      const result = await engine.composition().runtime.nexar.run(reviewTask(), {
+        strategy: { planned: reviewed.strategy, unit: reviewer },
+      });
+      expect(result.record.resourceId).toBe(br.id);
+      expect(seen).toEqual([A, B]);
+      await manager.disableConnection({ connectionId: b.id });
+      await expect(
+        engine.composition().runtime.nexar.run(reviewTask(), {
+          strategy: { planned: reviewed.strategy, unit: reviewer },
+        }),
+      ).rejects.toMatchObject({
+        code: 'NO_ELIGIBLE_RESOURCE',
+        details: { reasonCodes: [`strategy.diversity.${dimension}.unavailable`] },
+      });
+      expect(seen).toEqual([A, B]);
+      expect(ledger.allocations[0]?.reviewIdentity?.connectionId).toBe(a.id);
+      expect(JSON.stringify(ledger)).not.toContain(A);
+      expect(JSON.stringify(reviewed)).not.toContain(B);
+    },
+  );
+
+  it('carries a host-approved review constraint through the actual IntelligenceBridge, bounded executor and EngineHost', async () => {
+    const a = await add('Writer', A);
+    const ar = await resource(a.id),
+      projectId = await addProject(h);
+    const entered = barrier(),
+      resume = barrier();
+    hook = async (options) => {
+      if (options?.apiKey === A) {
+        entered.resolve();
+        await resume.promise;
+      }
+    };
+    const bridge = new IntelligenceBridge({
+      allocator: engineAllocator(engine),
+      executor: boundedCoworkExecutor(engine),
+      clock: () => new Date(),
+      newId: randomUUID,
+      logger: noopLogger,
+    });
+    const grant = 'diverse-production-grant';
+    bridge.open({
+      grantId: grant,
+      sessionId: lineage.rootSessionId,
+      turnId: lineage.turnId,
+      projectId,
+      engine: 'dsh',
+      access: 'read-only',
+      maxUnits: 2,
+      reviewDimensions: { connection: 'required' },
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+    });
+    const input = {
+      lineage: { ...lineage, chain: ['nexar', 'dsh'] },
+      kind: 'general' as const,
+      input: 'synthetic work',
+      access: 'read-only' as const,
+    };
+    try {
+      const writer = bridge.submit(grant, {
+        ...input,
+        unitId: 'write',
+        requirements: { capabilities: ['text-generation'] },
+      });
+      await expect.poll(() => seen).toEqual([A]);
+      const b = await add('Reviewer', B);
+      const reviewer = bridge.submit(grant, {
+        ...input,
+        unitId: 'review',
+        reviewOf: 'write',
+        requirements: { capabilities: ['text-generation'] },
+      });
+      // Disabling B while the real writer is still executing leaves only A eligible.
+      await manager.disableConnection({ connectionId: b.id });
+      expect(seen).toEqual([A]);
+      resume.resolve();
+      await expect
+        .poll(() => bridge.status(grant, writer.jobId))
+        .toMatchObject({ state: 'done', result: { outcome: 'succeeded', resourceId: ar.id } });
+      await expect
+        .poll(() => bridge.status(grant, reviewer.jobId))
+        .toMatchObject({
+          state: 'done',
+          result: { outcome: 'failed', reasonCodes: ['strategy.diversity.connection.unavailable'] },
+        });
+      expect(seen).toEqual([A]);
+      expect(manager.getActiveExecutionCount(a.id)).toBe(0);
+    } finally {
+      resume.resolve();
+      bridge.close(grant);
+    }
+  });
+
   it('validates legacy built-in pins against current authority without substituting another account', async () => {
     await add('Account B', A);
     await manager.enterBuiltinApiCredential('deepseek', B);

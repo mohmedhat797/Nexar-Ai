@@ -14,6 +14,10 @@ import {
   type ProcessLauncher,
   type ResourceId,
   type ResourceStrategy,
+  type RouteDecision,
+  type StrategyLedger,
+  type UnitStrategy,
+  resolveReviewDimensions,
   type TelemetrySink,
   type UsageReport,
   type WorkGraph,
@@ -143,6 +147,10 @@ export interface EngineeringOutcome {
  */
 export interface EngineeringStrategist {
   planStrategy(graph: WorkGraph): Promise<ResourceStrategy>;
+  allocate?(
+    ledger: StrategyLedger,
+    unit: WorkUnit,
+  ): Promise<{ decision: RouteDecision; ledger: StrategyLedger; strategy?: UnitStrategy }>;
 }
 
 export interface ExecutionDependencies {
@@ -188,7 +196,7 @@ class TaskEnd extends Error {
 
 interface LaneSpec {
   readonly id: string;
-  readonly role: string;
+  readonly role: PlanLane['role'] | 'debugging';
   readonly access: 'read-only' | 'read-write';
   readonly taskKind: string;
   readonly capabilities: readonly string[];
@@ -252,6 +260,8 @@ export class EngineeringExecution {
   /** Planned resource per lane id (only lanes the strategy selected a resource for). */
   private readonly planned = new Map<string, ResourceId>();
   private strategy: StrategyRecord | undefined;
+  private reviewLedger: StrategyLedger | undefined;
+  private reviewedWriter: string | undefined;
   private readonly startedAt: string;
   private status: EngineeringStatus = 'running';
   private reason: string | undefined;
@@ -518,7 +528,11 @@ export class EngineeringExecution {
    */
   private async planLanes(lanes: readonly PlanLane[]): Promise<void> {
     const { strategist } = this.deps;
-    if (strategist === undefined) return;
+    if (strategist === undefined) {
+      if (this.target.settings.reviewDimensions !== undefined)
+        throw new TaskEnd('failed', 'strategy.review.unavailable');
+      return;
+    }
     try {
       const units: WorkUnit[] = [];
       let previous: PlanLane | undefined;
@@ -547,7 +561,25 @@ export class EngineeringExecution {
         graphId: this.target.taskId,
         units,
         reviewDiversity: this.target.settings.reviewDiversity,
+        ...(this.target.settings.reviewDimensions === undefined
+          ? {}
+          : { reviewDimensions: this.target.settings.reviewDimensions }),
       });
+      const dimensions = resolveReviewDimensions(
+        this.target.settings.reviewDimensions,
+        this.target.settings.reviewDiversity,
+      );
+      if (dimensions !== undefined) {
+        if (strategist.allocate === undefined)
+          throw new TaskEnd('failed', 'strategy.review.unavailable');
+        this.reviewLedger = {
+          graphId: this.target.taskId,
+          allocations: [],
+          spentUsd: 0,
+          reviewDiversity: dimensions.resource ?? 'preferred',
+          reviewDimensions: dimensions,
+        };
+      }
       for (const { unitId, decision } of strategy.units) {
         if (decision.outcome === 'selected') this.planned.set(unitId, decision.selected.resourceId);
       }
@@ -559,6 +591,7 @@ export class EngineeringExecution {
         ...(policy.base.fallback === undefined ? {} : { fallback: policy.base.fallback.reason }),
       };
     } catch (error) {
+      if (this.target.settings.reviewDimensions !== undefined) throw error;
       this.planned.clear();
       this.strategy = undefined;
       this.deps.logger.warn('resource strategy could not be planned', {
@@ -662,7 +695,26 @@ export class EngineeringExecution {
         metadata: { engineeringTaskId: this.target.taskId, lane: lane.id, role: lane.role, round },
       });
       current = { taskId: task.id, startedMs: clock().getTime() };
-      return nexar.run(task, {
+      const ledger = this.reviewLedger;
+      const unit: WorkUnit = {
+        unitId: `${lane.id}:r${String(round)}`,
+        task: { id: task.id, kind: task.kind, requirements: task.requirements },
+        ...(lane.role === 'report' ? {} : { laneRole: lane.role }),
+        ...(lane.independentReviewer !== true || this.reviewedWriter === undefined
+          ? {}
+          : { reviewOf: this.reviewedWriter }),
+      };
+      const allocated =
+        ledger === undefined ? undefined : await this.deps.strategist?.allocate?.(ledger, unit);
+      if (ledger !== undefined && allocated?.strategy === undefined)
+        throw new NexarError(
+          'CONFIGURATION_ERROR',
+          'Review execution requires retained NRC context',
+        );
+      const result = await nexar.run(task, {
+        ...(allocated?.strategy === undefined
+          ? {}
+          : { strategy: { planned: allocated.strategy, unit } }),
         workspace: { path: workspacePath, access, launcher },
         ...(session === undefined
           ? {}
@@ -673,9 +725,28 @@ export class EngineeringExecution {
         timeoutMs: this.target.settings.laneTimeoutMs,
         ...(this.options.signal === undefined ? {} : { signal: this.options.signal }),
       });
+      if (allocated !== undefined) {
+        const actual = result.strategyAllocation;
+        if (actual === undefined)
+          throw new NexarError(
+            'CONFIGURATION_ERROR',
+            'Execution did not retain its review identity',
+          );
+        this.reviewLedger = {
+          ...allocated.ledger,
+          allocations: allocated.ledger.allocations.map((a) =>
+            a.unitId === actual.unitId ? { ...a, ...actual } : a,
+          ),
+        };
+        if (lane.access === 'read-write') this.reviewedWriter = actual.unitId;
+      }
+      return result;
     };
 
-    const exclusions = lane.independentReviewer === true ? [...this.rwResources] : [];
+    const exclusions =
+      this.reviewLedger === undefined && lane.independentReviewer === true
+        ? [...this.rwResources]
+        : [];
     const extraReasons: string[] = [];
     try {
       let outcome;
@@ -761,7 +832,20 @@ export class EngineeringExecution {
         role: lane.role,
         round,
         taskId: current?.taskId ?? '',
-        reasonCodes: extraReasons,
+        reasonCodes: [
+          ...extraReasons,
+          ...(this.reviewLedger !== undefined &&
+          isNexarError(error) &&
+          Array.isArray(error.details?.['reasonCodes'])
+            ? error.details['reasonCodes'].filter(
+                (reason): reason is string =>
+                  typeof reason === 'string' &&
+                  /^strategy\.diversity\.(resource|connection|provider)\.unavailable$/u.test(
+                    reason,
+                  ),
+              )
+            : []),
+        ],
         outcome,
         errorCode: code,
         latencyMs: clock().getTime() - started,

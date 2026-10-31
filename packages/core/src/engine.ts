@@ -32,9 +32,11 @@ import {
   type TaskRequirements,
   type TelemetryEvent,
   type TelemetrySink,
+  type StrategyExecution,
+  type StrategyAllocation,
 } from '@nexar/contracts';
 import { ProjectRegistry, mergeRequirements } from '@nexar/projects';
-import { requireSelected } from '@nexar/resource-controller';
+import { requireSelected, reviewIdentityOf } from '@nexar/resource-controller';
 import type { ResourceRegistry } from '@nexar/resource-registry';
 import { isQuotaObserved } from '@nexar/telemetry';
 import type { AdapterRegistry } from './adapter-registry.js';
@@ -76,6 +78,8 @@ export interface NewTaskInput {
 }
 
 export interface RunOptions {
+  /** Trusted orchestration only. Revalidated by NRC after workspace enforcement, never a permission grant. */
+  readonly strategy?: StrategyExecution;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly onEvent?: (e: ExecutionEvent) => void;
@@ -100,6 +104,7 @@ export interface RunOptions {
 }
 
 export interface RunOutcome {
+  readonly strategyAllocation?: StrategyAllocation;
   readonly task: NexarTask;
   readonly decision: Extract<RouteDecision, { outcome: 'selected' }>;
   readonly result: ExecutionResult;
@@ -200,8 +205,16 @@ export class Nexar {
     };
   }
 
-  async route(task: NexarTask): Promise<RouteDecision> {
-    const decision = await this.deps.router.route(task);
+  async route(task: NexarTask, strategy?: StrategyExecution): Promise<RouteDecision> {
+    if (strategy !== undefined && this.deps.router.revalidate === undefined)
+      throw new NexarError('CONFIGURATION_ERROR', 'Planned execution requires NRC revalidation');
+    const decision =
+      strategy === undefined
+        ? await this.deps.router.route(task)
+        : await this.deps.router.revalidate!(strategy.planned, {
+            ...strategy.unit,
+            task: { id: task.id, kind: task.kind, requirements: task.requirements },
+          });
     await this.emit({ type: 'route.decided', at: this.now(), decision });
     return decision;
   }
@@ -287,7 +300,7 @@ export class Nexar {
     const task = workspace === undefined ? await this.enforceWorkspace(submitted) : submitted;
     // Never log the prompt: only ids and routing facts.
     const logger = this.deps.logger.child({ taskId: task.id });
-    const decision = requireSelected(await this.route(task));
+    const decision = requireSelected(await this.route(task, options.strategy));
     const resourceId = decision.selected.resourceId;
     const resource = this.deps.registry.get(resourceId);
     if (resource === undefined) {
@@ -426,7 +439,21 @@ export class Nexar {
     if (result.quotaObservations !== undefined) {
       await this.recordQuota(resourceId, result.quotaObservations);
     }
-    return { task, decision, result, record };
+    return {
+      task,
+      decision,
+      result,
+      record,
+      ...(options.strategy === undefined
+        ? {}
+        : {
+            strategyAllocation: {
+              unitId: options.strategy.unit.unitId,
+              resourceId,
+              reviewIdentity: reviewIdentityOf(resource),
+            },
+          }),
+    };
   }
 
   /** Records stored artifacts in telemetry (refs only, never content); sink failures are swallowed. */

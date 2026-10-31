@@ -4,7 +4,9 @@ import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { allocateNext } from '@nexar/resource-controller';
+import { NOW, routingPolicy, snap } from './fixtures.js';
 import {
   NexarError,
   measured,
@@ -212,6 +214,43 @@ describe('BridgeHost', () => {
       chain: ['nexar', 'dsh'],
     });
     expect(child?.kind).toBe('general');
+  });
+
+  it('retains only host-selected diversity rules through mint and rejects a relay attempt to supply them', async () => {
+    const ledgers: StrategyLedger[] = [];
+    const spy = vi.spyOn(allocator, 'allocate').mockImplementation((ledger, unit) => {
+      ledgers.push(ledger);
+      return Promise.resolve(
+        allocateNext({
+          ledger,
+          unit,
+          candidates: [snap('res-a')],
+          policy: routingPolicy(),
+          now: NOW,
+        }),
+      );
+    });
+    try {
+      await make();
+      const { token } = host.mint({ ...grantInput, reviewDimensions: { provider: 'required' } });
+      const conn = await open();
+      expect(
+        await conn.call(submit(token, { ...UNIT, reviewDimensions: { provider: 'preferred' } })),
+      ).toMatchObject({ ok: false, code: 'VALIDATION_ERROR' });
+      expect(ledgers).toHaveLength(0);
+      expect(await conn.call(submit(token))).toMatchObject({ ok: true });
+      await expect.poll(() => executed.length).toBe(1);
+      expect(ledgers[0]?.reviewDimensions).toEqual({ resource: 'preferred', provider: 'required' });
+      expect(executed[0]?.strategy?.planned.reviewContext?.dimensions).toEqual({
+        resource: 'preferred',
+        provider: 'required',
+      });
+      expect(() =>
+        host.mint({ ...grantInput, reviewDimensions: { host: 'required' } as never }),
+      ).toThrow(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('rejects malformed capability arrays before allocation and leaves the grant usable', async () => {

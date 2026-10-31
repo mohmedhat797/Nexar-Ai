@@ -1,0 +1,508 @@
+{
+  "sourceCommit": "18c7cd01412a8c2b138ec99baf98751699ae169e",
+  "wholeCorpusSha256": "763d312b67b4a330493ad7e6a17964261d6bd449ae50459cfba5f177c720e24d",
+  "cases": [
+    {
+      "policy": "deterministic",
+      "reviewDiversity": "default",
+      "pinned": false,
+      "sha256": "3688ea4e8c0035ebe9101356ebd99b95e1dbb1473d948884e699f9c0590c518f",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "deterministic",
+          "version": "1"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a"
+        },
+        {
+          "unitId": "review",
+          "resourceId": "b"
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b"
+        }
+      ]
+    },
+    {
+      "policy": "deterministic",
+      "reviewDiversity": "default",
+      "pinned": true,
+      "sha256": "f4230f5579f75d01bd9903902df9c5344d12e76fc67827c228a95d602c9eb652",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "deterministic",
+          "version": "1"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a"
+        },
+        {
+          "unitId": "review",
+          "resourceId": "a"
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        }
+      ]
+    },
+    {
+      "policy": "deterministic",
+      "reviewDiversity": "preferred",
+      "pinned": false,
+      "sha256": "34b78bff2746d71aa447278a66b65dbc6fab695369fd9b24a8e5c773941ed92e",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "deterministic",
+          "version": "1"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a"
+        },
+        {
+          "unitId": "review",
+          "resourceId": "b"
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b"
+        }
+      ]
+    },
+    {
+      "policy": "deterministic",
+      "reviewDiversity": "preferred",
+      "pinned": true,
+      "sha256": "0acbc78fbb4678bbb86d250f875a15107037c1ea67b1abd43e2de12c1ad8d7ec",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "deterministic",
+          "version": "1"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a"
+        },
+        {
+          "unitId": "review",
+          "resourceId": "a"
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        }
+      ]
+    },
+    {
+      "policy": "deterministic",
+      "reviewDiversity": "required",
+      "pinned": false,
+      "sha256": "8a29a625b532acf5687ab5caa1e094cc04a3ef134207e90a563208eebd93c76c",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "deterministic",
+          "version": "1"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a"
+        },
+        {
+          "unitId": "review",
+          "resourceId": "b"
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b"
+        }
+      ]
+    },
+    {
+      "policy": "deterministic",
+      "reviewDiversity": "required",
+      "pinned": true,
+      "sha256": "7038daf52d4ad173ee865bd08d07856e7ca9d8b323aa548aef4f02d4e989f9e1",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "deterministic",
+          "version": "1"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a"
+        },
+        {
+          "unitId": "review",
+          "resourceId": "b"
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b"
+        }
+      ]
+    },
+    {
+      "policy": "resource-intelligence",
+      "reviewDiversity": "default",
+      "pinned": false,
+      "sha256": "b9a338c68c89d580323b10841dcf2c728d35b42290ea95f9bd7501ce8eb33874",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "resource-intelligence",
+          "version": "1",
+          "configId": "34d99073262e"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a",
+          "estimatedCostUsd": 0
+        },
+        {
+          "unitId": "review",
+          "resourceId": "b",
+          "estimatedCostUsd": 0
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b"
+        }
+      ]
+    },
+    {
+      "policy": "resource-intelligence",
+      "reviewDiversity": "default",
+      "pinned": true,
+      "sha256": "964cb494bb80e734ecc4e2d699861949d54c90557be10466c65e443ae6aac6cc",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "resource-intelligence",
+          "version": "1",
+          "configId": "34d99073262e"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a",
+          "estimatedCostUsd": 0
+        },
+        {
+          "unitId": "review",
+          "resourceId": "a",
+          "estimatedCostUsd": 0
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        }
+      ]
+    },
+    {
+      "policy": "resource-intelligence",
+      "reviewDiversity": "preferred",
+      "pinned": false,
+      "sha256": "a205acfc3889599cff696c8ea8fb99b4f284479ee2efc08011a2d0329b6c8ba6",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "resource-intelligence",
+          "version": "1",
+          "configId": "34d99073262e"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a",
+          "estimatedCostUsd": 0
+        },
+        {
+          "unitId": "review",
+          "resourceId": "b",
+          "estimatedCostUsd": 0
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b"
+        }
+      ]
+    },
+    {
+      "policy": "resource-intelligence",
+      "reviewDiversity": "preferred",
+      "pinned": true,
+      "sha256": "6a7dcdd662bab15fc1741df7182d0ed43ea77c441dcf42d7af0ea34ca8c20329",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "resource-intelligence",
+          "version": "1",
+          "configId": "34d99073262e"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a",
+          "estimatedCostUsd": 0
+        },
+        {
+          "unitId": "review",
+          "resourceId": "a",
+          "estimatedCostUsd": 0
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        }
+      ]
+    },
+    {
+      "policy": "resource-intelligence",
+      "reviewDiversity": "required",
+      "pinned": false,
+      "sha256": "baa4788544eb9228290875102ab2507df0de1b3d5df494bcf6edd3d390f95b53",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "resource-intelligence",
+          "version": "1",
+          "configId": "34d99073262e"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a",
+          "estimatedCostUsd": 0
+        },
+        {
+          "unitId": "review",
+          "resourceId": "b",
+          "estimatedCostUsd": 0
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b"
+        }
+      ]
+    },
+    {
+      "policy": "resource-intelligence",
+      "reviewDiversity": "required",
+      "pinned": true,
+      "sha256": "5341aca18a428c6c561b9fafe369100675c92d21dd9153f03345cf20fee87611",
+      "stamp": {
+        "name": "strategy",
+        "version": "1",
+        "configId": "dfcd0b2679b7",
+        "base": {
+          "name": "resource-intelligence",
+          "version": "1",
+          "configId": "34d99073262e"
+        }
+      },
+      "allocations": [
+        {
+          "unitId": "write",
+          "resourceId": "a",
+          "estimatedCostUsd": 0
+        },
+        {
+          "unitId": "review",
+          "resourceId": "b",
+          "estimatedCostUsd": 0
+        }
+      ],
+      "revalidation": [
+        {
+          "outcome": "selected",
+          "selected": "b",
+          "fallback": {
+            "from": "a",
+            "reason": "state.unavailable"
+          }
+        },
+        {
+          "outcome": "selected",
+          "selected": "b"
+        }
+      ]
+    }
+  ]
+}
