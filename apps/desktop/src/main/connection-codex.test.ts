@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -203,6 +204,130 @@ describe('owner Codex connections', () => {
       const stale = descriptor({ ...a, credentialGeneration: 2 });
       await expect(withHomes.resolveCodexHome(stale)).rejects.toMatchObject({
         details: { reason: 'connection.stale-generation' },
+      });
+    });
+
+    describe('deleting a home', () => {
+      /** A signed-in connection, with a saved record to match. */
+      const signedIn = async (label = 'A'): Promise<PersistentConnectionRecord> => {
+        const a = await withHomes.addCodexConnection({ label });
+        await tamper(a.id, {
+          nativeHome: { ...a.nativeHome, signedInAt: '2026-11-01T12:00:00.000Z', associated: true },
+        });
+        withHomes = new ConnectionManager({
+          settingsStore: new SettingsStore(path),
+          keyStore,
+          codexHomes: store,
+          now: () => '2026-11-01T13:00:00.000Z',
+        });
+        return (await withHomes.getConnection(a.id))!;
+      };
+
+      it('removes the home, keeps the identity and account, and signs the connection out', async () => {
+        const a = await signedIn();
+        const b = await signedIn('B');
+        const home = await store.ensure(a);
+        const other = await store.ensure(b);
+        const next = await withHomes.deleteCodexHome({ connectionId: a.id });
+        expect(existsSync(home)).toBe(false);
+        expect(existsSync(other)).toBe(true);
+        expect(next).toMatchObject({
+          id: a.id,
+          credentialGeneration: a.credentialGeneration + 1,
+          nativeHome: { marker: a.nativeHome!.marker, associated: true },
+        });
+        expect(next.nativeHome?.signedInAt).toBeUndefined();
+        expect(withHomes.toDto(next).hasCredential).toBe(false);
+        await expect(withHomes.acquireExecution(a.id)).rejects.toMatchObject({
+          code: 'RESOURCE_UNAVAILABLE',
+        });
+      });
+
+      it('is refused during a process, and the home stays', async () => {
+        const a = await signedIn();
+        const home = await store.ensure(a);
+        const lease = await withHomes.acquireExecution(a.id);
+        await expect(withHomes.deleteCodexHome({ connectionId: a.id })).rejects.toMatchObject({
+          details: { reason: 'connection.active' },
+        });
+        expect(existsSync(home)).toBe(true);
+        lease.release();
+        await expect(withHomes.deleteCodexHome({ connectionId: a.id })).resolves.toBeDefined();
+      });
+
+      it('leaves the record unchanged when the home cannot be removed', async () => {
+        const a = await signedIn();
+        await store.ensure(a);
+        await rm(join(dir, 'runtime-homes', a.id, '.nexar-runtime-home'));
+        await expect(withHomes.deleteCodexHome({ connectionId: a.id })).rejects.toMatchObject({
+          code: 'CONFIGURATION_ERROR',
+        });
+        expect(await withHomes.getConnection(a.id)).toEqual(a);
+      });
+
+      it.each(['openai.subscription', 'anthropic.subscription'])(
+        'refuses the built-in %s',
+        async (id) => {
+          await expect(withHomes.deleteCodexHome({ connectionId: id })).rejects.toMatchObject({
+            details: { reason: 'connection.invalid-transition' },
+          });
+          await expect(
+            withHomes.prepareAction({ connectionId: id, action: 'delete-home' }),
+          ).rejects.toMatchObject({ details: { reason: 'connection.invalid-transition' } });
+        },
+      );
+
+      it('needs a ticket naming this connection when one is presented', async () => {
+        const a = await signedIn();
+        await store.ensure(a);
+        const { token } = await withHomes.prepareAction({
+          connectionId: a.id,
+          action: 'delete-home',
+        });
+        await expect(
+          withHomes.deleteCodexHome({
+            connectionId: a.id,
+            confirmation: token,
+            confirmationName: 'Wrong',
+          }),
+        ).rejects.toMatchObject({ details: { reason: 'connection.confirmation-invalid' } });
+        const again = await withHomes.prepareAction({
+          connectionId: a.id,
+          action: 'delete-home',
+        });
+        await expect(
+          withHomes.deleteCodexHome({
+            connectionId: a.id,
+            confirmation: again.token,
+            confirmationName: 'A',
+          }),
+        ).resolves.toBeDefined();
+      });
+
+      it('refuses while owner connections are off, keeping the home', async () => {
+        const a = await signedIn();
+        const home = await store.ensure(a);
+        const file = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+        await writeFile(path, JSON.stringify({ ...file, ownerConnections: { enabled: false } }));
+        const off = new ConnectionManager({
+          settingsStore: new SettingsStore(path),
+          keyStore,
+          codexHomes: store,
+        });
+        await expect(off.deleteCodexHome({ connectionId: a.id })).rejects.toMatchObject({
+          details: { reason: 'connection.owner-connections-off' },
+        });
+        expect(existsSync(home)).toBe(true);
+      });
+
+      it('keeps the home when the connection is removed', async () => {
+        const a = await signedIn();
+        const home = await store.ensure(a);
+        await withHomes.removeConnection({ connectionId: a.id });
+        expect(existsSync(home)).toBe(true);
+        const restored = await withHomes.restoreConnection({ connectionId: a.id });
+        expect(restored.id).toBe(a.id);
+        expect(await withHomes.resolveCodexHome(ownerCodexResource(restored))).toBe(home);
       });
     });
 

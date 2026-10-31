@@ -68,7 +68,14 @@ export interface PersistentConnectionRecord extends ConnectionDefinition {
   readonly retirement?: 'replaced' | undefined;
   /** A private native home Nexar created for this connection. Never a path or account subject. */
   readonly nativeHome?:
-    { readonly marker: string; readonly signedInAt?: string | undefined } | undefined;
+    | {
+        readonly marker: string;
+        /** Present while the home holds a sign-in made through Nexar. */
+        readonly signedInAt?: string | undefined;
+        /** Once signed in, this identity keeps its account: signing in again needs an assertion. */
+        readonly associated?: true | undefined;
+      }
+    | undefined;
 }
 
 /** Settings schema container for connections and tombstones. */

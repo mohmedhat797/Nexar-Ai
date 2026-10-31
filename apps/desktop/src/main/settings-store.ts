@@ -248,7 +248,11 @@ const PersistentConnectionSchema = z.strictObject({
     .optional(),
   retirement: z.literal('replaced').optional(),
   nativeHome: z
-    .strictObject({ marker: z.string().uuid(), signedInAt: z.string().optional() })
+    .strictObject({
+      marker: z.string().uuid(),
+      signedInAt: z.string().optional(),
+      associated: z.literal(true).optional(),
+    })
     .optional(),
 });
 

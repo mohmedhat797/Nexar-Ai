@@ -87,6 +87,7 @@ export function validConnections(value: ConnectionsSettings): boolean {
       return false;
     if (isOwnerCodexConnectionId(id) !== (r.nativeHome !== undefined)) return false;
     if (r.nativeHome?.signedInAt !== undefined && !timestamp(r.nativeHome.signedInAt)) return false;
+    if (r.nativeHome?.signedInAt !== undefined && r.nativeHome.associated !== true) return false;
     const definition = defaultDefinition(id);
     if (definition !== undefined) {
       for (const key of [

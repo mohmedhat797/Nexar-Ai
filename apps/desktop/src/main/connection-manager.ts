@@ -79,6 +79,10 @@ function builtin(def: ConnectionDefinition): PersistentConnectionRecord {
     updatedAt: '2026-10-17T00:00:00.000Z',
   };
 }
+type NativeHomeRecord = NonNullable<PersistentConnectionRecord['nativeHome']>;
+function signedOut({ marker, associated }: NativeHomeRecord): NativeHomeRecord {
+  return { marker, ...(associated === undefined ? {} : { associated }) };
+}
 
 /** Single Desktop authority: admission and every complete mutation share this queue. */
 export class ConnectionManager {
@@ -154,6 +158,7 @@ export class ConnectionManager {
       throw new NexarError('CONFLICT', 'Connection changes require the Desktop writer lease');
   }
   private hasCredential(r: PersistentConnectionRecord): boolean {
+    if (r.nativeHome !== undefined) return r.nativeHome.signedInAt !== undefined;
     if (r.credentialScope.kind === 'keystore')
       return this.deps.keyStore.metadata(r.credentialScope.name).present;
     if (r.credentialScope.kind === 'account')
@@ -298,7 +303,9 @@ export class ConnectionManager {
         (args.action === 'remove' && record.builtIn) ||
         (args.action === 'replace' &&
           (planScopeName(record.id) === undefined || record.lifecycleState === 'TOMBSTONED')) ||
-        (args.action === 'forget' && !['keystore', 'account'].includes(record.credentialScope.kind))
+        (args.action === 'forget' &&
+          !['keystore', 'account'].includes(record.credentialScope.kind)) ||
+        (args.action === 'delete-home' && record.nativeHome === undefined)
       )
         throw rejected('connection.invalid-transition');
       const now = Date.parse(this.now());
@@ -347,7 +354,7 @@ export class ConnectionManager {
       ticket.record.updatedAt !== record.updatedAt ||
       ticket.pins !==
         ((await this.deps.affectedPins?.(record)) ?? { fingerprint: 'none' }).fingerprint ||
-      (action === 'forget' && args.confirmationName !== record.label)
+      ((action === 'forget' || action === 'delete-home') && args.confirmationName !== record.label)
     )
       throw rejected('connection.confirmation-invalid');
   }
@@ -547,6 +554,32 @@ export class ConnectionManager {
         [next],
         [{ kind: scope.kind === 'keystore' ? 'key' : 'blob', name: scope.name }],
       );
+      return next;
+    });
+  }
+  /**
+   * Removes the sign-in and everything else in the home; the identity and its account stay. The
+   * home goes first: a crash before the commit then fails as signed out, never as signed in to
+   * whatever was left behind.
+   */
+  async deleteCodexHome(
+    raw: ConnectionIdArgs & Partial<ConnectionConfirmedArgs>,
+  ): Promise<PersistentConnectionRecord> {
+    const { connectionId } = ConnectionIdArgsSchema.parse({ connectionId: raw.connectionId });
+    return this.mutate(async (state) => {
+      const r = this.manageable(connectionId);
+      await this.confirm(r, 'delete-home', raw);
+      this.idle(r.id);
+      if (r.nativeHome === undefined || this.deps.codexHomes === undefined)
+        throw rejected('connection.invalid-transition');
+      await this.deps.codexHomes.remove(r);
+      const next: PersistentConnectionRecord = {
+        ...r,
+        nativeHome: signedOut(r.nativeHome),
+        credentialGeneration: r.credentialGeneration + 1,
+        updatedAt: this.now(),
+      };
+      await this.commit(state, [next]);
       return next;
     });
   }

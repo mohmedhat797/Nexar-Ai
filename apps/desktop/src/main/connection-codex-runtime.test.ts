@@ -52,7 +52,11 @@ async function signedIn(label: string): Promise<PersistentConnectionRecord> {
     const { connections } = file['connections'] as {
       connections: Record<string, Record<string, unknown>>;
     };
-    connections[added.id]!['nativeHome'] = { ...added.nativeHome, signedInAt: AT };
+    connections[added.id]!['nativeHome'] = {
+      ...added.nativeHome,
+      signedInAt: AT,
+      associated: true,
+    };
   });
   return (await manager.getConnection(added.id))!;
 }
