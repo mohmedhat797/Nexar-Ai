@@ -23,6 +23,11 @@ import {
  */
 
 const MAIN = fileURLToPath(new URL('../dist/main/main.js', import.meta.url));
+// Opt-in only: CI provides a throwaway Secret Service. Never touch a developer's real keyring.
+const ENTRY =
+  process.platform === 'linux' && process.env['NEXAR_E2E_SECRET_SERVICE'] === '1'
+    ? fileURLToPath(new URL('./secret-service-main.mjs', import.meta.url))
+    : MAIN;
 const EXECUTABLE = process.env['NEXAR_DESKTOP_EXECUTABLE'];
 export const POLL = { timeout: 60_000, interval: 200 };
 
@@ -207,7 +212,7 @@ export async function createHarness(
     const app = await launchApplication({
       ...(EXECUTABLE ? { executablePath: EXECUTABLE } : {}),
       args: [
-        ...(EXECUTABLE ? [] : [MAIN]),
+        ...(EXECUTABLE ? [] : [ENTRY]),
         ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         '--disable-gpu',
         '--disable-dev-shm-usage',
