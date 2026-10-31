@@ -313,10 +313,10 @@ describe('execute: errors', () => {
 
   it('kills the child and throws EXECUTION_TIMEOUT', async () => {
     h = harness({ FAKE_CLAUDE_MODE: 'hang' });
-    const started = Date.now();
+    const started = performance.now();
     const err = await rejection(run(h, withOptions({ timeoutMs: 300 })));
     expect(err.code).toBe('EXECUTION_TIMEOUT');
-    expect(Date.now() - started).toBeLessThan(2500);
+    expect(performance.now() - started).toBeLessThan(2500);
     const pid = h.invocations()[0]?.pid;
     expect(pid).toBeDefined();
     expect(isAlive(pid as number)).toBe(false);
@@ -329,11 +329,11 @@ describe('execute: errors', () => {
     const pid = await waitFor(() => h?.invocations()[0]?.pid);
     expect(isAlive(pid)).toBe(true);
 
-    const started = Date.now();
+    const started = performance.now();
     controller.abort();
     const err = await pending;
     expect(err.code).toBe('EXECUTION_CANCELLED');
-    expect(Date.now() - started).toBeLessThan(1500);
+    expect(performance.now() - started).toBeLessThan(1500);
     expect(isAlive(pid)).toBe(false);
   });
 

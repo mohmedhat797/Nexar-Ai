@@ -1,5 +1,9 @@
 # Nexar AI — Next Milestone Handover: NXR-070 Resource Fabric v2
 
+## Current state, 31 October 2026
+
+B′, C′, DSH `0.2.1-rc.5` and workspace maintenance are merged, and `main` at `c97136b` passed post-merge acceptance. The next milestone is NXR-070D′. Use the [current status](NEXAR_Current_Development_Status_2026-10-31.md) and the [D′ readiness package](NXR070D_Implementation_Readiness_Package.md). Everything below is historical.
+
 ## FCR-01 correction — handover is blocked
 
 **`NXR070_PREREQUISITES_NOT_YET_SATISFIED`.** The earlier sealed/production-tested/ready declarations and final signoff below are superseded.

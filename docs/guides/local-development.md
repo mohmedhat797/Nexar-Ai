@@ -1,6 +1,8 @@
 # Continuing Nexar on your own machine
 
-Current continuation (2026-10-02): work is on `feat/nexar-operating-layer`, draft PR #36. Windows
+Current state: see [development status](../development/NEXAR_Current_Development_Status_2026-10-31.md). DSH is now the managed `0.2.1-rc.5` runtime, and the rest of this page is historical.
+
+Continuation as of 2026-10-02: work is on `feat/nexar-operating-layer`, draft PR #36. Windows
 automated acceptance, Operating Sessions and routing, and Desktop encrypted API-key setup are
 implemented, including explicit provider metadata checks. Owner Windows acceptance remains pending; vendor sign-in,
 WSL Code, Cowork on DeepSeek Harness (ADR-030) and behavior settings follow. Schedules and Mobile are deferred.

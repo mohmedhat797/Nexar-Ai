@@ -9,12 +9,13 @@ agents, and productivity engines are **components behind adapters**; Nexar owns 
 tasks, AI resources, the resource registry, the resource controller, routing policy, execution
 adapters, and telemetry.
 
-> Status: **v0.3 — Engineering Machine** (developer preview). On top of v0.2 (any MCP client over an
-> authenticated, audited stdio MCP server; documentation and meeting drafts as local files), Nexar can
-> now run sandboxed, multi-agent engineering tasks: write-capable coding agents edit a private
-> worktree inside a bubblewrap sandbox, Nexar gates and reviews the patch, and — only after your
-> approval — commits it to a local `nexar/<task>` branch. It never pushes and sends nothing outside
-> your machine. See [Implemented vs planned](#implemented-vs-planned).
+> Status: **developer preview.** `main` includes the Desktop app, multi-API-key connections, review
+> diversity and the managed DeepSeek Harness `0.2.1-rc.5` runtime. It has passed automated acceptance
+> with synthetic credentials, but has not been validated with real accounts or on a clean install.
+> Current state: [development status](docs/development/NEXAR_Current_Development_Status_2026-10-31.md).
+> Write-capable coding agents still edit a private worktree inside a bubblewrap sandbox, and Nexar
+> commits to a local `nexar/<task>` branch only after your approval. It never pushes. See
+> [Implemented vs planned](#implemented-vs-planned), which covers v0.1 to v0.4.
 
 ## Why
 
@@ -91,7 +92,7 @@ and the [ADRs](docs/adr/).
 | MCP server               | `@nexar/integration-mcp`              | stdio-only server (`@modelcontextprotocol/server@2.2.0`): `nexar.submit_work`, `work_status`, `route`, `resources`, `workflows`                                                                                                                                  |
 | Work Bridge              | `@nexar/work-bridge`                  | Work Bridge v2: project-required requests, async jobs, per-client idempotent request ids, result artifact, route explanations, workflow requests                                                                                                                 |
 | Claude Code adapter      | `@nexar/integration-claude-code`      | Native agent via `claude -p`; read-only by default; **verified live**                                                                                                                                                                                            |
-| DeepSeek Harness adapter | `@nexar/integration-deepseek-harness` | Nexar-owned JSON-RPC client for `dsh --profile sdk`; handshake verified against real `dsh 0.2.0-rc.2`; model execution needs `DEEPSEEK_API_KEY`; stops its whole process group                                                                                   |
+| DeepSeek Harness adapter | `@nexar/integration-deepseek-harness` | Nexar-owned JSON-RPC client for `dsh --profile sdk`; real managed `dsh 0.2.1-rc.5` tested through ACP and SDK; model execution needs `DEEPSEEK_API_KEY`; stops its whole process group                                                                           |
 | pi-ai adapter            | `@nexar/integration-pi`               | Direct models via exact-pinned `@earendil-works/pi-ai@0.99.2`; OpenAI-compatible local endpoints                                                                                                                                                                 |
 | Echo adapter             | `@nexar/integration-echo`             | Deterministic offline resource for CI and zero-credential runs                                                                                                                                                                                                   |
 | Sandbox (v0.3)           | `@nexar/sandbox`                      | Fail-closed bubblewrap launcher (explicit namespaces, read-only root, `.git` read-only), allowlisting egress proxy over a unix socket, self-test (ADR-018)                                                                                                       |
@@ -249,14 +250,14 @@ use real resources, copy [`config/nexar.config.example.json`](config/nexar.confi
 
 ### External runtimes (optional)
 
-| Runtime                                                                          | Needed for                  | How Nexar uses it                                                                                          |
-| -------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `claude` (Claude Code CLI), logged in                                            | `claude-code` resource      | `claude -p` subprocess; Nexar never reads its credentials                                                  |
-| `dsh` `0.2.0-rc.2` (`npm i -g @deepseek-ai/dsh@0.2.0-rc.2`) + `DEEPSEEK_API_KEY` | `deepseek-harness` resource | `dsh --profile sdk` subprocess, isolated `DSH_HOME`, allowlisted env, DeepSeek session-log upload disabled |
-| Provider API key (e.g. `ANTHROPIC_API_KEY`) or a local OpenAI-compatible server  | `pi` resources              | in-process pi-ai call                                                                                      |
-| `codex` (OpenAI Codex CLI), signed in with `codex login`                         | `codex` resource            | `codex exec --json`; write mode only inside the sandbox; Nexar never reads `CODEX_HOME`                    |
-| `agy` (Google Antigravity CLI), signed in — **experimental**                     | `antigravity` resource      | headless `agy`; opt-in via `acknowledgeExperimental`; sandboxed workspaces only; prompt is in argv         |
-| `bwrap` (bubblewrap ≥ 0.8) and `socat`                                           | engineering write lanes     | `SandboxLauncher`; without them write lanes refuse to run                                                  |
+| Runtime                                                                                                     | Needed for                  | How Nexar uses it                                                                                          |
+| ----------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `claude` (Claude Code CLI), logged in                                                                       | `claude-code` resource      | `claude -p` subprocess; Nexar never reads its credentials                                                  |
+| Managed `dsh` `0.2.1-rc.5` (`node scripts/install-dsh-runtime.mjs .nexar/dsh-runtime`) + `DEEPSEEK_API_KEY` | `deepseek-harness` resource | `dsh --profile sdk` subprocess, isolated `DSH_HOME`, allowlisted env, DeepSeek session-log upload disabled |
+| Provider API key (e.g. `ANTHROPIC_API_KEY`) or a local OpenAI-compatible server                             | `pi` resources              | in-process pi-ai call                                                                                      |
+| `codex` (OpenAI Codex CLI), signed in with `codex login`                                                    | `codex` resource            | `codex exec --json`; write mode only inside the sandbox; Nexar never reads `CODEX_HOME`                    |
+| `agy` (Google Antigravity CLI), signed in — **experimental**                                                | `antigravity` resource      | headless `agy`; opt-in via `acknowledgeExperimental`; sandboxed workspaces only; prompt is in argv         |
+| `bwrap` (bubblewrap ≥ 0.8) and `socat`                                                                      | engineering write lanes     | `SandboxLauncher`; without them write lanes refuse to run                                                  |
 
 `nexar doctor` reports which of these are available.
 

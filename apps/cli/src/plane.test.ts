@@ -743,10 +743,10 @@ describe('nexar plane serve --stdio (in-process, offline)', () => {
         approvalRunner(),
         withResources(() => hangingRegistry(snapshots), 100),
       );
-      const began = Date.now();
+      const began = performance.now();
       input.frame({ ...initialize, features: ['resources'] });
       await waitFor(() => out.includes('"type":"ready"'), 'ready');
-      expect(Date.now() - began).toBeLessThan(2_000);
+      expect(performance.now() - began).toBeLessThan(2_000);
       // Nothing was probed in time: the registry's own (unknown) states are reported.
       expect(
         framesOf('ready')[0]?.readiness.resources?.map((r) => [r.id, r.auth, r.availability]),
