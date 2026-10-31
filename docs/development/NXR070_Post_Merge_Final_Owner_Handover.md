@@ -18,6 +18,7 @@
 ## What you should know
 
 - **WSL failed once before it passed.** The first run had 1 failed test out of 4,808. A rerun on the same commit passed with 4,778 passed and 30 skipped. The failure came from the WSL wall clock jumping about 2 s, not from the product. Three test assertions now use a monotonic clock. That change is on this branch, not in `c97136b`.
+- **WSL also failed once on this branch.** On `75833a3`, one of three runs timed out in a different test, then two runs passed with 4,778 passed and 30 skipped. The cause is not proven, so WSL Full should be treated as intermittent. See G-14 in the gap register.
 - **The Windows bubblewrap stage is blocked by design.** It cannot run on Windows, and WSL covers it instead.
 - **Real provider traffic is limited.** Your real DeepSeek check ran through the adapter on an earlier commit in the same stack. Nothing has gone through Desktop routing or the Cowork gateway with a real account.
 - **Packaging took 92% of its time limit**: 1,376 s of 1,500 s. It passed, and the limit was not changed.
@@ -41,20 +42,20 @@
 
 ## Acceptance gates
 
-| #     | Gate                                       | Result                                     |
-| ----- | ------------------------------------------ | ------------------------------------------ |
-| 1–2   | Main SHA verified, merged features present | Pass                                       |
-| 3     | Worktrees healthy                          | Pass                                       |
-| 4–5   | Toolchain verified, no legacy dependency   | Pass                                       |
-| 6     | Disk sufficient                            | Pass: `D:` 36.2 GiB free                   |
-| 7–8   | DSH identity, ACP                          | Pass                                       |
-| 9–11  | Credential isolation, B′, C′               | Pass with synthetic credentials            |
-| 12–14 | Windows Full, source E2E, packaged E2E     | Pass                                       |
-| 15    | WSL                                        | Pass on rerun; first-run failure explained |
-| 16    | Gitleaks                                   | Pass                                       |
-| 17    | Runtime rollback                           | Pass                                       |
-| 18–20 | Limitations, documentation, D′ readiness   | Done                                       |
-| 21    | Source-bound evidence preserved            | Pass                                       |
-| 22    | No unauthorized deployment                 | Pass: nothing deployed or installed        |
+| #     | Gate                                       | Result                                |
+| ----- | ------------------------------------------ | ------------------------------------- |
+| 1–2   | Main SHA verified, merged features present | Pass                                  |
+| 3     | Worktrees healthy                          | Pass                                  |
+| 4–5   | Toolchain verified, no legacy dependency   | Pass                                  |
+| 6     | Disk sufficient                            | Pass: `D:` 36.2 GiB free              |
+| 7–8   | DSH identity, ACP                          | Pass                                  |
+| 9–11  | Credential isolation, B′, C′               | Pass with synthetic credentials       |
+| 12–14 | Windows Full, source E2E, packaged E2E     | Pass                                  |
+| 15    | WSL                                        | Pass on rerun; intermittent, see G-14 |
+| 16    | Gitleaks                                   | Pass                                  |
+| 17    | Runtime rollback                           | Pass                                  |
+| 18–20 | Limitations, documentation, D′ readiness   | Done                                  |
+| 21    | Source-bound evidence preserved            | Pass                                  |
+| 22    | No unauthorized deployment                 | Pass: nothing deployed or installed   |
 
 Current status lives in the [status page](NEXAR_Current_Development_Status_2026-10-31.md).
