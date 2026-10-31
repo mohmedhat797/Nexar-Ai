@@ -81,7 +81,20 @@ export function validatePiAiProviders(providers: PiAiProviders): void {
  * name is the keystore name, which the adapter places in the child environment.
  */
 export function renderPatchOverlay(options: PatchOverlayOptions = {}): string {
-  const lines = ['- id: session-log-deepseek', '  disabled: true'];
+  const lines = [
+    '- id: session-log-deepseek',
+    '  disabled: true',
+    // Nexar resolves the selected credential; upstream saved refs must not replace it.
+    '- id: credentials',
+    '  disabled: true',
+    '- id: authorization',
+    '  disabled: true',
+    // SDK execution also inherits dsh-base; new capabilities require Nexar authorization.
+    '- id: tool-working-directory',
+    '  disabled: true',
+    '- id: web-deepseek-api',
+    '  disabled: true',
+  ];
   const providers = options.piAiProviders;
   const route = options.nexarRoute;
   const hasProviders = providers !== undefined && Object.keys(providers).length > 0;

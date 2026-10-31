@@ -64,7 +64,7 @@ Nexar Local CI provides a unified, cross-platform validation orchestrator that e
   ```
 - **Custom Node binary:** If the system default Node is different, pass `--node-bin=<path>` or set `NEXAR_NODE_BIN`:
   ```powershell
-  $env:NEXAR_NODE_BIN = "D:\Nexar-Ai-nxr070\.nexar\research-toolchain\node-v22.23.3-win-x64\node.exe"
+  $env:NEXAR_NODE_BIN = "D:\Nexar-Toolchains\node-v22.23.3-win-x64\node.exe"
   ```
 
 ### 2.2 pnpm Version

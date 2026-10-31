@@ -1,0 +1,163 @@
+{
+  "schema": "nxr070-dsh-rc3-acceptance@1",
+  "date": "2026-10-27",
+  "runtime": {
+    "previous": "0.2.0-rc.2",
+    "candidate": "0.2.1-rc.3",
+    "upstreamTag": "dsh-v0.2.1-rc.3",
+    "upstreamCommit": "1f81c047fc48fa190a683e469daa699857e9afe8",
+    "tarballSha256": "9a8f9493bfab8218215a8ca38ab8821e76dff63dc4fcb65841ef87c0aa277141",
+    "lockSha256": "6f0cdaa5c552f5a78738fc6a5b2f942c1dc9856a897ccc7a130ab4c0bef9cb40",
+    "workspaceLockChanged": false
+  },
+  "source": {
+    "main": "41b918bf3c32cfd47301f7551a7280368fc3c8ec",
+    "b": "ae8a46bc9e80d96d4014ecddc8be9661f73d92cc",
+    "c": "46aa3c22460fe278a7f784e9f954f559edda4ccb",
+    "implementation": "a3f02b4e4ddce33ae81ec45c96e8d587842b37be",
+    "tree": "79e0275a8164b1b0c5e9007b2993dee3579c4c58",
+    "cleanUnchangedDuringFinalRuns": true
+  },
+  "environment": {
+    "windowsBuild": "26300",
+    "node": "22.23.3",
+    "npm": "10.9.9",
+    "pnpm": "10.33.0",
+    "electron": "44.5.1",
+    "gitleaks": "8.28.0",
+    "wslKernel": "6.18.33.2-microsoft-standard-WSL2"
+  },
+  "phaseA": {
+    "standaloneRc2Windows": "NEXAR_WINDOWS_FULL_PASS",
+    "implementation": "dc4d89b983573131036c28740a904c48c8594e3f",
+    "report": "report-2026-10-27T02-53-54-830Z.json",
+    "reportSha256": "e3ff80ce946bdf71315363885b680c9524d8080e555a73b7cdf0dfcb4d3592ef",
+    "originalMaterializationRootCause": "UNRESOLVED",
+    "corrected": [
+      "destructive_failed_reinstall",
+      "post_publication_recursive_deletion_on_readiness"
+    ]
+  },
+  "check": {
+    "passed": 4595,
+    "failed": 0,
+    "skipped": 182,
+    "pending": 4,
+    "logSha256": "e385ede6e7b6aee565b2d8aaefdf2596caeac7f6edd8f9d1ce3f134cf2fc11b6"
+  },
+  "windows": {
+    "status": "NEXAR_WINDOWS_FULL_FAIL",
+    "report": "report-2026-10-27T11-18-47-908Z.json",
+    "reportSha256": "248a0576d52b642f5917b053b9fca17129ea5685c7a47bb34fe73450597e3f6b",
+    "durationMs": 1718709,
+    "managedInstallation": "PASS",
+    "offline": {
+      "passed": 4608,
+      "failed": 0,
+      "skipped": 169,
+      "pending": 4
+    },
+    "realDsh": {
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "pending": 0
+    },
+    "windowsToWsl": {
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "pending": 0
+    },
+    "sourceDesktop": {
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0,
+      "pending": 0
+    },
+    "packaging": "FAIL_NPM_CI_TIMEOUT",
+    "packagedDesktop": "SKIPPED",
+    "gitleaks": "SKIPPED",
+    "nativeLinuxHostStage": "SKIPPED",
+    "installerDeadlineMs": 180000,
+    "privateStateStartupDeadlineMs": 15000
+  },
+  "standalone": {
+    "scope": "Not aggregate Full CI",
+    "report": "dsh-rc3-supplemental-package-a3f02b4-20261027.json",
+    "reportSha256": "d18ee264a18fc3afb5228da822fd8cf3c526d055d39bf66cf726625db7e10853",
+    "packaging": "FAIL_NPM_CI_TIMEOUT",
+    "packagedDesktop": "SKIPPED",
+    "gitleaks": "PASS",
+    "gitleaksLogSha256": "81c39354a50997e74d09d7fec4004af647a240eab1555df774810606a91de8d3"
+  },
+  "wsl": {
+    "status": "PASS_WITH_SKIPS_REPORTED",
+    "passed": 4751,
+    "failed": 0,
+    "skipped": 30,
+    "pending": 0,
+    "durationMs": 268660,
+    "bubblewrapPassed": 12,
+    "execution": "dsh-rc3-wsl-full-a3f02b4-20261027.execution.json",
+    "executionSha256": "9c659820e4d976192e4666109c7ba7bb9c5c0c275692385f1eb3d7a076795f9e",
+    "testsSha256": "3633a86e25ee73a2dd4491a56dbd4665ae426ad8b50a8afd66943f4623bf5c5a",
+    "nativeUbuntuAcceptance": false
+  },
+  "rollback": {
+    "canonicalState": "PASS",
+    "canonicalReceipt": "dsh-rc3-state-rollback-final-20261027/result.json",
+    "canonicalSha256": "4c73102b70f703a9877c30e9601921304755aeb1811c645c705b96110964aa31",
+    "runtime": "PASS",
+    "runtimeReceipt": "dsh-rc3-runtime-rollback-final-20261027/result.json",
+    "runtimeSha256": "308c1e824b5754ac8792cf5fd2f0f3e754d37aa62060d8ae53c3a3cadc90f86a",
+    "actualAcpPerVersion": [3, 3, 3],
+    "realUserStateModified": false,
+    "arbitraryNativeDatabaseDowngradeCertified": false
+  },
+  "security": {
+    "testedHostBoundaries": "PRESERVED",
+    "independentOwnerAcceptance": "PENDING",
+    "npmAuditClean": false,
+    "rc2AffectedPackageRecords": {
+      "high": 7,
+      "moderate": 8
+    },
+    "rc3AffectedPackageRecords": {
+      "high": 189,
+      "moderate": 7
+    },
+    "countsRepresentIndependentVulnerabilities": false,
+    "dependencyRiskDisposition": "OUTSTANDING",
+    "liveCredentialsUsed": false,
+    "paidInferenceUsed": false,
+    "securityPolicyRelaxed": false
+  },
+  "publication": {
+    "status": "DRAFT_PUBLISHED",
+    "base": "feat/nxr-070c-review-diversity",
+    "branch": "feat/nxr-dsh-021-rc3-upgrade",
+    "draftRequired": true,
+    "mergeAuthorized": false,
+    "number": 46,
+    "url": "https://github.com/mohmedhat797/Nexar-Ai/pull/46",
+    "initialReportHead": "cb78be90f0f0fab1e2173123b9dd51f68854f36e",
+    "finalReceipt": ".nexar/ci/NXR070_DSH_RC3_Final_Publication_Receipt_20261027.md"
+  },
+  "overall": "NXR070_DSH_RC3_UPGRADE_IMPLEMENTED_WITH_OUTSTANDING_GATES",
+  "hosted": {
+    "classification": "HOSTED_CI_INFRASTRUCTURE_BLOCKED",
+    "run": 40537560834,
+    "head": "cb78be90f0f0fab1e2173123b9dd51f68854f36e",
+    "jobs": 3,
+    "executedSteps": 0,
+    "reason": "Actions budget prevented job startup",
+    "receiptSha256": "324a4da2fb3edc0dc28acbee4f94913a46202919279e9cbcc8e6347be4c5b966"
+  },
+  "reportCheck": {
+    "tree": "31763cf9b80ed3667063c98605ed74e48d7b2ba0",
+    "exitCode": 0,
+    "durationMs": 493815,
+    "logSha256": "d58cd370ba0babeb0f37f17f9c53f6ecbcbba117accac44e7f82abe6b3fdf4c6"
+  }
+}

@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { INSTALL_RECEIPT } from '../scripts/dsh-runtime/artifact.mjs';
 import { installDshRuntime } from '../scripts/dsh-runtime/install.mjs';
 import { spawnSubprocess } from '../scripts/local-ci/process-util.mjs';
 import type { SubprocessResult } from '../scripts/local-ci/process-util.mjs';
@@ -110,6 +111,45 @@ describe('Managed DSH installation publication and recovery', () => {
     ).toHaveLength(1);
     expect(f.records.at(-1)?.event).toBe('ready');
     expect(existsSync(`${f.target}.install-lock`)).toBe(false);
+  });
+
+  it('applies only exact security overrides from the pin to the managed install', async () => {
+    const f = fixture();
+    const overrides = { zod: '4.6.7' };
+    writeFileSync(
+      join(f.pinDir, 'dsh-runtime.json'),
+      JSON.stringify({ package: packageName, version, overrides }),
+    );
+    await installDshRuntime(f);
+    const manifest = JSON.parse(readFileSync(join(f.target, 'package.json'), 'utf8')) as {
+      overrides?: unknown;
+    };
+    expect(manifest.overrides).toEqual(overrides);
+    const range = fixture();
+    writeFileSync(
+      join(range.pinDir, 'dsh-runtime.json'),
+      JSON.stringify({ package: packageName, version, overrides: { zod: '^4.0.0' } }),
+    );
+    await expect(installDshRuntime(range)).rejects.toThrow('INVALID_PIN');
+  });
+
+  it('writes the install receipt only into a tree that passed every verification', async () => {
+    const f = fixture();
+    await installDshRuntime(f);
+    expect(JSON.parse(readFileSync(join(f.target, INSTALL_RECEIPT), 'utf8'))).toMatchObject({
+      package: packageName,
+      version,
+      generation: f.records[0]?.generation,
+    });
+    const wrong = fixture();
+    const run: typeof spawnSubprocess = (_command, args, options) => {
+      if (args?.[0] === 'ci' && options?.cwd) wrong.materialize(options.cwd);
+      return Promise.resolve(success('0.0.0-wrong\n'));
+    };
+    await expect(installDshRuntime({ ...wrong, run })).rejects.toThrow('VERSION_PROBE_MISMATCH');
+    const stage = readdirSync(wrong.root).find((name) => name.startsWith('runtime.stage-'));
+    expect(stage).toBeDefined();
+    expect(existsSync(join(wrong.root, stage!, INSTALL_RECEIPT))).toBe(false);
   });
 
   it('publishes fresh and repeated verified generations with stable entry identity', async () => {

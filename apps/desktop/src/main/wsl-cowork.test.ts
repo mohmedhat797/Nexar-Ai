@@ -130,7 +130,7 @@ describe('isolated Cowork host boundary', () => {
         validPlane,
         fakeHelperSpawn({ kind: 'hello', reply: validHello }),
       );
-      expect(await matching.probe()).toEqual({ state: 'ready', version: '0.2.0-rc.2' });
+      expect(await matching.probe()).toEqual({ state: 'ready', version: '0.2.1-rc.5' });
 
       // 2. Outdated helper (pre-SEC02B missing helperVersion, or mismatched helperVersion)
       const legacyHelper = new WslCoworkBackend(
@@ -139,14 +139,14 @@ describe('isolated Cowork host boundary', () => {
           kind: 'hello',
           reply: {
             protocol: 'nexar-cowork@1',
-            version: '0.2.0-rc.2',
+            version: '0.2.1-rc.5',
             isolation: 'WSL2_BUBBLEWRAP',
           },
         }),
       );
       expect(await legacyHelper.probe()).toEqual({
         state: 'unsupported-version',
-        version: '0.2.0-rc.2',
+        version: '0.2.1-rc.5',
       });
       const outdatedHelper = new WslCoworkBackend(
         validPlane,
@@ -157,7 +157,7 @@ describe('isolated Cowork host boundary', () => {
       );
       expect(await outdatedHelper.probe()).toEqual({
         state: 'unsupported-version',
-        version: '0.2.0-rc.2',
+        version: '0.2.1-rc.5',
       });
 
       // 3. Unsupported protocol version / unexpected protocol identity
@@ -170,7 +170,7 @@ describe('isolated Cowork host boundary', () => {
       );
       expect(await badProtocolVersion.probe()).toEqual({
         state: 'unsupported-version',
-        version: '0.2.0-rc.2',
+        version: '0.2.1-rc.5',
       });
       const badProtocolId = new WslCoworkBackend(
         validPlane,
@@ -181,7 +181,7 @@ describe('isolated Cowork host boundary', () => {
       );
       expect(await badProtocolId.probe()).toEqual({
         state: 'unsupported-version',
-        version: '0.2.0-rc.2',
+        version: '0.2.1-rc.5',
       });
 
       // 4. Missing required capability
@@ -194,7 +194,7 @@ describe('isolated Cowork host boundary', () => {
       );
       expect(await missingCap.probe()).toEqual({
         state: 'unsupported-version',
-        version: '0.2.0-rc.2',
+        version: '0.2.1-rc.5',
       });
 
       // 5. Malformed handshake

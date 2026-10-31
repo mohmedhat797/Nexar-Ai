@@ -3,6 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { linuxAcceptanceRuntime } from './dsh-runtime/acceptance-env.mjs';
+
+const linuxRuntime = linuxAcceptanceRuntime();
 
 if (process.platform === 'linux' && process.argv.includes('--linux')) {
   const report = resolve('.nexar/ci/cowork-kernel.json');
@@ -25,8 +28,7 @@ if (process.platform === 'linux' && process.argv.includes('--linux')) {
       stdio: 'inherit',
       env: {
         ...process.env,
-        NEXAR_DSH_BIN: '/opt/dsh/lib/node_modules/@deepseek-ai/dsh/lib/bin.js',
-        NEXAR_DSH_TOOLCHAIN: '/opt/node:/opt/dsh/lib/node_modules',
+        ...linuxRuntime,
       },
     },
   );
@@ -92,6 +94,8 @@ try {
       '--exec',
       'env',
       `NEXAR_SEC02_WINDOWS_FIXTURE=${windowsPath}`,
+      `NEXAR_SEC02_LINUX_DSH_ENTRY=${linuxRuntime.NEXAR_DSH_BIN}`,
+      `NEXAR_SEC02_LINUX_DSH_TOOLCHAIN=${linuxRuntime.NEXAR_DSH_TOOLCHAIN}`,
       '/opt/node/bin/node',
       `${linuxRepo}/scripts/verify-cowork-wsl.mjs`,
       '--linux',

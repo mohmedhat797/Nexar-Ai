@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-10-17T03:00:00.000Z",
+  "generatedAt": "2026-10-26T22:27:58.463Z",
   "upstreams": [
     {
       "upstreamId": "deepseek-harness",
@@ -9,17 +9,18 @@
       "role": "runtime-dependency",
       "discoveryAdapterKind": "npm-registry",
       "allowedReleaseChannel": "prerelease",
-      "approvedSourceReference": "git+https://github.com/deepseek-ai/deepseek-harness.git#commit=639ed015",
-      "currentRuntimePin": "@deepseek-ai/dsh@0.2.0-rc.2",
-      "lastEvaluatedReference": "@deepseek-ai/dsh@0.2.0-rc.2",
-      "compatibilityState": "COMPATIBLE",
+      "approvedSourceReference": "git+https://github.com/deepseek-ai/deepseek-harness.git#commit=b830ec950faba0a46dda564be3e2d854afed94f1",
+      "currentRuntimePin": "@deepseek-ai/dsh@0.2.1-rc.5",
+      "lastEvaluatedReference": "@deepseek-ai/dsh@0.2.1-rc.5",
+      "compatibilityState": "EVALUATED",
       "adrs": ["ADR-030"],
       "lastApprovedEvidence": {
         "milestone": "NXR-SEC-02B",
         "verifier": "Gemini Argon",
         "verdict": "NXR_SEC02_INDEPENDENT_SECURITY_REVIEW_APPROVED",
         "approvedCommit": "6ea56f99d758bc18698c1fa5770b399a283fe6ad",
-        "approvedDate": "2026-10-17"
+        "approvedDate": "2026-10-17",
+        "notes": "Historical independent approval of rc.2, retained unchanged in scope. The owner authorized exactly rc.3 on 2026-10-26 and replaced it with exactly rc.5 on 2026-10-31; engineering and independent acceptance are separate. See the ADR-030 runtime version amendments."
       }
     },
     {

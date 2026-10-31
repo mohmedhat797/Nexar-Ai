@@ -13,6 +13,7 @@ import {
 import { ControlModelGateway, IntelligenceBridge } from '@nexar/engine-gateway';
 import { createControlModelTurnPorts, engineAllocator } from '@nexar/host';
 import { catalogResourceId } from '@nexar/resource-registry';
+import { newSessionId, newTurnId } from '@nexar/sessions';
 import {
   piCatalogDiscoverySource,
   type PiAssistantMessageLike,
@@ -30,6 +31,15 @@ import { ConnectionRuntime } from './connection-runtime.js';
 import { createEngineHost, type EngineHost } from './engine-host.js';
 import { addProject, createHarness, type Harness } from './test-harness.js';
 import { boundedCoworkExecutor } from './cowork-executor.js';
+import { DshCoworkService } from './dsh-cowork.js';
+import { dshLaunchForEntry } from './dsh-runtime-path.js';
+import {
+  buildTestRuntime,
+  controlKit,
+  coworkRequest,
+  recordingSpawn,
+} from './dsh-cowork-test-kit.js';
+import { newTask } from './tasks.js';
 
 const A = 'synthetic-account-A-123456789',
   B = 'synthetic-account-B-123456789',
@@ -63,6 +73,7 @@ let dir: string,
   h: Harness,
   gateway: ControlModelGateway;
 let seen: string[], hook: (options: PiRequestOptionsLike | undefined) => Promise<void>;
+let toolCatalogs: readonly object[][];
 const lineage = {
   rootSessionId: 'synthetic-session',
   turnId: 'synthetic-turn',
@@ -72,6 +83,7 @@ const lineage = {
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'nexar-connection-runtime-'));
   seen = [];
+  toolCatalogs = [];
   hook = async () => {};
   const encrypted = new Map<string, string>();
   let cipher = 0;
@@ -116,8 +128,9 @@ beforeEach(async () => {
   });
   const models: PiModelsLike = {
     getModel: (provider, id) => ({ provider, id, api: 'openai-completions' }),
-    completeSimple: async (_model, _context, options) => {
+    completeSimple: async (_model, context, options) => {
       seen.push(options?.apiKey ?? 'missing');
+      toolCatalogs = [...toolCatalogs, context.tools ?? []];
       await hook(options);
       return reply;
     },
@@ -204,6 +217,130 @@ function turn(id: string, signal = new AbortController().signal) {
 }
 
 describe('production persisted connection → registry → NRC → transport', () => {
+  it.skipIf(!process.env['NEXAR_DSH_ENTRY'])(
+    'runs real managed DSH ACP through persisted A/B credentials and retains the active connection lease',
+    async () => {
+      const a = await add('Actual DSH account A', A);
+      const b = await add('Actual DSH account B', B);
+      const ar = await resource(a.id),
+        br = await resource(b.id);
+      const runtime = await buildTestRuntime();
+      const kit = controlKit({ runtime, runtimeDir: join(dir, 'actual-dsh-bridge'), gateway });
+      const launch = dshLaunchForEntry(process.env['NEXAR_DSH_ENTRY']!);
+      if (launch === undefined) throw Error('Invalid test runtime entry');
+      const entered = barrier(),
+        resume = barrier();
+      const spawned = recordingSpawn();
+      const foreignHome = join(dir, 'synthetic-foreign-runtime-home');
+      const cowork = new DshCoworkService({
+        settings,
+        engine,
+        logger: noopLogger,
+        stateDir: join(dir, 'actual-dsh-private-state'),
+        bridgeHost: kit.host,
+        controlGateway: gateway,
+        controlChild: kit.child,
+        relay: kit.relay,
+        launch,
+        spawn: spawned.spawn,
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: 'synthetic-ambient-key-must-not-be-used',
+          DSH_HOME: foreignHome,
+          DSH_AGENTS_HOME: 'synthetic-owner-agents-home',
+        },
+        timings: { startupTimeoutMs: 90000, turnTimeoutMs: 120000, probeTimeoutMs: 60000 },
+        createTask: (request, excluded) =>
+          newTask(
+            engine,
+            {
+              projectId: request.projectId,
+              kind: request.kind,
+              prompt: request.prompt,
+              preferredResourceIds: request.preferredResourceIds,
+              maxCostUsd: request.maxCostUsd,
+              excludedResourceIds: excluded,
+            },
+            request.turnId,
+            { sessionId: request.sessionId, turnId: request.turnId },
+          ),
+      });
+      kit.attach((event) => cowork.noteBridgeEvent(event));
+      try {
+        const projectId = await addProject(h);
+        await settings.setCoworkControlResource({
+          mode: 'pinned',
+          resourceId: ar.id,
+          fallback: 'none',
+        });
+        expect(await cowork.refresh()).toMatchObject({ state: 'ready' });
+        const ids = () => ({ sessionId: newSessionId(), turnId: newTurnId() });
+        const first = await cowork.run(
+          coworkRequest(projectId, {}, ids()).request,
+          new AbortController().signal,
+        );
+        expect(first.text).toContain('synthetic model result');
+        expect(seen).toEqual([A]);
+        expect(manager.getActiveExecutionCount(a.id)).toBe(0);
+
+        await settings.setCoworkControlResource({
+          mode: 'pinned',
+          resourceId: br.id,
+          fallback: 'none',
+        });
+        hook = async () => {
+          entered.resolve();
+          await resume.promise;
+        };
+        const active = cowork.run(
+          coworkRequest(projectId, {}, ids()).request,
+          new AbortController().signal,
+        );
+        await Promise.race([
+          entered.promise,
+          active.then(() => {
+            throw Error('Turn ended before the held provider request');
+          }),
+        ]);
+        try {
+          expect(seen).toEqual([A, B]);
+          expect(manager.getActiveExecutionCount(b.id)).toBe(1);
+          await expect(
+            manager.rotateCredential({ connectionId: b.id, apiKey: C, sameAccount: true }),
+          ).rejects.toMatchObject({ details: { reason: 'connection.active' } });
+          await manager.disableConnection({ connectionId: b.id });
+          expect(() => begin(br)).toThrow();
+        } finally {
+          resume.resolve();
+        }
+        expect((await active).text).toContain('synthetic model result');
+        expect(manager.getActiveExecutionCount(b.id)).toBe(0);
+        expect(seen).toEqual([A, B]);
+        expect(toolCatalogs).toHaveLength(2);
+        expect(toolCatalogs[0]?.length).toBeGreaterThan(0);
+        const acpChildren = spawned.calls.filter((call) => call.args.includes('acp'));
+        expect(acpChildren).toHaveLength(2);
+        for (const child of acpChildren) {
+          expect(child.env['OPENAI_API_KEY']).toBeUndefined();
+          expect(child.env['DSH_HOME']).not.toBe(foreignHome);
+          expect(child.env['DSH_AGENTS_HOME']).toBe(join(child.env['DSH_HOME']!, 'agents'));
+          expect(JSON.stringify(child.env)).not.toContain(A);
+          expect(JSON.stringify(child.env)).not.toContain(B);
+        }
+        const tools = JSON.stringify(toolCatalogs);
+        for (const denied of ['working_directory', 'web_fetch', 'web_search', 'create_worktree']) {
+          expect(tools).not.toContain(`"name":"${denied}"`);
+        }
+      } finally {
+        resume.resolve();
+        await cowork.dispose();
+        await kit.stop();
+        await runtime.dispose();
+      }
+    },
+    240000,
+  );
+
   it.each(['connection', 'provider'] as const)(
     'TST-42 preserves actual account identity through Forget/re-entry and enforces %s diversity at execution',
     async (dimension) => {

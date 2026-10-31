@@ -166,7 +166,7 @@ export function inspectWindowsPackage(repoRoot, options = {}) {
         const manifest = JSON.parse(readFileSync(bundledDshManifestPath, 'utf8'));
         bundledDshExists = true;
         bundledDshVersion = manifest.version;
-        bundledDshMatches = manifest.version === '0.2.0-rc.2';
+        bundledDshMatches = manifest.version === '0.2.1-rc.5';
       } catch {
         // ignore
       }
@@ -439,6 +439,20 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
 
   // Windows Desktop stages
   if (isWindows) {
+    // Directly after installation, so a later mutation of the runtime breaks the seal rather than
+    // being sealed in. Hashing is not part of the installer's deadline.
+    stages.splice(stages.findIndex((stage) => stage.id === 'dsh-install') + 1, 0, {
+      id: 'dsh-artifact-seal',
+      name: 'Seal the verified DSH runtime artifact',
+      command: [
+        platformInfo.node.activeExec || 'node',
+        join(repoRoot, 'scripts', 'seal-dsh-runtime.mjs'),
+        options.dshDir || platformInfo.dsh.defaultInstallDir,
+      ],
+      timeoutMs: 300_000,
+      required: true,
+      env: childEnv,
+    });
     stages.push({
       id: 'cowork-isolation-wsl',
       name: 'Real isolated Cowork transport, cancellation, sessions and protected context',
@@ -461,7 +475,8 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
       name: 'Package Windows desktop installer (with bundled DSH runtime)',
       customRun: async (ctx) => {
         ctx.packageStartTime = Date.now();
-        return spawnSubprocess(pnpmCmd, ['desktop:package:win'], {
+        const artifact = options.dshDir || platformInfo.dsh.defaultInstallDir;
+        return spawnSubprocess(pnpmCmd, ['desktop:package:win', `--runtime-artifact=${artifact}`], {
           cwd: repoRoot,
           env: childEnv,
           timeoutMs: WINDOWS_PACKAGE_TIMEOUT_MS,
@@ -522,7 +537,7 @@ export function getStages(mode = 'quick', platformInfo, options = {}) {
             signal: null,
             durationMs: 0,
             stdout: '',
-            stderr: `Bundled DSH runtime validation failed: expected 0.2.0-rc.2, found ${pkgInfo.bundledDshVersion ?? 'missing'}.`,
+            stderr: `Bundled DSH runtime validation failed: expected 0.2.1-rc.5, found ${pkgInfo.bundledDshVersion ?? 'missing'}.`,
             error: new Error('Bundled DSH runtime mismatch'),
           };
         }

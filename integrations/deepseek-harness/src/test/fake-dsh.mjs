@@ -16,7 +16,7 @@ function setting(name, fallback) {
 }
 
 const mode = setting('mode', 'success');
-const version = setting('version', '0.2.0-rc.2');
+const version = setting('version', '0.2.1-rc.5');
 const recordPath = setting('record', undefined);
 const stderrText = setting('stderr', 'fatal: fake runtime crashed');
 

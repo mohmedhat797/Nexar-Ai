@@ -9,6 +9,7 @@ export const EXPECTED_STAGES = {
   windows_full: [
     'dependencies',
     'dsh-install',
+    'dsh-artifact-seal',
     'format-check',
     'lint',
     'boundaries',
@@ -164,10 +165,10 @@ export function aggregateCrossPlatformEvidence(windowsReport, linuxReport) {
   }
 
   if (
-    windowsReport.metadata?.dsh?.version !== '0.2.0-rc.2' ||
-    linuxReport.metadata?.dsh?.version !== '0.2.0-rc.2'
+    windowsReport.metadata?.dsh?.version !== '0.2.1-rc.5' ||
+    linuxReport.metadata?.dsh?.version !== '0.2.1-rc.5'
   ) {
-    reasons.push('DSH runtime version is not pinned 0.2.0-rc.2 on both platforms');
+    reasons.push('DSH runtime version is not pinned 0.2.1-rc.5 on both platforms');
   }
 
   if (reasons.length > 0) {
@@ -391,7 +392,7 @@ function renderMarkdownReport(data) {
   md += `| OS | ${m.os.platform} (${m.os.release}) ${m.os.arch} | Windows / Linux | Verified |\n`;
   md += `| Node.js | \`${m.node.version}\` (${m.node.execPath}) | \`v${m.node.pinnedMajor}.x\` (.nvmrc) | ${m.node.version.startsWith(`v${m.node.pinnedMajor}`) ? 'PASS' : 'WARN'} |\n`;
   md += `| pnpm | \`${m.pnpm.version}\` | \`${m.pnpm.expected}\` | ${m.pnpm.version === m.pnpm.expected ? 'PASS' : 'FAIL'} |\n`;
-  md += `| DSH Runtime | \`${m.dsh.package}@${m.dsh.version}\` | \`0.2.0-rc.2\` | ${m.dsh.lockMatches ? 'PASS' : 'FAIL'} |\n`;
+  md += `| DSH Runtime | \`${m.dsh.package}@${m.dsh.version}\` | \`0.2.1-rc.5\` | ${m.dsh.lockMatches ? 'PASS' : 'FAIL'} |\n`;
   md += `| Gitleaks | \`${m.gitleaks.version ?? 'none'}\` | \`8.28.0\` | ${m.gitleaks.version === '8.28.0' ? 'PASS' : 'BLOCKED'} |\n\n`;
 
   md += `## 2. Preflight Gates\n\n`;
@@ -454,7 +455,7 @@ function renderMarkdownReport(data) {
     md += `- **Size:** ${(data.packageArtifacts.sizeBytes / (1024 * 1024)).toFixed(2)} MB (${data.packageArtifacts.sizeBytes} bytes)\n`;
     md += `- **SHA256:** \`${data.packageArtifacts.sha256}\` (Byte match: ${data.packageArtifacts.shaMatchesActual ? 'VERIFIED' : 'UNVERIFIED'})\n`;
     md += `- **Signature:** ${data.packageArtifacts.signed ? 'Signed' : `NotSigned (${data.packageArtifacts.signatureStatus ?? 'per-user installer'})`}\n`;
-    md += `- **Bundled DSH Runtime:** ${data.packageArtifacts.bundledDshMatches ? 'Verified shipped 0.2.0-rc.2 under resources' : data.packageArtifacts.bundledDshExists ? `Mismatched version (${data.packageArtifacts.bundledDshVersion})` : 'Not found under resources'}\n\n`;
+    md += `- **Bundled DSH Runtime:** ${data.packageArtifacts.bundledDshMatches ? 'Verified shipped 0.2.1-rc.5 under resources' : data.packageArtifacts.bundledDshExists ? `Mismatched version (${data.packageArtifacts.bundledDshVersion})` : 'Not found under resources'}\n\n`;
   }
 
   md += `## 6. Parity with GitHub CI\n\n`;

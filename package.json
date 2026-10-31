@@ -19,6 +19,7 @@
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "desktop:e2e": "pnpm --filter @nexar/desktop e2e",
     "desktop:package:win": "pnpm --filter @nexar/desktop package:win",
+    "dsh:runtime": "node scripts/install-dsh-runtime.mjs .nexar/dsh-runtime && node scripts/seal-dsh-runtime.mjs .nexar/dsh-runtime",
     "cowork:wsl:provision": "node scripts/provision-wsl-cowork-helper.mjs",
     "ci:local:quick": "node scripts/local-ci/runner.mjs --mode=quick",
     "ci:local:full": "node scripts/local-ci/runner.mjs --mode=full",

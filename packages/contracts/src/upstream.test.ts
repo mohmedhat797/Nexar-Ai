@@ -263,7 +263,7 @@ describe('UI-01: Upstream Intelligence Foundation (18 Required Tests)', () => {
     const manifestPath = resolve(__dirname, '../../../config/upstreams.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as UpstreamManifest;
     const dsh = manifest.upstreams.find((u) => u.upstreamId === 'deepseek-harness');
-    expect(dsh?.currentRuntimePin).toBe('@deepseek-ai/dsh@0.2.0-rc.2');
+    expect(dsh?.currentRuntimePin).toBe('@deepseek-ai/dsh@0.2.1-rc.5');
   });
 
   // 15. No credential fields in the manifest
@@ -279,7 +279,7 @@ describe('UI-01: Upstream Intelligence Foundation (18 Required Tests)', () => {
           discoveryAdapterKind: 'npm-registry',
           allowedReleaseChannel: 'prerelease',
           approvedSourceReference: 'ref',
-          currentRuntimePin: '@deepseek-ai/dsh@0.2.0-rc.2',
+          currentRuntimePin: '@deepseek-ai/dsh@0.2.1-rc.5',
           apiToken: 'SECRET_CANARY_VALUE', // LEAK!
           adrs: ['ADR-030'],
           lastApprovedEvidence: {
@@ -297,30 +297,27 @@ describe('UI-01: Upstream Intelligence Foundation (18 Required Tests)', () => {
   });
 
   // 16. Exact DSH pin preservation
-  it('16. strictly preserves the accepted DeepSeek Harness pin @deepseek-ai/dsh@0.2.0-rc.2', () => {
+  it('16. permits only the owner-authorized DeepSeek Harness pin @deepseek-ai/dsh@0.2.1-rc.5', () => {
     const manifestPath = resolve(__dirname, '../../../config/upstreams.json');
     const manifest = validateUpstreamManifest(JSON.parse(readFileSync(manifestPath, 'utf8')));
     const dsh = manifest.upstreams.find((u) => u.upstreamId === 'deepseek-harness');
 
     expect(dsh).toBeDefined();
     expect(dsh?.role).toBe('runtime-dependency');
-    expect(dsh?.currentRuntimePin).toBe('@deepseek-ai/dsh@0.2.0-rc.2');
+    expect(dsh?.currentRuntimePin).toBe('@deepseek-ai/dsh@0.2.1-rc.5');
     expect(dsh?.adrs).toContain('ADR-030');
-    expect(dsh?.compatibilityState).toBe('COMPATIBLE');
+    expect(dsh?.compatibilityState).toBe('EVALUATED');
 
     // Attempting to mutate DSH pin without governance fails manifest validation
-    const tampered = {
-      ...manifest,
-      upstreams: [
-        {
-          ...dsh!,
-          currentRuntimePin: '@deepseek-ai/dsh@0.3.0',
-        },
-      ],
-    };
-    expect(() => validateUpstreamManifest(tampered)).toThrow(
-      'Accepted DSH pin must remain @deepseek-ai/dsh@0.2.0-rc.2',
-    );
+    for (const version of ['0.2.1-rc.3', '0.2.1-rc.4', '0.2.2-alpha.2']) {
+      const tampered = {
+        ...manifest,
+        upstreams: [{ ...dsh!, currentRuntimePin: `@deepseek-ai/dsh@${version}` }],
+      };
+      expect(() => validateUpstreamManifest(tampered)).toThrow(
+        'DSH pin must match the owner-authorized @deepseek-ai/dsh@0.2.1-rc.5',
+      );
+    }
   });
 
   // 17. T3 reference-only behavior

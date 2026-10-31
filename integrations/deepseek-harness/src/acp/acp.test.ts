@@ -672,6 +672,7 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     ]);
     expect(spec.env).toEqual({
       DSH_HOME: '/home/agent/.dsh',
+      DSH_AGENTS_HOME: '/home/agent/.dsh/agents',
       DSH_TELEMETRY_DISABLED: '1',
       DEEPSEEK_API_KEY: 'sk-test-key-123',
     });
@@ -692,7 +693,11 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     });
     await t.run();
     const spec = t.launcher.specs[0] as LaunchSpec;
-    expect(spec.env).toEqual({ DSH_HOME: '/home/agent/.dsh', DSH_TELEMETRY_DISABLED: '1' });
+    expect(spec.env).toEqual({
+      DSH_HOME: '/home/agent/.dsh',
+      DSH_AGENTS_HOME: '/home/agent/.dsh/agents',
+      DSH_TELEMETRY_DISABLED: '1',
+    });
     expect(spec.network).toEqual({ mode: 'proxy', allowHosts: ['example.test'] });
   });
 
@@ -710,6 +715,7 @@ describe('ACP engineering path: protocol, lifecycle and errors', () => {
     const spec = t.launcher.specs[0] as LaunchSpec;
     expect(spec.env).toEqual({
       DSH_HOME: '/home/agent/.dsh',
+      DSH_AGENTS_HOME: '/home/agent/.dsh/agents',
       DSH_TELEMETRY_DISABLED: '1',
       DEEPSEEK_API_KEY: stored,
     });

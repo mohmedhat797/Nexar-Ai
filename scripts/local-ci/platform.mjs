@@ -177,7 +177,7 @@ export function getNodeInfo(customNodeBin = null) {
   // Probe candidates if current version does not match
   const candidates = [
     process.env.NEXAR_NODE_BIN,
-    'D:\\Nexar-Ai-nxr070\\.nexar\\research-toolchain\\node-v22.23.3-win-x64\\node.exe',
+    'D:\\Nexar-Toolchains\\node-v22.23.3-win-x64\\node.exe',
     join(
       REPO_ROOT,
       '.nexar',
@@ -291,6 +291,7 @@ export function getGitleaksInfo(customGitleaksBin = null) {
       `gitleaks-${expectedVersion}`,
       process.platform === 'win32' ? 'gitleaks.exe' : 'gitleaks',
     ),
+    'D:\\Nexar-Toolchains\\gitleaks-8.28.0\\gitleaks.exe',
     'D:\\Nexar-Ai-main\\.nexar\\gitleaks-8.28.0\\gitleaks.exe',
     'gitleaks',
   ].filter(Boolean);
@@ -346,7 +347,7 @@ export function getDshInfo() {
     'dsh-runtime.package-lock.json',
   );
 
-  let pin = { package: '@deepseek-ai/dsh', version: '0.2.0-rc.2' };
+  let pin = { package: '@deepseek-ai/dsh', version: '0.2.1-rc.5' };
   if (existsSync(pinPath)) {
     try {
       pin = JSON.parse(readFileSync(pinPath, 'utf8'));

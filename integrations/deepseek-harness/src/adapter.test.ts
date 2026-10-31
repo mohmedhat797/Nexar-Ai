@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ExecutionEvent, ResourceDescriptor, SecretResolver } from '@nexar/contracts';
 import { NexarError, adapterId } from '@nexar/contracts';
-import { DeepSeekHarnessExecutionAdapter } from './adapter.js';
+import { DEFAULT_INITIALIZE_TIMEOUT_MS, DeepSeekHarnessExecutionAdapter } from './adapter.js';
 import { DSH_PINNED_VERSION, deepseekHarnessResource } from './resource.js';
 import { fakeBinary, makeContext, makeTask, makeTempDir, readRecord } from './test/support.js';
 import type { LogLine } from './test/support.js';
@@ -30,6 +30,10 @@ function setup(settings: Record<string, string> = {}, extra: { env?: NodeJS.Proc
 }
 
 describe('DeepSeekHarnessExecutionAdapter.execute', () => {
+  it('allows a cold runtime start the same 90 s as the local ACP path', () => {
+    expect(DEFAULT_INITIALIZE_TIMEOUT_MS).toBe(90_000);
+  });
+
   it('runs a task end to end and maps text, usage and resolved info', async () => {
     const { dir, recordPath, stateDir, adapter } = setup();
     const events: ExecutionEvent[] = [];
@@ -42,8 +46,8 @@ describe('DeepSeekHarnessExecutionAdapter.execute', () => {
     expect(result.text).toBe('final answer');
     expect(result.resolved).toEqual({
       provider: 'deepseek-official',
-      model: 'deepseek-v4-flash',
-      runtimeVersion: 'deepseek-harness-sdk-runtime@0.2.0-rc.2',
+      model: 'deepseek-flash',
+      runtimeVersion: 'deepseek-harness-sdk-runtime@0.2.1-rc.5',
     });
     expect(result.usage.inputTokens).toEqual({ status: 'measured', value: 30 });
     expect(result.usage.outputTokens).toEqual({ status: 'measured', value: 12 });
@@ -72,7 +76,7 @@ describe('DeepSeekHarnessExecutionAdapter.execute', () => {
     expect(init?.params).toEqual({
       cwd: dir,
       provider: 'deepseek-official',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
     });
     expect(record.requests.map((r) => r.method)).toEqual([
       'initialize',
@@ -405,7 +409,7 @@ describe('DeepSeekHarnessExecutionAdapter.probe', () => {
   it('reports degraded on a version mismatch', async () => {
     const state = await prober({ version: '0.3.0' }).probe(deepseekHarnessResource(), signal);
     expect(state.availability).toBe('degraded');
-    expect(state.detail).toBe('dsh 0.3.0 (expected 0.2.0-rc.2)');
+    expect(state.detail).toBe('dsh 0.3.0 (expected 0.2.1-rc.5)');
   });
 
   it('reports unauthenticated when the credential env var is absent', async () => {

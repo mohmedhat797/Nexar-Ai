@@ -184,6 +184,8 @@ export interface ControlKitOptions {
   /** `[resource id, provider]` pairs; each provider is its own connection. Default: `res-a`, `res-b`. */
   readonly resources?: readonly (readonly [string, string])[];
   readonly turn?: TurnHandler;
+  /** Use production connection-aware composition instead of this kit's synthetic candidates. */
+  readonly gateway?: ControlModelGateway;
 }
 
 /** A real BridgeHost + Control Model Gateway + translator child over a fake model port. */
@@ -199,27 +201,29 @@ export function controlKit(options: ControlKitOptions): ControlKit {
   const events: ControlEvent[] = [];
   const handler: TurnHandler = options.turn ?? ((_resource, request) => writeThenAnswer(request));
   let n = 0;
-  const gateway = new ControlModelGateway({
-    ports: (descriptor) => ({
-      turn: (request) => {
-        turns.push({ resource: descriptor.id, request });
-        return Promise.resolve(handler(descriptor.id, request));
+  const gateway =
+    options.gateway ??
+    new ControlModelGateway({
+      ports: (descriptor) => ({
+        turn: (request) => {
+          turns.push({ resource: descriptor.id, request });
+          return Promise.resolve(handler(descriptor.id, request));
+        },
+      }),
+      candidates: () => resources.map(([id, provider]) => modelSnapshot(id, provider)),
+      policy: new ResourceIntelligencePolicy({
+        taskKinds: DEFAULT_TASK_KIND_RULES,
+        settings: DEFAULT_RESOURCE_INTELLIGENCE_SETTINGS,
+      }),
+      clock: () => new Date('2026-03-01T12:00:00.000Z'),
+      newId: () => `dec-${String(++n)}`,
+      logger,
+      retries: 0,
+      onEvent: (event) => {
+        events.push(event);
+        hostRef.current?.noteControlEvent(event);
       },
-    }),
-    candidates: () => resources.map(([id, provider]) => modelSnapshot(id, provider)),
-    policy: new ResourceIntelligencePolicy({
-      taskKinds: DEFAULT_TASK_KIND_RULES,
-      settings: DEFAULT_RESOURCE_INTELLIGENCE_SETTINGS,
-    }),
-    clock: () => new Date('2026-03-01T12:00:00.000Z'),
-    newId: () => `dec-${String(++n)}`,
-    logger,
-    retries: 0,
-    onEvent: (event) => {
-      events.push(event);
-      hostRef.current?.noteControlEvent(event);
-    },
-  });
+    });
   let g = 0;
   const real = new BridgeHost({
     allocator: {

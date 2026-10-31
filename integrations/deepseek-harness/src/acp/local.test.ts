@@ -183,6 +183,7 @@ describe('runLocalAcpSession', () => {
         'HOME',
         'USERPROFILE',
         'DSH_HOME',
+        'DSH_AGENTS_HOME',
         'DSH_PERMISSION_MODE',
         'DSH_TELEMETRY_DISABLED',
         'NEXAR_CONTROL_TOKEN',
@@ -193,7 +194,13 @@ describe('runLocalAcpSession', () => {
       expect(record.envKeys).not.toContain(forbidden);
     }
     expect(record.envKeys).toEqual(
-      expect.arrayContaining(['DSH_HOME', 'NEXAR_CONTROL_TOKEN', 'HOME', 'USERPROFILE']),
+      expect.arrayContaining([
+        'DSH_HOME',
+        'DSH_AGENTS_HOME',
+        'NEXAR_CONTROL_TOKEN',
+        'HOME',
+        'USERPROFILE',
+      ]),
     );
     expect(record.tokenLeakedInto).toEqual([]);
     expect(record.dshHome).toBe(t.home);
