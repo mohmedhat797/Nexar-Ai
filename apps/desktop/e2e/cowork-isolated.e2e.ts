@@ -13,6 +13,8 @@ import {
 
 const command = process.env['NEXAR_SEC02_WSL_COMMAND'];
 const env = { NEXAR_DESKTOP_TEST_WSL_COWORK: '1' };
+// GitHub-hosted runners have no provisioned plane. Everywhere else a missing plane stays a failure.
+const NO_PLANE = process.env['RUNNER_ENVIRONMENT'] === 'github-hosted';
 let h: Harness;
 const models: FakeModel[] = [];
 beforeAll(async () => {
@@ -54,7 +56,8 @@ describe.skipIf(process.platform !== 'win32')('SEC02 Desktop with actual isolate
     }
     return { userData, control };
   }
-  it('creates an artifact through NRC, continues the canonical session, and restores it after restart', async () => {
+  it('creates an artifact through NRC, continues the canonical session, and restores it after restart', async (ctx) => {
+    if (NO_PLANE) ctx.skip();
     const script = {
       kind: 'write' as const,
       file: 'proposal.md',
@@ -118,7 +121,8 @@ describe.skipIf(process.platform !== 'win32')('SEC02 Desktop with actual isolate
     await hasText(page.getByTestId('artifact-card').last(), 'proposal.md');
     await h.close(app);
   }, 240_000);
-  it('delegates through the isolated MCP relay and the existing authorized bridge', async () => {
+  it('delegates through the isolated MCP relay and the existing authorized bridge', async (ctx) => {
+    if (NO_PLANE) ctx.skip();
     const { userData } = await seed('isolated-delegate', true);
     const { app, page } = await h.launch(userData, env);
     await addProject(app, page, h.projectDir);
