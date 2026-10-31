@@ -1,6 +1,6 @@
 # DSH rc.5 compatibility and upgrade delta
 
-Date: 31 October 2026. Tested source: `cb4e2bb4d76106144abdf45ea0a96c92702e4bb3`, tree `45827efd71307f9570c98413a83da27e0fe14db2`. Only documentation changed after it. **Verdict: NXR070_DSH_RC5_READY_FOR_INDEPENDENT_ACCEPTANCE.** Nothing was merged, and this is the implementer's own verification.
+Date: 31 October 2026. Tested source: `cb4e2bb4d76106144abdf45ea0a96c92702e4bb3`, tree `45827efd71307f9570c98413a83da27e0fe14db2`. After it, only documentation and the adapter's default startup limit changed; see [Real provider check](#real-provider-check). **Verdict: NXR070_DSH_RC5_READY_FOR_INDEPENDENT_ACCEPTANCE.** Nothing was merged, and this is the implementer's own verification.
 
 Authority: [version amendment](../adr/030-version-amendment-dsh-021-rc5.md) and [dependency amendment](../adr/030-dependency-security-amendment-dsh-021-rc5.md). rc.3 was never accepted or released, and its reports stay as history.
 
@@ -10,7 +10,7 @@ The exact pin is now `@deepseek-ai/dsh@0.2.1-rc.5`. rc.3 really does break Nexar
 
 What this does not show:
 
-- **No real provider ran.** Every model turn used a local fake server, by policy.
+- **Real provider coverage is narrow.** The acceptance gates used a local fake server. The owner then authorized one real DeepSeek check through the adapter, recorded below. It did not cover `nexar run`, the desktop app or the Cowork gateway route.
 - **No clean-machine NSIS install ran.** Installing here would risk your personal Nexar installation.
 - **The hosted run for this exact head was still pending when this report was written.** The PR description carries the result.
 - **Independent acceptance is still yours.**
@@ -90,7 +90,40 @@ New test: `integrations/deepseek-harness/src/acp/stdout-integrity.real.test.ts`.
 | Canonical session persistence | Not tested directly with reasoning. Nexar persists from the result, which excludes it, and session-store code is unchanged |
 | DSH native UI                 | Not imported                                                                                                               |
 
-**Limit:** the signature format came from the upstream code, not from a real DeepSeek response.
+**Limit:** the signature format came from the upstream code, not from a real DeepSeek response. The real check below does not change that.
+
+## Real provider check
+
+On 31 October 2026 the owner ran a real check from their own terminal with their DeepSeek key, on the rc.5 runtime in this checkout and the `deepseek-v4-flash` model. A script drove `DeepSeekHarnessExecutionAdapter` directly with the SDK profile. A pass-through recorder kept frame shapes only, never content. The script and reports stay in the git-ignored `.nexar/real-provider-test`. The source was `de270f2`, before the startup limit changed.
+
+| Turn                     | First run                        | Rerun                                                |
+| ------------------------ | -------------------------------- | ---------------------------------------------------- |
+| Plain reply              | Timed out on `initialize`, 15 s  | PASS, 3.1 s                                          |
+| Reasoning effort `high`  | Timed out on `initialize`, 15 s  | PASS, 3.3 s                                          |
+| File read, effort `high` | PASS, 12.9 s, used the read tool | PASS, 4.6 s, used the read tool                      |
+| Tokens across the run    | 9,841 in, 72 out, 9,472 cached   | 8,646 in, 96 out, 29,824 cached; DSH reports no cost |
+
+| Check                   | Result in the rerun                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| Stdout is protocol only | 74 frames across the three turns, zero non-JSON lines                                              |
+| Reasoning events        | Parsed without error on every turn; a `reasoning-chunks` event appeared on the reasoning turn only |
+| Reasoning in the result | Result text held only the answer                                                                   |
+| Reasoning saved         | None in the saved session or session cache. The session file holds only its header                 |
+| Key exposure            | Absent from logs, results and saved files, including the decompressed sessions                     |
+
+What this settles: real traffic works through the overridden undici and Zod for these three turns, including one tool round trip.
+
+What it does not settle:
+
+- **Reasoning content:** the recorder kept no text sizes or signatures, and output token counts were low. A signed `reasoning_content` round trip is still proven only against the local fake.
+- **Other routes:** on the Cowork route, the runtime talks to Nexar's local gateway, and Nexar makes the provider call. That route had no real traffic.
+- **Other runtimes:** Claude, Codex and Antigravity sign-ins were not exercised.
+
+### Startup limit
+
+The two first-run timeouts did not recur. Nine later `initialize` timings with no credential took about 1.5 s each, including fresh homes. A slow first load from cold disk fits this, but the cause is **not proven** because that state could not be recreated. The 15 s limit dates from the adapter's first commit, so rc.5 did not introduce it.
+
+The adapter's default is now 90 s, matching the local ACP path's default. Ordinary tasks and engineering lanes both use it, so a hung runtime now takes up to 90 s to fail at startup, instead of 15 s. Windows Full, WSL Full and the real check were not repeated for this one constant. `pnpm check` and hosted CI cover it, and the PR description carries their result.
 
 ## Credential security
 
@@ -189,8 +222,8 @@ Rollback ran in disposable state against rc.2 (`f8fde29`), because rc.3 was neve
 
 ## Remaining risks
 
-1. Overridden undici and Zod have not met real provider traffic. Recommendation: monitor the first real use.
-2. `reasoning_content` with a signature has not been seen from a real provider.
+1. Overridden undici and Zod have met real provider traffic only in the three adapter turns above. Recommendation: monitor first use through `nexar run` and the desktop app.
+2. `reasoning_content` with a signature has not been confirmed from a real provider.
 3. rc.5 is a pre-release, and its native credential mechanism still needs Nexar's overlay.
 4. The package stage has a thin margin.
 5. No clean-machine NSIS install, no code signing, no native Ubuntu run.
@@ -202,4 +235,4 @@ Record only. Any adoption needs a new owner decision. Points to assess: Node 24.
 
 ## Final source
 
-Tested source: `cb4e2bb4d76106144abdf45ea0a96c92702e4bb3`. The documentation commit on top is named in the PR description, since a file cannot contain its own commit hash.
+Tested source: `cb4e2bb4d76106144abdf45ea0a96c92702e4bb3`. The commits on top are named in the PR description, since a file cannot contain its own commit hash.

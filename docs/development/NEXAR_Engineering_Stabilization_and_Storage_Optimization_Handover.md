@@ -66,15 +66,15 @@ Main is unchanged. There was no merge, force-push or history rewrite.
 
 ## 10. Remaining blockers and limits
 
-| Item                       | Owner action or status                                                                                          |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Independent acceptance     | **Yours.** This is the implementer's own verification                                                           |
-| Hosted CI                  | **Green** on PRs #44, #45, the maintenance PR and PR #46's rc.3-pinned parent. rc.5 result: see the PR          |
-| Live provider traffic      | Not run, by policy. ACP tests use a local fake model                                                            |
-| Package stage margin       | Local: 910–1,692 s against a 1,500 s envelope, 1,388 s in the rc.5 run. Hosted step: 212 s. Envelope not raised |
-| Clean-machine NSIS install | Not performed; would risk your real installation on this machine                                                |
-| Historical 180 s cause     | Correlated, not proven                                                                                          |
-| Local branch `wip/v06`     | 36 unpushed commits; preserved, please decide                                                                   |
+| Item                       | Owner action or status                                                                                                                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Independent acceptance     | **Yours.** This is the implementer's own verification                                                                                                                                                      |
+| Hosted CI                  | **Green** on PRs #44, #45, the maintenance PR and PR #46's rc.3-pinned parent. rc.5 result: see the PR                                                                                                     |
+| Live provider traffic      | One owner-run DeepSeek check passed through the adapter; `nexar run`, desktop and Cowork routes not covered. See the [delta report](NXR070_DSH_RC5_Compatibility_and_Upgrade_Delta.md#real-provider-check) |
+| Package stage margin       | Local: 910–1,692 s against a 1,500 s envelope, 1,388 s in the rc.5 run. Hosted step: 212 s. Envelope not raised                                                                                            |
+| Clean-machine NSIS install | Not performed; would risk your real installation on this machine                                                                                                                                           |
+| Historical 180 s cause     | Correlated, not proven                                                                                                                                                                                     |
+| Local branch `wip/v06`     | 36 unpushed commits; preserved, please decide                                                                                                                                                              |
 
 Hosted results after the fixes (run 41144284645 at `c357590` on PR #46; run 41143789384 at `7488502` on the maintenance PR, whose three checks all pass):
 
@@ -100,7 +100,7 @@ Earlier failures (30 October, runs 41073887311 and 41074704254) and what fixed t
 
 ## 11. Recommended next milestone
 
-Review and accept this stack, and merge B′→C′→upgrade in order. Watch the first real provider use on rc.5. Measure NSIS compression if the local package stage keeps approaching its envelope.
+Review and accept this stack, and merge B′→C′→upgrade in order. Watch the first real use of rc.5 through `nexar run` and the desktop app. Measure NSIS compression if the local package stage keeps approaching its envelope.
 
 ## Verdicts
 

@@ -20,6 +20,6 @@ The `@modelcontextprotocol/core` override from rc.3 is removed: dropping it leav
 ## Consequences
 
 - The runtime is not byte-equivalent to upstream's own resolution of rc.5. Its identity is the pin plus this lock.
-- Upstream declares these as exact dependencies, so compatibility is Nexar's verified claim. Real provider traffic has not exercised it.
+- Upstream declares these as exact dependencies, so compatibility is Nexar's verified claim. One owner-run DeepSeek check exercised it through the adapter; see the [delta report](../development/NXR070_DSH_RC5_Compatibility_and_Upgrade_Delta.md#real-provider-check).
 - The rc.3 record listed six advisories, but the same data has eleven. See the correction in the [delta report](../development/NXR070_DSH_RC5_Compatibility_and_Upgrade_Delta.md).
 - Re-evaluate each override on any DSH version change, and remove it where upstream has moved past it.
