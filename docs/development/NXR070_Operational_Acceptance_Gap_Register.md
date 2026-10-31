@@ -1,0 +1,43 @@
+# NXR-070 operational acceptance gap register
+
+These items are not proven by automated acceptance of `c97136b`. None blocks NXR-070D′ development. L1–L8 and G-01 to G-03 stand between this baseline and any release.
+
+## Open gaps
+
+| ID   | Gap                                                                                                                                      | Severity | Blocks                    | Action                                                                                      |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------- | ------------------------------------------------------------------------------------------- |
+| G-01 | Clean-machine NSIS install has not been run                                                                                              | High     | Release                   | Owner scenario L7                                                                           |
+| G-02 | Installer is not code-signed                                                                                                             | High     | Public release            | Owner decides on a signing certificate                                                      |
+| G-03 | No real-account traffic on this commit through `nexar run`, Desktop routing or Cowork                                                    | High     | Release                   | Owner scenarios L1–L6                                                                       |
+| G-04 | ADR-029 and the execution plan describe "feature flag off" rollback, but no flag exists                                                  | Medium   | D′ start                  | Owner decision, see the [D′ package](NXR070D_Implementation_Readiness_Package.md) section L |
+| G-05 | Native Ubuntu Full has not been run. Hosted Ubuntu runs the normal check only, and WSL2 is a different environment                       | Medium   | Linux release             | Run Full on a native Ubuntu host                                                            |
+| G-06 | The WSL wall clock jumps about 2 s every 32 s, and drifted 14.8 s ahead of the monotonic clock in 300 s                                  | Low      | Nothing now               | Tests corrected. Review Plane code that measures elapsed time with `Date.now`               |
+| G-07 | Packaging takes 1,376 s against a 1,500 s limit. Electron Builder takes 851 s and artifact staging 468 s                                 | Medium   | Local CI stability        | Investigate staging and compression. Do not raise the limit first                           |
+| G-08 | Signed `reasoning_content` round trip is proven only against the fake provider                                                           | Low      | Nothing now               | Keep the sizes and signature presence in a future real check                                |
+| G-09 | The first Windows start took 16.7 s. The cause of the slow first load is not isolated, and a real runtime hanging at startup is untested | Low      | Nothing now               | Keep recording timings. Reopen only on a reproducible failure                               |
+| G-10 | Five opt-in live tests were not run                                                                                                      | Info     | Nothing                   | Run only with owner authorization                                                           |
+| G-11 | Stale `openworker-0.3.0` entry on the user PATH                                                                                          | Low      | Nothing                   | Owner may remove it                                                                         |
+| G-12 | A DeepSeek key was exposed in an agent transcript and terminal earlier                                                                   | High     | Nothing in the repository | Owner revokes the key if not already done                                                   |
+
+**G-13: the installed Plane is out of date (High, blocks L4 and L5).** On this machine, `nexar-plane`'s default command, `/usr/local/bin/nexar`, starts an older Nexar build from `~/src/Nexar-Ai`, and `/opt/dsh` holds `0.2.0-rc.2`. Current code refuses it with `unsupported-version`, so Cowork through the default Plane will fail closed until the Plane is updated. All WSL results in this acceptance used isolated checkouts at the tested commit and a candidate helper, not this install. For the same reason, a plain `pnpm check` on this Windows host fails 5 tests in `wsl-cowork.real.test.ts`, as designed, unless `NEXAR_SEC02_WSL_*` points at a current helper. No documented upgrade procedure was found. The Plane was not updated, because that is a deployment on the owner's environment.
+
+**Corrected in this work:** three timing assertions used the wall clock. See [integration acceptance](NXR070_Post_Merge_Integration_Acceptance.md).
+
+## Owner-operated acceptance matrix
+
+Every scenario is **pending**. None has run on this commit, and none should be reported as passed from automated evidence. Real sign-ins and paid requests need the owner to act (OD-12).
+
+Run every scenario under a separate Windows user account, or in a virtual machine for L7, so your installed Nexar and its profile are not touched. Do not use `NEXAR_DESKTOP_USER_DATA`: it is a test-only override that also enables test hooks. Never paste keys into chat or a report.
+
+| ID  | Scenario             | Steps                                                                                                               | Pass when                                                                                              | Cost and access          |
+| --- | -------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------ |
+| L1  | Multiple API keys    | Add two keys for one provider as separate connections. Pin a resource from each and run a small prompt on each      | Each run's provider dashboard shows use on its own key only; connection names stay the same            | Small paid use, two keys |
+| L2  | Provider execution   | With no pin, run a small task. Open the route explanation                                                           | The NRC explains the selection, and the result and usage appear                                        | Small paid use           |
+| L3  | Credential isolation | Rotate A. Run on B, then on A. Set a wrong key in the terminal environment before launch                            | The environment key is unused; rotation changes only A; no key appears in logs under `<appData>/Nexar` | Small paid use           |
+| L4  | Cowork               | On a test project, ask Cowork to draft a file. Approve it. Then ask for a write outside the project                 | The draft appears as an artifact; the outside write is denied                                          | Small paid use, WSL      |
+| L5  | Review diversity     | On WSL, run an engineering task with `connection` diversity required, first with two connections and then with one  | Two: the reviewer uses the other connection. One: it fails explicitly with no downgrade                | Paid use, Plane          |
+| L6  | Session continuity   | Run a session with a memorable fact. Quit and restart. Continue it                                                  | The session and Project Memory are intact and the fact is used                                         | Small paid use           |
+| L7  | Desktop installation | In a disposable Windows environment, check the installer's SHA-256 against the manifest. Install, launch, uninstall | Starts with the bundled DSH; uninstall leaves no running process                                       | No provider cost         |
+| L8  | Runtime reliability  | Cold boot, launch, cancel a running turn, quit during a turn, launch again                                          | Startup under 90 s; no leftover process in Task Manager; the session stays readable                    | Small paid use           |
+
+Record results as pass, fail or not run, with commit, date and the installer hash. Leave out keys and account names.

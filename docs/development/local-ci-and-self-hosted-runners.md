@@ -6,6 +6,8 @@ This guide describes how to run and configure the **Nexar Local CI** infrastruct
 
 ## 1. Overview & Architecture
 
+Hosted CI is currently running: run `41225379130` passed on `c97136b` on 31 October 2026. Local CI still covers what hosted runners do not, including packaged E2E and the WSL Plane.
+
 GitHub Actions included billing minutes on private repositories can be exhausted (e.g. 3,000 / 3,000 minutes limit reached). When GitHub-hosted runners are blocked, development cannot rely on hosted CI runs.
 
 Nexar Local CI provides a unified, cross-platform validation orchestrator that executes the exact quality gates locally on developer workstations or dedicated self-hosted runners.

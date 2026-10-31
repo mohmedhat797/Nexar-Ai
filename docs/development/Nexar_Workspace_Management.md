@@ -1,5 +1,7 @@
 # Nexar workspace management
 
+Current measurements and registered worktrees: [environment verification, 31 October 2026](NXR070_Development_Environment_Verification.md). The toolchain lives in `D:\Nexar-Toolchains`.
+
 `D:\Nexar-Ai-main` is the canonical repository and checkout of accepted `main`.
 Use `git fetch origin` and fast-forward-only updates after checking status and preserving
 local branches. Never merge a feature PR to perform maintenance.
