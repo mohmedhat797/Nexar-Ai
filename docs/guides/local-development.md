@@ -60,7 +60,7 @@ pnpm build
 
 `pnpm install` downloads Electron. If the app later says Electron is missing, the start and E2E
 scripts fetch it automatically; you can also run
-`node node_modules/.pnpm/electron@44.10.1/node_modules/electron/install.js`.
+`node node_modules/.pnpm/electron@44.5.1/node_modules/electron/install.js`.
 
 ## 3. Run it
 

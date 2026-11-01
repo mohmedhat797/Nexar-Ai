@@ -126,7 +126,7 @@ Required for pull requests and release candidate acceptance.
 pnpm ci:local:full
 ```
 
-Runs a 16-entry stage manifest across static quality, offline tests, production build, CLI smoke, source desktop E2E, Windows packaging, fresh packaged E2E, Linux sandbox checks, and Gitleaks. Required stages depend on platform: Windows Full PASS means all 15 Windows stages passed and the Linux-only stage is BLOCKED/optional, not 16 successful executions. Linux sandbox is mandatory on Linux. Interrupted/preflight-failed runs, missing required stages, stale artifacts or unsupported Node cannot establish acceptance.
+Runs the platform-specific manifest in `scripts/local-ci/stages.mjs` across static quality, offline tests, production build, CLI smoke, source desktop E2E, Windows packaging, fresh packaged E2E, Linux sandbox checks, and Gitleaks. Windows currently has 18 entries: all 17 required Windows stages must pass, while the Linux-only stage is BLOCKED/optional. Linux has 14 required stages, including the native sandbox gate. These are different execution manifests, not identical coverage. Interrupted/preflight-failed runs, missing required stages, stale artifacts or unsupported Node cannot establish acceptance.
 
 Result: `NEXAR_WINDOWS_FULL_PASS` (Windows), `NEXAR_LINUX_FULL_PASS` (Native Linux), `NEXAR_LINUX_WSL2_PASS` (WSL2), or `NEXAR_WINDOWS_FULL_FAIL` / `NEXAR_WINDOWS_FULL_BLOCKED`. Cross-platform aggregation evaluates both into `NEXAR_CROSS_PLATFORM_ACCEPTANCE_PASS` or `NEXAR_CROSS_PLATFORM_ACCEPTANCE_INCOMPLETE`.
 

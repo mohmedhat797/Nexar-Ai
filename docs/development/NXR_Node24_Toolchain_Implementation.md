@@ -6,10 +6,12 @@ Status: implementation and staged acceptance. [Final outcomes](NXR_Node24_Electr
 
 - Development Node: `.nvmrc` = `24.22.2`; `package.json` engine `>=24.22.2 <25`.
 - Package manager: existing `packageManager: pnpm@10.33.0`; no upgrade.
-- Desktop: exact Electron 44.10.1 in `apps/desktop/package.json`/workspace lock.
+- Desktop: accepted Electron 44.5.1 retained consistently across package/lock, Builder config and packaging guard. The 44.10.1 security candidate is blocked by a reproduced loader incompatibility, not shipped.
 - Managed DSH: unchanged `dsh-runtime.json` and runtime lock at rc.5.
 
 Local CI reads a strict full version from `.nvmrc`. Explicit `--node-bin` or `NEXAR_NODE_BIN` overrides are probed with a deadline and fail closed without fallback. Otherwise the exact running executable or version-derived stable candidates are selected. The orchestrator re-executes on the verified selected runtime when necessary, and stage PATH begins with that runtime. Report eligibility checks the exact version, never a major prefix. Full acceptance cannot waive mismatch. `scripts/verify-toolchain.mjs` verifies actual Node and pnpm in hosted/self-hosted jobs.
+
+Successful executable probes are canonicalized before relaunch decisions. A junction/symlink alias cannot cause the orchestrator to relaunch itself indefinitely; a real linked-directory regression tests this path. Invalid explicit overrides still fail closed. Local-CI focused tests now total 37 passed, plus 13 Linux acceptance-input tests.
 
 ## Verified artifacts
 
@@ -39,6 +41,8 @@ On Linux select the versioned `bin` directory in the invocation's PATH. Do not r
 
 ## Workspace and rollback
 
-The managed worktree API created this checkout under `%USERPROFILE%\.codex\worktrees\nxr-node24-electron44\Nexar-Ai-main`, sharing the canonical repository's Git objects. The API cannot choose the requested D: destination. Ignored state/release junctions and a private virtual store under `D:\Nexar-Ai-main\.nexar\node24-migration` keep large outputs on D:. They are independent of D′ and of main's node_modules. No full repository clone or shared dependency-tree replacement occurred.
+The managed worktree API created this checkout under `%USERPROFILE%\.codex\worktrees\nxr-node24-electron44\Nexar-Ai-main`, sharing the canonical repository's Git objects. The API cannot choose the requested D: destination. Ignored state and a private virtual store under `D:\Nexar-Ai-main\.nexar\node24-migration` keep dependencies/runtime logs on D:. Sealing uses the canonical runtime directory, because the existing guard correctly rejects a junction alias. Packaging output must have plain ancestors: the unused owned release junction was unlinked without deleting its D: target, and `release/` is a plain worktree directory. No security guard was relaxed. State/dependencies are independent of D′ and main's node_modules. No full repository clone or shared dependency-tree replacement occurred.
 
 Rollback selects the previous exact source/lock and old Node executable in a disposable environment. Reverting configuration does not remove connections, native homes, canonical sessions or confirmed memory. No real Desktop downgrade or Plane deployment is part of this work. Actual rollback evidence is required in the final acceptance report.
+
+Observed rollback proof: old Node 22.23.3 ran accepted main's CLI help with exit 0. A synthetic canonical session and owner-confirmed memory record created by that baseline were read by the Node 24 candidate and read again by Node 22 with identical file SHA-256 values. This fixture does not inspect real owner records and does not claim an installed-application downgrade test.

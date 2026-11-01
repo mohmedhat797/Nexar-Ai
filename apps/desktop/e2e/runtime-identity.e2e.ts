@@ -19,9 +19,11 @@ it('runs the reviewed Electron and embedded Node in the actual main process', as
   const { app } = await harness.launch(harness.newUserData('runtime-identity'));
   const identity = await mainProcessIdentity(app);
   expect(identity.electronVersion).toBe(manifest.devDependencies.electron);
-  expect(identity.nodeVersion).toBe('24.22.1');
-  expect(identity.chromeVersion).toMatch(/^152\./);
-  expect(identity.v8Version).toMatch(/^15\./);
+  // Electron security modernization is blocked by rc.5's loader fingerprint support.
+  // Verify the explicitly retained baseline; do not imply development Node is embedded here.
+  expect(identity.nodeVersion).toBe('24.21.0');
+  expect(identity.chromeVersion).toBe('152.0.7977.130');
+  expect(identity.v8Version).toBe('15.2.124.28-electron.0');
   expect(identity.executable).toBeTruthy();
   process.stdout.write(`Verified Desktop runtime ${JSON.stringify(identity)}\n`);
   await harness.close(app);
