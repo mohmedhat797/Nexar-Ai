@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // Nexar Local CI Orchestrator — Cross-platform validation runner.
 import { dirname, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { getGitInfo, getPlatformInfo } from './platform.mjs';
 import { runPreflight } from './preflight.mjs';
 import { executeStage, getStages } from './stages.mjs';
 import { generateReports, showLatestReport } from './report.mjs';
+import { normalizeWindowsEnv } from './process-util.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -95,6 +97,27 @@ async function main() {
     customNodeBin: options.customNodeBin,
     customGitleaksBin: options.customGitleaksBin,
   });
+
+  // The orchestrator itself must use the selected runtime, not only its stage children.
+  const sameExecutable = (a, b) =>
+    process.platform === 'win32'
+      ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
+      : resolve(a) === resolve(b);
+  if (
+    platformInfo.node.isMatched &&
+    !sameExecutable(platformInfo.node.activeExec, process.execPath)
+  ) {
+    const env = normalizeWindowsEnv({
+      ...process.env,
+      PATH: `${dirname(platformInfo.node.activeExec)}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH || ''}`,
+    });
+    const child = spawnSync(platformInfo.node.activeExec, process.argv.slice(1), {
+      env,
+      stdio: 'inherit',
+      windowsHide: true,
+    });
+    process.exit(child.status ?? 1);
+  }
 
   const gitSummary = platformInfo.git.summary;
   console.log(`Git Baseline:   ${gitSummary} [branch: ${platformInfo.git.branch}]`);

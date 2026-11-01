@@ -3,7 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { getGitInfo, isSupportedNode } from '../scripts/local-ci/platform.mjs';
+import {
+  getGitInfo,
+  getNodeInfo,
+  isSupportedNode,
+  readPinnedNodeVersion,
+} from '../scripts/local-ci/platform.mjs';
 import { normalizeWindowsEnv, spawnSubprocess } from '../scripts/local-ci/process-util.mjs';
 import { runPreflight } from '../scripts/local-ci/preflight.mjs';
 import type { PlatformInfo } from '../scripts/local-ci/platform.mjs';
@@ -14,7 +19,7 @@ import {
   sourceIdentityMatches,
 } from '../scripts/local-ci/report.mjs';
 import type { RunData } from '../scripts/local-ci/report.mjs';
-import { executeStage, parseVitestJsonStats } from '../scripts/local-ci/stages.mjs';
+import { executeStage, getStages, parseVitestJsonStats } from '../scripts/local-ci/stages.mjs';
 
 describe('Local CI acceptance security regressions', () => {
   it('accounts for nested pending assertions omitted by the runner summary', () => {
@@ -50,11 +55,64 @@ describe('Local CI acceptance security regressions', () => {
     });
   });
 
-  it('rejects old Node 22 minors and unsupported major versions', () => {
+  it('requires the exact patch and rejects other majors, older patches and prereleases', () => {
     expect(isSupportedNode('v22.18.0')).toBe(false);
-    expect(isSupportedNode('v22.19.0')).toBe(true);
-    expect(isSupportedNode('v22.23.3')).toBe(true);
+    expect(isSupportedNode('v22.19.0')).toBe(false);
+    expect(isSupportedNode('v22.23.3')).toBe(false);
     expect(isSupportedNode('v24.15.0')).toBe(false);
+    expect(isSupportedNode('v24.22.1')).toBe(false);
+    expect(isSupportedNode('v24.22.2')).toBe(true);
+    expect(isSupportedNode('v24.22.3')).toBe(false);
+    expect(isSupportedNode('v24.22.2-rc.1')).toBe(false);
+    expect(isSupportedNode('v26.13.0')).toBe(false);
+  });
+
+  it('refuses an invalid explicit executable instead of falling back to the running Node', () => {
+    const info = getNodeInfo(join(tmpdir(), 'nexar-missing-node-executable'));
+    expect(info.source).toBe('custom');
+    expect(info.isMatched).toBe(false);
+    expect(info.activeVersion).toBe('unavailable');
+    expect(info.activeExec).not.toBe(process.execPath);
+  });
+
+  it('probes a real explicit executable and passes its selected PATH to a child', async () => {
+    const info = getNodeInfo(process.execPath);
+    expect(info.activeVersion).toBe(process.version);
+    expect(info.isMatched).toBe(isSupportedNode(process.version));
+    const stages = getStages('quick', {
+      repoRoot: process.cwd(),
+      os: { platform: process.platform },
+      node: info,
+      gitleaks: {},
+    } as unknown as PlatformInfo);
+    const env = stages[0]?.env;
+    if (!env) throw new Error('Expected stage environment');
+    const child = await spawnSubprocess(
+      'node',
+      ['-p', 'JSON.stringify({version:process.version,exec:process.execPath})'],
+      {
+        env,
+        timeoutMs: 10_000,
+      },
+    );
+    expect(child.exitCode).toBe(0);
+    const observed = JSON.parse(child.stdout) as { version: string; exec: string };
+    expect(observed.version).toBe(process.version);
+    expect(observed.exec.toLowerCase()).toBe(process.execPath.toLowerCase());
+  });
+
+  it('rejects floating or malformed version authorities', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nexar-node-pin-'));
+    try {
+      for (const value of ['24', 'latest', '24.22', '24.22.2\n26.13.0', '24.22.2-rc.1']) {
+        writeFileSync(join(dir, '.nvmrc'), value);
+        expect(() => readPinnedNodeVersion(dir)).toThrow('exact Node.js release');
+      }
+      writeFileSync(join(dir, '.nvmrc'), '24.22.2\n');
+      expect(readPinnedNodeVersion(dir)).toBe('24.22.2');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('refuses stale, changed, or unavailable source identities', () => {
@@ -97,7 +155,7 @@ describe('Local CI acceptance security regressions', () => {
         repoRoot: dir,
         git,
         os: { platform: 'win32' },
-        node: { activeVersion: 'v22.23.3', pinnedMajor: '22' },
+        node: { activeVersion: 'v24.22.2', pinnedMajor: '24', pinnedVersion: '24.22.2' },
         pnpm: {},
         dsh: {},
         gitleaks: {},

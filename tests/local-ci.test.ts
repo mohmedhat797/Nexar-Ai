@@ -189,9 +189,10 @@ describe('Nexar Local CI Orchestrator', () => {
           },
           os: { platform: 'win32', release: '10.0', arch: 'x64' },
           node: {
-            activeVersion: 'v22.23.3',
+            activeVersion: 'v24.22.2',
             activeExec: 'node',
-            pinnedMajor: '22',
+            pinnedMajor: '24',
+            pinnedVersion: '24.22.2',
             source: 'current',
           },
           pnpm: { installedVersion: '10.33.0', expectedVersion: '10.33.0' },

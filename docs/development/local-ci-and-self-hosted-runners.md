@@ -57,16 +57,16 @@ Nexar Local CI provides a unified, cross-platform validation orchestrator that e
 
 ### 2.1 Node.js Version Selection
 
-- **Required Version:** `Node.js 22.23.3` (major version 22 pinned in `.nvmrc`).
-- **Rationale:** Node.js 24 has been associated with intermittent native Vitest fork-worker fail-fast crashes (`0xC0000409` user-mode exception). Local CI enforces Node 22 during preflight.
+- **Required Version:** `Node.js 24.22.2`, exact-pinned in `.nvmrc`. Acceptance rejects another patch or major.
+- **Rationale:** the owner authorized the Node 24 security/toolchain migration. Earlier Node 24.15 worker crashes remain historical evidence, not a blanket prohibition against Node 24. See the [migration assessment](NXR_Node24_Migration_Assessment.md) for the new runtime's actual acceptance status.
 - **Verification:**
   ```bash
   node -v
-  # Expected: v22.x.x (e.g., v22.23.3)
+  # Expected: v24.22.2
   ```
 - **Custom Node binary:** If the system default Node is different, pass `--node-bin=<path>` or set `NEXAR_NODE_BIN`:
   ```powershell
-  $env:NEXAR_NODE_BIN = "D:\Nexar-Toolchains\node-v22.23.3-win-x64\node.exe"
+  $env:NEXAR_NODE_BIN = "D:\Nexar-Toolchains\node-v24.22.2-win-x64\node.exe"
   ```
 
 ### 2.2 pnpm Version

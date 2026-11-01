@@ -124,49 +124,52 @@ export function getGitInfo(cwd = REPO_ROOT) {
 /**
  * Resolves target Node.js version and finds verified Node installation.
  */
-export function isSupportedNode(version, pinnedMajor = '22') {
-  const parts = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version || '');
-  return Boolean(
-    parts && parts[1] === pinnedMajor && (pinnedMajor !== '22' || Number(parts[2]) >= 19),
-  );
+export function readPinnedNodeVersion(repoRoot = REPO_ROOT) {
+  const version = readFileSync(join(repoRoot, '.nvmrc'), 'utf8').trim();
+  if (!/^[1-9]\d*\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(version)) {
+    throw new Error('.nvmrc must contain one exact Node.js release version');
+  }
+  return version;
+}
+
+export function isSupportedNode(version, pinnedVersion = readPinnedNodeVersion()) {
+  return typeof version === 'string' && version.replace(/^v/, '') === pinnedVersion;
 }
 
 export function getNodeInfo(customNodeBin = null) {
-  let pinnedMajor = '22';
-  const nvmrcPath = join(REPO_ROOT, '.nvmrc');
-  if (existsSync(nvmrcPath)) {
-    const raw = readFileSync(nvmrcPath, 'utf8').trim();
-    if (raw) pinnedMajor = raw;
-  }
-
+  const pinnedVersion = readPinnedNodeVersion();
+  const pinnedMajor = pinnedVersion.split('.')[0];
   const currentVersion = process.version;
   const currentExec = process.execPath;
-  const currentMatches = isSupportedNode(currentVersion, pinnedMajor);
-
-  if (customNodeBin && existsSync(customNodeBin)) {
-    const probe = spawnSync(customNodeBin, ['-v'], {
+  const identity = { currentVersion, currentExec, pinnedMajor, pinnedVersion };
+  const probeVersion = (executable) => {
+    if (!existsSync(executable)) return null;
+    const probe = spawnSync(executable, ['--version'], {
       encoding: 'utf8',
+      timeout: 5_000,
+      windowsHide: true,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
-    if (probe.status === 0) {
-      const ver = probe.stdout.trim();
-      return {
-        currentVersion,
-        currentExec,
-        pinnedMajor,
-        activeExec: resolve(customNodeBin),
-        activeVersion: ver,
-        isMatched: isSupportedNode(ver, pinnedMajor),
-        source: 'custom',
-      };
-    }
+    return probe.status === 0 ? probe.stdout.trim() : null;
+  };
+
+  // An explicit diagnostic override must never silently fall back to another executable.
+  const override = customNodeBin ?? process.env.NEXAR_NODE_BIN;
+  if (override !== undefined && override !== null) {
+    const activeExec = resolve(override);
+    const activeVersion = probeVersion(activeExec) ?? 'unavailable';
+    return {
+      ...identity,
+      activeExec,
+      activeVersion,
+      isMatched: isSupportedNode(activeVersion, pinnedVersion),
+      source: customNodeBin !== null ? 'custom' : 'environment',
+    };
   }
 
-  if (currentMatches) {
+  if (isSupportedNode(currentVersion, pinnedVersion)) {
     return {
-      currentVersion,
-      currentExec,
-      pinnedMajor,
+      ...identity,
       activeExec: currentExec,
       activeVersion: currentVersion,
       isMatched: true,
@@ -175,9 +178,11 @@ export function getNodeInfo(customNodeBin = null) {
   }
 
   // Probe candidates if current version does not match
+  const distribution = `node-v${pinnedVersion}-${process.platform === 'win32' ? 'win' : 'linux'}-${process.arch}`;
   const candidates = [
-    process.env.NEXAR_NODE_BIN,
-    'D:\\Nexar-Toolchains\\node-v22.23.3-win-x64\\node.exe',
+    process.platform === 'win32'
+      ? join('D:\\Nexar-Toolchains', distribution, 'node.exe')
+      : join('/opt', distribution, 'bin', 'node'),
     join(
       REPO_ROOT,
       '.nexar',
@@ -185,36 +190,24 @@ export function getNodeInfo(customNodeBin = null) {
       'node',
       process.platform === 'win32' ? 'node.exe' : 'bin/node',
     ),
-    join(os.homedir(), '.nvm', 'versions', 'node', `v${pinnedMajor}.23.3`, 'bin', 'node'),
-  ].filter(Boolean);
+    join(os.homedir(), '.nvm', 'versions', 'node', `v${pinnedVersion}`, 'bin', 'node'),
+  ];
 
   for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      const probe = spawnSync(candidate, ['-v'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      if (probe.status === 0) {
-        const ver = probe.stdout.trim();
-        if (isSupportedNode(ver, pinnedMajor)) {
-          return {
-            currentVersion,
-            currentExec,
-            pinnedMajor,
-            activeExec: resolve(candidate),
-            activeVersion: ver,
-            isMatched: true,
-            source: 'candidate',
-          };
-        }
-      }
+    const activeVersion = probeVersion(candidate);
+    if (isSupportedNode(activeVersion, pinnedVersion)) {
+      return {
+        ...identity,
+        activeExec: resolve(candidate),
+        activeVersion,
+        isMatched: true,
+        source: 'candidate',
+      };
     }
   }
 
   return {
-    currentVersion,
-    currentExec,
-    pinnedMajor,
+    ...identity,
     activeExec: currentExec,
     activeVersion: currentVersion,
     isMatched: false,

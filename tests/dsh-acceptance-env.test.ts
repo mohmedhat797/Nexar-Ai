@@ -1,12 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { linuxAcceptanceRuntime } from '../scripts/dsh-runtime/acceptance-env.mjs';
+import {
+  linuxAcceptanceNode,
+  linuxAcceptanceRuntime,
+} from '../scripts/dsh-runtime/acceptance-env.mjs';
 
 describe('isolated Linux runtime acceptance inputs', () => {
-  it('preserves the existing machine runtime when no override is supplied', () => {
+  it('uses the exact versioned Node toolchain while preserving the machine DSH selection', () => {
     expect(linuxAcceptanceRuntime({})).toEqual({
       NEXAR_DSH_BIN: '/opt/dsh/lib/node_modules/@deepseek-ai/dsh/lib/bin.js',
-      NEXAR_DSH_TOOLCHAIN: '/opt/node:/opt/dsh/lib/node_modules',
+      NEXAR_DSH_TOOLCHAIN: `/opt/node-v24.22.2-linux-${process.arch}:/opt/dsh/lib/node_modules`,
     });
+  });
+
+  it('validates an explicit Linux Node executable without falling back to the old toolchain', () => {
+    expect(linuxAcceptanceNode({ NEXAR_SEC02_LINUX_NODE_BIN: '/opt/candidate/bin/node' })).toBe(
+      '/opt/candidate/bin/node',
+    );
+    for (const value of ['node', '/a/../node', '/a//node', '/a b', '/a;echo']) {
+      expect(() => linuxAcceptanceNode({ NEXAR_SEC02_LINUX_NODE_BIN: value })).toThrow(
+        /^Invalid isolated Linux Node executable$/,
+      );
+    }
   });
 
   it('selects an isolated candidate without mutating the machine runtime', () => {

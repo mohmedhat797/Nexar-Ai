@@ -38,7 +38,7 @@ agent loop) · **how the provider is called** (pi-ai / runtime internals).
 ## Commands
 
 ```bash
-pnpm install          # Node >= 22.19, pnpm 10
+pnpm install          # exact Node from .nvmrc (24.22.2), pnpm 10.33.0
 pnpm check            # format:check → lint → boundaries → typecheck → test → build (the CI gate)
 pnpm test             # vitest (offline, deterministic)
 NEXAR_LIVE_TESTS=1 pnpm test   # opt-in live tests (may cost money; never in CI)

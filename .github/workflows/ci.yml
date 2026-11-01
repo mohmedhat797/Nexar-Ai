@@ -32,6 +32,9 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - name: Verify exact toolchain pins
+        run: node scripts/verify-toolchain.mjs
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
