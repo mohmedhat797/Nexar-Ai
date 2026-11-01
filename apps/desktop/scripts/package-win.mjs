@@ -8,9 +8,9 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   inspectRuntimeArtifact,
-  promoteRuntimeArtifact,
+  promoteRuntimeArtifactAsync,
   sealRuntimeArtifact,
-  verifyPackagedRuntime,
+  verifyPackagedRuntimeAsync,
 } from '../../../scripts/dsh-runtime/artifact.mjs';
 
 if (process.platform !== 'win32') throw new Error('Windows packaging requires a Windows host');
@@ -107,14 +107,14 @@ async function cleanOutput(path) {
 
 // Mode A consumes a sealed artifact by hashing every byte it copies; mode B runs the accepted
 // installer. A seal that exists but does not verify stops here: replacing it needs the explicit flag.
-function materializeRuntime() {
+async function materializeRuntime() {
   const inspected = freshRequested
     ? { status: 'fresh-requested' }
     : inspectRuntimeArtifact({ dir: artifactDir, pinDir });
   if (inspected.status === 'sealed') {
     return {
       mode: 'verified-artifact',
-      seal: promoteRuntimeArtifact({ dir: artifactDir, target: runtimeDir, pinDir }),
+      seal: await promoteRuntimeArtifactAsync({ dir: artifactDir, target: runtimeDir, pinDir }),
     };
   }
   // `install-dsh-runtime.mjs` installs the pin from its lockfile (`npm ci`) and verifies
@@ -145,7 +145,7 @@ async function packageDesktop() {
   mark('clean');
 
   const pin = JSON.parse(await readFile(join(pinDir, 'dsh-runtime.json'), 'utf8'));
-  const { mode, seal } = materializeRuntime();
+  const { mode, seal } = await materializeRuntime();
   mark(`runtime-${mode}`);
   const packageDir = join(runtimeDir, 'node_modules', ...pin.package.split('/'));
   const packageManifest = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8'));
@@ -195,7 +195,7 @@ async function packageDesktop() {
   );
   mark('electron-builder');
 
-  const packaged = verifyPackagedRuntime({
+  const packaged = await verifyPackagedRuntimeAsync({
     dir: join(output, 'win-unpacked', 'resources', 'dsh-runtime'),
     seal,
     reference: runtimeDir,

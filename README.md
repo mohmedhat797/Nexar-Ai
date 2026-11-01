@@ -233,7 +233,8 @@ review it, and then creates the commit itself. Walkthrough:
 
 ## Getting started
 
-Requirements: Node ≥ 22.19, pnpm 10 (`corepack enable`), git.
+Requirements: Node 24.22.2 (exact `.nvmrc` pin), pnpm 10.33.0, git. See the
+[versioned toolchain setup](docs/development/NXR_Node24_Toolchain_Implementation.md).
 
 ```bash
 pnpm install

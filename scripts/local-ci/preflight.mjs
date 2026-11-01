@@ -38,29 +38,27 @@ export async function runPreflight(platformInfo, options = {}) {
     checks.push({
       name: 'node-version',
       status: 'PASS',
-      message: `Node.js version matches pinned major: ${nodeInfo.activeVersion} (binary: ${nodeInfo.activeExec})`,
+      message: `Node.js version matches exact pin: ${nodeInfo.activeVersion} (binary: ${nodeInfo.activeExec})`,
     });
   } else if (allowNodeMismatch && mode !== 'full') {
     checks.push({
       name: 'node-version',
       status: 'WARN',
-      message: `Running with non-pinned Node.js: ${nodeInfo.activeVersion} (required: v${nodeInfo.pinnedMajor}.x from .nvmrc). Permitted by --allow-node-mismatch.`,
+      message: `Running with non-pinned Node.js: ${nodeInfo.activeVersion} (required: v${nodeInfo.pinnedVersion} from .nvmrc). Permitted by --allow-node-mismatch.`,
     });
-    diagnostics.push(
-      'WARNING: Node.js 24 is associated with native worker 0xC0000409 crashes. Use Node 22 for full acceptance.',
-    );
+    diagnostics.push('Diagnostic run only: the exact .nvmrc runtime is required for acceptance.');
   } else {
     allPassed = false;
     checks.push({
       name: 'node-version',
       status: 'FAIL',
-      message: `Node.js mismatch: active ${nodeInfo.activeVersion}, required v${nodeInfo.pinnedMajor}.x (from .nvmrc).`,
+      message: `Node.js mismatch: active ${nodeInfo.activeVersion}, required v${nodeInfo.pinnedVersion} (from .nvmrc).`,
     });
     diagnostics.push(
-      `Node.js version mismatch: active is ${nodeInfo.activeVersion}, required is v${nodeInfo.pinnedMajor}.x from .nvmrc.\n` +
+      `Node.js version mismatch: active is ${nodeInfo.activeVersion}, required is v${nodeInfo.pinnedVersion} from .nvmrc.\n` +
         `To resolve:\n` +
-        `  1. Install or activate Node.js 22.23.3 via nvm/fnm: nvm use 22\n` +
-        `  2. Or provide --node-bin=<path-to-node22-exe>\n` +
+        `  1. Install or activate the exact .nvmrc release: nvm use ${nodeInfo.pinnedVersion}\n` +
+        `  2. Or provide --node-bin=<path-to-pinned-node>\n` +
         `  3. Or set NEXAR_NODE_BIN in your environment.`,
     );
   }

@@ -63,6 +63,9 @@ export async function mainProcessIdentity(app: ElectronApplication) {
       createdAtEpochMs: metric?.creationTime,
       nodeVersion: process.versions.node,
       electronVersion: process.versions.electron,
+      chromeVersion: process.versions.chrome,
+      v8Version: process.versions.v8,
+      executable: process.execPath,
       uvVersion: process.versions.uv,
     };
   });

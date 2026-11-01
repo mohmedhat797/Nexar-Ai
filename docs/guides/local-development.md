@@ -40,8 +40,9 @@ Appearance with six themes and density (persisted). Code mode shows a placeholde
 
 Prerequisites:
 
-- **Node.js ≥ 22.19** (LTS installer from nodejs.org) and **pnpm 10**: `corepack enable` in an
-  administrator terminal once, then `pnpm --version` should print 10.x.
+- **Node.js 24.22.2** (exact `.nvmrc` release) and **pnpm 10.33.0**. Use the
+  [versioned setup](../development/NXR_Node24_Toolchain_Implementation.md); no machine-wide PATH
+  change or administrator Corepack installation is needed for the side-by-side toolchain.
 - **Git for Windows.**
 - Optional, for real AI work: **Claude Code** (`claude`, signed in through its own login; `claude auth status` shows it) and/or
   **Codex** (`codex`, signed in with `codex login`). Nexar finds them on `PATH` and never reads their

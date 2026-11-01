@@ -4,6 +4,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
+  createReadStream,
+  createWriteStream,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -18,6 +20,8 @@ import {
   writeSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 export const INSTALL_RECEIPT = 'nexar-install-receipt.json';
 export const ARTIFACT_SEAL = 'nexar-runtime-artifact.json';
@@ -90,9 +94,8 @@ function treeDigest(rows) {
   return { treeSha256: hash.digest('hex'), files: sorted.length, bytes };
 }
 
-function hashFile(path, onChunk) {
+function hashFile(path, onChunk, buffer) {
   const hash = createHash('sha256');
-  const buffer = Buffer.allocUnsafe(CHUNK_BYTES);
   const fd = openSync(path, 'r');
   let size = 0;
   try {
@@ -111,7 +114,47 @@ function hashFile(path, onChunk) {
 }
 
 export function hashRuntimeTree(root) {
-  return listFiles(root).map((file) => ({ rel: file.rel, ...hashFile(file.path) }));
+  // The traversal is synchronous: reuse one bounded scratch buffer rather than allocate a
+  // megabyte for each of the tens of thousands of mostly small package files.
+  const buffer = Buffer.allocUnsafe(CHUNK_BYTES);
+  return listFiles(root).map((file) => ({
+    rel: file.rel,
+    ...hashFile(file.path, undefined, buffer),
+  }));
+}
+
+async function mapFilesBounded(files, visit) {
+  const rows = [];
+  let next = 0;
+  let failed = false;
+  let firstError;
+  const worker = async () => {
+    while (!failed) {
+      const file = files[next++];
+      if (file === undefined) return;
+      try {
+        rows.push(await visit(file));
+      } catch (error) {
+        if (!failed) firstError = error;
+        failed = true;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, files.length) }, worker));
+  if (failed) throw firstError;
+  return rows;
+}
+
+export async function hashRuntimeTreeAsync(root) {
+  return mapFilesBounded(listFiles(root), async (file) => {
+    const hash = createHash('sha256');
+    let size = 0;
+    for await (const chunk of createReadStream(file.path, { highWaterMark: 64 * 1024 })) {
+      hash.update(chunk);
+      size += chunk.length;
+    }
+    return { rel: file.rel, size, sha256: hash.digest('hex') };
+  });
 }
 
 // npm writes the hidden lockfile last, so it distinguishes a complete tree from a partial one.
@@ -224,7 +267,7 @@ export function inspectRuntimeArtifact({ dir, pinDir }) {
 // Each byte written to the stage was hashed in the same read, so a file altered after the seal
 // or during the copy cannot publish. The stage is only renamed into place after a full match; an
 // interrupted copy remains an unreferenced, uniquely named stage for inspection.
-export function promoteRuntimeArtifact({ dir, target, pinDir, id = randomUUID, onCopied }) {
+function preparePromotion({ dir, target, pinDir, id }) {
   const inspected = inspectRuntimeArtifact({ dir, pinDir });
   if (inspected.status !== 'sealed') throw failure('ARTIFACT_NOT_SEALED');
   const source = plainDirectory(dir);
@@ -232,35 +275,88 @@ export function promoteRuntimeArtifact({ dir, target, pinDir, id = randomUUID, o
   if (existsSync(destination)) throw failure('ARTIFACT_TARGET_EXISTS');
   const stage = `${destination}.promote-${id()}`;
   mkdirSync(stage, { recursive: false, mode: 0o700 });
+  return { destination, stage, seal: inspected.seal, files: listFiles(source) };
+}
+
+function publishPromotion({ destination, stage, seal }, rows) {
+  if (treeDigest(rows).treeSha256 !== seal.treeSha256) {
+    rmSync(stage, { recursive: true, force: true });
+    throw failure('ARTIFACT_TREE_MISMATCH');
+  }
+  writeFileSync(join(stage, ARTIFACT_SEAL), `${JSON.stringify(seal, null, 2)}\n`, {
+    flag: 'wx',
+  });
+  renameSync(stage, destination);
+  return seal;
+}
+
+export function promoteRuntimeArtifact({ dir, target, pinDir, id = randomUUID, onCopied }) {
+  const promotion = preparePromotion({ dir, target, pinDir, id });
   const rows = [];
-  for (const file of listFiles(source)) {
-    const out = join(stage, ...file.rel.split('/'));
+  const buffer = Buffer.allocUnsafe(CHUNK_BYTES);
+  for (const file of promotion.files) {
+    const out = join(promotion.stage, ...file.rel.split('/'));
     mkdirSync(dirname(out), { recursive: true });
     const fd = openSync(out, 'wx', file.mode & 0o777);
     try {
-      const copied = hashFile(file.path, (chunk) => writeSync(fd, chunk));
+      const copied = hashFile(file.path, (chunk) => writeSync(fd, chunk), buffer);
       rows.push({ rel: file.rel, ...copied });
     } finally {
       closeSync(fd);
     }
     onCopied?.();
   }
-  if (treeDigest(rows).treeSha256 !== inspected.seal.treeSha256) {
-    rmSync(stage, { recursive: true, force: true });
-    throw failure('ARTIFACT_TREE_MISMATCH');
-  }
-  writeFileSync(join(stage, ARTIFACT_SEAL), `${JSON.stringify(inspected.seal, null, 2)}\n`, {
-    flag: 'wx',
+  return publishPromotion(promotion, rows);
+}
+
+// Packaging overlaps bounded filesystem waits rather than serially copying tens of thousands
+// of files. Each pipeline hashes the same bytes it writes; every pipeline settles before any
+// error returns or the full sealed tree is atomically published. The synchronous API is retained.
+export async function promoteRuntimeArtifactAsync({
+  dir,
+  target,
+  pinDir,
+  id = randomUUID,
+  onCopied,
+}) {
+  const promotion = preparePromotion({ dir, target, pinDir, id });
+  const rows = await mapFilesBounded(promotion.files, async (file) => {
+    const out = join(promotion.stage, ...file.rel.split('/'));
+    mkdirSync(dirname(out), { recursive: true });
+    const hash = createHash('sha256');
+    let size = 0;
+    await pipeline(
+      createReadStream(file.path, { highWaterMark: 64 * 1024 }),
+      new Transform({
+        transform(chunk, _encoding, callback) {
+          hash.update(chunk);
+          size += chunk.length;
+          callback(null, chunk);
+        },
+      }),
+      createWriteStream(out, { flags: 'wx', mode: file.mode & 0o777 }),
+    );
+    onCopied?.();
+    return { rel: file.rel, size, sha256: hash.digest('hex') };
   });
-  renameSync(stage, destination);
-  return inspected.seal;
+  return publishPromotion(promotion, rows);
 }
 
 // Compares a packaged copy against its seal. Runtime-relative names only; no contents.
 export function verifyPackagedRuntime({ dir, seal, reference }) {
   const actual = hashRuntimeTree(dir);
+  return comparePackagedRuntime(actual, hashRuntimeTree(reference), seal);
+}
+
+export async function verifyPackagedRuntimeAsync({ dir, seal, reference }) {
+  const actual = await hashRuntimeTreeAsync(dir);
+  const expected = await hashRuntimeTreeAsync(reference);
+  return comparePackagedRuntime(actual, expected, seal);
+}
+
+function comparePackagedRuntime(actual, expectedRows, seal) {
   const digest = treeDigest(actual);
-  const expected = new Map(hashRuntimeTree(reference).map((row) => [row.rel, row]));
+  const expected = new Map(expectedRows.map((row) => [row.rel, row]));
   const seen = new Set();
   const changed = [];
   const extra = [];

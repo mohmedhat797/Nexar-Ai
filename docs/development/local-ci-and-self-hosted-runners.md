@@ -57,16 +57,16 @@ Nexar Local CI provides a unified, cross-platform validation orchestrator that e
 
 ### 2.1 Node.js Version Selection
 
-- **Required Version:** `Node.js 22.23.3` (major version 22 pinned in `.nvmrc`).
-- **Rationale:** Node.js 24 has been associated with intermittent native Vitest fork-worker fail-fast crashes (`0xC0000409` user-mode exception). Local CI enforces Node 22 during preflight.
+- **Required Version:** `Node.js 24.22.2`, exact-pinned in `.nvmrc`. Acceptance rejects another patch or major.
+- **Rationale:** the owner authorized the Node 24 security/toolchain migration. Earlier Node 24.15 worker crashes remain historical evidence, not a blanket prohibition against Node 24. See the [migration assessment](NXR_Node24_Migration_Assessment.md) for the new runtime's actual acceptance status.
 - **Verification:**
   ```bash
   node -v
-  # Expected: v22.x.x (e.g., v22.23.3)
+  # Expected: v24.22.2
   ```
 - **Custom Node binary:** If the system default Node is different, pass `--node-bin=<path>` or set `NEXAR_NODE_BIN`:
   ```powershell
-  $env:NEXAR_NODE_BIN = "D:\Nexar-Toolchains\node-v22.23.3-win-x64\node.exe"
+  $env:NEXAR_NODE_BIN = "D:\Nexar-Toolchains\node-v24.22.2-win-x64\node.exe"
   ```
 
 ### 2.2 pnpm Version
@@ -126,7 +126,7 @@ Required for pull requests and release candidate acceptance.
 pnpm ci:local:full
 ```
 
-Runs a 16-entry stage manifest across static quality, offline tests, production build, CLI smoke, source desktop E2E, Windows packaging, fresh packaged E2E, Linux sandbox checks, and Gitleaks. Required stages depend on platform: Windows Full PASS means all 15 Windows stages passed and the Linux-only stage is BLOCKED/optional, not 16 successful executions. Linux sandbox is mandatory on Linux. Interrupted/preflight-failed runs, missing required stages, stale artifacts or unsupported Node cannot establish acceptance.
+Runs the platform-specific manifest in `scripts/local-ci/stages.mjs` across static quality, offline tests, production build, CLI smoke, source desktop E2E, Windows packaging, fresh packaged E2E, Linux sandbox checks, and Gitleaks. Windows currently has 18 entries: all 17 required Windows stages must pass, while the Linux-only stage is BLOCKED/optional. Linux has 14 required stages, including the native sandbox gate. These are different execution manifests, not identical coverage. Interrupted/preflight-failed runs, missing required stages, stale artifacts or unsupported Node cannot establish acceptance.
 
 Result: `NEXAR_WINDOWS_FULL_PASS` (Windows), `NEXAR_LINUX_FULL_PASS` (Native Linux), `NEXAR_LINUX_WSL2_PASS` (WSL2), or `NEXAR_WINDOWS_FULL_FAIL` / `NEXAR_WINDOWS_FULL_BLOCKED`. Cross-platform aggregation evaluates both into `NEXAR_CROSS_PLATFORM_ACCEPTANCE_PASS` or `NEXAR_CROSS_PLATFORM_ACCEPTANCE_INCOMPLETE`.
 

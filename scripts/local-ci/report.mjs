@@ -284,7 +284,7 @@ export function generateReports(runData) {
     preflightResult.ok &&
     !runData.interrupted &&
     sourceStable &&
-    isSupportedNode(platformInfo.node.activeVersion, platformInfo.node.pinnedMajor);
+    isSupportedNode(platformInfo.node.activeVersion, platformInfo.node.pinnedVersion);
   const finalStatus = computeFinalStatus(mode, acceptanceEligible ? stageResults : [], {
     platform: platformInfo.os.platform,
     isWsl: platformInfo.os.isWsl,
@@ -310,6 +310,7 @@ export function generateReports(runData) {
         version: platformInfo.node.activeVersion,
         execPath: platformInfo.node.activeExec,
         pinnedMajor: platformInfo.node.pinnedMajor,
+        pinnedVersion: platformInfo.node.pinnedVersion,
         source: platformInfo.node.source,
       },
       pnpm: {
@@ -390,7 +391,7 @@ function renderMarkdownReport(data) {
   md += `| Component | Active Value | Expected / Pin | Status |\n`;
   md += `| --- | --- | --- | --- |\n`;
   md += `| OS | ${m.os.platform} (${m.os.release}) ${m.os.arch} | Windows / Linux | Verified |\n`;
-  md += `| Node.js | \`${m.node.version}\` (${m.node.execPath}) | \`v${m.node.pinnedMajor}.x\` (.nvmrc) | ${m.node.version.startsWith(`v${m.node.pinnedMajor}`) ? 'PASS' : 'WARN'} |\n`;
+  md += `| Node.js | \`${m.node.version}\` (${m.node.execPath}) | \`v${m.node.pinnedVersion}\` (.nvmrc) | ${isSupportedNode(m.node.version, m.node.pinnedVersion) ? 'PASS' : 'WARN'} |\n`;
   md += `| pnpm | \`${m.pnpm.version}\` | \`${m.pnpm.expected}\` | ${m.pnpm.version === m.pnpm.expected ? 'PASS' : 'FAIL'} |\n`;
   md += `| DSH Runtime | \`${m.dsh.package}@${m.dsh.version}\` | \`0.2.1-rc.5\` | ${m.dsh.lockMatches ? 'PASS' : 'FAIL'} |\n`;
   md += `| Gitleaks | \`${m.gitleaks.version ?? 'none'}\` | \`8.28.0\` | ${m.gitleaks.version === '8.28.0' ? 'PASS' : 'BLOCKED'} |\n\n`;
@@ -461,7 +462,7 @@ function renderMarkdownReport(data) {
   md += `## 6. Parity with GitHub CI\n\n`;
   md += `| Capability | GitHub Actions | Nexar Local CI | Coverage Status |\n`;
   md += `| --- | --- | --- | --- |\n`;
-  md += `| Format & Lint & Types | Hosted Ubuntu / Windows | Local Node 22 | Equivalent command coverage (environment differs) |\n`;
+  md += `| Format & Lint & Types | Hosted Ubuntu / Windows | Local pinned Node | Equivalent command coverage (environment differs) |\n`;
   md += `| Boundary & Secrets Guard | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
   md += `| Offline Test Suite | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
   md += `| Production Build | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;

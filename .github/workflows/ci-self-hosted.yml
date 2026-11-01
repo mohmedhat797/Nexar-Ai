@@ -42,6 +42,16 @@ jobs:
           $head = git rev-parse HEAD
           Write-Host "Active HEAD: $head"
 
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Verify exact toolchain pins
+        run: node scripts/verify-toolchain.mjs
+
       - name: Run Nexar Local CI Orchestrator (${{ inputs.mode }})
         shell: pwsh
         run: |
@@ -83,6 +93,16 @@ jobs:
         shell: bash
         run: |
           echo "Active HEAD: $(git rev-parse HEAD)"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Verify exact toolchain pins
+        run: node scripts/verify-toolchain.mjs
 
       - name: Run Nexar Local CI Orchestrator (${{ inputs.mode }})
         shell: bash

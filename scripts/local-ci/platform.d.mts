@@ -12,6 +12,7 @@ export interface NodeInfo {
   currentVersion: string;
   currentExec: string;
   pinnedMajor: string;
+  pinnedVersion: string;
   activeExec: string;
   activeVersion: string;
   isMatched: boolean;
@@ -58,7 +59,8 @@ export interface PlatformInfo {
 }
 
 export function getGitInfo(cwd?: string): GitInfo;
-export function isSupportedNode(version: string, pinnedMajor?: string): boolean;
+export function readPinnedNodeVersion(repoRoot?: string): string;
+export function isSupportedNode(version: string | null, pinnedVersion?: string): boolean;
 export function getNodeInfo(customNodeBin?: string | null): NodeInfo;
 export function getPnpmInfo(nodeExec?: string): PnpmInfo;
 export function getGitleaksInfo(customGitleaksBin?: string | null): GitleaksInfo;

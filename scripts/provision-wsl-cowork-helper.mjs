@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix, resolve } from 'node:path';
+import { linuxAcceptanceNode } from './dsh-runtime/acceptance-env.mjs';
 
 const DEFAULT_DISTRO = 'nexar-plane';
 const DEFAULT_REPO = '/home/nexar/src/Nexar-Ai';
@@ -28,6 +29,7 @@ if (process.platform !== 'win32') {
 const distro = process.env.NEXAR_SEC02_WSL_DISTRO ?? DEFAULT_DISTRO;
 const linuxRepo = process.env.NEXAR_SEC02_WSL_REPO ?? DEFAULT_REPO;
 const command = process.env.NEXAR_SEC02_WSL_COMMAND ?? DEFAULT_COMMAND;
+const linuxNode = linuxAcceptanceNode();
 const allowDirty = process.argv.includes('--allow-dirty');
 const probeOnly = process.argv.includes('--probe-only');
 
@@ -172,7 +174,8 @@ if (!probeOnly) {
 
     runWsl(
       `
-      export PATH="/opt/node/bin:/usr/local/bin:/usr/bin:/bin"
+      export PATH="${posix.dirname(linuxNode)}:/usr/local/bin:/usr/bin:/bin"
+      test "$('${linuxNode}' --version)" = "v${readFileSync('.nvmrc', 'utf8').trim()}"
       cd '${linuxRepo}'
       pnpm install --frozen-lockfile --offline || pnpm install --frozen-lockfile --prefer-offline
       pnpm build
