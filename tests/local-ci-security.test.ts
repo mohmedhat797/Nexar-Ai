@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   getGitInfo,
@@ -99,6 +99,20 @@ describe('Local CI acceptance security regressions', () => {
     const observed = JSON.parse(child.stdout) as { version: string; exec: string };
     expect(observed.version).toBe(process.version);
     expect(observed.exec.toLowerCase()).toBe(process.execPath.toLowerCase());
+  });
+
+  it('canonicalizes a linked Node path so the orchestrator does not relaunch itself forever', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nexar-node-alias-'));
+    try {
+      const alias = join(dir, 'runtime');
+      symlinkSync(dirname(process.execPath), alias, 'junction');
+      const info = getNodeInfo(join(alias, basename(process.execPath)));
+      expect(info.activeVersion).toBe(process.version);
+      expect(info.isMatched).toBe(isSupportedNode(process.version));
+      expect(info.activeExec).toBe(realpathSync(process.execPath));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('rejects floating or malformed version authorities', () => {

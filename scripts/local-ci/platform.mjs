@@ -1,7 +1,7 @@
 // Platform, toolchain, and Git environment inspection for Nexar Local CI.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,11 +158,12 @@ export function getNodeInfo(customNodeBin = null) {
   if (override !== undefined && override !== null) {
     const activeExec = resolve(override);
     const activeVersion = probeVersion(activeExec) ?? 'unavailable';
+    const isMatched = isSupportedNode(activeVersion, pinnedVersion);
     return {
       ...identity,
-      activeExec,
+      activeExec: isMatched ? realpathSync(activeExec) : activeExec,
       activeVersion,
-      isMatched: isSupportedNode(activeVersion, pinnedVersion),
+      isMatched,
       source: customNodeBin !== null ? 'custom' : 'environment',
     };
   }
@@ -198,7 +199,7 @@ export function getNodeInfo(customNodeBin = null) {
     if (isSupportedNode(activeVersion, pinnedVersion)) {
       return {
         ...identity,
-        activeExec: resolve(candidate),
+        activeExec: realpathSync(candidate),
         activeVersion,
         isMatched: true,
         source: 'candidate',
