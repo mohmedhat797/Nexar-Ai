@@ -84,7 +84,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  service.dispose();
+  await service.dispose();
   await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
@@ -321,9 +321,45 @@ describe('owner Codex sign-in', () => {
     });
   });
 
+  it('finishes shutting down only after the vendor process has ended', async () => {
+    const { id } = await manager.addCodexConnection({ label: 'Work' });
+    let end: () => void = () => undefined;
+    let aborted = false;
+    service = new CodexLoginService({
+      manager,
+      runtime: () => ({
+        probe: () => Promise.resolve(signedOutProbe),
+        login: (signal) =>
+          new Promise((resolve) => {
+            signal.addEventListener('abort', () => {
+              aborted = true;
+            });
+            end = () => {
+              resolve('cancelled');
+            };
+          }),
+      }),
+    });
+    await service.start({ connectionId: id });
+    await vi.waitFor(() => {
+      expect(manager.getActiveExecutionCount(id)).toBe(1);
+    });
+    let disposed = false;
+    const disposing = service.dispose().then(() => {
+      disposed = true;
+    });
+    await vi.waitFor(() => {
+      expect(aborted).toBe(true);
+    });
+    expect(disposed).toBe(false);
+    end();
+    await disposing;
+    expect(manager.getActiveExecutionCount(id)).toBe(0);
+  });
+
   it('refuses after shutdown', async () => {
     const { id } = await manager.addCodexConnection({ label: 'Work' });
-    service.dispose();
+    await service.dispose();
     await expect(service.start({ connectionId: id })).rejects.toMatchObject({
       code: 'CONFIGURATION_ERROR',
     });

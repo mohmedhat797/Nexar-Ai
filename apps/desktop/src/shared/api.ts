@@ -20,6 +20,9 @@ export type { ChatGptPlanStatus } from './chatgpt-plan.js';
 import type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 export type { LocalEndpointInput, LocalEndpointRow } from './local-endpoints.js';
 import type {
+  CodexLoginArgs,
+  CodexLoginStatus,
+  ConnectionCodexAddArgs,
   ConnectionAddArgs,
   ConnectionPrepareArgs,
   ConnectionConfirmation,
@@ -29,6 +32,9 @@ import type {
   ConnectionRotateArgs,
 } from './connections.js';
 export type {
+  CodexLoginArgs,
+  CodexLoginStatus,
+  ConnectionCodexAddArgs,
   ConnectionAddArgs,
   ConnectionPrepareArgs,
   ConnectionConfirmation,
@@ -542,6 +548,11 @@ export interface NexarApi {
   restoreConnection(args: ConnectionIdArgs): Promise<BridgeResult<ConnectionDto>>;
   forgetConnectionCredentials(args: ConnectionConfirmedArgs): Promise<BridgeResult<ConnectionDto>>;
   rotateConnectionKey(args: ConnectionRotateArgs): Promise<BridgeResult<ConnectionDto>>;
+  addCodexConnection(args: ConnectionCodexAddArgs): Promise<BridgeResult<ConnectionDto>>;
+  startCodexLogin(args: CodexLoginArgs): Promise<BridgeResult<CodexLoginStatus>>;
+  cancelCodexLogin(args: ConnectionIdArgs): Promise<BridgeResult<CodexLoginStatus>>;
+  codexLoginStatus(args: ConnectionIdArgs): Promise<BridgeResult<CodexLoginStatus>>;
+  deleteCodexHome(args: ConnectionConfirmedArgs): Promise<BridgeResult<ConnectionDto>>;
   replaceChatGptPlanAccount(
     args: ConnectionConfirmedArgs,
   ): Promise<BridgeResult<ChatGptPlanStatus>>;

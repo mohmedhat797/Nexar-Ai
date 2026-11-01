@@ -25,6 +25,7 @@ export interface CodexLoginDeps {
  */
 export class CodexLoginService {
   private readonly jobs = new Map<string, AbortController>();
+  private readonly running = new Set<Promise<void>>();
   private readonly states = new Map<string, CodexLoginState>();
   private disposed = false;
 
@@ -46,7 +47,8 @@ export class CodexLoginService {
       throw error;
     }
     this.states.set(id, 'running');
-    void this.run(id, lease, controller);
+    const run = this.run(id, lease, controller).finally(() => this.running.delete(run));
+    this.running.add(run);
     return this.status(id);
   }
 
@@ -67,9 +69,11 @@ export class CodexLoginService {
     });
   }
 
-  dispose(): void {
+  /** Resolves once every vendor process has ended; quitting must wait, or one outlives the app. */
+  async dispose(): Promise<void> {
     this.disposed = true;
     for (const job of this.jobs.values()) job.abort();
+    await Promise.allSettled(this.running);
   }
 
   private async run(

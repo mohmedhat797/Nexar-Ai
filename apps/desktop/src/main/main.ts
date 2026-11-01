@@ -388,7 +388,6 @@ async function start(): Promise<void> {
     manager: connectionManager,
     runtime: (home) => ownerCodexSubscription({ env: engineEnv, cwd: app.getPath('home'), home }),
   });
-  app.on('before-quit', () => codexLogin.dispose());
 
   // Operating Sessions (ADR-024): this process is the single writer. If another Nexar process holds
   // the lease, sessions stay unavailable (every session channel answers CONFLICT) instead of racing it.
@@ -540,7 +539,7 @@ async function start(): Promise<void> {
   app.on('before-quit', () => {
     if (lanesStopped !== undefined) return;
     codePlane.dispose();
-    lanesStopped = cowork.dispose();
+    lanesStopped = Promise.all([cowork.dispose(), codexLogin.dispose()]);
   });
   holdQuitUntil(
     app,
@@ -562,6 +561,7 @@ async function start(): Promise<void> {
     subscriptions,
     chatgptPlan,
     connectionManager,
+    codexLogin,
     providerInventory,
     localEndpoints: new LocalEndpointService(config, engine),
     logger,

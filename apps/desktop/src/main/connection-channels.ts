@@ -1,6 +1,8 @@
 import { NexarError } from '@nexar/contracts';
 import { CHANNELS } from '../shared/channels.js';
 import {
+  CodexLoginArgsSchema,
+  ConnectionCodexAddArgsSchema,
   ConnectionAddArgsSchema,
   ConnectionDtoSchema,
   ConnectionIdArgsSchema,
@@ -12,6 +14,7 @@ import {
 } from '../shared/connections.js';
 import { ChatGptPlanStatusSchema, CHATGPT_PLAN_MESSAGES } from '../shared/chatgpt-plan.js';
 import { NoArgs, defineChannel, type ChannelDefinition } from './channel.js';
+import type { CodexLoginService } from './codex-login.js';
 import type { ConnectionManager } from './connection-manager.js';
 
 function requireConnectionManager(manager: ConnectionManager | undefined): ConnectionManager {
@@ -19,6 +22,13 @@ function requireConnectionManager(manager: ConnectionManager | undefined): Conne
     throw new NexarError('CONFIGURATION_ERROR', 'Connection manager is not initialized');
   }
   return manager;
+}
+
+function requireCodexLogin(service: CodexLoginService | undefined): CodexLoginService {
+  if (service === undefined) {
+    throw new NexarError('CONFIGURATION_ERROR', 'Sign-in service is not initialized');
+  }
+  return service;
 }
 
 export const connectionChannels: Readonly<Record<string, ChannelDefinition>> = {
@@ -77,6 +87,33 @@ export const connectionChannels: Readonly<Record<string, ChannelDefinition>> = {
     const record = await manager.rotateCredential(args);
     return ConnectionDtoSchema.parse(manager.toDto(record));
   }),
+
+  [CHANNELS.connectionCodexAdd]: defineChannel(ConnectionCodexAddArgsSchema, async (args, ctx) => {
+    const manager = requireConnectionManager(ctx.deps.connectionManager);
+    const record = await manager.addCodexConnection(args);
+    return ConnectionDtoSchema.parse(manager.toDto(record));
+  }),
+
+  [CHANNELS.connectionCodexLogin]: defineChannel(CodexLoginArgsSchema, (args, ctx) =>
+    requireCodexLogin(ctx.deps.codexLogin).start(args),
+  ),
+
+  [CHANNELS.connectionCodexLoginCancel]: defineChannel(ConnectionIdArgsSchema, (args, ctx) =>
+    Promise.resolve(requireCodexLogin(ctx.deps.codexLogin).cancel(args.connectionId)),
+  ),
+
+  [CHANNELS.connectionCodexLoginStatus]: defineChannel(ConnectionIdArgsSchema, (args, ctx) =>
+    Promise.resolve(requireCodexLogin(ctx.deps.codexLogin).status(args.connectionId)),
+  ),
+
+  [CHANNELS.connectionCodexDeleteHome]: defineChannel(
+    ConnectionConfirmedArgsSchema,
+    async (args, ctx) => {
+      const manager = requireConnectionManager(ctx.deps.connectionManager);
+      const record = await manager.deleteCodexHome(args);
+      return ConnectionDtoSchema.parse(manager.toDto(record));
+    },
+  ),
 
   [CHANNELS.chatgptPlanReplaceAccount]: defineChannel(
     ConnectionConfirmedArgsSchema,
