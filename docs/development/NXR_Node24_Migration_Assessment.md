@@ -2,7 +2,7 @@
 
 Date: 2026-11-01. Owner-authorized implementation, based on accepted main `6bc038021b66b8d093bad5a4fbd936794f048da3`. This assignment did not modify D′ or research PR 49.
 
-**Qualification update:** Node 24 staged and real-runtime checks passed, but Electron 44.10.1 cannot initialize the locked DSH rc.5 native loader. Windows Full failed source E2E; no installer or packaged PASS is claimed. See the [reproduced blocker](NXR_Electron44_Security_Upgrade.md#reproduced-compatibility-blocker). Version selection is not release acceptance.
+**Qualification update:** Node 24 staged and real-runtime checks passed, and retained-Electron source Desktop and WSL Full passed. Electron 44.10.1 cannot initialize the locked DSH rc.5 loader. Retained-Electron Windows Full remains failed at the unchanged packaging deadline; the whole migration is not accepted. See the [reproduced blocker](NXR_Electron44_Security_Upgrade.md#reproduced-compatibility-blocker) and [final evidence](NXR_Node24_Electron44_Final_Acceptance.md). Version selection is not release acceptance.
 
 ## Version decision
 

@@ -35,7 +35,7 @@ resources/
 
 ## Authorities and contracts
 
-Introduce a reviewed source catalog, for example `config/node-runtime-artifacts.json`, with schema version, exact Node version, supported OS/architecture, official archive URL, archive SHA-256, extracted executable SHA-256, executable relative path, and license inventory. Initial candidate is the already verified Node 24.22.2 artifact. Choose explicitly whether this catalog derives its version from `.nvmrc` or independently pins a tested runtime version; generation must reject accidental divergence. `.nvmrc` alone is not an artifact integrity authority.
+Introduce a reviewed source catalog, for example `config/node-runtime-artifacts.json`, with schema version, exact Node version, supported OS/architecture, official archive URL, archive SHA-256, extracted executable SHA-256, executable relative path, and license inventory. Recommend an independently pinned application-runtime catalog, initially the already verified Node 24.22.2 artifact. Development `.nvmrc` updates must not silently replace the distributed runtime; catalog changes require their own compatibility acceptance. `.nvmrc` alone is not an artifact integrity authority.
 
 Proposed internal contracts (names are design proposals):
 
@@ -78,6 +78,8 @@ No general executable-path IPC is added. If a user-visible runtime status is nee
 
 Do not silently broaden R3 into provider settings or a second Resource Controller. Review actual affected call sites before modifying types; keep the executable authority inside trusted main/runtime code. Avoid one giant branch: catalog/materializer, resolver/process contracts, packaging integration, then acceptance are small dependent reviews, with no deployable mixed state claimed between them.
 
+Concrete R3/R4 call sites include `DshCoworkController.resolveLaunch` in `apps/desktop/src/main/dsh-cowork.ts`, `resolveDshEntry`/`dshLaunchForEntry` and their existing tests, and `integrations/deepseek-harness/src/runtime-process.ts::spawnRuntime`/`RuntimeProcess`. Ordinary SDK execution is already external through `adapter.ts` and `BinarySpec`; preserve that path. Reconcile existing owner-controlled entry settings and source-test overrides explicitly; a renderer value must never select the Node executable, and a packaged integrity failure must never fall through to a development/ambient executable. No settings behavior changes are authorized by this proposal's publication.
+
 ## Security and lifecycle requirements
 
 - Resolve every executable/entry against the approved resource root; reject traversal, absolute manifest paths, symlink/reparse hops, non-regular files, unexpected architecture, missing files, size overflow and hash mismatch. Validate both the source stage and packaged copy. Do not execute an unverified file to ask its version.
@@ -86,6 +88,7 @@ Do not silently broaden R3 into provider settings or a second Resource Controlle
 - Preserve owner-granted workspace permissions, WSL/bubblewrap read-only toolchain bindings, per-turn homes, cancellation deadlines, output bounds and child-tree settlement. Executable substitution must not change credential resolution or resource routing.
 - Corruption/absence/version mismatch fails closed with a repair-installation action. Never fall back to `process.execPath`, global Node, ambient PATH, copied credentials, a network installer or a loader-validation bypass. No automatic retry/replay of interrupted commands.
 - Runtime refresh is an explicit app/build artifact update, not an automatic provider updater. Keep artifact catalog, application and installer provenance consistent; do not mutate a runtime used by an active child.
+- State the trust assumption: expected hashes come from trusted reviewed application code/catalog, not from a colocated mutable manifest alone. This protects artifact corruption/substitution while that trust root is intact; it is not protection against an attacker who can replace the whole application/catalog under the same user or administrator. Preserve private-state ACLs and document verification-to-spawn race assumptions; do not claim hash checking supplies code signing or defeats arbitrary same-user compromise.
 
 ## Error and rollback design
 
@@ -109,4 +112,4 @@ Estimate: roughly **one to two focused engineering weeks** for Windows x64 distr
 
 Prerequisites: accepted Node 24 fallback baseline; reviewed artifact/trust contract; sufficient isolated disk for official archives, staged binaries and installer; one Windows acceptance environment plus isolated WSL. Product work D′/H′/F′/G′/I′ is not a dependency to start the artifact/security design and must not be modified by it.
 
-Owner decisions are limited to approving this separate distribution/security scope and its artifact-version authority/release targets. NRC, permissions, credentials, sessions, memory, rc.5 and the ban on ambient fallback are already decided. No implementation of this proposal begins automatically from publication of the current Draft PR.
+Owner approval is needed for this separate distribution/security assignment; the recommendation is an independent exact-pin catalog and Windows x64 as the first packaged target. Additional release targets require separate qualification. NRC, permissions, credentials, sessions, memory, rc.5 and the ban on ambient fallback are already decided. No implementation of this proposal begins automatically from publication of the current Draft PR.
