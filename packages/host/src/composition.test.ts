@@ -10,6 +10,7 @@ import type {
   ResourceDescriptor,
   SecretResolver,
 } from '@nexar/contracts';
+import { codexResource } from '@nexar/integration-codex';
 import { noopLogger } from '@nexar/telemetry';
 import {
   builtinEngineeringPlansDir,
@@ -123,6 +124,27 @@ describe('connection seam', () => {
     expect(createAdapters(host, cwd).some((a) => Object.values(a).some((v) => v === resolve))).toBe(
       false,
     );
+  });
+
+  it('leaves the Plane and CLI, which have no connection authority, refusing owner Codex', async () => {
+    // Each host is its own authority: the Desktop's connections never reach another host's homes.
+    const id = 'openai.subscription.caaaaaaaaaa';
+    const owner = codexResource({
+      id: resourceId(`codex:${id}`),
+      metadata: {
+        connection: {
+          id,
+          provider: 'openai',
+          method: 'subscription',
+          authClass: 'vendor-native',
+          support: 'official',
+        },
+      },
+    });
+    const codex = createAdapters(host, cwd).find((a) => String(a.id) === 'codex');
+    expect(await codex?.probe(owner, new AbortController().signal)).toMatchObject({
+      availability: 'unavailable',
+    });
   });
 
   it('merges host resources after config and discovery; configured ids win', async () => {

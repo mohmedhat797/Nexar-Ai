@@ -52,6 +52,14 @@ export class CodexHomeStore {
     this.platform = options.platform ?? process.platform;
   }
 
+  /** A home reached across the WSL boundary is on the other host, whose permissions do not apply. */
+  private offHost(): boolean {
+    const { userData } = this.options;
+    return (
+      /^[\\/]{2}/.test(userData) || (this.platform === 'linux' && /^\/mnt(?:\/|$)/.test(userData))
+    );
+  }
+
   private connectionDir(record: PersistentConnectionRecord): string {
     const scope = record.credentialScope;
     if (
@@ -60,7 +68,8 @@ export class CodexHomeStore {
       record.nativeHome === undefined ||
       scope.kind !== 'native-home' ||
       scope.runtimeId !== 'codex' ||
-      scope.home !== 'private'
+      scope.home !== 'private' ||
+      this.offHost()
     )
       throw refused();
     return join(this.root, record.id);

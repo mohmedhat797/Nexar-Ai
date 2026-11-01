@@ -54,6 +54,32 @@ afterEach(async () => {
   await rm(userData, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
+describe('CodexHomeStore across the WSL boundary', () => {
+  const across = [
+    ['linux', '/mnt/c/Users/owner/AppData/Roaming/Nexar'],
+    ['linux', '/mnt'],
+    ['linux', '//wsl.localhost/Ubuntu/home/nexar'],
+    ['win32', '\\\\wsl.localhost\\nexar-plane\\home\\nexar\\.nexar'],
+    ['win32', '//wsl.localhost/nexar-plane/home/nexar/.nexar'],
+  ] as const;
+
+  it.each(across)('refuses a %s root at %s and touches nothing', async (platform, root) => {
+    let secured = 0;
+    const offHost = new CodexHomeStore({
+      userData: root,
+      platform,
+      secureDirectory: () => {
+        secured += 1;
+        return Promise.resolve();
+      },
+    });
+    await expect(offHost.ensure(record())).rejects.toMatchObject(refused);
+    await expect(offHost.resolve(record())).rejects.toMatchObject(refused);
+    await expect(offHost.remove(record())).rejects.toMatchObject(refused);
+    expect(secured).toBe(0);
+  });
+});
+
 describe('CodexHomeStore', () => {
   it('creates a home at the fixed path, with its marker outside the home', async () => {
     const home = await store.ensure(record());
