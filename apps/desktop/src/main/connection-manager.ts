@@ -26,10 +26,12 @@ import {
   validConnections,
 } from './connection-state.js';
 import {
+  CodexLoginArgsSchema,
   ConnectionAddArgsSchema,
   ConnectionCodexAddArgsSchema,
   ConnectionIdArgsSchema,
   ConnectionRotateArgsSchema,
+  type CodexLoginArgs,
   type ConnectionAddArgs,
   type ConnectionCodexAddArgs,
   type ConnectionDto,
@@ -56,6 +58,9 @@ const rejected = (reason: string): NexarError =>
 export interface ConnectionLease {
   release(): void;
   readonly record: PersistentConnectionRecord;
+}
+export interface CodexLoginLease extends ConnectionLease {
+  readonly home: string;
 }
 export interface ConnectionManagerDeps {
   readonly settingsStore: SettingsStore;
@@ -405,6 +410,75 @@ export class ConnectionManager {
             : 'pin.connection-disabled',
         );
       return this.lease(record);
+    });
+  }
+  /** Admits one owner sign-in. A connection that has had an account needs the owner's assertion. */
+  async beginCodexLogin(raw: CodexLoginArgs): Promise<CodexLoginLease> {
+    const args = CodexLoginArgsSchema.parse(raw);
+    return this.serial(async () => {
+      this.writer();
+      await this.state();
+      const r = this.manageable(args.connectionId);
+      if (r.nativeHome === undefined || this.deps.codexHomes === undefined)
+        throw rejected('connection.invalid-transition');
+      if (!canConnectionAdmit(r) || this.authenticating.has(r.id)) throw unavailable();
+      this.idle(r.id);
+      if (r.nativeHome.associated === true && args.sameAccount !== true)
+        throw rejected('connection.assertion-required');
+      const home = await this.deps.codexHomes.ensure(r);
+      this.authenticating.add(r.id);
+      const lease = this.lease(r);
+      return {
+        record: r,
+        home,
+        release: () => {
+          lease.release();
+          this.authenticating.delete(r.id);
+        },
+      };
+    });
+  }
+  /**
+   * Ends a sign-in the vendor reported as done. If its account cannot be confirmed, a connection
+   * that was signed in fails as signed out, since the home may no longer hold what it did.
+   */
+  completeCodexLogin(
+    lease: CodexLoginLease,
+    { verified }: { readonly verified: boolean },
+  ): Promise<void> {
+    return this.mutate(async (state) => {
+      const r = this.record(lease.record.id);
+      if (r.nativeHome === undefined || !this.authenticating.has(r.id))
+        throw rejected('connection.invalid-transition');
+      const at = this.now();
+      if (verified) {
+        const { marker, associated } = r.nativeHome;
+        await this.commit(state, [
+          {
+            ...r,
+            nativeHome: { marker, signedInAt: at, associated: true },
+            ...(associated === true
+              ? {
+                  credentialGeneration: r.credentialGeneration + 1,
+                  identityAssurance: 'OWNER_ASSERTED_SAME_ACCOUNT' as const,
+                  assertion: { type: 'same-account' as const, at, source: 'owner' as const },
+                }
+              : {}),
+            updatedAt: at,
+          },
+        ]);
+      } else if (r.nativeHome.signedInAt !== undefined) {
+        await this.commit(state, [
+          {
+            ...r,
+            nativeHome: signedOut(r.nativeHome),
+            credentialGeneration: r.credentialGeneration + 1,
+            updatedAt: at,
+          },
+        ]);
+      }
+      // Released here so the change notice that follows publishes the resource.
+      lease.release();
     });
   }
   /** No credential exists yet: the home is created when the owner first signs in. */

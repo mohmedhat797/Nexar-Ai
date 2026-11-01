@@ -17,6 +17,7 @@ import {
   checkProviderCredential,
   createControlModelTurnPorts,
   createNativeSubscriptions,
+  ownerCodexSubscription,
   createNativeModelInventories,
   engineAllocator,
 } from '@nexar/host';
@@ -36,6 +37,7 @@ import { ConnectionRuntime } from './connection-runtime.js';
 import { ChatGptPlanService } from './chatgpt-plan.js';
 import { chatGptPlanInventoryDefinition } from './chatgpt-plan-resources.js';
 import { CodexHomeStore } from './codex-home-store.js';
+import { CodexLoginService } from './codex-login.js';
 import { ProviderInventoryService } from './provider-inventory.js';
 import { chatGptTestHooks } from './chatgpt-test-hooks.js';
 import { installationId } from './installation-id.js';
@@ -382,6 +384,11 @@ async function start(): Promise<void> {
     },
   );
   app.on('before-quit', () => subscriptions.dispose());
+  const codexLogin = new CodexLoginService({
+    manager: connectionManager,
+    runtime: (home) => ownerCodexSubscription({ env: engineEnv, cwd: app.getPath('home'), home }),
+  });
+  app.on('before-quit', () => codexLogin.dispose());
 
   // Operating Sessions (ADR-024): this process is the single writer. If another Nexar process holds
   // the lease, sessions stay unavailable (every session channel answers CONFLICT) instead of racing it.
