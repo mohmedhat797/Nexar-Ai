@@ -8,8 +8,9 @@ candidate helper proves nothing about any of them; only `verify.mjs` against the
 
 - The new build goes to `~/src/releases/<commit>`. The old checkout is never touched, so it stays
   available to a rollback.
-- The new runtime goes to `/opt/dsh-releases/<version>`, root-owned, and `/opt/dsh` becomes a symlink
-  to it. The first upgrade moves the old directory whole into `/opt/dsh-releases`.
+- The new runtime is staged root-owned in `/opt/dsh-releases/<version>`, then swapped with `/opt/dsh`
+  by two renames. The old runtime moves whole into `/opt/dsh-releases`. `/opt/dsh` stays a real
+  directory: the sandbox resolves toolchain paths, so behind a symlink the command is no longer visible.
 - The launcher is replaced atomically and keeps its `NEXAR_CONFIG_PATH` default.
 - Config, credentials, sessions, Project Memory and `/etc/wsl.conf` are not written. Before the switch
   the script records the path, type, mode and owner of everything under `~/.nexar`, `~/.codex`,
@@ -68,6 +69,5 @@ works. It deliberately avoids `nexar doctor`, which runs the provider CLIs' prob
 
 ## What it does not undo
 
-A rollback restores the launcher and runtime. `/opt/dsh` stays a symlink, to the old runtime, rather
-than going back to a plain directory. Anything a newer build wrote into owner state stays there, so
+A rollback restores the launcher and runtime. Anything a newer build wrote into owner state stays there, so
 roll back before using the new release for real work if the state formats differ.

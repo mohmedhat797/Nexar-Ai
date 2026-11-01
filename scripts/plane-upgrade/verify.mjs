@@ -1,7 +1,7 @@
 // Checks the installed Plane against the release it should now be: the launcher Desktop starts, the
 // pinned runtime, the sandbox and both protocols. Starts no vendor CLI and makes no paid call.
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -58,6 +58,7 @@ check(
   'the launcher keeps its Plane config',
   launcher.includes('NEXAR_CONFIG_PATH:=/home/nexar/validation/nexar.config.json'),
 );
+check('the runtime is a real directory', realpathSync('/opt/dsh') === '/opt/dsh');
 const dsh = spawnSync('/usr/local/bin/dsh', ['--version'], { encoding: 'utf8' });
 check(`the runtime is ${DSH_PINNED_VERSION}`, dsh.stdout.includes(DSH_PINNED_VERSION));
 const selftest = spawnSync(LAUNCHER, ['sandbox', 'selftest'], { encoding: 'utf8' });

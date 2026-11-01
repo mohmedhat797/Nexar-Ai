@@ -12,7 +12,8 @@ umask 022
 OWNER=nexar
 OWNER_HOME=/home/$OWNER
 RELEASES=$OWNER_HOME/src/releases
-DSH_LINK=/opt/dsh
+# A real directory, never a symlink: the sandbox resolves toolchain paths and would lose the command.
+DSH=/opt/dsh
 DSH_RELEASES=/opt/dsh-releases
 STATE=/var/lib/nexar-plane
 LAUNCHER=/usr/local/bin/nexar
@@ -58,9 +59,15 @@ verify() {
   runuser -u "$OWNER" -- "$NODE" "$1/scripts/plane-upgrade/verify.mjs" "$1"
 }
 
-set_dsh_link() {
-  ln -sfn "$1" "$DSH_LINK.next"
-  mv -T "$DSH_LINK.next" "$DSH_LINK"
+dsh_version() {
+  "$NODE" -p "require('$1/@deepseek-ai/dsh/package.json').version"
+}
+
+# Two renames on one filesystem. Only called while no Plane process runs.
+switch_dsh() {
+  current=$(dsh_version "$DSH/lib/node_modules")
+  [ "$current" != "$1" ] || return 0
+  mv -T "$DSH" "$DSH_RELEASES/$current" && mv -T "$DSH_RELEASES/$1" "$DSH"
 }
 
 write_launcher() {
@@ -78,9 +85,10 @@ write_launcher() {
 }
 
 restore_previous() {
-  [ -f "$STATE/previous/launcher" ] && [ -f "$STATE/previous/dsh-target" ] ||
+  [ -f "$STATE/previous/launcher" ] && [ -f "$STATE/previous/dsh-version" ] ||
     fail 'no previous installation is recorded'
-  set_dsh_link "$(cat "$STATE/previous/dsh-target")"
+  prior=$(cat "$STATE/previous/dsh-version")
+  if [ -e "$DSH" ]; then switch_dsh "$prior"; else mv -T "$DSH_RELEASES/$prior" "$DSH"; fi
   cp -p "$STATE/previous/launcher" "$LAUNCHER.next"
   mv -T "$LAUNCHER.next" "$LAUNCHER"
 }
@@ -117,16 +125,20 @@ activate() {
   require_idle
   # Recording the running release as "previous" would lose the way back.
   if grep -qF "$release/" "$LAUNCHER"; then fail 'this release is already active'; fi
-  [ -e "$DSH_LINK" ] || fail "$DSH_LINK is missing"
-  version=$("$NODE" -p "require('$runtime/@deepseek-ai/dsh/package.json').version")
+  [ -d "$DSH" ] && [ ! -L "$DSH" ] || fail "$DSH must be a real directory"
+  version=$(dsh_version "$runtime")
+  prior=$(dsh_version "$DSH/lib/node_modules")
+  [ "$prior" = "$version" ] || [ ! -e "$DSH_RELEASES/$prior" ] ||
+    fail 'the installed runtime version is already in the releases'
 
   mkdir -p "$STATE/previous" "$DSH_RELEASES"
   chmod 700 "$STATE"
   fingerprint >"$STATE/before.list"
   cp -p "$LAUNCHER" "$STATE/previous/launcher"
+  echo "$prior" >"$STATE/previous/dsh-version"
 
   target=$DSH_RELEASES/$version
-  if [ ! -e "$target" ]; then
+  if [ "$prior" != "$version" ] && [ ! -e "$target" ]; then
     mkdir -p "$target.partial/lib" "$target.partial/bin"
     cp -a "$runtime" "$target.partial/lib/node_modules"
     ln -s ../lib/node_modules/@deepseek-ai/dsh/lib/bin.js "$target.partial/bin/dsh"
@@ -135,18 +147,7 @@ activate() {
     mv -T "$target.partial" "$target"
   fi
 
-  if [ -L "$DSH_LINK" ]; then
-    readlink -f "$DSH_LINK" >"$STATE/previous/dsh-target"
-  else
-    # First upgrade: the old runtime moves whole, so a rollback gets back what was there.
-    prior=$("$NODE" -p "require('$DSH_LINK/lib/node_modules/@deepseek-ai/dsh/package.json').version")
-    [ ! -e "$DSH_RELEASES/$prior" ] || fail 'the previous runtime version is already in the releases'
-    echo "$DSH_RELEASES/$prior" >"$STATE/previous/dsh-target"
-    mv -T "$DSH_LINK" "$DSH_RELEASES/$prior"
-    ln -s "$DSH_RELEASES/$prior" "$DSH_LINK"
-  fi
-
-  if ! { set_dsh_link "$target" && write_launcher "$release" && verify "$release" && (assert_state_kept); }; then
+  if ! { switch_dsh "$version" && write_launcher "$release" && verify "$release" && (assert_state_kept); }; then
     echo 'plane-upgrade: verification failed; restoring the previous installation' >&2
     restore_previous
     exit 1
@@ -169,7 +170,7 @@ rollback() {
 
 status() {
   echo "launcher: $(sed -n 's/^exec .* \(\/[^ ]*main\.js\).*/\1/p' "$LAUNCHER")"
-  echo "dsh: $(readlink -f "$DSH_LINK") ($(dsh --version))"
+  echo "dsh: $DSH ($(dsh --version))"
 }
 
 case "${1:-}" in
