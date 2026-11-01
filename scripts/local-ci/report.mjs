@@ -462,7 +462,7 @@ function renderMarkdownReport(data) {
   md += `## 6. Parity with GitHub CI\n\n`;
   md += `| Capability | GitHub Actions | Nexar Local CI | Coverage Status |\n`;
   md += `| --- | --- | --- | --- |\n`;
-  md += `| Format & Lint & Types | Hosted Ubuntu / Windows | Local Node 22 | Equivalent command coverage (environment differs) |\n`;
+  md += `| Format & Lint & Types | Hosted Ubuntu / Windows | Local pinned Node | Equivalent command coverage (environment differs) |\n`;
   md += `| Boundary & Secrets Guard | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
   md += `| Offline Test Suite | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
   md += `| Production Build | Hosted Ubuntu / Windows | Local runner | Equivalent command coverage |\n`;
