@@ -33,7 +33,8 @@ function exchange(args, frame) {
       const end = text.indexOf('\n');
       if (end < 0) return;
       clearTimeout(timer);
-      child.kill();
+      child.stdin.end();
+      setTimeout(() => child.kill('SIGKILL'), 5_000).unref();
       try {
         resolve(JSON.parse(text.slice(0, end)));
       } catch {

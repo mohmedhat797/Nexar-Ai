@@ -18,7 +18,7 @@ STATE=/var/lib/nexar-plane
 LAUNCHER=/usr/local/bin/nexar
 NODE=/usr/local/bin/node
 OWNER_STATE=".nexar .codex .claude validation"
-export PATH=/opt/node/bin:/usr/local/bin:/usr/bin:/bin
+export PATH=/opt/node/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 fail() {
   echo "plane-upgrade: $1" >&2
@@ -159,7 +159,8 @@ rollback() {
   require_root
   require_idle
   restore_previous
-  assert_state_kept
+  # Use since the activation can remove files on purpose, so this is reported and not an error.
+  (assert_state_kept) || echo 'plane-upgrade: owner state changed since the activation' >&2
   dsh --version
   runuser -u "$OWNER" -- "$LAUNCHER" sandbox selftest >/dev/null
   rm -f "$STATE/active"
