@@ -44,6 +44,7 @@ Corroborating primary evidence: [upstream support matrix pinned at a58d3599a2e55
 At failed candidate `c797e544fa754626f528579703289fe8fe25dec7`:
 
 - `integrations/deepseek-harness/src/runtime/resolve.ts::dshLaunchFor` already supports an absolute `nodeCommand`; script entries are passed as arguments without a shell. `allowlistedEnv` preserves the existing credential boundary.
+- Ordinary SDK tasks are already external processes: `integrations/deepseek-harness/src/adapter.ts` calls `spawnRuntime`, and `sdk.real.test.ts` exercises `binary: { command: process.execPath, args: [entry] }`. That real SDK test passed under standalone Node 24 in the fallback Full attempts. Decoupling Desktop does not require inventing an in-process SDK architecture.
 - `apps/desktop/src/main/dsh-runtime-path.ts::dshLaunchForEntry` deliberately chooses `process.execPath` and `ELECTRON_RUN_AS_NODE=1`. This is the Desktop coupling, separate from the adapter's capability.
 - `packagedDshEntry` verifies the contained rc.5 package entry and manifest. Its contract returns an entry, not a separately attested executable.
 - `apps/desktop/electron-builder.json` ships DSH files through `extraResources`; no standalone Node binary is present in the managed runtime tree. The retained Builder config and `scripts/package-win.mjs` also explicitly pin 44.5.1, so a future Electron change must reconcile all packaging authorities together.

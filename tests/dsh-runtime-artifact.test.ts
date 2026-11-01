@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
   appendFileSync,
   existsSync,
@@ -16,12 +17,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   ARTIFACT_SEAL,
+  hashRuntimeTree,
+  hashRuntimeTreeAsync,
   INSTALL_RECEIPT,
   inspectRuntimeArtifact,
   installReceipt,
   promoteRuntimeArtifact,
+  promoteRuntimeArtifactAsync,
   sealRuntimeArtifact,
   verifyPackagedRuntime,
+  verifyPackagedRuntimeAsync,
 } from '../scripts/dsh-runtime/artifact.mjs';
 
 const roots: string[] = [];
@@ -351,7 +356,167 @@ describe('promoting a sealed artifact', () => {
   });
 });
 
+describe('bounded asynchronous artifact promotion', () => {
+  it('preserves the complete sealed tree across many files and multiple binary chunks', async () => {
+    const f = fixture();
+    mkdirSync(join(f.root, 'dist'));
+    const bytes = Buffer.alloc(3 * 1024 * 1024 + 17, 0xa5);
+    writeFileSync(join(f.pkg, 'lib', 'binary.bin'), bytes);
+    for (let n = 0; n < 32; n++) writeFileSync(join(f.pkg, `file-${String(n)}.txt`), String(n));
+    const seal = sealRuntimeArtifact({ dir: f.runtime, pinDir: f.pinDir });
+    for (const row of hashRuntimeTree(f.runtime)) {
+      expect(row.sha256).toBe(
+        createHash('sha256')
+          .update(readFileSync(join(f.runtime, row.rel)))
+          .digest('hex'),
+      );
+    }
+    expect(
+      await promoteRuntimeArtifactAsync({ dir: f.runtime, target: f.target, pinDir: f.pinDir }),
+    ).toEqual(seal);
+    expect(
+      [...(await hashRuntimeTreeAsync(f.runtime))].sort((a, b) => a.rel.localeCompare(b.rel)),
+    ).toEqual([...hashRuntimeTree(f.runtime)].sort((a, b) => a.rel.localeCompare(b.rel)));
+    expect(
+      readFileSync(join(f.target, 'node_modules', packageName, 'lib', 'binary.bin')).equals(bytes),
+    ).toBe(true);
+    expect(await verifyPackagedRuntimeAsync({ dir: f.target, seal, reference: f.runtime })).toEqual(
+      verifyPackagedRuntime({ dir: f.target, seal, reference: f.runtime }),
+    );
+    expect(verifyPackagedRuntime({ dir: f.target, seal, reference: f.runtime })).toMatchObject({
+      matches: true,
+      missing: [],
+      extra: [],
+      changed: [],
+    });
+  });
+
+  it.each(['changed', 'added', 'removed'])(
+    'rejects %s source bytes and publishes nothing',
+    async (kind) => {
+      const f = sealed();
+      const entry = join(f.pkg, 'lib', 'bin.js');
+      if (kind === 'changed') appendFileSync(entry, 'tampered');
+      else if (kind === 'added') writeFileSync(join(f.pkg, 'extra.js'), 'unexpected');
+      else unlinkSync(entry);
+      await expect(
+        promoteRuntimeArtifactAsync({ dir: f.runtime, target: f.target, pinDir: f.pinDir }),
+      ).rejects.toMatchObject({ category: 'ARTIFACT_TREE_MISMATCH' });
+      expect(existsSync(f.target)).toBe(false);
+      expect(readdirSync(join(f.root, 'dist'))).toEqual([]);
+    },
+  );
+
+  it('rejects source mutation while other pipelines are copying', async () => {
+    const f = fixture();
+    mkdirSync(join(f.root, 'dist'));
+    const files = Array.from({ length: 32 }, (_, n) => join(f.pkg, `file-${String(n)}.txt`));
+    for (const file of files) writeFileSync(file, 'sealed');
+    sealRuntimeArtifact({ dir: f.runtime, pinDir: f.pinDir });
+    let changed = false;
+    await expect(
+      promoteRuntimeArtifactAsync({
+        dir: f.runtime,
+        target: f.target,
+        pinDir: f.pinDir,
+        onCopied: () => {
+          if (changed) return;
+          changed = true;
+          for (const file of files) appendFileSync(file, 'tampered');
+        },
+      }),
+    ).rejects.toMatchObject({ category: 'ARTIFACT_TREE_MISMATCH' });
+    expect(changed).toBe(true);
+    expect(existsSync(f.target)).toBe(false);
+    expect(readdirSync(join(f.root, 'dist'))).toEqual([]);
+  });
+
+  it('keeps alias, link, target ownership and unsealed-source guards', async () => {
+    const f = sealed();
+    mkdirSync(f.target);
+    writeFileSync(join(f.target, 'owner.txt'), 'keep');
+    await expect(
+      promoteRuntimeArtifactAsync({ dir: f.runtime, target: f.target, pinDir: f.pinDir }),
+    ).rejects.toMatchObject({ category: 'ARTIFACT_TARGET_EXISTS' });
+    expect(readFileSync(join(f.target, 'owner.txt'), 'utf8')).toBe('keep');
+    const alias = join(f.root, 'alias');
+    symlinkSync(f.runtime, alias, 'junction');
+    await expect(
+      promoteRuntimeArtifactAsync({
+        dir: alias,
+        target: join(f.root, 'alias-out'),
+        pinDir: f.pinDir,
+      }),
+    ).rejects.toMatchObject({ category: 'ARTIFACT_UNSAFE_PATH' });
+    const unsealed = fixture();
+    await expect(
+      promoteRuntimeArtifactAsync({
+        dir: unsealed.runtime,
+        target: join(unsealed.root, 'out'),
+        pinDir: unsealed.pinDir,
+      }),
+    ).rejects.toMatchObject({ category: 'ARTIFACT_NOT_SEALED' });
+    symlinkSync(f.root, join(f.pkg, 'linked'), 'junction');
+    await expect(
+      promoteRuntimeArtifactAsync({
+        dir: f.runtime,
+        target: join(f.root, 'linked-out'),
+        pinDir: f.pinDir,
+      }),
+    ).rejects.toMatchObject({ category: 'ARTIFACT_LINK' });
+  });
+
+  it('settles interrupted copies without publishing and allows a separately staged retry', async () => {
+    const f = sealed();
+    await expect(
+      promoteRuntimeArtifactAsync({
+        dir: f.runtime,
+        target: f.target,
+        pinDir: f.pinDir,
+        id: () => 'interrupted-async',
+        onCopied: () => {
+          throw new Error('interrupted');
+        },
+      }),
+    ).rejects.toThrow('interrupted');
+    expect(existsSync(f.target)).toBe(false);
+    const stage = `${f.target}.promote-interrupted-async`;
+    expect(existsSync(stage)).toBe(true);
+    // A failing first completion must not have opened one output for every source file.
+    expect(
+      readdirSync(stage, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile())
+        .length,
+    ).toBeLessThanOrEqual(4);
+    const snapshot = readdirSync(stage, { recursive: true }).sort();
+    expect(
+      await promoteRuntimeArtifactAsync({ dir: f.runtime, target: f.target, pinDir: f.pinDir }),
+    ).toEqual(f.seal);
+    expect(readdirSync(stage, { recursive: true }).sort()).toEqual(snapshot);
+  });
+});
+
 describe('verifying the packaged copy', () => {
+  it('retains full mismatch diagnostics with asynchronous hashing', async () => {
+    const f = sealed();
+    await promoteRuntimeArtifactAsync({ dir: f.runtime, target: f.target, pinDir: f.pinDir });
+    unlinkSync(join(f.target, 'node_modules', 'dep', 'package.json'));
+    writeFileSync(join(f.target, 'added.txt'), 'x');
+    appendFileSync(join(f.target, 'package.json'), ' ');
+    const actual = await verifyPackagedRuntimeAsync({
+      dir: f.target,
+      seal: f.seal,
+      reference: f.runtime,
+    });
+    expect(actual).toEqual(
+      verifyPackagedRuntime({ dir: f.target, seal: f.seal, reference: f.runtime }),
+    );
+    expect(actual).toMatchObject({
+      matches: false,
+      missing: ['node_modules/dep/package.json'],
+      extra: ['added.txt'],
+      changed: ['package.json'],
+    });
+  });
   it('names files the packager dropped, added or altered', () => {
     const f = sealed();
     promoteRuntimeArtifact({ dir: f.runtime, target: f.target, pinDir: f.pinDir });

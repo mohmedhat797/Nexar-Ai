@@ -25,6 +25,8 @@ export function hashRuntimeTree(
   root: string,
 ): readonly { readonly rel: string; readonly size: number; readonly sha256: string }[];
 
+export function hashRuntimeTreeAsync(root: string): Promise<ReturnType<typeof hashRuntimeTree>>;
+
 export function sealRuntimeArtifact(options: {
   dir: string;
   pinDir: string;
@@ -47,6 +49,10 @@ export function promoteRuntimeArtifact(options: {
   onCopied?: () => void;
 }): RuntimeArtifactSeal;
 
+export function promoteRuntimeArtifactAsync(
+  options: Parameters<typeof promoteRuntimeArtifact>[0],
+): Promise<RuntimeArtifactSeal>;
+
 export function verifyPackagedRuntime(options: {
   dir: string;
   seal: RuntimeArtifactSeal;
@@ -60,3 +66,7 @@ export function verifyPackagedRuntime(options: {
   readonly extra: readonly string[];
   readonly changed: readonly string[];
 };
+
+export function verifyPackagedRuntimeAsync(
+  options: Parameters<typeof verifyPackagedRuntime>[0],
+): Promise<ReturnType<typeof verifyPackagedRuntime>>;
