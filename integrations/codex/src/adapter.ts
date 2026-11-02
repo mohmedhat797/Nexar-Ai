@@ -2,7 +2,7 @@ import type { spawn } from 'node:child_process';
 import { spawnRuntime } from '@nexar/process';
 import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { NexarError } from '@nexar/contracts';
+import { connectionOf, isOwnerCodexConnectionId, NexarError } from '@nexar/contracts';
 import type {
   AuthState,
   EngineeringWorkspace,
@@ -43,6 +43,11 @@ export interface CodexAdapterOptions {
   readonly defaultTimeoutMs?: number;
   /** Environment to derive the child's from; default `process.env`. */
   readonly env?: NodeJS.ProcessEnv;
+  /**
+   * The private home of an owner-added connection, resolved by the host for each process. Without
+   * it such a connection is refused: it must never fall back to another account's home.
+   */
+  readonly resolveHome?: (resource: ResourceDescriptor) => Promise<string>;
   /** Test seam. */
   readonly spawnImpl?: typeof spawn;
   /** Test seam for `observedAt`. */
@@ -103,6 +108,7 @@ export class CodexExecutionAdapter implements ExecutionAdapter {
   private readonly prefixArgs: readonly string[];
   private readonly defaultTimeoutMs: number;
   private readonly parentEnv: NodeJS.ProcessEnv;
+  private readonly resolveHome: CodexAdapterOptions['resolveHome'];
   private readonly spawnImpl: typeof spawn;
   private readonly clock: () => Date;
   private readonly killGraceMs: number | undefined;
@@ -114,6 +120,7 @@ export class CodexExecutionAdapter implements ExecutionAdapter {
     this.prefixArgs = typeof binary === 'string' ? [] : binary.args;
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.parentEnv = options.env ?? process.env;
+    this.resolveHome = options.resolveHome;
     this.spawnImpl = options.spawnImpl ?? spawnRuntime;
     this.clock = options.clock ?? (() => new Date());
     this.killGraceMs = options.killGraceMs;
@@ -126,7 +133,14 @@ export class CodexExecutionAdapter implements ExecutionAdapter {
   async probe(resource: ResourceDescriptor, signal: AbortSignal): Promise<ResourceState> {
     const observedAt = this.clock().toISOString();
     const settings = readSettings(resource);
-    const codexHome = resolveCodexHome(settings, this.parentEnv, homedir());
+    let codexHome: string;
+    try {
+      codexHome = await this.homeFor(resource, settings);
+    } catch (error) {
+      if (error instanceof NexarError && error.code === 'AUTH_REQUIRED')
+        return { availability: 'available', auth: 'unauthenticated', observedAt };
+      return unavailableState(observedAt, 'Codex home is not usable');
+    }
     const env = buildProbeEnv(this.parentEnv, codexHome);
     const [command, prefix] = this.binaryFor(settings);
 
@@ -181,7 +195,7 @@ export class CodexExecutionAdapter implements ExecutionAdapter {
         : task.input.prompt;
 
     const [command, prefix] = this.binaryFor(settings);
-    const codexHome = resolveCodexHome(settings, this.parentEnv, homedir());
+    const codexHome = await this.homeFor(resource, settings);
     const timeoutMs = settings.timeoutMs ?? this.defaultTimeoutMs;
     const parser = new CodexStreamParser();
     const onLine = (line: string): void => {
@@ -296,6 +310,16 @@ export class CodexExecutionAdapter implements ExecutionAdapter {
       },
       retries: 0,
     };
+  }
+
+  /** An owner connection only ever gets the home the host resolves for it, before any spawn. */
+  private async homeFor(resource: ResourceDescriptor, settings: CodexSettings): Promise<string> {
+    const connection = connectionOf(resource);
+    if (connection === undefined || !isOwnerCodexConnectionId(connection.id))
+      return resolveCodexHome(settings, this.parentEnv, homedir());
+    if (settings.codexHome !== undefined || this.resolveHome === undefined)
+      throw new NexarError('CONFIGURATION_ERROR', 'Codex home does not match its connection');
+    return this.resolveHome(resource);
   }
 
   private binaryFor(settings: CodexSettings): [string, readonly string[]] {

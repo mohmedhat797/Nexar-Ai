@@ -1,5 +1,9 @@
 import { isAbsolute } from 'node:path';
-import type { NativeSubscriptionProbe, NativeSubscriptionRuntime } from '@nexar/contracts';
+import {
+  NexarError,
+  type NativeSubscriptionProbe,
+  type NativeSubscriptionRuntime,
+} from '@nexar/contracts';
 import { publicRuntimeEnvironment, runRuntimeCommand } from '@nexar/process';
 
 export interface CodexSubscriptionOptions {
@@ -7,6 +11,8 @@ export interface CodexSubscriptionOptions {
   readonly cwd: string;
   readonly command?: string;
   readonly runCommand?: typeof runRuntimeCommand;
+  /** Nothing runs unless CODEX_HOME is usable: an owner connection never reaches the vendor default. */
+  readonly requireHome?: boolean;
 }
 
 /** ChatGPT account status is distinct from API-key or enterprise authentication. */
@@ -30,6 +36,9 @@ export function createCodexSubscription(
       (process.platform !== 'win32' || /^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)/.test(value))
     ) {
       env.CODEX_HOME = value;
+    }
+    if (options.requireHome === true && env.CODEX_HOME === undefined) {
+      throw new NexarError('CONFIGURATION_ERROR', 'Codex home is not usable');
     }
     return env;
   };

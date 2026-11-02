@@ -167,6 +167,8 @@ export interface ConnectionSeam {
   readonly resolve: ConnectionCredentialResolver;
   readonly onPlanModelRejected?: (descriptor: ResourceDescriptor) => void;
   readonly isPlanModelAvailable?: (descriptor: ResourceDescriptor) => boolean;
+  /** The private home of an owner-added Codex connection, handed to the Codex adapter only. */
+  readonly resolveCodexHome?: (descriptor: ResourceDescriptor) => Promise<string>;
   /** Test seam: the `fetch` plan calls go through. Production never sets it. */
   readonly fetch?: typeof fetch;
 }
@@ -214,7 +216,12 @@ export function createAdapters(
   const adapters: readonly ExecutionAdapter[] = [
     new EchoExecutionAdapter(),
     new ClaudeCodeExecutionAdapter({ env: io.env }),
-    new CodexExecutionAdapter({ env: io.env }),
+    new CodexExecutionAdapter({
+      env: io.env,
+      ...(options.connections?.resolveCodexHome === undefined
+        ? {}
+        : { resolveHome: options.connections.resolveCodexHome }),
+    }),
     new AntigravityExecutionAdapter({ env: io.env }),
     new DeepSeekHarnessExecutionAdapter({
       env: io.env,

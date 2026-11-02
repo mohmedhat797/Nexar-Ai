@@ -565,6 +565,46 @@ describe.skipIf(process.platform !== 'win32')('native Windows state ACLs', () =>
   );
 });
 
+describe.runIf(process.platform === 'win32')('Windows runtime homes boundary', () => {
+  const seeded = async (): Promise<string> => {
+    const state = join(await fixture(), 'state');
+    await mkdir(state);
+    await writeFile(join(state, '.nexar-desktop-state'), '');
+    return state;
+  };
+
+  it('starts with a link and a hard link inside a runtime home', async () => {
+    const state = await seeded();
+    const home = join(state, 'runtime-homes', 'connection', 'codex');
+    await mkdir(home, { recursive: true });
+    const target = join(await fixture(), 'target');
+    await mkdir(target);
+    await symlink(target, join(home, 'vendor-link'), 'junction');
+    await writeFile(join(target, 'outside.txt'), 'outside');
+    await link(join(target, 'outside.txt'), join(home, 'hard-link'));
+    const before = descriptorHash(await snapshot(target));
+    await expect(ensurePrivateStateDirectory(state)).resolves.toBeUndefined();
+    expect(descriptorHash(await snapshot(target))).toBe(before);
+  }, 20_000);
+
+  it('still refuses a linked runtime homes directory', async () => {
+    const state = await seeded();
+    await symlink(await fixture(), join(state, 'runtime-homes'), 'junction');
+    await expect(ensurePrivateStateDirectory(state)).rejects.toThrow(
+      'Cannot secure the Desktop state directory',
+    );
+  }, 20_000);
+
+  it('still walks a directory of that name anywhere else', async () => {
+    const state = await seeded();
+    await mkdir(join(state, 'nested', 'runtime-homes'), { recursive: true });
+    await symlink(await fixture(), join(state, 'nested', 'runtime-homes', 'link'), 'junction');
+    await expect(ensurePrivateStateDirectory(state)).rejects.toThrow(
+      'Cannot secure the Desktop state directory',
+    );
+  }, 20_000);
+});
+
 describe.skipIf(process.platform === 'win32')('POSIX state permissions', () => {
   it('normalizes the owner state root and leaves parent and runtime entries alone', async () => {
     const parent = await fixture();

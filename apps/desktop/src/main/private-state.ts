@@ -14,6 +14,8 @@ import {
 } from './private-state-process.js';
 const FAILURE = 'Cannot secure the Desktop state directory';
 const READY = STATE_GUARD_READY;
+/** Directly under the state root. Vendor CLIs write here, so its contents are not state files. */
+export const RUNTIME_HOMES_DIRECTORY = 'runtime-homes';
 
 type WindowsOptions = WindowsStateToolOptions;
 
@@ -204,7 +206,9 @@ try {
     if ($items.Count -ge 10000) { throw 'State tree too large' }
     [void] (Assert-Owned $item)
     $items.Add($item)
-    if ($item -is [System.IO.DirectoryInfo]) {
+    # Native runtime homes hold vendor files and are guarded at every use, not on startup.
+    if ($item -is [System.IO.DirectoryInfo] -and -not ($item.Name -ieq '${RUNTIME_HOMES_DIRECTORY}' -and
+      $item.Parent.FullName -ieq $root.FullName)) {
       foreach ($child in $item.GetFileSystemInfos()) { $pending.Push($child) }
     }
   }
@@ -335,6 +339,7 @@ function windowsFileBoundary(path: string): void {
     }
     if (++count > 10_000 || info.isSymbolicLink()) throw new Error(FAILURE);
     if (info.isDirectory()) {
+      if (itemPath === join(path, RUNTIME_HOMES_DIRECTORY)) continue;
       const children = readdirSync(itemPath);
       if (count + pending.length + children.length > 10_000) throw new Error(FAILURE);
       if (

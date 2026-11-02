@@ -165,10 +165,13 @@ function make(custom = client): ChatGptPlanService {
         };
       },
     },
-    openExternal: async (url) => {
-      await observe('browser', async () => {
+    // Like the real browser launch, this does not wait for the page: the callback helper may exit and
+    // reset this request after reporting the outcome, and that must not decide the sign-in.
+    openExternal: (url) => {
+      void observe('browser', async () => {
         await fetch(url);
-      });
+      }).catch(() => undefined);
+      return Promise.resolve();
     },
     installationId: () => Promise.resolve('00000000-0000-4000-8000-000000000001'),
     logger: noopLogger,

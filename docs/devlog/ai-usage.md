@@ -185,3 +185,9 @@ Sonnet 5.5 through the claude-delegate relay with `--model claude-sonnet-5-5`; e
 init event reports `claude-sonnet-5-5`. Sonnet never committed; Opus re-ran the gates before each
 commit. No paid provider inference was used: all agent-runtime tests use a deterministic fake Chat
 Completions endpoint. Token and dollar figures are not exposed and are not estimated.
+
+NXR-070D′ (2026-11-02): Claude Opus 5.5 did the design, implementation, tests, Plane upgrade,
+investigations, gates and commits in one orchestrating session. This departs from ADR-009: no unit
+was delegated to Sonnet, so no second model implemented what Opus reviewed. No paid provider inference
+was used, and no real Codex account was signed in. Token and dollar figures are not exposed and are
+not estimated.

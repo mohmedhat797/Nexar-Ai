@@ -165,6 +165,16 @@ error codes, never paths or messages.
 | 37  | One writer per state directory (lease) with revision-checked mutations; durable submission keys make turn submission idempotent; one active turn per session; restart marks running turns interrupted and replays nothing                                                                         | `packages/sessions/src/store.ts`, `transitions.ts`                    | `packages/sessions/src/*.test.ts`, `apps/desktop/src/main/sessions.test.ts`             |
 | 38  | Session DTOs carry ids, states, bounded owner-visible text and project-relative artifact paths only; the session's own project is authoritative over any request field                                                                                                                            | `apps/desktop/src/main/sessions.ts`                                   | `apps/desktop/src/main/sessions.test.ts`, `apps/desktop/e2e/desktop.e2e.ts`             |
 
+## NXR-070D′ controls (owner Codex connections, ADR-029)
+
+- Each owner Codex connection has a private `CODEX_HOME` at a path derived in main from its immutable id. The renderer sends only an opaque id; no home, marker or path crosses the bridge.
+- Nexar opens only its own marker, which sits outside the home. It never reads, parses, copies or logs a vendor credential file.
+- A resolved home is required before any spawn. There is no fallback to the parent `CODEX_HOME`, the vendor default home or an API key, and key variables never reach the child.
+- Sign-in starts only from an explicit owner action. Refresh, probe and inventory have no path to it, and a repeat sign-in needs a same-account assertion. Nexar cannot detect a login run outside Nexar (R-03).
+- Delete-home refuses links, hard-linked markers, mismatches and active processes, and refuses built-ins. Removing a connection keeps its home.
+- Homes stay on their own host: `/mnt` and UNC roots are refused, and the Plane and CLI refuse an owner Codex resource.
+- Turning off the `ownerConnections` setting hides these connections without deleting anything, and pins fail explicitly.
+
 ## Known gaps (tracked in the backlog)
 
 - **Desktop credential storage (NXR-052b):** encrypted `safeStorage` only; unavailable encryption and
