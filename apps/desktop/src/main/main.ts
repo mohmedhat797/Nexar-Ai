@@ -17,6 +17,7 @@ import {
   checkProviderCredential,
   createControlModelTurnPorts,
   createNativeSubscriptions,
+  ownerCodexSubscription,
   createNativeModelInventories,
   engineAllocator,
 } from '@nexar/host';
@@ -35,6 +36,8 @@ import { ConnectionManager } from './connection-manager.js';
 import { ConnectionRuntime } from './connection-runtime.js';
 import { ChatGptPlanService } from './chatgpt-plan.js';
 import { chatGptPlanInventoryDefinition } from './chatgpt-plan-resources.js';
+import { CodexHomeStore } from './codex-home-store.js';
+import { CodexLoginService } from './codex-login.js';
 import { ProviderInventoryService } from './provider-inventory.js';
 import { chatGptTestHooks } from './chatgpt-test-hooks.js';
 import { installationId } from './installation-id.js';
@@ -180,6 +183,7 @@ async function start(): Promise<void> {
   const connectionManager: ConnectionManager = new ConnectionManager({
     settingsStore: settings,
     keyStore: keys,
+    codexHomes: new CodexHomeStore({ userData }),
     isWriter: () => sessionStore.holdsLease(),
     affectedPins: (record) => {
       const current = engineRef.current;
@@ -287,6 +291,8 @@ async function start(): Promise<void> {
       }
       return token;
     },
+    resolveCodexHome: (descriptor: ResourceDescriptor) =>
+      connectionManager.resolveCodexHome(descriptor),
     ...(planTest?.responsesFetch === undefined ? {} : { fetch: planTest.responsesFetch }),
   };
   const engine = await createEngineHost({
@@ -378,6 +384,10 @@ async function start(): Promise<void> {
     },
   );
   app.on('before-quit', () => subscriptions.dispose());
+  const codexLogin = new CodexLoginService({
+    manager: connectionManager,
+    runtime: (home) => ownerCodexSubscription({ env: engineEnv, cwd: app.getPath('home'), home }),
+  });
 
   // Operating Sessions (ADR-024): this process is the single writer. If another Nexar process holds
   // the lease, sessions stay unavailable (every session channel answers CONFLICT) instead of racing it.
@@ -529,7 +539,7 @@ async function start(): Promise<void> {
   app.on('before-quit', () => {
     if (lanesStopped !== undefined) return;
     codePlane.dispose();
-    lanesStopped = cowork.dispose();
+    lanesStopped = Promise.all([cowork.dispose(), codexLogin.dispose()]);
   });
   holdQuitUntil(
     app,
@@ -551,6 +561,7 @@ async function start(): Promise<void> {
     subscriptions,
     chatgptPlan,
     connectionManager,
+    codexLogin,
     providerInventory,
     localEndpoints: new LocalEndpointService(config, engine),
     logger,

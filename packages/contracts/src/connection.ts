@@ -66,6 +66,16 @@ export interface PersistentConnectionRecord extends ConnectionDefinition {
     { readonly type: 'same-account'; readonly at: string; readonly source: 'owner' } | undefined;
   /** Replacement retirement is permanent; ordinary owner removal remains reversible. */
   readonly retirement?: 'replaced' | undefined;
+  /** A private native home Nexar created for this connection. Never a path or account subject. */
+  readonly nativeHome?:
+    | {
+        readonly marker: string;
+        /** Present while the home holds a sign-in made through Nexar. */
+        readonly signedInAt?: string | undefined;
+        /** Once signed in, this identity keeps its account: signing in again needs an assertion. */
+        readonly associated?: true | undefined;
+      }
+    | undefined;
 }
 
 /** Settings schema container for connections and tombstones. */
@@ -191,6 +201,18 @@ export const BUILTIN_CONNECTIONS: Readonly<Record<BuiltinConnectionId, Connectio
       }),
     }),
   });
+
+const OWNER_CODEX_ID = /^openai\.subscription\.c[a-z2-7]{10}$/;
+
+/** An owner-created Codex connection, which has its own private home (ADR-029 §4.4). */
+export function isOwnerCodexConnectionId(id: string): boolean {
+  return OWNER_CODEX_ID.test(id);
+}
+
+/** The one resource an owner Codex connection publishes; a pin to it cannot reach another account. */
+export function ownerCodexResourceId(connectionId: string): string {
+  return `codex:${connectionId}`;
+}
 
 const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
 const FAMILY_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;

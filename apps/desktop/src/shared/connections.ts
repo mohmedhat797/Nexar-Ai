@@ -25,7 +25,31 @@ export const ConnectionIdArgsSchema = z.strictObject({
   connectionId: ConnectionIdSchema,
 });
 export type ConnectionIdArgs = z.infer<typeof ConnectionIdArgsSchema>;
-export const ConnectionActionSchema = z.enum(['remove', 'forget', 'replace']);
+export const ConnectionCodexAddArgsSchema = z.strictObject({
+  label: z.string().trim().min(1).max(128),
+});
+export type ConnectionCodexAddArgs = z.infer<typeof ConnectionCodexAddArgsSchema>;
+export const CodexLoginArgsSchema = z.strictObject({
+  connectionId: ConnectionIdSchema,
+  sameAccount: z.literal(true).optional(),
+});
+export type CodexLoginArgs = z.infer<typeof CodexLoginArgsSchema>;
+export const CodexLoginStateSchema = z.enum([
+  'idle',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+  'timed-out',
+  'unavailable',
+]);
+export type CodexLoginState = z.infer<typeof CodexLoginStateSchema>;
+export const CodexLoginStatusSchema = z.strictObject({
+  connectionId: ConnectionIdSchema,
+  loginState: CodexLoginStateSchema,
+});
+export type CodexLoginStatus = z.infer<typeof CodexLoginStatusSchema>;
+export const ConnectionActionSchema = z.enum(['remove', 'forget', 'replace', 'delete-home']);
 export const ConnectionPrepareArgsSchema = z.strictObject({
   connectionId: ConnectionIdSchema,
   action: ConnectionActionSchema,

@@ -26,6 +26,9 @@ import {
   SubscriptionRowSchema,
 } from '../shared/subscriptions.js';
 import {
+  CodexLoginArgsSchema,
+  CodexLoginStatusSchema,
+  ConnectionCodexAddArgsSchema,
   ConnectionAddArgsSchema,
   ConnectionDtoSchema,
   ConnectionIdArgsSchema,
@@ -197,6 +200,41 @@ const api: NexarApi = {
       input,
       ConnectionDtoSchema,
       ConnectionRotateArgsSchema,
+    ),
+  addCodexConnection: (input) =>
+    invokeProvider(
+      CHANNELS.connectionCodexAdd,
+      input,
+      ConnectionDtoSchema,
+      ConnectionCodexAddArgsSchema,
+    ),
+  startCodexLogin: (input) =>
+    invokeProvider(
+      CHANNELS.connectionCodexLogin,
+      input,
+      CodexLoginStatusSchema,
+      CodexLoginArgsSchema,
+    ),
+  cancelCodexLogin: (input) =>
+    invokeProvider(
+      CHANNELS.connectionCodexLoginCancel,
+      input,
+      CodexLoginStatusSchema,
+      ConnectionIdArgsSchema,
+    ),
+  codexLoginStatus: (input) =>
+    invokeProvider(
+      CHANNELS.connectionCodexLoginStatus,
+      input,
+      CodexLoginStatusSchema,
+      ConnectionIdArgsSchema,
+    ),
+  deleteCodexHome: (input) =>
+    invokeProvider(
+      CHANNELS.connectionCodexDeleteHome,
+      input,
+      ConnectionDtoSchema,
+      ConnectionConfirmedArgsSchema,
     ),
   replaceChatGptPlanAccount: (input) =>
     invokeProvider(
