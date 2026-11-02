@@ -1,6 +1,6 @@
 # NXR-070D′ implementation readiness package
 
-**Status: ready to start from the verified baseline. Nothing here is implemented.** Authorities: [ADR-029](../adr/029-connection-scoped-resources-and-canonical-continuity.md), the [reconciled blueprint](../architecture/nxr-070/NXR070_Implementation_Blueprint_Reconciled.md) §070D′, the [execution plan](../architecture/nxr-070/NXR070_Execution_Plan_Reconciled.md) and the [owner decisions](../architecture/nxr-070/NXR070_Owner_Decisions_2026-10-17.md) OD-4b, OD-7, OD-8 and OD-15.
+**Status: implemented on `feat/nxr-070d-codex-homes`; see [implementation and acceptance](NXR070D_Implementation_and_Acceptance.md). This package is kept as the plan it was, and the report records where the work differs.** Authorities: [ADR-029](../adr/029-connection-scoped-resources-and-canonical-continuity.md), the [reconciled blueprint](../architecture/nxr-070/NXR070_Implementation_Blueprint_Reconciled.md) §070D′, the [execution plan](../architecture/nxr-070/NXR070_Execution_Plan_Reconciled.md) and the [owner decisions](../architecture/nxr-070/NXR070_Owner_Decisions_2026-10-17.md) OD-4b, OD-7, OD-8 and OD-15.
 
 Component names marked "new" are proposals. The implementer confirms them against the code.
 
