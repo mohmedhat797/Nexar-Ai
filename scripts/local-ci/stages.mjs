@@ -8,8 +8,10 @@ import { redactSecrets, spawnSubprocess } from './process-util.mjs';
 // scenario. Allow the extra cold starts in the suite envelope; individual test limits stay intact.
 const DESKTOP_E2E_TIMEOUT_MS = 900_000;
 // Includes pinned-runtime installation, NSIS payload compression and final block-map generation.
-// The 20-minute envelope expired during block-map generation after a complete installer was built.
-const WINDOWS_PACKAGE_TIMEOUT_MS = 1_500_000;
+// The first read of a freshly written file cost about 25 ms on the Windows acceptance host, against
+// 0.1 ms on repeat. Packaging writes and hashes about 28,000 runtime files more than once and took
+// 2,763 s with no limit, so the 25-minute envelope expired on healthy runs.
+const WINDOWS_PACKAGE_TIMEOUT_MS = 3_600_000;
 
 /**
  * Extracts Vitest test statistics from command stdout/stderr.
