@@ -290,9 +290,19 @@ describe('Nexar Desktop resource orchestration acceptance (offline)', () => {
       onTestFailed(async () => {
         try {
           const turns = await recordedTurns(userData);
+          const telemetry = await readFile(
+            join(userData, '.nexar', 'telemetry.jsonl'),
+            'utf8',
+          ).catch(() => '');
           process.stderr.write(
             `sow e2e progress ${JSON.stringify({
               at: Date.now(),
+              // Event types only: where a stalled turn stopped, with no content.
+              recentEvents: telemetry
+                .split('\n')
+                .filter((line) => line !== '')
+                .slice(-12)
+                .map((line) => (JSON.parse(line) as TelemetryEvent).type),
               turns: turns.map((turn) => ({
                 state: turn.state,
                 tasks: turn.tasks.map((task) => ({
